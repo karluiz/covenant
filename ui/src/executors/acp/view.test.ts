@@ -164,17 +164,23 @@ describe("reduceAcpEvent", () => {
     expect(state.items).toHaveLength(1);
   });
 
-  it("prompt_done flips inFlight to false and appends a divider notice with the stop reason", () => {
+  it("prompt_done flips inFlight; end_turn is silent, informative stop reasons get a divider", () => {
     const state = createAcpStreamState();
     state.inFlight = true;
     reduceAcpEvent(state, { type: "prompt_done", stopReason: "end_turn" });
 
+    // The normal outcome renders nothing — a per-turn divider is noise.
+    expect(state.inFlight).toBe(false);
+    expect(state.items).toHaveLength(0);
+
+    state.inFlight = true;
+    reduceAcpEvent(state, { type: "prompt_done", stopReason: "timeout" });
     expect(state.inFlight).toBe(false);
     expect(state.items).toHaveLength(1);
     const notice = state.items[0] as AcpNoticeItem;
     expect(notice.kind).toBe("notice");
     expect(notice.variant).toBe("divider");
-    expect(notice.text).toContain("end_turn");
+    expect(notice.text).toContain("timeout");
   });
 
   it("session_dead flips inFlight to false and appends a 'dead' notice", () => {

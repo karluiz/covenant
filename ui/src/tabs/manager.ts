@@ -4497,9 +4497,9 @@ export class TabManager {
     // placeholder for the live chat view. Failures render in-pane so
     // the tab stays visible, inspectable, and closable.
     void (async () => {
-      let sessionId: SessionId;
+      let spawned: { sessionId: SessionId; model: string | null };
       try {
-        sessionId = await spawnAcpSession({ cwd: opts?.cwd ?? undefined });
+        spawned = await spawnAcpSession({ cwd: opts?.cwd ?? undefined });
       } catch (err) {
         console.warn("spawnAcpSession failed", err);
         boot.classList.add("acp-boot-error");
@@ -4509,15 +4509,20 @@ export class TabManager {
       // Tab closed while the handshake was in flight — reap the fresh
       // session; nothing to mount.
       if (!this.tabs.some((t) => t.id === id)) {
-        void closeAcpSession(sessionId).catch(() => {});
+        void closeAcpSession(spawned.sessionId).catch(() => {});
         return;
       }
       boot.remove();
-      const view = new AcpChatView({ sessionId, host: acpPaneHost0, cwd: opts?.cwd ?? null });
+      const view = new AcpChatView({
+        sessionId: spawned.sessionId,
+        host: acpPaneHost0,
+        cwd: opts?.cwd ?? null,
+        model: spawned.model,
+      });
       tab.acpView = view;
       pane0Acp.acpView = view;
-      pane0Acp.sessionId = sessionId;
-      this.rememberSessionName(sessionId, tabDisplayName(tab));
+      pane0Acp.sessionId = spawned.sessionId;
+      this.rememberSessionName(spawned.sessionId, tabDisplayName(tab));
       if (this.activeId === id) view.focusComposer();
     })();
 

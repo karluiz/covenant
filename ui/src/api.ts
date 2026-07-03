@@ -2526,11 +2526,14 @@ export type AcpTabEvent =
   | { type: "prompt_done"; stopReason: string }
   | { type: "session_dead" };
 
-export async function spawnAcpSession(
-  opts: { cwd?: string | null } = {},
-): Promise<SessionId> {
-  const result = await invoke<{ sessionId: SessionId }>("spawn_acp_session", { opts });
-  return result.sessionId;
+export interface SpawnAcpResult {
+  sessionId: SessionId;
+  /// Current model id from `session/new` (e.g. "claude-sonnet-4.6"), if reported.
+  model: string | null;
+}
+
+export async function spawnAcpSession(opts: { cwd?: string | null } = {}): Promise<SpawnAcpResult> {
+  return invoke<SpawnAcpResult>("spawn_acp_session", { opts });
 }
 
 export async function closeAcpSession(sessionId: SessionId): Promise<void> {

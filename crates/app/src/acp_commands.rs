@@ -187,6 +187,9 @@ pub struct SpawnAcpOpts {
 #[serde(rename_all = "camelCase")]
 pub struct SpawnAcpResult {
     pub session_id: String,
+    /// Current model id reported by `session/new` (`models.currentModelId`),
+    /// e.g. "claude-sonnet-4.6". Best-effort — None if the wire omits it.
+    pub model: Option<String>,
 }
 
 /// Hybrid resolver: policy-approved requests are silently granted;
@@ -286,6 +289,11 @@ pub async fn spawn_acp_session(
         session.shutdown(Duration::from_secs(3)).await;
         return Err("acp: session/new did not return a sessionId".to_string());
     }
+    let model = new_sess
+        .get("models")
+        .and_then(|m| m.get("currentModelId"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
 
     let tab_session = Arc::new(AcpTabSession {
         session: session.clone(),
@@ -385,6 +393,7 @@ pub async fn spawn_acp_session(
     state.acp_sessions.insert(session_id, tab_session).await;
     Ok(SpawnAcpResult {
         session_id: session_id.to_string(),
+        model,
     })
 }
 

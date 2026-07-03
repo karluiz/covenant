@@ -198,7 +198,12 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
     }
     case "prompt_done": {
       state.inFlight = false;
-      state.items.push({ kind: "notice", text: `Turn finished — ${ev.stopReason}`, variant: "divider" });
+      // end_turn is the boring, expected outcome — a loud divider per
+      // turn is noise. Only surface stop reasons that carry information
+      // (timeout, cancelled, refusal, max_tokens, errors).
+      if (ev.stopReason !== "end_turn") {
+        state.items.push({ kind: "notice", text: `Turn finished — ${ev.stopReason}`, variant: "divider" });
+      }
       break;
     }
     case "session_dead": {
@@ -238,6 +243,9 @@ export interface AcpChatViewOptions {
   /// Fired when the user clicks the close affordance. Callers typically
   /// remove the tab here.
   onClose?: () => void;
+  /// Current model id reported by the ACP handshake (e.g.
+  /// "claude-sonnet-4.6"). Shown in the header meta; null hides it.
+  model?: string | null;
   /// Working directory of the ACP session. Threaded through to
   /// `spawnAcpSession` on restart.
   cwd?: string | null;
@@ -268,6 +276,8 @@ export class AcpChatView {
   private sessionId: SessionId;
   private readonly onCloseCb?: () => void;
   private readonly cwd: string | null;
+  private model: string | null;
+  private metaEl!: HTMLElement;
 
   private readonly state: AcpStreamState = createAcpStreamState();
   private unlisten: (() => void) | null = null;
@@ -295,6 +305,7 @@ export class AcpChatView {
     this.sessionId = opts.sessionId;
     this.onCloseCb = opts.onClose;
     this.cwd = opts.cwd ?? null;
+    this.model = opts.model ?? null;
     this.mount();
     void this.subscribe();
   }
@@ -343,6 +354,7 @@ export class AcpChatView {
       <div class="acp-chat-header">
         <span class="acp-chat-logo" aria-hidden="true">${COPILOT_LOGO}</span>
         <span class="acp-chat-title">Copilot</span>
+        <span class="acp-chat-meta"></span>
         <span class="acp-chat-status" data-state="idle" aria-live="polite">idle</span>
       </div>
       <div class="acp-chat-messages" role="log" aria-live="polite">
@@ -352,7 +364,7 @@ export class AcpChatView {
           <ul>
             <li>Tool calls that edit files or run shell commands show up as cards you can inspect.</li>
             <li>When Copilot needs permission to act, you'll see a card with the wire's own options.</li>
-            <li>Press Enter for a new line; press <kbd>⌘↩</kbd> to send.</li>
+            <li>Press <kbd>↩</kbd> to send; <kbd>⇧↩</kbd> for a new line.</li>
           </ul>
         </div>
       </div>
@@ -360,7 +372,7 @@ export class AcpChatView {
         <textarea
           class="acp-chat-textarea"
           rows="2"
-          placeholder="Message Copilot…  (Enter newline · ⌘↩ send)"
+          placeholder="Message Copilot…  (↩ send · ⇧↩ newline)"
           aria-label="Message Copilot"
         ></textarea>
         <div class="acp-chat-actions">
@@ -370,6 +382,8 @@ export class AcpChatView {
       </form>
     `;
     this.statusEl = requireChild(this.host, ".acp-chat-status");
+    this.metaEl = requireChild(this.host, ".acp-chat-meta");
+    this.renderMeta();
     this.messagesEl = requireChild(this.host, ".acp-chat-messages");
     this.messagesEl.addEventListener(
       "scroll",
@@ -391,11 +405,21 @@ export class AcpChatView {
     });
     this.cancelBtn.addEventListener("click", () => void this.handleCancel());
     this.inputEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        void this.handleSend();
-      }
+      if (e.key !== "Enter") return;
+      // Chat convention: Enter sends, ⇧↩ inserts a newline. ⌘↩ keeps
+      // sending too (muscle memory from the original binding).
+      if (e.shiftKey) return; // let the textarea insert the newline
+      e.preventDefault();
+      void this.handleSend();
     });
+  }
+
+  /// Header meta: "model · ~/short/cwd" — plain textContent, both values
+  /// can be wire/user controlled and must never hit innerHTML.
+  private renderMeta(): void {
+    const home = /^\/Users\/[^/]+/;
+    const cwd = this.cwd ? this.cwd.replace(home, "~") : null;
+    this.metaEl.textContent = [this.model, cwd].filter(Boolean).join(" · ");
   }
 
   // -------------------------------------------------------------------------
@@ -720,17 +744,19 @@ export class AcpChatView {
       this.unlisten = null;
     }
     try {
-      const sessionId = await spawnAcpSession({ cwd: this.cwd });
+      const spawned = await spawnAcpSession({ cwd: this.cwd });
       // destroy() may have run during the spawn await — don't adopt the
       // fresh session or resubscribe on a torn-down view. (subscribe()
       // has its own post-await guard for a destroy racing ITS await.)
       if (this.destroyed) {
-        void closeAcpSession(sessionId).catch(() => {
+        void closeAcpSession(spawned.sessionId).catch(() => {
           /* best-effort — nothing to surface on a destroyed view */
         });
         return;
       }
-      this.sessionId = sessionId;
+      this.sessionId = spawned.sessionId;
+      this.model = spawned.model ?? this.model;
+      this.renderMeta();
       this.setInFlight(false);
       await this.subscribe();
       this.appendNotice("Session restarted.", "info");

@@ -54,6 +54,16 @@
   letter-spacing: 0.2px;
   opacity: 0.95;
 }
+.acp-chat-meta {
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
 .acp-chat-status {
   font-size: 11px;
   padding: 2px 8px;
