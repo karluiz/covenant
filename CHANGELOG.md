@@ -6,6 +6,34 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.118 — Operator task auto-complete fix + ACP Copilot dispatch
+
+### Added
+
+- **`dispatch_acp` operator tool — headless Copilot subtasks**: operators can
+  now delegate a bounded subtask to Copilot CLI over ACP (Agent Client
+  Protocol) and get a plain-text run report back in the same turn. Built on a
+  new `karl_agent::acp` client module: JSON-RPC stdio session with inline
+  permission handling (`crates/agent/src/acp/session.rs`), a deny-biased
+  headless permission policy layered over `safety::classify`, and a
+  `run_task` orchestrator with timeout clamping and workspace-rooted cwd
+  sandboxing (`crates/app/src/teammate/tools.rs`). Permission fallbacks are
+  deny-floored and case-insensitive; session death resolves all pending
+  requests so the operator turn never hangs.
+
+### Fixed
+
+- **Delegated task tabs went permanently dormant — operator never
+  auto-completed**: dispatching a task bound the operator with enabled+live
+  but never armed single-tab AOM, so the watcher's 45s idle re-poll (which
+  the task auto-Complete rides on) never ran; once the executor stopped
+  emitting bytes the operator could never engage again and finished tasks
+  sat Active forever. Task dispatch, respawn, and handoff now arm solo AOM
+  via `armOperatorSoloForSession` (`ui/src/main.ts`,
+  `ui/src/tabs/manager.ts`), and removing a tab's operator now also disarms
+  solo AOM instead of leaving the session in autonomous posture with the
+  budget pot open.
+
 ## v0.8.117 — Left sidebar fold vibrancy-flash fix
 
 ### Fixed
