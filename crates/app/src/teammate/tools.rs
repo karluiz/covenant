@@ -1166,6 +1166,30 @@ mod tests {
         assert!(matches!(err, ToolError::InvalidArgs(_)));
     }
 
+    /// Real-copilot e2e through the operator tool wrapper (arg parse → cwd
+    /// jail → run_task → report formatting). Requires an authed `copilot`
+    /// ≥ 1.0.68 on PATH. Run:
+    ///   cargo test -p covenant --lib dispatch_acp_smoke_real -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "spawns a real copilot session; needs auth"]
+    async fn dispatch_acp_smoke_real_copilot() {
+        let (_dir, root) = tmp_root();
+        let env = ToolEnv::new(root.clone(), 1024);
+        let out = dispatch_acp(
+            &env,
+            &serde_json::json!({
+                "prompt": "Create a file named hello.txt containing exactly the word hello. Then reply done.",
+                "timeout_secs": 120
+            }),
+        )
+        .await
+        .expect("dispatch_acp should succeed");
+        assert!(out.contains("stop_reason:"), "report shape: {out}");
+        let contents =
+            std::fs::read_to_string(root.join("hello.txt")).expect("copilot should write hello.txt");
+        assert!(contents.to_lowercase().contains("hello"), "got: {contents}");
+    }
+
     #[test]
     fn dispatch_acp_def_shape() {
         let def = dispatch_acp_tool_def();
