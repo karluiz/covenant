@@ -338,8 +338,11 @@ impl AcpSession {
         // tearing anything else down, so the agent isn't left waiting on
         // a dead client. Best-effort: if the writer is already gone this
         // send fails silently and the child kill below reclaims the
-        // process anyway.
-        {
+        // process anyway. Bounded like every other step here — a wedged
+        // stdin (writer task stalled, pipe full) must not stall shutdown;
+        // on timeout we warn and fall through to the child kill below,
+        // which answers the agent by killing it instead.
+        let flush = tokio::time::timeout(Duration::from_millis(500), async {
             let mut parked = self.parked.lock().await;
             for (_, id) in parked.drain() {
                 let reply = serde_json::json!({
@@ -352,6 +355,13 @@ impl AcpSession {
                     let _ = self.stdin_tx.send(bytes).await;
                 }
             }
+        })
+        .await;
+        if flush.is_err() {
+            tracing::warn!(
+                timeout_ms = 500,
+                "acp: parked-permission flush timed out during shutdown; killing child instead"
+            );
         }
 
         // Flip dead and drain `pending` under lock, same pattern as
@@ -366,11 +376,15 @@ impl AcpSession {
             p.clear();
         }
 
-        if let Some(handle) = self.writer.lock().await.take() {
-            handle.abort();
-            let _ = handle.await;
-        }
-
+        // Writer abort is deliberately *after* the child wait/kill below,
+        // not before: `stdin_tx.send()` above only enqueues onto the mpsc
+        // channel, it doesn't wait for `write_loop` to actually dequeue
+        // and write the bytes. Aborting immediately here raced the writer
+        // task and could cancel it before it ever got scheduled to drain
+        // the parked-flush replies, silently dropping them. Waiting for
+        // the child gives that task real wall-clock time (and await
+        // points to be polled at) to flush everything queued for it
+        // before we cut it off.
         let mut child_lock = self.child.lock().await;
         if let Some(mut child) = child_lock.take() {
             let wait = tokio::time::timeout(timeout, child.wait()).await;
@@ -378,6 +392,12 @@ impl AcpSession {
                 let _ = child.start_kill();
                 let _ = child.wait().await;
             }
+        }
+        drop(child_lock);
+
+        if let Some(handle) = self.writer.lock().await.take() {
+            handle.abort();
+            let _ = handle.await;
         }
 
         // Reader will exit naturally once stdout closes.
@@ -447,6 +467,10 @@ async fn stderr_loop(mut stderr: ChildStderr, buf: Arc<StdMutex<Vec<u8>>>) {
     }
 }
 
+// 8 params: each one is a distinct piece of shared state threaded from
+// `spawn` (channels/maps/flags), not a candidate for bundling into one
+// struct without adding an abstraction that only this call site would use.
+#[allow(clippy::too_many_arguments)]
 async fn read_loop(
     mut stdout: ChildStdout,
     events_tx: broadcast::Sender<AcpSessionEvent>,
@@ -486,6 +510,13 @@ async fn read_loop(
         alive.store(false, Ordering::Release);
         p.clear();
     }
+    // Same reasoning for parked permission requests: stdout is gone, so no
+    // reply we send could ever be observed by the agent (it's dead or
+    // dying). Drop them rather than attempting a cancelled reply — unlike
+    // `shutdown`'s flush, there is no live child to answer here. Leaving
+    // entries behind would let a later `respond_permission` find a stale
+    // id and try to write into a stdin whose writer has already exited.
+    parked.lock().await.clear();
     tracing::debug!("acp reader exiting");
 }
 
@@ -871,25 +902,108 @@ sleep 5"#;
 
     /// Shutdown answers parked requests with cancelled so the agent isn't
     /// left waiting on a dead client.
+    ///
+    /// Pinned to the wire, not just the parked-map bookkeeping: the fake
+    /// agent writes a marker file iff the answer it reads back off stdin
+    /// contains `"cancelled"`. A prior version of this test hardcoded the
+    /// request key as `"perm-1"` when the counter actually starts at 0
+    /// (`"perm-0"`) — it passed even with the flush deleted, because
+    /// `respond_permission` on an unknown key already errors regardless.
+    /// This version captures the real key off the `PermissionPending`
+    /// event, so it fails if the flush loop is ever removed (verified
+    /// manually: commenting out the flush block in `shutdown` turns the
+    /// marker-file assertion red).
     #[tokio::test]
     async fn shutdown_cancels_parked_permissions() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let marker = dir.path().join("cancelled-marker");
         let script = r#"
 read line
 printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
 printf '{"jsonrpc":"2.0","id":90,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"t1","kind":"execute","rawInput":{"command":"ls"}},"options":[{"optionId":"allow_once","kind":"allow_once"}]}}\n'
 read answer
+case "$answer" in *cancelled*) : > "__MARKER__";; esac
+"#
+        .replace("__MARKER__", &marker.display().to_string());
+
+        let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
+        let session = AcpSession::spawn(spawn_opts(&script), resolver).await.expect("spawn");
+        let mut events = session.events();
+        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
+        let pending = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await
+            .expect("timely")
+            .expect("recv");
+        let AcpSessionEvent::PermissionPending { request_key, .. } = pending else {
+            panic!("expected PermissionPending, got {pending:?}");
+        };
+
+        // No respond — shutdown must flush the parked request as cancelled.
+        session.shutdown(Duration::from_secs(2)).await;
+
+        assert!(
+            marker.exists(),
+            "shutdown must have written a cancelled reply the fake agent could observe"
+        );
+
+        // The flush also drains the map: the same key can't be answered
+        // again post-shutdown.
+        let err = session
+            .respond_permission(&request_key, "allow_once")
+            .await
+            .expect_err("drained");
+        assert!(matches!(err, AcpError::Rpc(_) | AcpError::Closed));
+    }
+
+    /// If the agent dies (stdout closes) without ever answering a parked
+    /// permission request — no `shutdown()` involved — `read_loop`'s exit
+    /// path must drop the parked entry rather than leaving it for a later
+    /// `respond_permission` to find and try to write into a dead pipe.
+    #[tokio::test]
+    async fn parked_permission_dropped_on_reader_exit() {
+        // No trailing `read answer`: the script exits right after emitting
+        // the permission request, closing stdout before anyone answers —
+        // simulating a crash mid-permission-prompt.
+        let script = r#"
+read line
+printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
+printf '{"jsonrpc":"2.0","id":91,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"t1","kind":"execute","rawInput":{"command":"ls"}},"options":[{"optionId":"allow_once","kind":"allow_once"}]}}\n'
 "#;
         let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
         let session = AcpSession::spawn(spawn_opts(script), resolver).await.expect("spawn");
         let mut events = session.events();
         let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
-        let _ = tokio::time::timeout(Duration::from_secs(3), events.recv()).await.expect("timely");
-        // No respond — shutdown must flush the parked request as cancelled.
-        session.shutdown(Duration::from_secs(2)).await;
-        // Success criterion: shutdown returned (child got its answer or was
-        // killed) and no panic; the parked map is drained (assert via a
-        // second respond_permission erroring).
-        let err = session.respond_permission("perm-1", "allow_once").await.expect_err("drained");
+        let pending = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await
+            .expect("timely")
+            .expect("recv");
+        let AcpSessionEvent::PermissionPending { request_key, .. } = pending else {
+            panic!("expected PermissionPending, got {pending:?}");
+        };
+
+        // Poll for the reader tearing down (same technique as
+        // `request_after_reader_exit_does_not_hang`): once `alive` flips,
+        // `request()` fails fast instead of hanging.
+        let mut dead = false;
+        for _ in 0..50 {
+            if session
+                .request("ping", serde_json::json!({}))
+                .await
+                .is_err()
+            {
+                dead = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(dead, "reader never tore down after agent exit");
+
+        let err = session
+            .respond_permission(&request_key, "allow_once")
+            .await
+            .expect_err("parked entry must be dropped on reader exit, not left answerable");
         assert!(matches!(err, AcpError::Rpc(_) | AcpError::Closed));
+
+        session.shutdown(Duration::from_secs(2)).await;
     }
 }
