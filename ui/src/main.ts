@@ -2227,7 +2227,9 @@ async function boot(): Promise<void> {
     // ⌘⌥⇧C — create an ACP (Copilot chat) tab in the tabbar. Verified
     // unbound: no other handler in this file combines metaKey+altKey+
     // shiftKey with "c"/"C" (⌘⇧C without alt is the Changes surface).
-    if (e.metaKey && e.altKey && e.shiftKey && (e.key === "C" || e.key === "c" || e.key === "ç")) {
+    // Match on e.code: with ⌥⇧ held, e.key is a layout-dependent glyph
+    // ("Ç" on US, dead keys on ISO layouts) that never equals "c".
+    if (e.metaKey && e.altKey && e.shiftKey && e.code === "KeyC") {
       e.preventDefault();
       void manager.createAcpTab({ cwd: manager.activeCwd() });
       return;
