@@ -718,6 +718,10 @@ export class AcpChatView {
 
   private openModelMenu(): void {
     if (this.models.length === 0) return;
+    // Anchor under the chip (offsetParent is the header, which is
+    // position:relative). Done here, not in CSS — the chip's x depends
+    // on the title/meta widths at open time.
+    this.modelMenuEl.style.left = `${this.modelChipEl.offsetLeft}px`;
     this.modelMenuEl.hidden = false;
     this.renderModelMenu();
     document.addEventListener("mousedown", this.closeModelMenuOnOutsideClick);

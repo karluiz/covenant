@@ -122,11 +122,11 @@
 .acp-model-menu {
   position: absolute;
   top: 100%;
-  left: 120px;
-  min-width: 320px;
-  max-width: 480px;
+  /* left set at open time to align with the model chip */
+  min-width: 280px;
+  max-width: 420px;
   margin-top: 4px;
-  max-height: 50vh;
+  max-height: 320px;
   overflow-y: auto;
   background: var(--bg-elevated, var(--bg-panel));
   border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
