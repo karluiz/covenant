@@ -72,6 +72,10 @@ pub struct SessionNotification {
 pub enum SessionUpdate {
     AgentMessageChunk { content: ContentBlock },
     AgentThoughtChunk { content: ContentBlock },
+    /// Only seen during a `session/load` replay — live prompts never echo
+    /// the user's message back (verified against copilot 1.0.68). Typed so
+    /// the tag survives the re-emit to the frontend (Unknown would eat it).
+    UserMessageChunk { content: ContentBlock },
     ToolCall(ToolCallFields),
     ToolCallUpdate(ToolCallFields),
     AvailableCommandsUpdate {
@@ -234,6 +238,25 @@ mod tests {
             }
             other => panic!("wrong variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn user_message_chunk_parses_typed_and_keeps_tag_on_reserialize() {
+        // session/load replay frame. Must NOT fall into Unknown — the tag
+        // has to survive the re-emit to the frontend for transcript restore.
+        let f = parse(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"fix the bug"}}}}"#,
+        );
+        let n = update_of(&f);
+        match &n.update {
+            SessionUpdate::UserMessageChunk { content } => {
+                assert_eq!(content.as_text(), Some("fix the bug"));
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+        let re = serde_json::to_value(&n.update).expect("re-serialize");
+        assert_eq!(re["sessionUpdate"], "user_message_chunk");
+        assert_eq!(re["content"]["text"], "fix the bug");
     }
 
     #[test]

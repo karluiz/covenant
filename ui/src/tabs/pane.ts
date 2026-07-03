@@ -35,6 +35,10 @@ export interface Pane {
   /// ACP-specific — set when `kind === "acp"`. Renders the structured
   /// Copilot chat panel in this pane's host element instead of xterm.
   acpView?: AcpChatView | null;
+  /// ACP-specific — the wire-level ACP sessionId (from session/new or
+  /// session/load). Persisted in the tab manifest so restore can resume
+  /// the conversation via session/load.
+  acpSessionId?: string | null;
   executor: string | null;
   operatorEnabled: boolean;
   operatorLive: boolean;

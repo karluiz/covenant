@@ -209,6 +209,18 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
         appendProse(state, "assistant", contentText(u.content));
       } else if (u.sessionUpdate === "agent_thought_chunk" && "content" in u) {
         appendProse(state, "thought", contentText(u.content));
+      } else if (u.sessionUpdate === "user_message_chunk" && "content" in u) {
+        // Only emitted during a session/load replay — live prompts never
+        // echo the user's message back (verified against copilot 1.0.68),
+        // so this can't double-render the locally-appended user bubble.
+        // Merge consecutive chunks into the trailing user item, mirroring
+        // appendProse (copilot replays one coalesced chunk per message).
+        const text = contentText(u.content);
+        if (text) {
+          const last = state.items[state.items.length - 1];
+          if (last && last.kind === "user") last.text += text;
+          else state.items.push({ kind: "user", text });
+        }
       } else if (isToolUpdate(u)) {
         upsertTool(state, {
           toolCallId: u.toolCallId,

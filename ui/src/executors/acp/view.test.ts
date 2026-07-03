@@ -57,6 +57,23 @@ describe("reduceAcpEvent", () => {
     expect((state.items[0] as AcpProseItem).text).toBe("hello world");
   });
 
+  it("renders replayed user_message_chunk as a user item (session/load)", () => {
+    const state = createAcpStreamState();
+    reduceAcpEvent(state, update({ sessionUpdate: "user_message_chunk", content: { text: "fix the bug" } }));
+    reduceAcpEvent(state, update({ sessionUpdate: "agent_message_chunk", content: { text: "done" } }));
+    expect(state.items).toHaveLength(2);
+    expect(state.items[0]).toEqual({ kind: "user", text: "fix the bug" });
+    expect((state.items[1] as AcpProseItem).role).toBe("assistant");
+  });
+
+  it("merges consecutive user_message_chunk events into one user item", () => {
+    const state = createAcpStreamState();
+    reduceAcpEvent(state, update({ sessionUpdate: "user_message_chunk", content: { text: "fix " } }));
+    reduceAcpEvent(state, update({ sessionUpdate: "user_message_chunk", content: { text: "it" } }));
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0]).toEqual({ kind: "user", text: "fix it" });
+  });
+
   it("keeps agent_thought_chunk and agent_message_chunk as separate prose items", () => {
     const state = createAcpStreamState();
     reduceAcpEvent(state, update({ sessionUpdate: "agent_thought_chunk", content: { text: "thinking…" } }));

@@ -2521,6 +2521,7 @@ export interface AcpAvailableCommand {
 export type AcpSessionUpdate =
   | { sessionUpdate: "agent_message_chunk"; content: AcpContentBlock }
   | { sessionUpdate: "agent_thought_chunk"; content: AcpContentBlock }
+  | { sessionUpdate: "user_message_chunk"; content: AcpContentBlock }
   | ({ sessionUpdate: "tool_call" } & AcpToolCallFields)
   | ({ sessionUpdate: "tool_call_update" } & AcpToolCallFields)
   | { sessionUpdate: "available_commands_update"; availableCommands: AcpAvailableCommand[] }
@@ -2550,9 +2551,16 @@ export interface SpawnAcpResult {
   sessionId: SessionId;
   /// Current model id from `session/new` (e.g. "claude-sonnet-4.6"), if reported.
   model: string | null;
+  /// Wire-level ACP sessionId — persist it so a later restart can resume
+  /// this conversation via `resumeAcpSessionId`.
+  acpSessionId: string;
+  /// True when a requested resume actually loaded (vs fresh fallback).
+  resumed: boolean;
 }
 
-export async function spawnAcpSession(opts: { cwd?: string | null } = {}): Promise<SpawnAcpResult> {
+export async function spawnAcpSession(
+  opts: { cwd?: string | null; resumeAcpSessionId?: string | null } = {},
+): Promise<SpawnAcpResult> {
   return invoke<SpawnAcpResult>("spawn_acp_session", { opts });
 }
 

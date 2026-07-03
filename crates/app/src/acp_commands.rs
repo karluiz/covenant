@@ -54,8 +54,11 @@ pub(crate) fn acp_event_to_phase(ev: &AcpSessionEvent) -> Option<ExecutorPhase> 
             SessionUpdate::AgentMessageChunk { .. } | SessionUpdate::AgentThoughtChunk { .. } => {
                 Some(ExecutorPhase::Thinking)
             }
-            // Command roster changes don't move the phase pill.
-            SessionUpdate::AvailableCommandsUpdate { .. } | SessionUpdate::Unknown => None,
+            // Command roster changes don't move the phase pill; replayed
+            // user messages (session/load) aren't agent activity either.
+            SessionUpdate::AvailableCommandsUpdate { .. }
+            | SessionUpdate::UserMessageChunk { .. }
+            | SessionUpdate::Unknown => None,
         },
         AcpSessionEvent::PermissionPending { .. } => Some(ExecutorPhase::Waiting {
             reason: "permission".to_string(),
@@ -236,6 +239,12 @@ pub enum AcpTabEvent {
 #[serde(rename_all = "camelCase")]
 pub struct SpawnAcpOpts {
     pub cwd: Option<String>,
+    /// Wire-level ACP sessionId from a previous run. When set (and the
+    /// agent advertises `loadSession`), the spawn resumes that session via
+    /// `session/load` — copilot replays the whole transcript as ordinary
+    /// `session/update` frames. Falls back to a fresh `session/new` if the
+    /// load fails (expired/unknown session).
+    pub resume_acp_session_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -245,6 +254,11 @@ pub struct SpawnAcpResult {
     /// Current model id reported by `session/new` (`models.currentModelId`),
     /// e.g. "claude-sonnet-4.6". Best-effort — None if the wire omits it.
     pub model: Option<String>,
+    /// Wire-level ACP sessionId — persisted by the tab manifest so a later
+    /// app restart can resume this conversation.
+    pub acp_session_id: String,
+    /// True when a requested resume actually loaded (vs fresh fallback).
+    pub resumed: bool,
 }
 
 /// Hybrid resolver: policy-approved requests are silently granted;
@@ -296,7 +310,7 @@ pub async fn spawn_acp_session(
     // post-handshake, after notch registration) drains them.
     let rx = session.events();
 
-    match session
+    let init = match session
         .request(
             "initialize",
             json!({
@@ -306,7 +320,7 @@ pub async fn spawn_acp_session(
         )
         .await
     {
-        Ok(_) => {}
+        Ok(v) => v,
         // Closed/ResponseCancelled here mean the child died (or its
         // stdout closed) before ever answering our first request —
         // almost always an old copilot binary that doesn't understand
@@ -327,32 +341,85 @@ pub async fn spawn_acp_session(
             session.shutdown(Duration::from_secs(3)).await;
             return Err(e.to_string());
         }
+    };
+
+    // Resume path: `session/load` replays the whole prior transcript as
+    // ordinary `session/update` frames, which buffer in `rx` (subscribed
+    // pre-handshake) until the forwarder below drains them — the frontend
+    // rebuilds the conversation with zero extra plumbing. Verified live
+    // against copilot 1.0.68 (replay + context retention across process
+    // kills). Failure (expired/unknown id, capability off) falls back to
+    // a fresh `session/new` instead of erroring: a stale manifest must
+    // never brick tab restore.
+    // ponytail: rx buffers 1024 frames; a transcript longer than that
+    // drops the oldest replay frames (copilot coalesces one frame per
+    // message, so ~500 exchanges). Raise EVENT_CHANNEL_CAPACITY if hit.
+    let can_load = init
+        .pointer("/agentCapabilities/loadSession")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut resumed = false;
+    let mut sess_val: Option<Value> = None;
+    if let Some(prev) = opts
+        .resume_acp_session_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+    {
+        if can_load {
+            match session
+                .request(
+                    "session/load",
+                    json!({ "sessionId": prev, "cwd": cwd.to_string_lossy(), "mcpServers": [] }),
+                )
+                .await
+            {
+                Ok(v) => {
+                    resumed = true;
+                    sess_val = Some(v);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "acp: session/load failed; starting fresh");
+                }
+            }
+        } else {
+            tracing::warn!("acp: resume requested but agent lacks loadSession; starting fresh");
+        }
     }
 
-    let new_sess = match session
-        .request(
-            "session/new",
-            json!({ "cwd": cwd.to_string_lossy(), "mcpServers": [] }),
+    let (acp_session_id, sess_val) = if resumed {
+        (
+            opts.resume_acp_session_id.clone().unwrap_or_default(),
+            sess_val.unwrap_or(Value::Null),
         )
-        .await
-    {
-        Ok(v) => v,
-        Err(e) => {
+    } else {
+        let new_sess = match session
+            .request(
+                "session/new",
+                json!({ "cwd": cwd.to_string_lossy(), "mcpServers": [] }),
+            )
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                session.shutdown(Duration::from_secs(3)).await;
+                return Err(e.to_string());
+            }
+        };
+        let id = new_sess
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if id.is_empty() {
             session.shutdown(Duration::from_secs(3)).await;
-            return Err(e.to_string());
+            return Err("acp: session/new did not return a sessionId".to_string());
         }
+        (id, new_sess)
     };
-    let acp_session_id = new_sess
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    if acp_session_id.is_empty() {
-        session.shutdown(Duration::from_secs(3)).await;
-        return Err("acp: session/new did not return a sessionId".to_string());
-    }
-    let models = parse_models(&new_sess);
+    // Both session/new and session/load return the same `models` shape.
+    let models = parse_models(&sess_val);
     let model = models.current.clone();
+    let acp_session_id_out = acp_session_id.clone();
 
     let tab_session = Arc::new(AcpTabSession {
         session: session.clone(),
@@ -468,6 +535,8 @@ pub async fn spawn_acp_session(
     Ok(SpawnAcpResult {
         session_id: session_id.to_string(),
         model,
+        acp_session_id: acp_session_id_out,
+        resumed,
     })
 }
 

@@ -41,6 +41,16 @@ const makeTab = (
 });
 
 describe("serializeTab", () => {
+  it("round-trips acp_session_id for acp panes (resume across restarts)", () => {
+    const p = { ...pane("p0", "/a"), kind: "acp" as const, acpSessionId: "wire-123" };
+    const s = serializeTab(makeTab("t1", [p], { kind: "single", activePaneIdx: 0 }, { kind: "acp" }));
+    expect(s.panes![0].acp_session_id).toBe("wire-123");
+    // Shell panes emit null, and old manifests without the field lift cleanly.
+    const s2 = serializeTab(makeTab("t2", [pane("p1", "/b")], { kind: "single", activePaneIdx: 0 }));
+    expect(s2.panes![0].acp_session_id).toBeNull();
+    expect(liftLegacyTab(s).panes![0].acp_session_id).toBe("wire-123");
+  });
+
   it("serializes a single-pane shell tab", () => {
     const tab = {
       id: "t1",

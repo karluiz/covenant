@@ -370,6 +370,10 @@ export interface SerializedPane {
   observer_ids?: string[];
   spawn_id?: string | null;
   aom_excluded?: boolean;
+  /// ACP panes only — wire-level ACP sessionId, used to resume the
+  /// conversation via session/load on restore. Optional for backward
+  /// compat; old manifests restore fresh (pre-resume behavior).
+  acp_session_id?: string | null;
 }
 
 export interface SerializedLayout {
@@ -401,6 +405,7 @@ export function serializeTab(tab: {
     observer_ids: p.observer_ids,
     spawn_id: p.spawn_id,
     aom_excluded: p.aomExcluded,
+    acp_session_id: p.acpSessionId ?? null,
   });
   const pane0 = tab.panes[0]!;
   const pane1 = tab.panes[1];
@@ -4388,6 +4393,10 @@ export class TabManager {
     color?: string | null;
     groupId?: string | null;
     skipActivate?: boolean;
+    /// Wire-level ACP sessionId from a previous run — resume it via
+    /// session/load (transcript replays into the chat view). Falls back
+    /// to a fresh session if the load fails.
+    resumeAcpSessionId?: string | null;
   }): Promise<Tab | null> {
     const id = crypto.randomUUID();
     const replayKey = id.replace(/-/g, "").slice(0, 26);
@@ -4501,9 +4510,17 @@ export class TabManager {
     // placeholder for the live chat view. Failures render in-pane so
     // the tab stays visible, inspectable, and closable.
     void (async () => {
-      let spawned: { sessionId: SessionId; model: string | null };
+      let spawned: {
+        sessionId: SessionId;
+        model: string | null;
+        acpSessionId: string;
+        resumed: boolean;
+      };
       try {
-        spawned = await spawnAcpSession({ cwd: opts?.cwd ?? undefined });
+        spawned = await spawnAcpSession({
+          cwd: opts?.cwd ?? undefined,
+          resumeAcpSessionId: opts?.resumeAcpSessionId ?? undefined,
+        });
       } catch (err) {
         console.warn("spawnAcpSession failed", err);
         boot.classList.add("acp-boot-error");
@@ -4526,6 +4543,11 @@ export class TabManager {
       tab.acpView = view;
       pane0Acp.acpView = view;
       pane0Acp.sessionId = spawned.sessionId;
+      pane0Acp.acpSessionId = spawned.acpSessionId;
+      this.scheduleSave(); // persist the ACP session id for future resume
+      if (opts?.resumeAcpSessionId && !spawned.resumed) {
+        pushInfoToast({ message: "Couldn't resume the previous Copilot conversation — started fresh" });
+      }
       this.rememberSessionName(spawned.sessionId, tabDisplayName(tab));
       if (this.activeId === id) view.focusComposer();
     })();
@@ -5323,18 +5345,20 @@ export class TabManager {
           });
         }
         if (t.kind === "acp") {
-          // ACP tabs restore by spawning a fresh `copilot --acp` session
-          // in the persisted cwd — same "fresh session, transcript lost"
-          // contract as pi above. If copilot is missing/too old at
-          // restore time, createAcpTab warns + toasts and returns null;
-          // the Promise.all below drops this slot without aborting the
-          // rest of the restore.
+          // ACP tabs restore by resuming the persisted conversation via
+          // session/load when a wire session id was saved (transcript
+          // replays into the chat view); otherwise — old manifest or a
+          // failed load — a fresh session in the persisted cwd. If
+          // copilot is missing/too old at restore time, createAcpTab
+          // warns + toasts and returns null; the Promise.all below drops
+          // this slot without aborting the rest of the restore.
           return this.createAcpTab({
             customName: t.custom_name,
             color: t.color,
             groupId: t.group_id,
             cwd: t.cwd,
             skipActivate: true,
+            resumeAcpSessionId: t.panes?.[0]?.acp_session_id ?? null,
           });
         }
         return this.createTab({
