@@ -22,6 +22,7 @@ vi.mock("../../api", () => ({
 
 import {
   createAcpStreamState,
+  filterSlashCommands,
   markPermAnswered,
   reduceAcpEvent,
   type AcpNoticeItem,
@@ -181,6 +182,41 @@ describe("reduceAcpEvent", () => {
     expect(notice.kind).toBe("notice");
     expect(notice.variant).toBe("divider");
     expect(notice.text).toContain("timeout");
+  });
+
+  it("available_commands_update replaces the slash roster without touching items", () => {
+    const state = createAcpStreamState();
+    reduceAcpEvent(
+      state,
+      update({
+        sessionUpdate: "available_commands_update",
+        availableCommands: [{ name: "compact" }, { name: "autopilot" }],
+      }),
+    );
+    expect(state.commands.map((c) => c.name)).toEqual(["compact", "autopilot"]);
+    expect(state.items).toHaveLength(0);
+
+    // The wire sends the full list each time — replace, don't append.
+    reduceAcpEvent(
+      state,
+      update({ sessionUpdate: "available_commands_update", availableCommands: [{ name: "compact" }] }),
+    );
+    expect(state.commands.map((c) => c.name)).toEqual(["compact"]);
+  });
+
+  it("filterSlashCommands matches only a leading single slash-token, by prefix", () => {
+    const commands = [{ name: "compact" }, { name: "chronicle" }, { name: "autopilot" }];
+    expect(filterSlashCommands(commands, "/").map((c) => c.name)).toEqual([
+      "compact",
+      "chronicle",
+      "autopilot",
+    ]);
+    expect(filterSlashCommands(commands, "/c").map((c) => c.name)).toEqual(["compact", "chronicle"]);
+    expect(filterSlashCommands(commands, "/CO").map((c) => c.name)).toEqual(["compact"]);
+    // Not a bare leading token → no menu.
+    expect(filterSlashCommands(commands, "/compact focus")).toEqual([]);
+    expect(filterSlashCommands(commands, "hello /c")).toEqual([]);
+    expect(filterSlashCommands(commands, "")).toEqual([]);
   });
 
   it("session_dead flips inFlight to false and appends a 'dead' notice", () => {

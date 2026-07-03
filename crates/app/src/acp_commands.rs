@@ -53,7 +53,8 @@ pub(crate) fn acp_event_to_phase(ev: &AcpSessionEvent) -> Option<ExecutorPhase> 
             SessionUpdate::AgentMessageChunk { .. } | SessionUpdate::AgentThoughtChunk { .. } => {
                 Some(ExecutorPhase::Thinking)
             }
-            SessionUpdate::Unknown => None,
+            // Command roster changes don't move the phase pill.
+            SessionUpdate::AvailableCommandsUpdate { .. } | SessionUpdate::Unknown => None,
         },
         AcpSessionEvent::PermissionPending { .. } => Some(ExecutorPhase::Waiting {
             reason: "permission".to_string(),

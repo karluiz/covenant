@@ -54,6 +54,52 @@
   letter-spacing: 0.2px;
   opacity: 0.95;
 }
+/* Slash-command autocomplete — anchored above the composer. */
+.acp-slash-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 12px;
+  right: 12px;
+  margin-bottom: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+  background: var(--bg-elevated, var(--bg-panel));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 5;
+}
+.acp-slash-menu[hidden] { display: none; }
+.acp-slash-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.acp-slash-row.acp-slash-selected {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.acp-slash-name {
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+.acp-slash-hint {
+  font-size: 11px;
+  color: var(--text-tertiary, var(--text-secondary));
+  flex-shrink: 0;
+}
+.acp-slash-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .acp-chat-meta {
   color: var(--text-tertiary, var(--text-secondary));
   font-size: 11px;
@@ -468,6 +514,8 @@
   border-top: 1px solid rgba(var(--ink-rgb), 0.08);
   background: rgba(var(--ink-rgb), 0.015);
   flex: 0 0 auto;
+  /* Anchor for the slash-command menu (absolute, bottom: 100%). */
+  position: relative;
 }
 .acp-chat-textarea {
   flex: 1 1 auto;

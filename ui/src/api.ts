@@ -2498,12 +2498,22 @@ export interface AcpToolCallFields {
   content: AcpContentBlock[];
 }
 
+/// One slash command advertised by the agent (`/compact`, `/autopilot`, …).
+/// Invoked by sending the command as plain prompt text.
+export interface AcpAvailableCommand {
+  name: string;
+  description?: string | null;
+  /// Free-form argument hint, e.g. `{ hint: "focus instructions" }`.
+  input?: { hint?: string | null } | null;
+}
+
 /// One streamed `session/update` notification payload.
 export type AcpSessionUpdate =
   | { sessionUpdate: "agent_message_chunk"; content: AcpContentBlock }
   | { sessionUpdate: "agent_thought_chunk"; content: AcpContentBlock }
   | ({ sessionUpdate: "tool_call" } & AcpToolCallFields)
   | ({ sessionUpdate: "tool_call_update" } & AcpToolCallFields)
+  | { sessionUpdate: "available_commands_update"; availableCommands: AcpAvailableCommand[] }
   | { sessionUpdate: string }; // future/unrecognized kinds
 
 export interface AcpPermissionOption {

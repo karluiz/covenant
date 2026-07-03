@@ -17,7 +17,7 @@ pub mod policy;    // Task 3
 pub mod run;       // Task 4
 
 pub use protocol::{
-    ContentBlock, FrameKind, InboundFrame, PermissionOption, PermissionRequest,
+    AvailableCommand, ContentBlock, FrameKind, InboundFrame, PermissionOption, PermissionRequest,
     PermissionToolCall, RpcError, SessionNotification, SessionUpdate, ToolCallFields,
 };
 pub use session::{

@@ -74,8 +74,26 @@ pub enum SessionUpdate {
     AgentThoughtChunk { content: ContentBlock },
     ToolCall(ToolCallFields),
     ToolCallUpdate(ToolCallFields),
+    AvailableCommandsUpdate {
+        #[serde(default, rename = "availableCommands")]
+        available_commands: Vec<AvailableCommand>,
+    },
     #[serde(other)]
     Unknown,
+}
+
+/// One slash command advertised by `available_commands_update` (e.g.
+/// `/compact`, `/autopilot`). Invoked by sending the command as plain
+/// prompt text — verified against copilot 1.0.68.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvailableCommand {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Free-form argument hint (wire shape: `{"hint": "focus instructions"}`).
+    #[serde(default)]
+    pub input: Option<Value>,
 }
 
 /// Shared field bag for `tool_call` and `tool_call_update` — the wire
@@ -295,11 +313,35 @@ mod tests {
     #[test]
     fn unknown_update_kinds_are_tolerated() {
         for raw in [
-            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact"}]}}}"#,
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"config_option_update","configOptions":[]}}}"#,
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"some_future_kind","whatever":true}}}"#,
         ] {
             let n = update_of(&parse(raw));
             assert!(matches!(n.update, SessionUpdate::Unknown));
+        }
+    }
+
+    #[test]
+    fn available_commands_update_parses_typed() {
+        // Verbatim (trimmed) from copilot 1.0.68.
+        let f = parse(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact","description":"Summarize conversation history to reduce context window usage. Optionally provide focus instructions.","input":{"hint":"focus instructions"}},{"name":"autopilot","description":"Toggle autopilot mode","input":{"hint":"[on|off]"}}]}}}"#,
+        );
+        match update_of(&f).update {
+            SessionUpdate::AvailableCommandsUpdate { available_commands } => {
+                assert_eq!(available_commands.len(), 2);
+                assert_eq!(available_commands[0].name, "compact");
+                assert!(available_commands[0]
+                    .description
+                    .as_deref()
+                    .unwrap_or_default()
+                    .starts_with("Summarize"));
+                assert_eq!(
+                    available_commands[1].input.as_ref().and_then(|i| i.get("hint")).and_then(|h| h.as_str()),
+                    Some("[on|off]")
+                );
+            }
+            other => panic!("wrong variant: {other:?}"),
         }
     }
 }

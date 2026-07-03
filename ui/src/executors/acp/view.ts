@@ -16,6 +16,7 @@
 // rather than appending a new one per delta).
 
 import type {
+  AcpAvailableCommand,
   AcpContentBlock,
   AcpPermissionOption,
   AcpPermissionRequest,
@@ -92,10 +93,26 @@ export interface AcpStreamState {
   tools: Map<string, AcpToolItem>;
   pendingPerms: Map<string, AcpPermItem>;
   inFlight: boolean;
+  /// Latest slash-command roster from `available_commands_update` —
+  /// replaced wholesale on every update (the wire sends the full list).
+  commands: AcpAvailableCommand[];
 }
 
 export function createAcpStreamState(): AcpStreamState {
-  return { items: [], tools: new Map(), pendingPerms: new Map(), inFlight: false };
+  return { items: [], tools: new Map(), pendingPerms: new Map(), inFlight: false, commands: [] };
+}
+
+/// Prefix-filter the slash roster against the composer's current `/token`.
+/// `input` is the full composer value; returns [] unless the value is a
+/// single leading slash-token (commands are only recognized there).
+export function filterSlashCommands(
+  commands: AcpAvailableCommand[],
+  input: string,
+): AcpAvailableCommand[] {
+  const m = /^\/(\S*)$/.exec(input);
+  if (!m) return [];
+  const prefix = m[1].toLowerCase();
+  return commands.filter((c) => c.name.toLowerCase().startsWith(prefix));
 }
 
 /// Best-effort plain text out of a content block: direct `text`, or the
@@ -182,6 +199,8 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
           rawOutput: u.rawOutput,
           content: u.content,
         });
+      } else if (u.sessionUpdate === "available_commands_update" && "availableCommands" in u) {
+        state.commands = u.availableCommands;
       }
       // Unrecognized/future `sessionUpdate` kinds are ignored — the
       // protocol is public preview (see protocol.rs's `Unknown` catch-all).
@@ -292,6 +311,10 @@ export class AcpChatView {
 
   private readonly toolDoms: Map<string, ToolCardDom> = new Map();
   private readonly permDoms: Map<string, PermCardDom> = new Map();
+
+  private slashEl!: HTMLElement;
+  private slashItems: AcpAvailableCommand[] = [];
+  private slashSel = 0;
   /// The DOM node backing the trailing prose item, if any — kept in sync
   /// with `state.items[items.length - 1]` by identity so a run of
   /// same-role chunks updates one node instead of appending N.
@@ -369,6 +392,7 @@ export class AcpChatView {
         </div>
       </div>
       <form class="acp-chat-input" autocomplete="off">
+        <div class="acp-slash-menu" role="listbox" hidden></div>
         <textarea
           class="acp-chat-textarea"
           rows="2"
@@ -404,7 +428,30 @@ export class AcpChatView {
       void this.handleSend();
     });
     this.cancelBtn.addEventListener("click", () => void this.handleCancel());
+    this.slashEl = requireChild(this.host, ".acp-slash-menu");
+    this.inputEl.addEventListener("input", () => this.updateSlashMenu());
     this.inputEl.addEventListener("keydown", (e) => {
+      // Slash-menu navigation wins over send while the menu is open.
+      if (!this.slashEl.hidden) {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const delta = e.key === "ArrowDown" ? 1 : -1;
+          const n = this.slashItems.length;
+          this.slashSel = (this.slashSel + delta + n) % n;
+          this.renderSlashMenu();
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          this.pickSlashCommand(this.slashItems[this.slashSel]);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          this.hideSlashMenu();
+          return;
+        }
+      }
       if (e.key !== "Enter") return;
       // Chat convention: Enter sends, ⇧↩ inserts a newline. ⌘↩ keeps
       // sending too (muscle memory from the original binding).
@@ -412,6 +459,70 @@ export class AcpChatView {
       e.preventDefault();
       void this.handleSend();
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Slash-command autocomplete — roster comes from the agent's
+  // `available_commands_update`; picking one just inserts `/name ` because
+  // commands are invoked as plain prompt text (verified vs copilot 1.0.68).
+  // -------------------------------------------------------------------------
+
+  private updateSlashMenu(): void {
+    this.slashItems = filterSlashCommands(this.state.commands, this.inputEl.value);
+    if (this.slashItems.length === 0) {
+      this.hideSlashMenu();
+      return;
+    }
+    this.slashSel = Math.min(this.slashSel, this.slashItems.length - 1);
+    this.slashEl.hidden = false;
+    this.renderSlashMenu();
+  }
+
+  private renderSlashMenu(): void {
+    this.slashEl.textContent = "";
+    this.slashItems.forEach((cmd, i) => {
+      const row = document.createElement("div");
+      row.className = "acp-slash-row";
+      row.setAttribute("role", "option");
+      if (i === this.slashSel) row.classList.add("acp-slash-selected");
+      const name = document.createElement("span");
+      name.className = "acp-slash-name";
+      name.textContent = `/${cmd.name}`;
+      row.appendChild(name);
+      const hint = cmd.input?.hint;
+      if (hint) {
+        const hintEl = document.createElement("span");
+        hintEl.className = "acp-slash-hint";
+        hintEl.textContent = hint;
+        row.appendChild(hintEl);
+      }
+      if (cmd.description) {
+        const desc = document.createElement("span");
+        desc.className = "acp-slash-desc";
+        desc.textContent = cmd.description;
+        row.appendChild(desc);
+      }
+      // mousedown (not click) so the textarea never loses focus.
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.pickSlashCommand(cmd);
+      });
+      this.slashEl.appendChild(row);
+    });
+  }
+
+  private pickSlashCommand(cmd: AcpAvailableCommand | undefined): void {
+    if (!cmd) return;
+    this.inputEl.value = `/${cmd.name} `;
+    this.inputEl.focus();
+    this.hideSlashMenu();
+  }
+
+  private hideSlashMenu(): void {
+    this.slashEl.hidden = true;
+    this.slashEl.textContent = "";
+    this.slashItems = [];
+    this.slashSel = 0;
   }
 
   /// Header meta: "model · ~/short/cwd" — plain textContent, both values
@@ -706,6 +817,7 @@ export class AcpChatView {
   private async handleSend(): Promise<void> {
     const text = this.inputEl.value.trim();
     if (text.length === 0 || this.state.inFlight) return;
+    this.hideSlashMenu();
     this.inputEl.value = "";
     this.state.items.push({ kind: "user", text });
     this.hideEmptyState();
