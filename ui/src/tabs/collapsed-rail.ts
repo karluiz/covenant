@@ -178,6 +178,9 @@ export class CollapsedRail {
     if (tab.kind === "browser") {
       tile.classList.add("tabbar-rail-glyph-browser");
       tile.textContent = "🌐";
+    } else if (tab.kind === "acp") {
+      tile.classList.add("tabbar-rail-glyph-acp");
+      tile.textContent = "⧉";
     } else {
       tile.textContent = monogram(tab.name);
     }
@@ -213,7 +216,8 @@ export class CollapsedRail {
 
   private renderLabelsRow(tab: RailTabView, color: string): HTMLElement {
     const row = this.tabButton(tab, "tabbar-rail-labels-row", color);
-    row.textContent = tab.kind === "browser" ? `🌐 ${tab.name}` : tab.name;
+    row.textContent =
+      tab.kind === "browser" ? `🌐 ${tab.name}` : tab.kind === "acp" ? `⧉ ${tab.name}` : tab.name;
     return this.wrapWithPeek(row, tab.name, color);
   }
 
@@ -252,7 +256,7 @@ export class CollapsedRail {
 
     const mono = document.createElement("div");
     mono.className = "tabbar-rail-spine-mono";
-    mono.textContent = tab.kind === "browser" ? "🌐" : "·";
+    mono.textContent = tab.kind === "browser" ? "🌐" : tab.kind === "acp" ? "⧉" : "·";
     wrap.appendChild(mono);
 
     const bar = document.createElement("div");
@@ -327,6 +331,9 @@ export class CollapsedRail {
     // glyph instead of the terminal-style cell, and so they don't read
     // as a terminal session in the rail.
     if (tab.kind === "browser") cell.classList.add("tabbar-rail-cell-browser");
+    // ACP tabs aren't shells either — flag them so CSS can render a
+    // distinct marker instead of the terminal-style cell.
+    if (tab.kind === "acp") cell.classList.add("tabbar-rail-cell-acp");
     cell.style.setProperty("--rail-color", color);
     cell.setAttribute("aria-label", tab.name);
     cell.addEventListener("click", (e) => {

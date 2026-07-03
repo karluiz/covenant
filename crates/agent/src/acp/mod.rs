@@ -20,5 +20,7 @@ pub use protocol::{
     ContentBlock, FrameKind, InboundFrame, PermissionOption, PermissionRequest,
     PermissionToolCall, RpcError, SessionNotification, SessionUpdate, ToolCallFields,
 };
-pub use session::{AcpError, AcpSession, AcpSpawnOpts, PermissionResolver};
+pub use session::{
+    AcpError, AcpSession, AcpSessionEvent, AcpSpawnOpts, PermissionDecision, PermissionResolver,
+};
 pub use run::{run_task, AcpRunOpts, AcpRunReport};                     // Task 4

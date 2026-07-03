@@ -1026,7 +1026,6 @@ mod tests {
         let err = read_file(&env, &serde_json::json!({ "path": "/etc/hosts" })).unwrap_err();
         // Could be PathOutsideRoot or Io/NotFound depending on /etc/hosts existence,
         // but it must NOT be a successful read.
-        assert!(!matches!(err, ToolError::InvalidArgs(_)) || true);
         assert!(matches!(
             err,
             ToolError::PathOutsideRoot | ToolError::NotFound(_) | ToolError::Io(_)

@@ -19,6 +19,7 @@ const SNAP: RailSnapshot = {
     },
     { kind: "tab", tab: { id: "t3", name: "zsh", color: null, active: false, kind: "shell" } },
     { kind: "tab", tab: { id: "t4", name: "docs", color: "#73daca", active: false, kind: "browser" } },
+    { kind: "tab", tab: { id: "t5", name: "copilot 1", color: null, active: false, kind: "acp" } },
   ],
 };
 
@@ -59,8 +60,11 @@ describe("monogram", () => {
 describe("CollapsedRail styles", () => {
   it("legacy renders the original pill cells", () => {
     const { host } = mount("legacy");
-    expect(host.querySelectorAll(".tabbar-rail-cell").length).toBe(4);
+    expect(host.querySelectorAll(".tabbar-rail-cell").length).toBe(5);
     expect(host.querySelectorAll(".tabbar-rail-glyph-tile").length).toBe(0);
+    // Non-shell kinds carry their marker classes so CSS can restyle them.
+    expect(host.querySelectorAll(".tabbar-rail-cell-browser").length).toBe(1);
+    expect(host.querySelectorAll(".tabbar-rail-cell-acp").length).toBe(1);
   });
 
   it("glyph renders monogram tiles with a group badge", () => {
@@ -68,8 +72,9 @@ describe("CollapsedRail styles", () => {
     const badge = host.querySelector<HTMLButtonElement>(".tabbar-rail-glyph-badge")!;
     expect(badge.textContent).toBe("ka");
     const tiles = Array.from(host.querySelectorAll<HTMLButtonElement>(".tabbar-rail-glyph-tile"));
-    expect(tiles.map((t) => t.textContent)).toEqual(["vi", "ca", "zs", "🌐"]);
+    expect(tiles.map((t) => t.textContent)).toEqual(["vi", "ca", "zs", "🌐", "⧉"]);
     expect(tiles[1].classList.contains("active")).toBe(true);
+    expect(tiles[4].classList.contains("tabbar-rail-glyph-acp")).toBe(true);
     tiles[0].click();
     badge.click();
     expect(selected).toEqual(["t1", "t1"]);
@@ -79,17 +84,26 @@ describe("CollapsedRail styles", () => {
     const { host, selected } = mount("labels");
     expect(host.querySelector(".tabbar-rail-labels-head")!.textContent).toBe("karlTerminal");
     const rows = Array.from(host.querySelectorAll<HTMLButtonElement>(".tabbar-rail-labels-row"));
-    expect(rows.map((r) => r.textContent)).toEqual(["vite", "cargo test", "zsh", "🌐 docs"]);
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "vite",
+      "cargo test",
+      "zsh",
+      "🌐 docs",
+      "⧉ copilot 1",
+    ]);
     expect(rows[1].classList.contains("active")).toBe(true);
     rows[3].click();
-    expect(selected).toEqual(["t4"]);
+    rows[4].click();
+    expect(selected).toEqual(["t4", "t5"]);
   });
 
   it("spine renders one segment per tab under a group monogram", () => {
     const { host, selected } = mount("spine");
-    expect(host.querySelector(".tabbar-rail-spine-mono")!.textContent).toBe("ka");
+    const monos = Array.from(host.querySelectorAll<HTMLElement>(".tabbar-rail-spine-mono"));
+    // Group mono + one per loose tab (shell middot, browser globe, acp ⧉).
+    expect(monos.map((m) => m.textContent)).toEqual(["ka", "·", "🌐", "⧉"]);
     const segs = Array.from(host.querySelectorAll<HTMLButtonElement>(".tabbar-rail-spine-seg"));
-    expect(segs.length).toBe(4);
+    expect(segs.length).toBe(5);
     expect(segs[1].classList.contains("active")).toBe(true);
     segs[2].click();
     expect(selected).toEqual(["t3"]);
@@ -97,9 +111,9 @@ describe("CollapsedRail styles", () => {
 
   it("re-renders when the style flips at runtime", () => {
     const { host, rail } = mount("legacy");
-    expect(host.querySelectorAll(".tabbar-rail-cell").length).toBe(4);
+    expect(host.querySelectorAll(".tabbar-rail-cell").length).toBe(5);
     applyFoldedRailStyle("glyph");
-    expect(host.querySelectorAll(".tabbar-rail-glyph-tile").length).toBe(4);
+    expect(host.querySelectorAll(".tabbar-rail-glyph-tile").length).toBe(5);
     rail.destroy();
     applyFoldedRailStyle("spine");
     expect(host.innerHTML).toBe("");

@@ -2469,6 +2469,102 @@ export async function subscribePiEvents(
   return unlisten;
 }
 
+// ---------------------------------------------------------------------------
+// ACP tab executor — interactive `copilot --acp` sessions. See
+// crates/agent/src/acp/* and crates/app/src/acp_commands.rs.
+//
+// Types mirror the ACP wire format (Agent Client Protocol) as re-emitted by
+// the backend. Discriminants are snake_case; field names are camelCase. Do
+// NOT rename without updating the Rust side (`AcpTabEvent` in
+// crates/app/src/acp_commands.rs; `SessionUpdate` / `ContentBlock` /
+// `PermissionRequest` in crates/agent/src/acp/protocol.rs).
+// ---------------------------------------------------------------------------
+
+/// A single ACP content block. Untagged on the wire — order matters: a diff
+/// has `path` + `newText`, a text block has only `text`, anything else
+/// falls through to the open bag.
+export type AcpContentBlock =
+  | { path: string; oldText?: string | null; newText: string } // diff
+  | { text: string } // text
+  | Record<string, unknown>; // other
+
+export interface AcpToolCallFields {
+  toolCallId: string;
+  title?: string | null;
+  kind?: string | null; // "edit" | "execute" | "read" | other (open set)
+  status?: string | null; // "pending" | "in_progress" | "completed" | "failed" (open set)
+  rawInput?: unknown;
+  rawOutput?: unknown;
+  content: AcpContentBlock[];
+}
+
+/// One streamed `session/update` notification payload.
+export type AcpSessionUpdate =
+  | { sessionUpdate: "agent_message_chunk"; content: AcpContentBlock }
+  | { sessionUpdate: "agent_thought_chunk"; content: AcpContentBlock }
+  | ({ sessionUpdate: "tool_call" } & AcpToolCallFields)
+  | ({ sessionUpdate: "tool_call_update" } & AcpToolCallFields)
+  | { sessionUpdate: string }; // future/unrecognized kinds
+
+export interface AcpPermissionOption {
+  optionId: string;
+  kind: string; // "allow_once" | "allow_always" | "reject_once" (open set)
+  name?: string | null;
+}
+
+export interface AcpPermissionRequest {
+  sessionId: string;
+  toolCall: { toolCallId: string; title?: string | null; kind?: string | null; rawInput?: unknown };
+  options: AcpPermissionOption[];
+}
+
+/// Discriminated union of every event the backend forwards from an ACP tab
+/// session. Subscribe via [`subscribeAcpEvents`].
+export type AcpTabEvent =
+  | { type: "update"; update: { sessionId: string; update: AcpSessionUpdate } }
+  | { type: "permission_pending"; requestKey: string; request: AcpPermissionRequest }
+  | { type: "prompt_done"; stopReason: string }
+  | { type: "session_dead" };
+
+export async function spawnAcpSession(
+  opts: { cwd?: string | null } = {},
+): Promise<SessionId> {
+  const result = await invoke<{ sessionId: SessionId }>("spawn_acp_session", { opts });
+  return result.sessionId;
+}
+
+export async function closeAcpSession(sessionId: SessionId): Promise<void> {
+  return invoke<void>("close_acp_session", { sessionId });
+}
+
+export async function acpSendPrompt(sessionId: SessionId, text: string): Promise<void> {
+  return invoke<void>("acp_send_prompt", { sessionId, text });
+}
+
+export async function acpRespondPermission(
+  sessionId: SessionId,
+  requestKey: string,
+  optionId: string,
+): Promise<void> {
+  return invoke<void>("acp_respond_permission", { sessionId, requestKey, optionId });
+}
+
+export async function acpCancel(sessionId: SessionId): Promise<void> {
+  return invoke<void>("acp_cancel", { sessionId });
+}
+
+/// Subscribe to an ACP tab session's event stream. Returns an unlisten fn
+/// that must be called to detach. Topic: `session://{sessionId}/acp`.
+export async function subscribeAcpEvents(
+  sessionId: SessionId,
+  handler: (ev: AcpTabEvent) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const topic = `session://${sessionId}/acp`;
+  const unlisten = await listen<AcpTabEvent>(topic, (e) => handler(e.payload));
+  return unlisten;
+}
+
 export interface VitalsInFlight {
   model: string;
   started_unix_ms: number;

@@ -13,7 +13,9 @@ use tokio::sync::broadcast;
 
 use super::policy::resolve_headless_with_log;
 use super::protocol::{SessionUpdate, ToolCallFields};
-use super::session::{AcpError, AcpSession, AcpSpawnOpts, PermissionResolver};
+use super::session::{
+    AcpError, AcpSession, AcpSessionEvent, AcpSpawnOpts, PermissionDecision, PermissionResolver,
+};
 
 /// Appended to every headless prompt. The policy auto-denies mutating
 /// shell commands, so steer the agent toward its native file tools —
@@ -59,8 +61,9 @@ struct Collector {
 pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
     let denied: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let denied_for_resolver = denied.clone();
-    let resolver: PermissionResolver =
-        Arc::new(move |req| resolve_headless_with_log(req, &denied_for_resolver));
+    let resolver: PermissionResolver = Arc::new(move |req| {
+        PermissionDecision::Select(resolve_headless_with_log(req, &denied_for_resolver))
+    });
 
     let session = AcpSession::spawn(
         AcpSpawnOpts {
@@ -94,6 +97,21 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
                     // reader task's clone) are gone — nothing left to
                     // drain. Exit for real.
                     Err(broadcast::error::RecvError::Closed) => break,
+                };
+                let n = match n {
+                    AcpSessionEvent::Update(n) => n,
+                    // Headless never defers (its resolver always answers
+                    // synchronously with `PermissionDecision::Select`), so
+                    // this is unreachable in practice — ignore it rather
+                    // than special-case something that can't happen here.
+                    AcpSessionEvent::PermissionPending { .. } => continue,
+                    // Reader exited — mirrors the `RecvError::Closed` arm
+                    // above (nothing left to drain), but reachable in
+                    // practice: `AcpSession` retains its own `events_tx`
+                    // clone for the run's lifetime, so `RecvError::Closed`
+                    // itself never fires here before `drop(session)` at the
+                    // bottom of `run_task`.
+                    AcpSessionEvent::Closed => break,
                 };
                 let mut c = match collector.lock() {
                     Ok(c) => c,

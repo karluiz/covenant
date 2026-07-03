@@ -3,6 +3,7 @@
 @import "./score/styles.css";
 @import "./project-notes/styles.css";
 @import "./executors/pi/pi.css";
+@import "./executors/acp/acp.css";
 @import "./changes/changes.css";
 
 /* Global scrollbar reset: WKWebView on macOS with the system setting
@@ -10140,6 +10141,27 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
         0 0 8px var(--rail-color);
 }
 
+/* ACP tabs aren't shell sessions either — a small hollow square (vs.
+   the browser ring) so they read as "structured chat" at a glance. */
+.tabbar-rail-cell-acp {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--rail-color);
+}
+
+.tabbar-rail-cell-acp:hover {
+    transform: scale(1.2);
+}
+
+.tabbar-rail-cell-acp.active {
+    background: var(--rail-color);
+    box-shadow:
+        inset 0 0 0 1px rgba(var(--ink-rgb), 0.95),
+        0 0 8px var(--rail-color);
+}
+
 .tabbar-rail-loose {
     position: relative;
     display: flex;
@@ -10353,6 +10375,14 @@ body.tabbar-rail-spine #tabbar-rail {
 }
 
 .tabbar-rail-glyph-browser::before {
+    display: none;
+}
+
+.tabbar-rail-glyph-acp {
+    font-size: 12px;
+}
+
+.tabbar-rail-glyph-acp::before {
     display: none;
 }
 

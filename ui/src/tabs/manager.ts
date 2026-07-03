@@ -98,6 +98,8 @@ import { renderAvatarHtml } from "../operator/avatars";
 import { detectExecutor } from "../executor";
 import { PiChatView } from "../executors/pi/view";
 import { spawnPiSession, piSetSessionName } from "../api";
+import { AcpChatView } from "../executors/acp/view";
+import { spawnAcpSession } from "../api";
 import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
@@ -228,7 +230,9 @@ interface Tab {
   /// "browser" hosts a BrowserPane (native webview chrome) in `pane`;
   /// like "pi" it leaves every xterm-specific field undefined and every
   /// terminal-touching method early-returns / guards on it.
-  kind: "shell" | "pi" | "browser";
+  /// "acp" hosts an AcpChatView (structured Copilot chat) in `pane` —
+  /// same xterm-less shape as "pi", wired to a `copilot --acp` session.
+  kind: "shell" | "pi" | "browser" | "acp";
   /// Default name from the spawn sequence ("zsh 1"). Always present.
   defaultTitle: string;
   /// User-set name. When set, takes precedence over defaultTitle.
@@ -267,6 +271,10 @@ interface Tab {
   /// Pi-specific — set when `kind === "pi"`. Subscribes to the Pi RPC
   /// event stream and renders the chat panel inside `pane`.
   piView?: PiChatView;
+  /// ACP-specific — set when `kind === "acp"`. Subscribes to the ACP
+  /// tab session's event stream and renders the structured Copilot
+  /// chat panel inside `pane`.
+  acpView?: AcpChatView;
   /// Browser-specific — set when `kind === "browser"`. Owns the native
   /// webview chrome mounted inside `pane`.
   browser?: BrowserPane;
@@ -318,7 +326,7 @@ export interface TabManifestV1 {
 export interface SerializedTab {
   /// Tab kind. Optional for backward compat — old manifests default to
   /// "shell" on restore so existing installs upgrade seamlessly.
-  kind?: "shell" | "pi";
+  kind?: "shell" | "pi" | "acp";
   custom_name: string | null;
   cwd: string | null;
   color: string | null;
@@ -354,7 +362,7 @@ export interface SerializedTab {
 export interface SerializedPane {
   id: string;
   /** "terminal" maps to "shell" at the tab level — renamed for clarity. */
-  kind: "terminal" | "pi";
+  kind: "terminal" | "pi" | "acp";
   cwd: string | null;
   mission_path: string | null;
   operator_id: string | null;
@@ -376,7 +384,7 @@ export interface SerializedLayout {
 /// tab level) are emitted as null — new readers always use panes[i] instead.
 /// Exported so tests can call it directly without a full TabManager.
 export function serializeTab(tab: {
-  kind: "shell" | "pi";
+  kind: "shell" | "pi" | "acp";
   customName: string | null;
   color: string | null;
   groupId: string | null;
@@ -397,7 +405,7 @@ export function serializeTab(tab: {
   const pane0 = tab.panes[0]!;
   const pane1 = tab.panes[1];
   return {
-    kind: pane0.kind === "pi" ? "pi" : "shell",
+    kind: pane0.kind === "pi" ? "pi" : pane0.kind === "acp" ? "acp" : "shell",
     custom_name: tab.customName,
     cwd: null,           // legacy mirror; new readers use panes[i].cwd
     color: tab.color,
@@ -431,7 +439,7 @@ export function liftLegacyTab(t: SerializedTab): SerializedTab {
     // Use ?? (not ||) so that an explicit empty string is still respected.
     return {
       ...withLayout,
-      kind: withLayout.kind ?? (p0.kind === "pi" ? "pi" : "shell"),
+      kind: withLayout.kind ?? (p0.kind === "pi" ? "pi" : p0.kind === "acp" ? "acp" : "shell"),
       cwd: withLayout.cwd ?? p0.cwd,
       mission_path: withLayout.mission_path ?? p0.mission_path,
       operator_id: withLayout.operator_id ?? p0.operator_id,
@@ -443,7 +451,7 @@ export function liftLegacyTab(t: SerializedTab): SerializedTab {
   }
   const pane: SerializedPane = {
     id: `legacy-${t.replay_key ?? crypto.randomUUID()}`,
-    kind: t.kind === "pi" ? "pi" : "terminal",
+    kind: t.kind === "pi" ? "pi" : t.kind === "acp" ? "acp" : "terminal",
     cwd: t.cwd,
     mission_path: t.mission_path,
     operator_id: t.operator_id,
@@ -513,7 +521,7 @@ function tabDisplayName(t: Tab): string {
 
 export function shouldForwardRename(args: {
   executor: string | null;
-  kind: "shell" | "pi" | "browser";
+  kind: "shell" | "pi" | "browser" | "acp";
   previousCustomName: string | null;
   newCustomName: string | null;
 }): boolean {
@@ -2441,6 +2449,11 @@ export class TabManager {
       ta?.focus();
       return;
     }
+    if (tab.kind === "acp") {
+      // ACP tabs have no xterm either; hand focus to the chat composer.
+      tab.acpView?.focusComposer();
+      return;
+    }
     try {
       tab.term?.focus();
     } catch {
@@ -2811,7 +2824,7 @@ export class TabManager {
   /// Kind of the active tab. Pi tabs do not have the terminal-owned
   /// Blocks/Files rail; callers use this to avoid selecting a per-shell
   /// sidebar that cannot render for the current pane.
-  activeKind(): "shell" | "pi" | "browser" | null {
+  activeKind(): "shell" | "pi" | "browser" | "acp" | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     return tab?.kind ?? null;
   }
@@ -4241,13 +4254,12 @@ export class TabManager {
     const replayKey = id.replace(/-/g, "").slice(0, 26);
     const seq = this.nextSeq++;
 
-    const pane = document.createElement("div");
-    pane.className = "tab-pane tab-pane-pi";
-    pane.dataset.tabId = id;
-    pane.hidden = true;
-    this.hideAllPanes();
-    this.workspace.appendChild(pane);
-
+    // Spawn FIRST, before any DOM mutation. The old order ran
+    // hideAllPanes() + appendChild before the await; on spawn failure
+    // the catch removed the new pane but the previously-active tab's
+    // pane stayed hidden and activeId never changed, so re-clicking its
+    // pill hit activate()'s skipIfSame early-return — a fully blank
+    // workspace only ⌘T could recover from.
     let sessionId: SessionId;
     try {
       sessionId = await spawnPiSession({
@@ -4256,13 +4268,19 @@ export class TabManager {
         model: opts?.model,
       });
     } catch (err) {
-      // Spawn failed — surface in-place and drop the pane so we don't
-      // leave dangling DOM. Caller gets null; the tabbar stays clean.
-      pane.remove();
+      // Spawn failed — the workspace is untouched; caller gets null and
+      // the tabbar stays clean.
       console.error("spawnPiSession failed", err);
-      alert(`Could not start Pi: ${String(err)}`);
+      pushInfoToast({ message: `Could not start Pi: ${String(err)}` });
       return null;
     }
+
+    const pane = document.createElement("div");
+    pane.className = "tab-pane tab-pane-pi";
+    pane.dataset.tabId = id;
+    pane.hidden = true;
+    this.hideAllPanes();
+    this.workspace.appendChild(pane);
 
     const piTerminalBlock = document.createElement("div");
     piTerminalBlock.className = "terminal-block";
@@ -4335,6 +4353,140 @@ export class TabManager {
 
     // F2 — right-click context menu on pane-host 0 (Pi tabs).
     tab.disposers.push(this.installPaneContextMenu(piPaneHost0, tab, 0));
+
+    this.tabs.push(tab);
+    if (tab.groupId) {
+      const myIdx = this.tabs.length - 1;
+      let lastGroupIdx = -1;
+      for (let i = 0; i < myIdx; i++) {
+        if (this.tabs[i].groupId === tab.groupId) lastGroupIdx = i;
+      }
+      if (lastGroupIdx >= 0 && lastGroupIdx + 1 !== myIdx) {
+        const [moved] = this.tabs.splice(myIdx, 1);
+        this.tabs.splice(lastGroupIdx + 1, 0, moved);
+      }
+    }
+    this.rememberSessionName(sessionId, tabDisplayName(tab));
+    if (!opts?.skipActivate) this.activate(id, { skipIfSame: false });
+    this.scheduleSave();
+    return tab;
+  }
+
+  /// Create an ACP tab. Bypasses all xterm/blocks/recall/structure/editor
+  /// setup — the pane hosts an AcpChatView wired to a freshly-spawned
+  /// `copilot --acp` session. Mirrors `createPiTab` in every structural
+  /// respect: the tab still participates in activation, grouping,
+  /// drag-drop, tabbar render, and manifest persistence; xterm-touching
+  /// methods early-return on `kind: "acp"`.
+  async createAcpTab(opts?: {
+    cwd?: string | null;
+    customName?: string | null;
+    color?: string | null;
+    groupId?: string | null;
+    skipActivate?: boolean;
+  }): Promise<Tab | null> {
+    const id = crypto.randomUUID();
+    const replayKey = id.replace(/-/g, "").slice(0, 26);
+    const seq = this.nextSeq++;
+
+    // Spawn FIRST, before any DOM mutation (same fix as createPiTab):
+    // mutating the workspace pre-await meant a spawn failure left every
+    // pane hidden with no way to re-show the previous tab (activeId
+    // unchanged → activate()'s skipIfSame early-return). With spawn
+    // first, a failure leaves the workspace exactly as it was.
+    let sessionId: SessionId;
+    try {
+      sessionId = await spawnAcpSession({ cwd: opts?.cwd ?? undefined });
+    } catch (err) {
+      // Spawn failed — surface via the app's non-blocking toast (never
+      // alert()). The backend's error string already carries the
+      // actionable hint (missing/old `copilot` CLI). Caller gets null;
+      // restore's Promise.all skips this slot instead of crashing the
+      // loop, and the workspace DOM is untouched.
+      console.warn("spawnAcpSession failed", err);
+      pushInfoToast({ message: `Could not start Copilot: ${String(err)}` });
+      return null;
+    }
+
+    const pane = document.createElement("div");
+    pane.className = "tab-pane tab-pane-acp";
+    pane.dataset.tabId = id;
+    pane.hidden = true;
+    this.hideAllPanes();
+    this.workspace.appendChild(pane);
+
+    const acpTerminalBlock = document.createElement("div");
+    acpTerminalBlock.className = "terminal-block";
+    acpTerminalBlock.dataset.layout = "single";
+
+    const acpPaneHost0 = document.createElement("div");
+    acpPaneHost0.className = "pane-host";
+    acpTerminalBlock.appendChild(acpPaneHost0);
+    pane.appendChild(acpTerminalBlock);
+
+    const view = new AcpChatView({ sessionId, host: acpPaneHost0, cwd: opts?.cwd ?? null });
+
+    const tab: Tab = {
+      id,
+      kind: "acp",
+      defaultTitle: `copilot ${seq}`,
+      customName: opts?.customName ?? null,
+      color: opts?.color ?? null,
+      groupId: opts?.groupId ?? null,
+      pane,
+      acpView: view,
+      sidebarView: "blocks",
+      disposers: [],
+      specBadge: null,
+      panes: [] as unknown as [Pane],
+      layout: { kind: "single", activePaneIdx: 0 },
+      terminalBlock: acpTerminalBlock,
+    };
+
+    const pane0Acp: Pane = {
+      id: `p-${sessionId}`,
+      kind: "acp",
+      sessionId,
+      cwd: opts?.cwd ?? "",
+      mission: null,
+      operator: null,
+      blocks: [],
+      xterm: null,
+      piView: null,
+      acpView: view,
+      executor: "copilot",
+      operatorEnabled: false,
+      operatorLive: false,
+      operatorSolo: false,
+      aomExcluded: true, // ACP sessions never enter AOM (no shell to drive)
+      observer_ids: [],
+      spawn_id: null,
+      idleAgent: null,
+      busyProc: null,
+      replayKey,
+      el: acpPaneHost0,
+    };
+    tab.panes = [pane0Acp];
+    assertLayoutValid(tab);
+
+    // D14 — active-pane border: wire pane-0 focus for ACP tabs via
+    // focusin, same rationale as createPiTab (AcpChatView doesn't expose
+    // an onFocus signal; the composer textarea fires a native focusin
+    // that bubbles up from inside acpPaneHost0).
+    const acpPane0FocusIn = (): void => {
+      const idx = tab.panes.findIndex((p) => p.el === acpPaneHost0);
+      if (idx < 0) return;
+      if (tab.layout.activePaneIdx === idx) return;
+      tab.layout.activePaneIdx = idx as 0 | 1;
+      this.updateActivePaneClass(tab);
+      this.onActiveContextChange?.(activePane(tab).cwd);
+      this.emitActiveMission();
+    };
+    acpPaneHost0.addEventListener("focusin", acpPane0FocusIn);
+    tab.disposers.push({ dispose: () => acpPaneHost0.removeEventListener("focusin", acpPane0FocusIn) });
+
+    // F2 — right-click context menu on pane-host 0 (ACP tabs).
+    tab.disposers.push(this.installPaneContextMenu(acpPaneHost0, tab, 0));
 
     this.tabs.push(tab);
     if (tab.groupId) {
@@ -5084,9 +5236,9 @@ export class TabManager {
           )
         : 0,
       // Browser tabs are ephemeral (native webview, no PTY/session) and
-      // the manifest schema only models "shell" | "pi" — skip them.
+      // the manifest schema only models "shell" | "pi" | "acp" — skip them.
       tabs: this.tabs
-        .filter((t): t is typeof t & { kind: "shell" | "pi" } => t.kind !== "browser")
+        .filter((t): t is typeof t & { kind: "shell" | "pi" | "acp" } => t.kind !== "browser")
         .map(serializeTab),
       groups: Array.from(this.groups.values()).map((g) => ({
         id: g.id,
@@ -5136,6 +5288,21 @@ export class TabManager {
           // persisted cwd. Real conversation restore needs Pi to confirm
           // its session-dir convention and ships in a follow-up.
           return this.createPiTab({
+            customName: t.custom_name,
+            color: t.color,
+            groupId: t.group_id,
+            cwd: t.cwd,
+            skipActivate: true,
+          });
+        }
+        if (t.kind === "acp") {
+          // ACP tabs restore by spawning a fresh `copilot --acp` session
+          // in the persisted cwd — same "fresh session, transcript lost"
+          // contract as pi above. If copilot is missing/too old at
+          // restore time, createAcpTab warns + toasts and returns null;
+          // the Promise.all below drops this slot without aborting the
+          // rest of the restore.
+          return this.createAcpTab({
             customName: t.custom_name,
             color: t.color,
             groupId: t.group_id,
@@ -5454,6 +5621,11 @@ export class TabManager {
         // PiSession owns its own backend lifecycle; PiChatView destroy
         // also fires closePiSession via closeSession().
         void p.piView?.closeSession().catch(() => {});
+      } else if (p.kind === "acp") {
+        // AcpChatView.closeSession() tears down its DOM/subscription AND
+        // tells the backend to close the underlying `copilot --acp`
+        // child — mirrors the pi branch above.
+        void p.acpView?.closeSession().catch(() => {});
       } else {
         if (p.sessionId) void closeSession(p.sessionId as SessionId).catch(() => {});
         // Drop the persisted scrollback log — the tab is gone for good.
@@ -5580,6 +5752,13 @@ export class TabManager {
       // chat textarea so the next keystroke lands in the prompt.
       const ta = tab.pane.querySelector<HTMLTextAreaElement>(".pi-chat-textarea");
       ta?.focus();
+      return;
+    }
+
+    if (tab.kind === "acp") {
+      // ACP tabs have no xterm to fit/resize; hand focus to the
+      // composer so the next keystroke lands in the prompt.
+      tab.acpView?.focusComposer();
       return;
     }
 

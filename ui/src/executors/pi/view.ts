@@ -309,12 +309,20 @@ export class PiChatView {
 
   private async subscribe(): Promise<void> {
     try {
-      this.unlisten = await subscribePiEvents(this.sessionId, (event) => {
+      const unlisten = await subscribePiEvents(this.sessionId, (event) => {
         if (this.destroyed) return;
         this.handleEvent(event);
       });
+      // destroy() may have run while the await was in flight — its
+      // unsubscribe pass saw `this.unlisten === null` and skipped, so
+      // detach here instead of leaking a live Tauri listener.
+      if (this.destroyed) {
+        unlisten();
+        return;
+      }
+      this.unlisten = unlisten;
     } catch (err) {
-      this.setStatus("error", `subscribe failed: ${String(err)}`);
+      if (!this.destroyed) this.setStatus("error", `subscribe failed: ${String(err)}`);
     }
   }
 
