@@ -124,6 +124,8 @@ struct AcpTabSession {
     /// first emits — the view fetches this via `acp_get_commands` after
     /// subscribing. std Mutex: held for a clone, never across an await.
     commands: std::sync::Mutex<Vec<AvailableCommand>>,
+    /// Session working directory — the jail root for prompt attachments.
+    cwd: PathBuf,
 }
 
 /// Shared registry of live interactive ACP sessions. Held on [`AppState`].
@@ -314,6 +316,7 @@ pub async fn spawn_acp_session(
         acp_session_id,
         in_flight: AtomicBool::new(false),
         commands: std::sync::Mutex::new(Vec::new()),
+        cwd: cwd.clone(),
     });
     let tab_for_task = tab_session.clone();
 
@@ -457,8 +460,46 @@ pub async fn acp_send_prompt(
     state: State<'_, AppState>,
     session_id: String,
     text: String,
+    attachments: Option<Vec<String>>,
 ) -> Result<(), String> {
     let (id, tab) = require(&state, &session_id).await?;
+
+    // Build the prompt blocks BEFORE taking the in_flight flag: an
+    // attachment error must not strand the flag set and brick the
+    // composer. Attachments (@-mentions) become embedded `resource`
+    // blocks — copilot advertised `promptCapabilities.embeddedContext`.
+    let mut blocks = vec![json!({ "type": "text", "text": text })];
+    for rel in attachments.unwrap_or_default() {
+        const ATTACHMENT_CAP: u64 = 256 * 1024;
+        let root = tab.cwd.canonicalize().unwrap_or_else(|_| tab.cwd.clone());
+        let canon = root
+            .join(&rel)
+            .canonicalize()
+            .map_err(|e| format!("attachment {rel}: {e}"))?;
+        if !canon.starts_with(&root) {
+            return Err(format!("attachment escapes the session cwd: {rel}"));
+        }
+        let meta = tokio::fs::metadata(&canon)
+            .await
+            .map_err(|e| format!("attachment {rel}: {e}"))?;
+        if !meta.is_file() {
+            return Err(format!("attachment is not a file: {rel}"));
+        }
+        if meta.len() > ATTACHMENT_CAP {
+            return Err(format!("attachment too large (>256 KiB): {rel}"));
+        }
+        let bytes = tokio::fs::read(&canon)
+            .await
+            .map_err(|e| format!("attachment {rel}: {e}"))?;
+        blocks.push(json!({
+            "type": "resource",
+            "resource": {
+                "uri": format!("file://{}", canon.display()),
+                "mimeType": "text/plain",
+                "text": String::from_utf8_lossy(&bytes),
+            }
+        }));
+    }
 
     if tab.in_flight.swap(true, Ordering::AcqRel) {
         return Err("acp: prompt already in flight".to_string());
@@ -475,7 +516,7 @@ pub async fn acp_send_prompt(
                 "session/prompt",
                 json!({
                     "sessionId": acp_session_id,
-                    "prompt": [{ "type": "text", "text": text }]
+                    "prompt": blocks
                 }),
             )
             .await;

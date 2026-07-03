@@ -24,6 +24,7 @@ import {
   createAcpStreamState,
   filterSlashCommands,
   markPermAnswered,
+  mentionFragmentAt,
   reduceAcpEvent,
   type AcpNoticeItem,
   type AcpPermItem,
@@ -217,6 +218,21 @@ describe("reduceAcpEvent", () => {
     expect(filterSlashCommands(commands, "/compact focus")).toEqual([]);
     expect(filterSlashCommands(commands, "hello /c")).toEqual([]);
     expect(filterSlashCommands(commands, "")).toEqual([]);
+  });
+
+  it("mentionFragmentAt finds only a trailing @token before the caret", () => {
+    // Simple trailing fragment.
+    expect(mentionFragmentAt("look at @src/ma", 15)).toEqual({ start: 8, fragment: "src/ma" });
+    // Bare @ right at the caret.
+    expect(mentionFragmentAt("@", 1)).toEqual({ start: 0, fragment: "" });
+    // Caret in the middle: only text before it counts.
+    expect(mentionFragmentAt("@src hello", 4)).toEqual({ start: 0, fragment: "src" });
+    // No fragment cases: no @, @ followed by space before caret, email-like
+    // (no leading whitespace boundary), second @ inside the token.
+    expect(mentionFragmentAt("hello", 5)).toBeNull();
+    expect(mentionFragmentAt("@src ", 5)).toBeNull();
+    expect(mentionFragmentAt("mail@host", 9)).toBeNull();
+    expect(mentionFragmentAt("a @b@c", 6)).toBeNull();
   });
 
   it("session_dead flips inFlight to false and appends a 'dead' notice", () => {

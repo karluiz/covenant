@@ -32,8 +32,10 @@ import {
   acpSendPrompt,
   closeAcpSession,
   spawnAcpSession,
+  structureListDir,
   subscribeAcpEvents,
 } from "../../api";
+import type { DirEntry } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
 
 const COPILOT_LOGO = brandIconSvg("copilot", 16) ?? "◈";
@@ -101,6 +103,21 @@ export interface AcpStreamState {
 
 export function createAcpStreamState(): AcpStreamState {
   return { items: [], tools: new Map(), pendingPerms: new Map(), inFlight: false, commands: [] };
+}
+
+/// The trailing `@fragment` immediately before the caret, if any —
+/// `start` is the index of the `@` itself. Fragments may contain `/`
+/// (nested paths) but never whitespace or a second `@`.
+export interface MentionFragment {
+  start: number;
+  fragment: string;
+}
+
+export function mentionFragmentAt(value: string, caret: number): MentionFragment | null {
+  const upTo = value.slice(0, caret);
+  const m = /(?:^|\s)@([^\s@]*)$/.exec(upTo);
+  if (!m) return null;
+  return { start: caret - m[1].length - 1, fragment: m[1] };
 }
 
 /// Prefix-filter the slash roster against the composer's current `/token`.
@@ -316,6 +333,16 @@ export class AcpChatView {
   private slashEl!: HTMLElement;
   private slashItems: AcpAvailableCommand[] = [];
   private slashSel = 0;
+
+  private mentionEl!: HTMLElement;
+  private mentionItems: DirEntry[] = [];
+  private mentionSel = 0;
+  private mentionFrag: MentionFragment | null = null;
+  /// cwd-relative paths picked via @-mention; filtered against the final
+  /// text on send (deleting the token drops the attachment).
+  private readonly mentions: Set<string> = new Set();
+  /// Monotonic token so a slow structureListDir can't clobber a newer one.
+  private mentionListToken = 0;
   /// The DOM node backing the trailing prose item, if any — kept in sync
   /// with `state.items[items.length - 1]` by identity so a run of
   /// same-role chunks updates one node instead of appending N.
@@ -394,6 +421,7 @@ export class AcpChatView {
       </div>
       <form class="acp-chat-input" autocomplete="off">
         <div class="acp-slash-menu" role="listbox" hidden></div>
+        <div class="acp-slash-menu acp-mention-menu" role="listbox" hidden></div>
         <textarea
           class="acp-chat-textarea"
           rows="2"
@@ -430,9 +458,35 @@ export class AcpChatView {
     });
     this.cancelBtn.addEventListener("click", () => void this.handleCancel());
     this.slashEl = requireChild(this.host, ".acp-slash-menu");
-    this.inputEl.addEventListener("input", () => this.updateSlashMenu());
+    this.mentionEl = requireChild(this.host, ".acp-mention-menu");
+    this.inputEl.addEventListener("input", () => {
+      this.updateSlashMenu();
+      void this.updateMentionMenu();
+    });
     this.inputEl.addEventListener("keydown", (e) => {
-      // Slash-menu navigation wins over send while the menu is open.
+      // Popup navigation wins over send while a menu is open. The two
+      // menus are mutually exclusive (slash needs a leading /token,
+      // mention needs a trailing @fragment).
+      if (!this.mentionEl.hidden) {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const delta = e.key === "ArrowDown" ? 1 : -1;
+          const n = this.mentionItems.length;
+          this.mentionSel = (this.mentionSel + delta + n) % n;
+          this.renderMentionMenu();
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          this.pickMention(this.mentionItems[this.mentionSel]);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          this.hideMentionMenu();
+          return;
+        }
+      }
       if (!this.slashEl.hidden) {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
           e.preventDefault();
@@ -524,6 +578,100 @@ export class AcpChatView {
     this.slashEl.textContent = "";
     this.slashItems = [];
     this.slashSel = 0;
+  }
+
+  // -------------------------------------------------------------------------
+  // @-mention file picker — lists the session cwd via structureListDir;
+  // picking a file inserts `@rel/path ` and records it as an attachment
+  // (embedded as an ACP `resource` block on send). Dirs descend in place.
+  // -------------------------------------------------------------------------
+
+  private async updateMentionMenu(): Promise<void> {
+    if (!this.cwd) return; // no jail root — mentions disabled
+    const frag = mentionFragmentAt(this.inputEl.value, this.inputEl.selectionStart ?? 0);
+    if (!frag) {
+      this.hideMentionMenu();
+      return;
+    }
+    this.mentionFrag = frag;
+    const slash = frag.fragment.lastIndexOf("/");
+    const dirPart = slash >= 0 ? frag.fragment.slice(0, slash + 1) : "";
+    const base = (slash >= 0 ? frag.fragment.slice(slash + 1) : frag.fragment).toLowerCase();
+    const token = ++this.mentionListToken;
+    let entries: DirEntry[];
+    try {
+      entries = await structureListDir(`${this.cwd}/${dirPart}`);
+    } catch {
+      this.hideMentionMenu();
+      return;
+    }
+    // A newer keystroke superseded this listing, or the fragment vanished.
+    if (token !== this.mentionListToken || this.destroyed) return;
+    this.mentionItems = entries
+      .filter((e) => e.name.toLowerCase().startsWith(base))
+      .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1))
+      .slice(0, 20);
+    if (this.mentionItems.length === 0) {
+      this.hideMentionMenu();
+      return;
+    }
+    this.mentionSel = Math.min(this.mentionSel, this.mentionItems.length - 1);
+    this.mentionEl.hidden = false;
+    this.renderMentionMenu();
+  }
+
+  private renderMentionMenu(): void {
+    this.mentionEl.textContent = "";
+    this.mentionItems.forEach((entry, i) => {
+      const row = document.createElement("div");
+      row.className = "acp-slash-row";
+      row.setAttribute("role", "option");
+      if (i === this.mentionSel) row.classList.add("acp-slash-selected");
+      const name = document.createElement("span");
+      name.className = "acp-slash-name";
+      name.textContent = entry.kind === "dir" ? `${entry.name}/` : entry.name;
+      row.appendChild(name);
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.pickMention(entry);
+      });
+      this.mentionEl.appendChild(row);
+    });
+  }
+
+  private pickMention(entry: DirEntry | undefined): void {
+    const frag = this.mentionFrag;
+    if (!entry || !frag) return;
+    const slash = frag.fragment.lastIndexOf("/");
+    const dirPart = slash >= 0 ? frag.fragment.slice(0, slash + 1) : "";
+    const caret = this.inputEl.selectionStart ?? this.inputEl.value.length;
+    const before = this.inputEl.value.slice(0, frag.start);
+    const after = this.inputEl.value.slice(caret);
+    if (entry.kind === "dir") {
+      const repl = `@${dirPart}${entry.name}/`;
+      this.inputEl.value = `${before}${repl}${after}`;
+      const pos = before.length + repl.length;
+      this.inputEl.setSelectionRange(pos, pos);
+      this.inputEl.focus();
+      void this.updateMentionMenu(); // descend: relist the picked dir
+      return;
+    }
+    const rel = `${dirPart}${entry.name}`;
+    const repl = `@${rel} `;
+    this.inputEl.value = `${before}${repl}${after}`;
+    const pos = before.length + repl.length;
+    this.inputEl.setSelectionRange(pos, pos);
+    this.mentions.add(rel);
+    this.inputEl.focus();
+    this.hideMentionMenu();
+  }
+
+  private hideMentionMenu(): void {
+    this.mentionEl.hidden = true;
+    this.mentionEl.textContent = "";
+    this.mentionItems = [];
+    this.mentionSel = 0;
+    this.mentionFrag = null;
   }
 
   /// Header meta: "model · ~/short/cwd" — plain textContent, both values
@@ -830,6 +978,10 @@ export class AcpChatView {
     const text = this.inputEl.value.trim();
     if (text.length === 0 || this.state.inFlight) return;
     this.hideSlashMenu();
+    this.hideMentionMenu();
+    // Only mentions whose @token survived editing become attachments.
+    const attachments = [...this.mentions].filter((p) => text.includes(`@${p}`));
+    this.mentions.clear();
     this.inputEl.value = "";
     this.state.items.push({ kind: "user", text });
     this.hideEmptyState();
@@ -841,7 +993,7 @@ export class AcpChatView {
     this.setInFlight(true);
     this.scrollToBottom();
     try {
-      await acpSendPrompt(this.sessionId, text);
+      await acpSendPrompt(this.sessionId, text, attachments.length > 0 ? attachments : undefined);
     } catch (err) {
       this.setInFlight(false);
       this.appendNotice(`send failed: ${String(err)}`, "error");
