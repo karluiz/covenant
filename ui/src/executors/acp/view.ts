@@ -188,6 +188,9 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
       break;
     }
     case "permission_pending": {
+      // A replayed/duplicate frame for a request that's already pending
+      // must not spawn a second card — first one wins.
+      if (state.pendingPerms.has(ev.requestKey)) return;
       const item: AcpPermItem = { kind: "perm", requestKey: ev.requestKey, request: ev.request };
       state.items.push(item);
       state.pendingPerms.set(ev.requestKey, item);
@@ -401,12 +404,20 @@ export class AcpChatView {
 
   private async subscribe(): Promise<void> {
     try {
-      this.unlisten = await subscribeAcpEvents(this.sessionId, (ev) => {
+      const unlisten = await subscribeAcpEvents(this.sessionId, (ev) => {
         if (this.destroyed) return;
         this.handleEvent(ev);
       });
+      // destroy() may have run while the await was in flight — its
+      // unsubscribe pass saw `this.unlisten === null` and skipped, so
+      // detach here instead of leaking a live Tauri listener.
+      if (this.destroyed) {
+        unlisten();
+        return;
+      }
+      this.unlisten = unlisten;
     } catch (err) {
-      this.appendNotice(`subscribe failed: ${String(err)}`, "error");
+      if (!this.destroyed) this.appendNotice(`subscribe failed: ${String(err)}`, "error");
     }
   }
 
@@ -706,12 +717,22 @@ export class AcpChatView {
       this.unlisten = null;
     }
     try {
-      this.sessionId = await spawnAcpSession({ cwd: this.cwd });
+      const sessionId = await spawnAcpSession({ cwd: this.cwd });
+      // destroy() may have run during the spawn await — don't adopt the
+      // fresh session or resubscribe on a torn-down view. (subscribe()
+      // has its own post-await guard for a destroy racing ITS await.)
+      if (this.destroyed) {
+        void closeAcpSession(sessionId).catch(() => {
+          /* best-effort — nothing to surface on a destroyed view */
+        });
+        return;
+      }
+      this.sessionId = sessionId;
       this.setInFlight(false);
       await this.subscribe();
       this.appendNotice("Session restarted.", "info");
     } catch (err) {
-      this.appendNotice(`restart failed: ${String(err)}`, "error");
+      if (!this.destroyed) this.appendNotice(`restart failed: ${String(err)}`, "error");
     }
   }
 

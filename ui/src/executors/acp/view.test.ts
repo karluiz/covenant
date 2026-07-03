@@ -130,6 +130,21 @@ describe("reduceAcpEvent", () => {
     expect(state.pendingPerms.get("req-1")).toBe(item);
   });
 
+  it("duplicate_permission_pending_is_ignored: same requestKey twice yields one perm item", () => {
+    const state = createAcpStreamState();
+    const request: AcpPermissionRequest = {
+      sessionId: "s1",
+      toolCall: { toolCallId: "t1", title: "Push", kind: "execute" },
+      options: [{ optionId: "a", kind: "allow_once", name: "Allow" }],
+    };
+    reduceAcpEvent(state, { type: "permission_pending", requestKey: "req-1", request });
+    reduceAcpEvent(state, { type: "permission_pending", requestKey: "req-1", request });
+
+    expect(state.items).toHaveLength(1);
+    expect(state.pendingPerms.size).toBe(1);
+    expect((state.items[0] as AcpPermItem).requestKey).toBe("req-1");
+  });
+
   it("markPermAnswered marks the perm item and removes it from pendingPerms", () => {
     const state = createAcpStreamState();
     const request: AcpPermissionRequest = {
