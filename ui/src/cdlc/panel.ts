@@ -123,6 +123,8 @@ export interface CdlcPanelOpts {
   groupRootDir?: string | null;
   onClose?: () => void;
   onNewContext?: () => void;
+  /** Open a folder picker to set the group's project folder (empty state CTA). */
+  onPickFolder?: () => void;
 }
 
 export class CdlcPanel {
@@ -192,7 +194,22 @@ export class CdlcPanel {
   async refresh(): Promise<void> {
     const cwd = this.opts.groupRootDir;
     if (!cwd) {
-      this.body.textContent = "This group has no project folder.";
+      const empty = document.createElement("div");
+      empty.className = "rail-empty";
+      empty.innerHTML = Icons.folderPlus({ size: 28 })
+        + `<div class="rail-empty-title">No project folder</div>`
+        + `<div class="rail-empty-hint">CDLC reads skills, agents and context from the group’s repo. Point this group at a folder to get started.</div>`;
+      if (this.opts.onPickFolder) {
+        const actions = document.createElement("div");
+        actions.className = "rail-empty-actions";
+        const btn = document.createElement("button");
+        btn.className = "rail-empty-btn";
+        btn.textContent = "Choose folder…";
+        btn.addEventListener("click", () => this.opts.onPickFolder?.());
+        actions.appendChild(btn);
+        empty.appendChild(actions);
+      }
+      this.body.replaceChildren(empty);
       return;
     }
     // Loading notice — same treatment as Beacon, shown only on first fetch

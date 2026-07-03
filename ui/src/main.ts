@@ -1422,6 +1422,15 @@ async function boot(): Promise<void> {
       onNewContext: () => {
         window.dispatchEvent(new CustomEvent("spec-chat:open", { detail: { cdlcContext: true } }));
       },
+      onPickFolder: () => {
+        const a = args;
+        void manager.pickGroupRootDir(a.groupId).then((picked) => {
+          if (!picked) return;
+          // Remount so the head picks up the Project button too.
+          pendingCdlcArgs = a;
+          mountCdlc();
+        });
+      },
     }).mount(document.body);
   }
 
