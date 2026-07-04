@@ -439,6 +439,12 @@
             radial-gradient(ellipse 62% 68% at 50% 44%, #ffffff 0%, #eef1f7 82%, #e6eaf2 100%);
           background: linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
         }
+        /* deeper gold: #FDF7E6 crown is white-on-white on the light field */
+        body:not(.theme-dark) #boot-splash #bs-ring-gold,
+        body:not(.theme-dark) #boot-splash #bs-chevron,
+        body:not(.theme-dark) #boot-splash #bs-cursor { fill: url(#bsGoldLight); }
+        body:not(.theme-dark) #boot-splash #bs-ring-hot use { fill: #D2AC5E; }
+        body:not(.theme-dark) #boot-splash #bs-ring-spec use { fill: #C89F52; }
       }
       body.theme-light #boot-splash {
         --bs-text: #7c5f16;
@@ -448,6 +454,11 @@
           radial-gradient(ellipse 62% 68% at 50% 44%, #ffffff 0%, #eef1f7 82%, #e6eaf2 100%);
         background: linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
       }
+      body.theme-light #boot-splash #bs-ring-gold,
+      body.theme-light #boot-splash #bs-chevron,
+      body.theme-light #boot-splash #bs-cursor { fill: url(#bsGoldLight); }
+      body.theme-light #boot-splash #bs-ring-hot use { fill: #D2AC5E; }
+      body.theme-light #boot-splash #bs-ring-spec use { fill: #C89F52; }
     </style>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
@@ -468,6 +479,12 @@
               <linearGradient id="bsGold" x1="237.854" y1="140.033" x2="237.854" y2="419.468" gradientUnits="userSpaceOnUse">
                 <stop stop-color="#FDF7E6"/>
                 <stop offset="1" stop-color="#DDC99F"/>
+              </linearGradient>
+              <!-- Light-theme ring gold: #FDF7E6 is white-on-white on the
+                   light field; CSS swaps fills to this deeper gradient. -->
+              <linearGradient id="bsGoldLight" x1="237.854" y1="140.033" x2="237.854" y2="419.468" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#D9B96E"/>
+                <stop offset="1" stop-color="#A9853F"/>
               </linearGradient>
               <!-- Mouth cut: opens the C on the right so the connectors
                    exit the ring. -->
@@ -490,7 +507,7 @@
             <!-- RING (exit wrapper gets the one permitted animated blur) -->
             <g id="bs-ring-block">
               <g mask="url(#bsRevMain)">
-                <g mask="url(#bsMouth)"><use href="#bsRingD" fill="url(#bsGold)"/></g>
+                <g mask="url(#bsMouth)"><use id="bs-ring-gold" href="#bsRingD" fill="url(#bsGold)"/></g>
               </g>
               <!-- 12° cream-white hot leading edge riding the frontier -->
               <g id="bs-ring-hot" mask="url(#bsRevHot)">
