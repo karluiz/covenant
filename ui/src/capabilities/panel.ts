@@ -297,41 +297,85 @@ export class CapabilitiesPanel {
       nav.appendChild(toolLink(t.key, t.label, badge));
     }
 
-    nav.appendChild(navGroupTitle("Section"));
-    for (const s of SECTIONS_BY_TOOL[this.activeTool]) {
-      const a = document.createElement("a");
-      a.className = "cap-nav-item";
-      if (this.activeSection === s.key) a.classList.add("active");
-      a.textContent = s.label;
-      a.onclick = () => {
-        this.activeSection = s.key;
-        this.selectedId = null;
-        this.render();
-      };
-      nav.appendChild(a);
-    }
+    return nav;
+  }
 
-    nav.appendChild(navGroupTitle("Scope"));
-    const scopeBox = document.createElement("div");
-    scopeBox.className = "cap-nav-scope";
-    scopeBox.innerHTML = `
-      <label class="cap-check"><input type="checkbox" data-scope="user" ${this.showUser ? "checked" : ""}> User</label>
-      <label class="cap-check"><input type="checkbox" data-scope="project" ${this.showProject ? "checked" : ""}> Project</label>
-      <div class="cap-project-path" title="${this.projectRoot ? escapeHtml(this.projectRoot) : ""}">${this.projectRoot ? escapeHtml(this.projectRoot) : "no project root"}</div>
-      <div class="cap-nav-scope-actions">
-        <button type="button" class="cap-btn cap-btn-small" data-act="set-root">Set…</button>
-        ${this.projectRoot ? `<button type="button" class="cap-btn cap-btn-small" data-act="clear-root">Clear</button>` : ""}
-      </div>
-    `;
-    scopeBox.querySelector<HTMLInputElement>('[data-scope="user"]')!.onchange = (e) => {
-      this.showUser = (e.target as HTMLInputElement).checked;
-      this.render();
+  private renderMain(): HTMLElement {
+    const main = document.createElement("div");
+    main.className = "capabilities-main";
+
+    main.appendChild(this.renderToolbar());
+
+    if (this.activeTool === "covenant") main.appendChild(this.renderCovenantBar());
+
+    if (this.newFormOpen) main.appendChild(this.renderNewForm());
+
+    main.appendChild(this.renderSplit());
+    return main;
+  }
+
+  // One-row toolbar: filter input + User/Project scope chips + project-root
+  // chip (click = pick, × = clear). Replaces the old sidebar SCOPE group.
+  private renderToolbar(): HTMLElement {
+    const bar = document.createElement("div");
+    bar.className = "cap-toolbar";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "cap-search";
+    input.placeholder = "Filter by name, path or description";
+    input.value = this.search;
+    input.oninput = () => {
+      this.search = input.value;
+      this.renderSplitOnly();
     };
-    scopeBox.querySelector<HTMLInputElement>('[data-scope="project"]')!.onchange = (e) => {
-      this.showProject = (e.target as HTMLInputElement).checked;
-      this.render();
+    bar.appendChild(input);
+
+    const scopeChip = (label: string, on: boolean, toggle: () => void): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cap-chip" + (on ? " on" : "");
+      b.textContent = label;
+      b.onclick = toggle;
+      return b;
     };
-    scopeBox.querySelector<HTMLButtonElement>('[data-act="set-root"]')!.onclick = async () => {
+    bar.appendChild(
+      scopeChip("User", this.showUser, () => {
+        this.showUser = !this.showUser;
+        this.render();
+      }),
+    );
+    bar.appendChild(
+      scopeChip("Project", this.showProject, () => {
+        this.showProject = !this.showProject;
+        this.render();
+      }),
+    );
+
+    const root = document.createElement("button");
+    root.type = "button";
+    root.className = "cap-chip cap-chip-root" + (this.projectRoot ? " set" : "");
+    if (this.projectRoot) {
+      root.title = this.projectRoot;
+      const name = document.createElement("span");
+      name.className = "cap-chip-root-name";
+      name.textContent = this.projectRoot.split("/").filter(Boolean).pop() ?? this.projectRoot;
+      root.appendChild(name);
+      const clear = document.createElement("span");
+      clear.className = "cap-chip-root-clear";
+      clear.textContent = "×";
+      clear.title = "Clear project root";
+      clear.onclick = async (e) => {
+        e.stopPropagation();
+        this.projectRoot = null;
+        localStorage.removeItem(PROJECT_ROOT_KEY);
+        await this.refresh();
+      };
+      root.appendChild(clear);
+    } else {
+      root.textContent = "Set project root…";
+    }
+    root.onclick = async () => {
       const picked = await openDialog({
         title: "Pick project root",
         multiple: false,
@@ -343,39 +387,9 @@ export class CapabilitiesPanel {
       localStorage.setItem(PROJECT_ROOT_KEY, picked);
       await this.refresh();
     };
-    const clearBtn = scopeBox.querySelector<HTMLButtonElement>('[data-act="clear-root"]');
-    if (clearBtn) {
-      clearBtn.onclick = async () => {
-        this.projectRoot = null;
-        localStorage.removeItem(PROJECT_ROOT_KEY);
-        await this.refresh();
-      };
-    }
-    nav.appendChild(scopeBox);
+    bar.appendChild(root);
 
-    return nav;
-  }
-
-  private renderMain(): HTMLElement {
-    const main = document.createElement("div");
-    main.className = "capabilities-main";
-
-    const searchBar = document.createElement("div");
-    searchBar.className = "cap-search-bar";
-    searchBar.innerHTML = `<input type="text" class="cap-search" placeholder="Filter by name, path or description" value="${escapeHtml(this.search)}">`;
-    const input = searchBar.querySelector<HTMLInputElement>(".cap-search")!;
-    input.oninput = () => {
-      this.search = input.value;
-      this.renderSplitOnly();
-    };
-    main.appendChild(searchBar);
-
-    if (this.activeTool === "covenant") main.appendChild(this.renderCovenantBar());
-
-    if (this.newFormOpen) main.appendChild(this.renderNewForm());
-
-    main.appendChild(this.renderSplit());
-    return main;
+    return bar;
   }
 
   // Covenant is the source of truth: editing `.covenant/cdlc/` and then
@@ -395,7 +409,7 @@ export class CapabilitiesPanel {
       ? `${synced} synced · ${stale} stale · ${never} never`
       : "";
     bar.innerHTML = `
-      <span class="cap-covenant-msg">CDLC is the source of truth.${summary ? ` <span class="cap-proj-summary">${summary}</span>` : ""}</span>
+      <span class="cap-covenant-msg">Covenant is the source. Edit here, then Project to fan out to every executor.${summary ? ` <span class="cap-proj-summary">${summary}</span>` : ""}</span>
       <button type="button" class="cap-btn ${pending > 0 ? "cap-btn-primary" : ""}" data-act="project" ${hasRoot ? "" : "disabled"}>Project →</button>
     `;
     const btn = bar.querySelector<HTMLButtonElement>('[data-act="project"]')!;
@@ -421,9 +435,33 @@ export class CapabilitiesPanel {
   private renderSplit(): HTMLElement {
     const split = document.createElement("div");
     split.className = "capabilities-split";
-    split.appendChild(this.renderList());
+    const listCol = document.createElement("div");
+    listCol.className = "capabilities-list-col";
+    listCol.appendChild(this.renderSectionTabs());
+    listCol.appendChild(this.renderList());
+    split.appendChild(listCol);
     split.appendChild(this.renderDetail());
     return split;
+  }
+
+  // Sections (Manifest/Skills/…) filter the list, so they live with it as a
+  // flat tab strip — the page reads tool → section → file → content.
+  private renderSectionTabs(): HTMLElement {
+    const tabs = document.createElement("div");
+    tabs.className = "cap-section-tabs";
+    for (const s of SECTIONS_BY_TOOL[this.activeTool]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cap-section-tab" + (this.activeSection === s.key ? " active" : "");
+      b.textContent = s.label;
+      b.onclick = () => {
+        this.activeSection = s.key;
+        this.selectedId = null;
+        this.render();
+      };
+      tabs.appendChild(b);
+    }
+    return tabs;
   }
 
   private renderNewForm(): HTMLElement {
@@ -543,14 +581,22 @@ export class CapabilitiesPanel {
       row.className = "cap-list-item";
       if (this.selectedId === c.id) row.classList.add("cap-list-item-active");
       const ro = c.read_only ? `<span class="cap-badge cap-badge-ro">RO</span>` : "";
+      // Scope is already filtered by the toolbar chips — only disambiguate
+      // per-row when both scopes are visible at once.
+      const bothScopes = this.showUser && this.showProject;
+      const isProject = c.scope_label.startsWith("project:");
+      const scopeMini = bothScopes
+        ? `<span class="cap-scope-mini" title="${escapeHtml(c.scope_label)}">${isProject ? "P" : "U"}</span>`
+        : "";
+      const sub = c.description ? truncate(c.description, 72) : c.kind;
       row.innerHTML = `
         <div class="cap-list-row1">
           <span class="cap-list-name">${escapeHtml(c.name)}</span>
+          ${scopeMini}
           ${ro}
         </div>
         <div class="cap-list-row2">
-          <span class="cap-list-scope">${escapeHtml(c.scope_label)}</span>
-          ${c.description ? `<span class="cap-list-desc">${escapeHtml(truncate(c.description, 60))}</span>` : ""}
+          <span class="cap-list-desc">${escapeHtml(sub)}</span>
         </div>
       `;
       row.onclick = async () => {
@@ -583,7 +629,20 @@ export class CapabilitiesPanel {
     const mode = this.viewMode;
     detail.innerHTML = `
       <div class="cap-detail-meta">
-        <div><strong>${escapeHtml(sel.name)}</strong>${sel.description ? ` <span class="cap-detail-desc">— ${escapeHtml(sel.description)}</span>` : ""}</div>
+        <div class="cap-detail-head">
+          <div class="cap-detail-title"><strong>${escapeHtml(sel.name)}</strong>${sel.description ? ` <span class="cap-detail-desc">— ${escapeHtml(sel.description)}</span>` : ""}</div>
+          <div class="cap-detail-head-actions">
+            ${
+              sel.read_only
+                ? `<span class="cap-readonly-msg">Plugin-scoped — read-only. <em>(Fork-to-user is a TODO.)</em></span>`
+                : `
+                  <span class="cap-dirty-flag" hidden>unsaved changes</span>
+                  <button type="button" class="cap-btn cap-btn-danger" data-act="delete">Delete</button>
+                  <button type="button" class="cap-btn cap-btn-primary" data-act="save" disabled>Save</button>
+                `
+            }
+          </div>
+        </div>
         <div class="cap-detail-row"><span class="cap-detail-key">Path:</span> <code>${escapeHtml(sel.path)}</code></div>
         <div class="cap-detail-row"><span class="cap-detail-key">Scope:</span> ${escapeHtml(sel.scope_label)}</div>
         <div class="cap-detail-row"><span class="cap-detail-key">Tool:</span> ${escapeHtml(sel.tool)} / ${escapeHtml(sel.kind)}</div>
@@ -603,17 +662,6 @@ export class CapabilitiesPanel {
           : `<textarea class="cap-editor" spellcheck="false" ${sel.read_only ? "disabled" : ""} ${isMarkdown && mode === "preview" ? "hidden" : ""}></textarea>
              ${isMarkdown ? `<div class="cap-preview markdown-body" ${mode === "source" ? "hidden" : ""}></div>` : ""}`
       }
-      <div class="cap-detail-actions">
-        ${
-          sel.read_only
-            ? `<span class="cap-readonly-msg">Plugin-scoped — read-only. <em>(Fork-to-user is a TODO.)</em></span>`
-            : `
-              <button type="button" class="cap-btn cap-btn-primary" data-act="save" disabled>Save</button>
-              <button type="button" class="cap-btn cap-btn-danger" data-act="delete">Delete</button>
-              <span class="cap-dirty-flag" hidden>unsaved changes</span>
-            `
-        }
-      </div>
     `;
     const textarea = detail.querySelector<HTMLTextAreaElement>(".cap-editor");
     const saveBtn = detail.querySelector<HTMLButtonElement>('[data-act="save"]');
