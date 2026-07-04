@@ -71,11 +71,16 @@ body.theme-light .cdlc-panel {
   box-shadow: none !important;
 }
 
-body.theme-true-dark .cdlc-panel {
+body.theme-true-dark .cdlc-panel,
+body.theme-true-dark .cdlc-reader {
   --cdlc-lift-1: #141416;
   --cdlc-lift-2: #1c1c1f;
   --cdlc-line: #242427;
+  /* muted #6c7280 is 4.4:1 on pure black — lift dim text on OLED */
+  --muted: #8b919d;
+  --fg-dim: #9aa0ab;
 }
+body.theme-true-dark .cdlc-loop .cdlc-loop-note { opacity: 1; }
 
 .cdlc-panel button,
 .cdlc-panel input {
