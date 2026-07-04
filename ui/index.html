@@ -6,63 +6,548 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Covenant</title>
     <style>
-      /* Inline so the splash paints on the first frame, before
-         /src/styles.css finishes loading. Full polish lives in
-         styles.css under .boot-splash. */
+      /* ─── Boot splash v2 — "FIRST PROMPT" ─────────────────────────────
+         Ported from the covenant-splash HyperFrames motion design
+         (videos/covenant-splash/index.html + shot-plan.json port_contract).
+         Entirely inline: ACT 1 plays from the first frame, before
+         /src/styles.css loads. Namespaced .bsplash-* / #bs-* — the
+         workspace-switch overlay keeps the legacy .boot-splash-* classes
+         (one deduped copy in styles.css). Dismissed by ui/src/boot-splash.ts
+         (adds .bsplash-leaving → 800ms exit keyframes → remove()).
+
+         ACT 1 FIRST PROMPT   0–1.5s   one-shot CSS animations, fixed delays
+         ACT 2 HEARTBEAT IDLE 1.5s+    1.35s period, infinite, opacity/
+                                       transform/steps() only (compositor)
+         EXIT (condensed ACT 3) 800ms  gold dies first, cyan lingers,
+                                       the cursor re-lights and dies last */
       #boot-splash {
+        --bs-m: clamp(220px, 40vmin, 300px);
+        --bs-text: #fdf7e6;
+        --bs-tick: #ffffff;
+        --bs-field:
+          radial-gradient(ellipse 130% 130% at 50% 50%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.04) 100%),
+          radial-gradient(ellipse 62% 68% at 50% 44%, #23304e 0%, #090d17 82%, #070a12 100%);
         position: fixed;
         inset: 0;
         z-index: 2000;
         display: flex;
         align-items: center;
         justify-content: center;
-        background:
-          radial-gradient(circle at 50% 42%, rgba(122, 162, 247, 0.14), transparent 38%),
-          #0d0e10;
-        color: #f5f6f7;
+        overflow: hidden;
+        background: var(--bg, #0b0d10);
         font-family:
           ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-        transition: opacity 320ms ease-out;
       }
-      #boot-splash.is-leaving { opacity: 0; pointer-events: none; }
+      #boot-splash.bsplash-leaving {
+        opacity: 0;
+        pointer-events: none;
+        animation: bsp-exit-root 800ms linear both;
+      }
+      .bsplash-field {
+        position: absolute;
+        inset: 0;
+        background: var(--bs-field);
+        opacity: 0;
+        will-change: opacity;
+        animation: bsp-field-in 133ms linear forwards;
+      }
+      .bsplash-lockup {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        transform: translateY(calc(var(--bs-m) * -0.021));
+      }
+      .bsplash-mark-wrap { position: relative; width: var(--bs-m); height: var(--bs-m); }
+      #bs-mark { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+
+      /* FX overlay — every glow is a pre-rendered radial-gradient div,
+         animated on opacity/transform only (light_spec.glow_implementation).
+         Geometry is % of the mark box (composition values ÷ 470). */
+      .bsplash-fx { position: absolute; inset: 0; pointer-events: none; }
+      .bsplash-fx > div {
+        position: absolute;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        opacity: 0;
+        will-change: opacity, transform;
+      }
+      #bs-bloom {
+        left: 41.591%; top: 52.709%; width: 110.64%; height: 110.64%;
+        background: radial-gradient(circle, rgba(253, 247, 230, 0.85) 0%, rgba(221, 201, 159, 0.28) 42%, rgba(221, 201, 159, 0) 70%);
+        animation: bsp-bloom 900ms linear forwards;
+      }
+      #bs-shimmer {
+        left: 63.45%; top: 51.09%; width: 72.34%; height: 72.34%;
+        background: radial-gradient(circle, rgba(253, 247, 230, 0.7) 0%, rgba(253, 247, 230, 0.18) 42%, rgba(253, 247, 230, 0) 68%);
+        animation:
+          bsp-shimmer-seal 240ms linear 1020ms both,
+          bsp-shimmer-idle 1350ms linear 1580ms infinite;
+      }
+      #bs-tint {
+        left: 61.82%; top: 51.36%; width: 63.83%; height: 63.83%;
+        background: radial-gradient(circle, rgba(130, 227, 234, 0.35) 0%, rgba(130, 227, 234, 0.1) 42%, rgba(130, 227, 234, 0) 62%);
+        animation: bsp-tint-in 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94) 880ms forwards;
+      }
+      .bsplash-halo {
+        width: 20.43%; height: 20.43%;
+        background: radial-gradient(circle, rgba(130, 227, 234, 0.6) 0%, rgba(130, 227, 234, 0.2) 40%, rgba(130, 227, 234, 0) 70%);
+      }
+      /* ignition on connector-tip arrival (mid 0.88 / top 0.94 / bot 1.00),
+         then the idle converging chord (40ms micro-stagger mid/top/bot) */
+      #bs-halo-mid { left: 78.516%; top: 51.421%; animation: bsp-halo-ignite 330ms linear 880ms forwards, bsp-halo-idle 1350ms linear 1920ms infinite; }
+      #bs-halo-top { left: 78.324%; top: 37.61%;  animation: bsp-halo-ignite 330ms linear 940ms forwards, bsp-halo-idle 1350ms linear 1960ms infinite; }
+      #bs-halo-bot { left: 78.324%; top: 65.232%; animation: bsp-halo-ignite 330ms linear 1000ms forwards, bsp-halo-idle 1350ms linear 2000ms infinite; }
+      /* idle connector spill — STATIC pre-blur, only opacity animates */
+      .bsplash-spill {
+        background: radial-gradient(ellipse, rgba(130, 227, 234, 0.5) 0%, rgba(130, 227, 234, 0) 70%);
+        filter: blur(4px);
+      }
+      #bs-spill-mid { left: 67.98%; top: 51.35%; width: 23.4%;  height: 6.38%; animation: bsp-spill-in 160ms cubic-bezier(0.25, 0.46, 0.45, 0.94) 1320ms forwards, bsp-spill-idle 1350ms linear 1680ms infinite; }
+      #bs-spill-top { left: 67.8%;  top: 44.2%;  width: 20.43%; height: 5.53%; transform: translate(-50%, -50%) rotate(-60deg); animation: bsp-spill-in 160ms cubic-bezier(0.25, 0.46, 0.45, 0.94) 1320ms forwards, bsp-spill-idle 1350ms linear 1750ms infinite; }
+      #bs-spill-bot { left: 67.8%;  top: 58.5%;  width: 20.43%; height: 5.53%; transform: translate(-50%, -50%) rotate(60deg);  animation: bsp-spill-in 160ms cubic-bezier(0.25, 0.46, 0.45, 0.94) 1320ms forwards, bsp-spill-idle 1350ms linear 1820ms infinite; }
+      /* cursor triple-layer glow (covenant-logo.svg recipe, re-toned gold) —
+         used by the seal confirmation and the exit re-light */
+      #bs-cglow-halo {
+        left: 46.447%; top: 55.146%; width: 51.06%; height: 51.06%;
+        background: radial-gradient(circle, rgba(253, 247, 230, 0.5) 0%, rgba(221, 201, 159, 0.22) 36%, rgba(221, 201, 159, 0) 70%);
+      }
+      #bs-cglow-core {
+        left: 46.447%; top: 55.146%; width: 21.28%; height: 21.28%;
+        background: radial-gradient(circle, rgba(255, 244, 214, 0.8) 0%, rgba(255, 244, 214, 0) 62%);
+        animation: bsp-cglow-seal 400ms linear 1020ms forwards;
+      }
+      #bs-cglow-pin {
+        left: 46.447%; top: 55.146%; width: 8.51%; height: 8.51%;
+        background: radial-gradient(circle, rgba(255, 255, 250, 0.95) 0%, rgba(255, 255, 250, 0) 58%);
+      }
+
+      /* ── SVG: ring reveal via fat-stroke arc masks (stroke-dashoffset),
+         connectors junction→node, nodes, prompt subpaths ── */
+      #bs-arc-main { stroke-dasharray: 651.04 711.04; stroke-dashoffset: 652;  animation: bsp-arc-main 450ms cubic-bezier(0.645, 0.045, 0.355, 1) 500ms both; }
+      #bs-arc-hot  { stroke-dasharray: 25.61 711.04;  stroke-dashoffset: 26.6; animation: bsp-arc-hot 450ms cubic-bezier(0.645, 0.045, 0.355, 1) 500ms both; }
+      #bs-arc-spec { stroke-dasharray: 12.81 711.04;  stroke-dashoffset: 13.8; animation: bsp-arc-spec 450ms cubic-bezier(0.645, 0.045, 0.355, 1) 560ms both; }
+      #bs-ring-hot  { opacity: 0; animation: bsp-ring-hot-op 1010ms linear forwards; }
+      #bs-ring-spec { opacity: 0; animation: bsp-ring-spec-op 1010ms linear forwards; }
+      #bs-ring-block { transform-box: fill-box; transform-origin: 50% 50%; will-change: opacity, transform; }
+      /* BROADCAST: connectors draw out of the mouth, junction → node */
+      #bs-conn-mid { stroke-dasharray: 105.26 125.26; stroke-dashoffset: 110.26; animation: bsp-conn-draw 180ms cubic-bezier(0.165, 0.84, 0.44, 1) 700ms both; }
+      #bs-conn-top { stroke-dasharray: 150.05 170.05; stroke-dashoffset: 155.05; animation: bsp-conn-draw 180ms cubic-bezier(0.165, 0.84, 0.44, 1) 760ms both; }
+      #bs-conn-bot { stroke-dasharray: 150.52 170.52; stroke-dashoffset: 155.52; animation: bsp-conn-draw 180ms cubic-bezier(0.165, 0.84, 0.44, 1) 820ms both; }
+      /* NODE IGNITION: light overshoots (halo), geometry doesn't (scale
+         lands clean power3.out, zero bounce) */
+      .bs-node { transform-box: fill-box; transform-origin: 50% 50%; opacity: 0; transform: scale(0.4); }
+      #bs-node-mid { animation: bsp-node-ignite 240ms cubic-bezier(0.215, 0.61, 0.355, 1) 880ms forwards; }
+      #bs-node-top { animation: bsp-node-ignite 240ms cubic-bezier(0.215, 0.61, 0.355, 1) 940ms forwards; }
+      #bs-node-bot { animation: bsp-node-ignite 240ms cubic-bezier(0.215, 0.61, 0.355, 1) 1000ms forwards; }
+      /* the seal countersign receipt tick rides the wrappers */
+      .bs-nodew { transform-box: fill-box; transform-origin: 50% 50%; }
+      #bs-nodew-mid { animation: bsp-node-tick 140ms cubic-bezier(0.445, 0.05, 0.55, 0.95) 1120ms; }
+      #bs-nodew-top { animation: bsp-node-tick 140ms cubic-bezier(0.445, 0.05, 0.55, 0.95) 1160ms; }
+      #bs-nodew-bot { animation: bsp-node-tick 140ms cubic-bezier(0.445, 0.05, 0.55, 0.95) 1200ms; }
+      /* TYPE: chevron decodes in — 3-frame stepped clip reveal + hot flick */
+      #bs-chev {
+        -webkit-clip-path: inset(0 100% 0 0);
+        clip-path: inset(0 100% 0 0);
+        animation: bsp-chev-type 400ms steps(1, end) both;
+      }
+      #bs-chevron-hot { opacity: 0; animation: bsp-hold-on 34ms steps(1, end) 400ms; }
+      /* the cursor: hard cut at 0.067, one square-wave blink, then the
+         56/44 lit-biased idle clock (ON at every 1.35s boundary) */
+      #bs-cursor {
+        will-change: opacity;
+        animation:
+          bsp-cursor-act1 1500ms steps(1, end) both,
+          bsp-cursor-idle 1350ms steps(1, end) 1500ms infinite;
+      }
+
+      /* ── wordmark + subline — tracking 0.42em is STATIC, never animated ── */
+      .bsplash-wordmark {
+        margin-top: calc(var(--bs-m) * 0.072);
+        font-size: calc(var(--bs-m) * 0.128);
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 0.42em;
+        padding-left: 0.42em;
+        color: var(--bs-text);
+        opacity: 0.92;
+      }
+      .bsplash-wordmark .char { position: relative; display: inline-block; width: 1ch; height: 1em; }
+      .bsplash-wordmark .g { position: absolute; left: 0; top: 0; opacity: 0; }
+      .bsplash-wordmark .gt { color: var(--bs-tick); }
+      /* glyph decode: wrong glyphs + white lock tick flick on for 1 frame
+         (per-span animation-delay inline), the real glyph latches */
+      .bsplash-wordmark .w,
+      .bsplash-wordmark .gt { animation: bsp-hold-on 34ms steps(1, end); }
+      .bsplash-wordmark .gr { animation: bsp-hold-on 34ms steps(1, end) forwards; }
+      .bsplash-subline {
+        margin-top: calc(var(--bs-m) * 0.038);
+        font-size: calc(var(--bs-m) * 0.045);
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 0.42em;
+        padding-left: 0.42em;
+        color: var(--bs-text);
+        opacity: 0;
+        transform: translateY(6px);
+        animation: bsp-subline-in 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94) 1300ms forwards;
+      }
+
+      /* ─── ACT 1 + ACT 2 keyframes ─── */
+      @keyframes bsp-field-in { to { opacity: 1; } }
+      @keyframes bsp-cursor-act1 {
+        0% { opacity: 0; }
+        4.44% { opacity: 1; }
+        13.33% { opacity: 0; }
+        20%, 100% { opacity: 1; }
+      }
+      @keyframes bsp-cursor-idle {
+        0% { opacity: 1; }
+        56% { opacity: 0; }
+        100% { opacity: 1; }
+      }
+      @keyframes bsp-chev-type {
+        0% { -webkit-clip-path: inset(0 100% 0 0); clip-path: inset(0 100% 0 0); }
+        75% { -webkit-clip-path: inset(0 69% 0 0); clip-path: inset(0 69% 0 0); }
+        83.33% { -webkit-clip-path: inset(0 31% 0 0); clip-path: inset(0 31% 0 0); }
+        91.67%, 100% { -webkit-clip-path: inset(0 0 0 0); clip-path: inset(0 0 0 0); }
+      }
+      @keyframes bsp-hold-on { 0%, 100% { opacity: 1; } }
+      /* EXECUTE / HOOK: struck-bell bloom — 100ms attack peaking at 0.50,
+         400ms decay; opacity ceiling 0.45; scale lands clean */
+      @keyframes bsp-bloom {
+        0%, 44.44% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1); }
+        55.56% { opacity: 0.45; transform: translate(-50%, -50%) scale(0.542); animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(1.15); }
+      }
+      @keyframes bsp-arc-main { to { stroke-dashoffset: 0; } }
+      @keyframes bsp-arc-hot  { to { stroke-dashoffset: -625.42; } }
+      @keyframes bsp-arc-spec { to { stroke-dashoffset: -638.23; } }
+      @keyframes bsp-ring-hot-op {
+        0% { opacity: 0; animation-timing-function: steps(1, end); }
+        49.5% { opacity: 1; }
+        94.06% { opacity: 1; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        100% { opacity: 0; }
+      }
+      @keyframes bsp-ring-spec-op {
+        0% { opacity: 0; animation-timing-function: steps(1, end); }
+        55.45% { opacity: 0.9; }
+        94.06% { opacity: 0.9; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        100% { opacity: 0; }
+      }
+      @keyframes bsp-conn-draw { to { stroke-dashoffset: 0; } }
+      @keyframes bsp-node-ignite {
+        0% { opacity: 1; transform: scale(0.4); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+      @keyframes bsp-node-tick {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.04); }
+        100% { transform: scale(1); }
+      }
+      @keyframes bsp-halo-ignite {
+        0% { opacity: 0; animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1); }
+        39.39% { opacity: 1; animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+        100% { opacity: 0.75; }
+      }
+      @keyframes bsp-halo-idle {
+        0% { opacity: 0.75; transform: translate(-50%, -50%) scale(1); animation-timing-function: cubic-bezier(0.445, 0.05, 0.55, 0.95); }
+        11.85% { opacity: 0.84; transform: translate(-50%, -50%) scale(1.015); animation-timing-function: cubic-bezier(0.445, 0.05, 0.55, 0.95); }
+        23.7%, 100% { opacity: 0.75; transform: translate(-50%, -50%) scale(1); }
+      }
+      @keyframes bsp-tint-in { to { opacity: 0.1; } }
+      @keyframes bsp-shimmer-seal {
+        0% { opacity: 0; animation-timing-function: cubic-bezier(0.445, 0.05, 0.55, 0.95); }
+        41.67% { opacity: 0.12; animation-timing-function: cubic-bezier(0.445, 0.05, 0.55, 0.95); }
+        100% { opacity: 0; }
+      }
+      @keyframes bsp-shimmer-idle {
+        0% { opacity: 0; animation-timing-function: cubic-bezier(0.445, 0.05, 0.55, 0.95); }
+        11.85% { opacity: 0.08; animation-timing-function: cubic-bezier(0.445, 0.05, 0.55, 0.95); }
+        23.7%, 100% { opacity: 0; }
+      }
+      @keyframes bsp-cglow-seal {
+        0% { opacity: 0.3; animation-timing-function: steps(1, end); }
+        7.5% { opacity: 0.3; animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+        100% { opacity: 0; }
+      }
+      @keyframes bsp-spill-in { to { opacity: 0.1; } }
+      @keyframes bsp-spill-idle {
+        0% { opacity: 0.1; animation-timing-function: cubic-bezier(0.445, 0.05, 0.55, 0.95); }
+        12.96% { opacity: 0.22; animation-timing-function: cubic-bezier(0.445, 0.05, 0.55, 0.95); }
+        25.93%, 100% { opacity: 0.1; }
+      }
+      @keyframes bsp-subline-in { to { opacity: 0.55; transform: translateY(0); } }
+
+      /* ─── EXIT — condensed ACT 3 (800ms, .bsplash-leaving) ───
+         Keyframes launch from the canonical idle baseline (exit-arming:
+         MIN_VISIBLE_MS guarantees ACT 1 completed; idle amplitudes ≤6%
+         make immediate fire from any phase sub-perceptual). Order:
+         subline drops → connectors un-draw inward → wordmark fades →
+         ring melts (the one animated blur) → node halos gutter out
+         bottom→top→mid → field crossfades to app bg → the cursor blinks
+         off, re-lights one step brighter, and dies last with the root. */
+      #boot-splash.bsplash-leaving .bsplash-field { animation: bsp-exit-field 800ms linear both; }
+      #boot-splash.bsplash-leaving .bsplash-subline { animation: bsp-exit-subline 800ms linear both; }
+      #boot-splash.bsplash-leaving .bsplash-wordmark { animation: bsp-exit-wordmark 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-conn-bot { animation: bsp-exit-conn-bot 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-conn-top { animation: bsp-exit-conn-top 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-conn-mid { animation: bsp-exit-conn-mid 800ms linear both; }
+      #boot-splash.bsplash-leaving .bsplash-spill { animation: bsp-exit-spill 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-shimmer,
+      #boot-splash.bsplash-leaving #bs-bloom { animation: none; opacity: 0; }
+      #boot-splash.bsplash-leaving #bs-ring-block { animation: bsp-exit-ring 800ms linear both; will-change: opacity, transform, filter; }
+      #boot-splash.bsplash-leaving #bs-tint { animation: bsp-exit-tint 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-chev-fade { animation: bsp-exit-chev 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-halo-bot { animation: bsp-exit-halo-bot 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-halo-top { animation: bsp-exit-halo-top 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-halo-mid { animation: bsp-exit-halo-mid 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-node-bot { animation: bsp-exit-node-bot 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-node-top { animation: bsp-exit-node-top 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-node-mid { animation: bsp-exit-node-mid 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-cursor { animation: bsp-exit-cursor 800ms steps(1, end) both; }
+      #boot-splash.bsplash-leaving #bs-cglow-halo { animation: bsp-exit-cglow-halo 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-cglow-core { animation: bsp-exit-cglow-core 800ms linear both; }
+      #boot-splash.bsplash-leaving #bs-cglow-pin { animation: bsp-exit-cglow-pin 800ms linear both; }
+
+      @keyframes bsp-exit-root {
+        0%, 72% { opacity: 1; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        100% { opacity: 0; }
+      }
+      @keyframes bsp-exit-field {
+        0%, 45% { opacity: 1; }
+        95%, 100% { opacity: 0; }
+      }
+      @keyframes bsp-exit-subline {
+        0% { opacity: 0.55; transform: translateY(0); animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        20%, 100% { opacity: 0; transform: translateY(4px); }
+      }
+      @keyframes bsp-exit-wordmark {
+        0%, 7.5% { opacity: 0.92; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        30%, 100% { opacity: 0; }
+      }
+      /* connectors un-draw INWARD node→junction, bottom/top/middle —
+         middle folds home last, mirroring it leading the broadcast */
+      @keyframes bsp-exit-conn-bot {
+        0% { stroke-dashoffset: 0; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        27.5%, 100% { stroke-dashoffset: 155.52; }
+      }
+      @keyframes bsp-exit-conn-top {
+        0%, 5% { stroke-dashoffset: 0; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        32.5%, 100% { stroke-dashoffset: 155.05; }
+      }
+      @keyframes bsp-exit-conn-mid {
+        0%, 10% { stroke-dashoffset: 0; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        37.5%, 100% { stroke-dashoffset: 110.26; }
+      }
+      @keyframes bsp-exit-spill {
+        0% { opacity: 0.1; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        27.5%, 100% { opacity: 0; }
+      }
+      /* ring melts first — reflected light dies with its source (the one
+         animated filter in the piece: small layer, tiny radius) */
+      @keyframes bsp-exit-ring {
+        0%, 12.5% { opacity: 1; transform: scale(1); filter: blur(0px); animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        50%, 100% { opacity: 0; transform: scale(0.985); filter: blur(4px); }
+      }
+      @keyframes bsp-exit-tint {
+        0%, 12.5% { opacity: 0.1; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        50%, 100% { opacity: 0; }
+      }
+      @keyframes bsp-exit-chev {
+        0%, 30% { opacity: 1; animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        47.5%, 100% { opacity: 0; }
+      }
+      /* node halos gutter out bottom → top → mid (mirror of ignition) */
+      @keyframes bsp-exit-halo-bot {
+        0%, 35% { opacity: 0.75; transform: translate(-50%, -50%) scale(1); animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        60%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+      }
+      @keyframes bsp-exit-halo-top {
+        0%, 42.5% { opacity: 0.75; transform: translate(-50%, -50%) scale(1); animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        67.5%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+      }
+      @keyframes bsp-exit-halo-mid {
+        0%, 50% { opacity: 0.75; transform: translate(-50%, -50%) scale(1); animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        75%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+      }
+      @keyframes bsp-exit-node-bot {
+        0%, 35% { opacity: 1; transform: scale(1); animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        60%, 100% { opacity: 0; transform: scale(1); }
+      }
+      @keyframes bsp-exit-node-top {
+        0%, 42.5% { opacity: 1; transform: scale(1); animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        67.5%, 100% { opacity: 0; transform: scale(1); }
+      }
+      @keyframes bsp-exit-node-mid {
+        0%, 50% { opacity: 1; transform: scale(1); animation-timing-function: cubic-bezier(0.55, 0.085, 0.68, 0.53); }
+        75%, 100% { opacity: 0; transform: scale(1); }
+      }
+      /* THE BUTTON: off beat, hard re-light one step brighter, and the
+         root fade takes it — emitted light dies last */
+      @keyframes bsp-exit-cursor {
+        0% { opacity: 1; }
+        55% { opacity: 0; }
+        70%, 100% { opacity: 1; }
+      }
+      @keyframes bsp-exit-cglow-halo {
+        0% { opacity: 0; animation-timing-function: steps(1, end); }
+        70% { opacity: 0.34; animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+        80%, 100% { opacity: 0.24; }
+      }
+      @keyframes bsp-exit-cglow-core {
+        0% { opacity: 0; animation-timing-function: steps(1, end); }
+        70% { opacity: 0.6; animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+        80%, 100% { opacity: 0.45; }
+      }
+      @keyframes bsp-exit-cglow-pin {
+        0% { opacity: 0; animation-timing-function: steps(1, end); }
+        70% { opacity: 0.95; animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+        80%, 100% { opacity: 0.8; }
+      }
+
+      /* ─── reduced motion: static final lockup, cursor solid ON,
+         plain opacity fade on dismiss ─── */
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash,
+        #boot-splash * { animation: none !important; }
+        #boot-splash { transition: opacity 240ms ease-out; }
+        #boot-splash .bsplash-field { opacity: 1; }
+        #boot-splash #bs-cursor { opacity: 1; }
+        #boot-splash #bs-chev { -webkit-clip-path: none; clip-path: none; }
+        #boot-splash #bs-arc-main { stroke-dashoffset: 0; }
+        #boot-splash #bs-conn-mid,
+        #boot-splash #bs-conn-top,
+        #boot-splash #bs-conn-bot { stroke-dashoffset: 0; }
+        #boot-splash .bs-node { opacity: 1; transform: none; }
+        #boot-splash .bsplash-halo { opacity: 0.75; }
+        #boot-splash .bsplash-spill { opacity: 0.1; }
+        #boot-splash #bs-tint { opacity: 0.1; }
+        #boot-splash .bsplash-wordmark .gr { opacity: 1; }
+        #boot-splash .bsplash-subline { opacity: 0.55; transform: none; }
+        #boot-splash.bsplash-leaving { opacity: 0; }
+      }
+
+      /* ─── light theme skin: same choreography, field flips to the light
+         gradient, gold/cyan stay, text colors adapt ─── */
       @media (prefers-color-scheme: light) {
         body:not(.theme-dark) #boot-splash {
-          --accent: #2f6fed;
-          --text-primary: #1a1d22;
-          background:
-            radial-gradient(circle at 50% 42%, rgba(47, 111, 237, 0.15), transparent 38%),
-            radial-gradient(circle at 50% 100%, rgba(24, 36, 64, 0.045), transparent 44%),
-            linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
-          color: #1a1d22;
+          --bs-text: #7c5f16;
+          --bs-tick: #14161a;
+          --bs-field:
+            radial-gradient(circle at 50% 42%, rgba(47, 111, 237, 0.1), transparent 42%),
+            radial-gradient(ellipse 62% 68% at 50% 44%, #ffffff 0%, #eef1f7 82%, #e6eaf2 100%);
+          background: linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
         }
-        body:not(.theme-dark) #boot-splash .boot-splash-card {
-          border: 1px solid rgba(47, 111, 237, 0.16);
-          border-radius: 24px;
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.78));
-          box-shadow:
-            0 1px 0 rgba(255, 255, 255, 0.95) inset,
-            0 0 0 1px rgba(255, 255, 255, 0.72) inset,
-            0 26px 72px rgba(24, 36, 64, 0.14),
-            0 6px 20px rgba(24, 36, 64, 0.08);
-        }
+      }
+      body.theme-light #boot-splash {
+        --bs-text: #7c5f16;
+        --bs-tick: #14161a;
+        --bs-field:
+          radial-gradient(circle at 50% 42%, rgba(47, 111, 237, 0.1), transparent 42%),
+          radial-gradient(ellipse 62% 68% at 50% 44%, #ffffff 0%, #eef1f7 82%, #e6eaf2 100%);
+        background: linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
       }
     </style>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
     <div id="boot-splash" role="status" aria-live="polite" aria-label="Covenant is starting">
-      <div class="boot-splash-card">
-        <div class="boot-splash-orb" aria-hidden="true">
-          <span class="boot-splash-orb-core"></span>
-          <span class="boot-splash-orb-ring"></span>
-          <span class="boot-splash-orb-ring boot-splash-orb-ring--two"></span>
+      <div class="bsplash-field"></div>
+      <div class="bsplash-lockup">
+        <div class="bsplash-mark-wrap">
+          <!-- Re-authored covenant mark (from videos/covenant-splash):
+               compound gold path split into ring / chevron / cursor
+               subpaths, connectors junction→node, nodes addressable.
+               Ring is a FILLED path revealed by fat-stroke arc masks
+               animating stroke-dashoffset (~305° counter-clockwise from
+               the mouth's top lip). Original 550x550 viewBox kept. -->
+          <svg id="bs-mark" viewBox="0 0 550 550" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <path id="bsRingD" d="M216.832 142.575C248.28 136.493 280.864 141.403 309.124 156.48C337.384 171.557 359.606 195.887 372.067 225.394L340.044 238.917C330.683 216.752 313.99 198.475 292.761 187.15C271.532 175.824 247.055 172.136 223.432 176.704C199.808 181.273 178.471 193.819 162.994 212.242C147.518 230.666 138.842 253.849 138.419 277.907C137.996 301.964 145.853 325.437 160.672 344.393C175.491 363.349 196.374 376.637 219.822 382.033C243.271 387.428 267.862 384.603 289.476 374.031C311.09 363.458 328.415 345.779 338.549 323.956L354.314 331.278L370.077 338.598C356.586 367.649 333.523 391.183 304.75 405.257C275.977 419.331 243.242 423.092 212.027 415.909C180.812 408.727 153.013 391.037 133.285 365.802C113.558 340.568 103.099 309.321 103.662 277.295C104.225 245.269 115.776 214.409 136.378 189.883C156.98 165.358 185.384 148.656 216.832 142.575Z"/>
+              <linearGradient id="bsGold" x1="237.854" y1="140.033" x2="237.854" y2="419.468" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#FDF7E6"/>
+                <stop offset="1" stop-color="#DDC99F"/>
+              </linearGradient>
+              <!-- Mouth cut: opens the C on the right so the connectors
+                   exit the ring. -->
+              <mask id="bsMouth" maskUnits="userSpaceOnUse" x="90" y="120" width="290" height="310">
+                <path d="M361.684 197.524L335.612 241.646V322.534L367.7 373.341L371.043 421.473H106.315C96.6888 421.473 102.304 225.824 106.315 128H371.043L361.684 197.524Z" fill="#fff"/>
+              </mask>
+              <!-- Fat-stroke arc reveal masks. Band: inner r 104.95, outer
+                   r 139.7, center (243.36, 279.75). Arc r 122.3, stroke 46
+                   covers it; ~305° counter-clockwise, butt caps. -->
+              <mask id="bsRevMain" maskUnits="userSpaceOnUse" x="80" y="115" width="330" height="330">
+                <path id="bs-arc-main" d="M352.33 224.23 A122.3 122.3 0 1 0 351.35 337.17" fill="none" stroke="#fff" stroke-width="46"/>
+              </mask>
+              <mask id="bsRevHot" maskUnits="userSpaceOnUse" x="80" y="115" width="330" height="330">
+                <path id="bs-arc-hot" d="M352.33 224.23 A122.3 122.3 0 1 0 351.35 337.17" fill="none" stroke="#fff" stroke-width="46"/>
+              </mask>
+              <mask id="bsRevSpec" maskUnits="userSpaceOnUse" x="80" y="115" width="330" height="330">
+                <path id="bs-arc-spec" d="M352.33 224.23 A122.3 122.3 0 1 0 351.35 337.17" fill="none" stroke="#fff" stroke-width="46"/>
+              </mask>
+            </defs>
+            <!-- RING (exit wrapper gets the one permitted animated blur) -->
+            <g id="bs-ring-block">
+              <g mask="url(#bsRevMain)">
+                <g mask="url(#bsMouth)"><use href="#bsRingD" fill="url(#bsGold)"/></g>
+              </g>
+              <!-- 12° cream-white hot leading edge riding the frontier -->
+              <g id="bs-ring-hot" mask="url(#bsRevHot)">
+                <g mask="url(#bsMouth)"><use href="#bsRingD" fill="#FFFDF4"/></g>
+              </g>
+              <!-- tight specular band trailing by 60ms (double-glint) -->
+              <g id="bs-ring-spec" mask="url(#bsRevSpec)">
+                <g mask="url(#bsMouth)"><use href="#bsRingD" fill="#FFFFFF"/></g>
+              </g>
+            </g>
+            <!-- CONNECTORS — authored junction→node so dashoffset draws
+                 broadcast out of the ring mouth -->
+            <g id="bs-connectors">
+              <path id="bs-conn-mid" d="M321.307 282.397L426.565 282.397" stroke="#82E3EA" stroke-width="9.35905" stroke-linecap="round"/>
+              <path id="bs-conn-top" d="M320.638 282.576H341.27C346.047 282.576 350.461 280.028 352.849 275.891L388.962 213.341C391.351 209.204 395.765 206.656 400.541 206.656H429.728" stroke="#82E3EA" stroke-width="9.35905" stroke-linecap="round"/>
+              <path id="bs-conn-bot" d="M320.638 282.576H341.241C346.034 282.576 350.459 285.141 352.842 289.299L388.97 352.352C391.352 356.51 395.778 359.075 400.571 359.075H429.728" stroke="#82E3EA" stroke-width="9.35905" stroke-linecap="round"/>
+            </g>
+            <!-- NODES — circle carries ignition scale; wrapper carries the
+                 seal receipt tick (scales multiply, no conflict) -->
+            <g id="bs-nodes">
+              <g class="bs-nodew" id="bs-nodew-top"><circle class="bs-node" id="bs-node-top" cx="430.782" cy="206.855" r="16.8711" fill="#82E3EA"/></g>
+              <g class="bs-nodew" id="bs-nodew-mid"><circle class="bs-node" id="bs-node-mid" cx="431.837" cy="282.817" r="15.8167" fill="#82E3EA"/></g>
+              <g class="bs-nodew" id="bs-nodew-bot"><circle class="bs-node" id="bs-node-bot" cx="430.782" cy="358.778" r="16.8711" fill="#82E3EA"/></g>
+            </g>
+            <!-- PROMPT — the logo's own subpaths. The `_` sits at its final
+                 in-C position from frame 2 onward and never moves. -->
+            <g id="bs-prompt">
+              <g id="bs-chev-fade">
+                <g id="bs-chev">
+                  <path id="bs-chevron" d="M183.456 247.744C186.665 242.04 190.052 243.109 201.105 253.627C206.631 258.975 213.94 265.571 217.149 268.245C220.179 271.098 222.853 274.662 222.854 276.267C222.854 279.832 191.656 309.959 188.091 309.959C184.882 309.959 181.317 303.364 182.921 300.69C183.634 299.442 189.339 293.738 195.578 287.855L206.987 277.336L194.33 264.501C182.743 252.914 181.674 251.131 183.456 247.744Z" fill="url(#bsGold)"/>
+                  <path id="bs-chevron-hot" d="M183.456 247.744C186.665 242.04 190.052 243.109 201.105 253.627C206.631 258.975 213.94 265.571 217.149 268.245C220.179 271.098 222.853 274.662 222.854 276.267C222.854 279.832 191.656 309.959 188.091 309.959C184.882 309.959 181.317 303.364 182.921 300.69C183.634 299.442 189.339 293.738 195.578 287.855L206.987 277.336L194.33 264.501C182.743 252.914 181.674 251.131 183.456 247.744Z" fill="#FFFDF4"/>
+                </g>
+              </g>
+              <path id="bs-cursor" d="M234.263 299.977C235.154 297.838 239.076 297.481 256.19 297.837L277.225 298.372V309.069H255.833C236.58 309.069 234.441 308.712 233.906 305.86C233.55 304.077 233.728 301.403 234.263 299.977Z" fill="url(#bsGold)"/>
+            </g>
+          </svg>
+          <div class="bsplash-fx" aria-hidden="true">
+            <div id="bs-bloom"></div>
+            <div id="bs-tint"></div>
+            <div id="bs-shimmer"></div>
+            <div id="bs-spill-mid" class="bsplash-spill"></div>
+            <div id="bs-spill-top" class="bsplash-spill"></div>
+            <div id="bs-spill-bot" class="bsplash-spill"></div>
+            <div id="bs-halo-top" class="bsplash-halo"></div>
+            <div id="bs-halo-mid" class="bsplash-halo"></div>
+            <div id="bs-halo-bot" class="bsplash-halo"></div>
+            <div id="bs-cglow-halo"></div>
+            <div id="bs-cglow-core"></div>
+            <div id="bs-cglow-pin"></div>
+          </div>
         </div>
-        <div class="boot-splash-headline">COVENANT</div>
-        <div class="boot-splash-sub">AI-NATIVE TERMINAL</div>
-        <div class="boot-splash-meta">
-          <span class="boot-splash-meta-dot"></span>
-          <span class="boot-splash-meta-text">Booting</span>
-        </div>
+        <!-- COVENANT — per-char stacks: baked wrong glyphs (deterministic,
+             from the judged render), white 1-frame lock tick (.gt), settled
+             glyph (.gr). No cursor after the T — the `_` in the C is the
+             only cursor. Spans are butted: whitespace would add gaps. -->
+        <div class="bsplash-wordmark" role="img" aria-label="COVENANT"><span class="char"><span class="g w" style="animation-delay: 1120ms">{</span><span class="g w" style="animation-delay: 1153ms">7</span><span class="g w" style="animation-delay: 1187ms">(</span><span class="g gt" style="animation-delay: 1220ms">C</span><span class="g gr" style="animation-delay: 1253ms">C</span></span><span class="char"><span class="g w" style="animation-delay: 1156ms">0</span><span class="g w" style="animation-delay: 1189ms">@</span><span class="g gt" style="animation-delay: 1223ms">O</span><span class="g gr" style="animation-delay: 1256ms">O</span></span><span class="char"><span class="g w" style="animation-delay: 1192ms">\</span><span class="g w" style="animation-delay: 1225ms">%</span><span class="g gt" style="animation-delay: 1259ms">V</span><span class="g gr" style="animation-delay: 1292ms">V</span></span><span class="char"><span class="g w" style="animation-delay: 1228ms">=</span><span class="g w" style="animation-delay: 1261ms">&amp;</span><span class="g w" style="animation-delay: 1295ms">3</span><span class="g gt" style="animation-delay: 1328ms">E</span><span class="g gr" style="animation-delay: 1361ms">E</span></span><span class="char"><span class="g w" style="animation-delay: 1264ms">/</span><span class="g w" style="animation-delay: 1297ms">4</span><span class="g gt" style="animation-delay: 1331ms">N</span><span class="g gr" style="animation-delay: 1364ms">N</span></span><span class="char"><span class="g w" style="animation-delay: 1300ms">4</span><span class="g w" style="animation-delay: 1333ms">*</span><span class="g gt" style="animation-delay: 1367ms">A</span><span class="g gr" style="animation-delay: 1400ms">A</span></span><span class="char"><span class="g w" style="animation-delay: 1336ms">|</span><span class="g w" style="animation-delay: 1369ms">M</span><span class="g w" style="animation-delay: 1403ms">+</span><span class="g gt" style="animation-delay: 1436ms">N</span><span class="g gr" style="animation-delay: 1469ms">N</span></span><span class="char"><span class="g w" style="animation-delay: 1372ms">7</span><span class="g w" style="animation-delay: 1405ms">!</span><span class="g gt" style="animation-delay: 1439ms">T</span><span class="g gr" style="animation-delay: 1472ms">T</span></span></div>
+        <div class="bsplash-subline">AI-NATIVE TERMINAL</div>
       </div>
     </div>
     <header id="app-titlebar" data-tauri-drag-region>
