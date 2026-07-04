@@ -7755,6 +7755,7 @@ mark.mv-find-hit.is-active {
     padding: 3px 8px 3px calc(6px + var(--depth, 0) * 12px);
     cursor: pointer;
     user-select: none;
+    -webkit-user-select: none;
     border-left: 2px solid transparent;
     line-height: 1.35;
 }

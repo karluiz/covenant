@@ -6819,7 +6819,8 @@ export class TabManager {
       pill.appendChild(input);
       requestAnimationFrame(() => {
         input.focus();
-        input.select();
+        // Caret at the end, no select-all — dblclick shouldn't highlight the name.
+        input.setSelectionRange(input.value.length, input.value.length);
       });
     } else {
       // Browser tabs get a leading globe glyph + a marker class so they
