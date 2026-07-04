@@ -6,6 +6,33 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.120 — ACP Copilot conversation resume across restarts
+
+### Added
+
+- **ACP conversation resume**: Copilot ACP tabs now survive app restarts
+  with their conversation intact. The tab manifest persists the wire-level
+  ACP sessionId per pane (`SerializedPane.acp_session_id` in
+  `ui/src/tabs/manager.ts`); on restore, `spawn_acp_session`
+  (`crates/app/src/acp_commands.rs`) calls `session/load` instead of
+  `session/new` when the agent advertises the `loadSession` capability, and
+  Copilot replays the full transcript into the chat view. A failed load
+  (expired/unknown session) falls back to a fresh session with a toast, so
+  stale manifests never brick tab restore. New typed
+  `SessionUpdate::UserMessageChunk` variant in
+  `crates/agent/src/acp/protocol.rs` keeps replayed user messages from
+  being swallowed by the `Unknown` catch-all; the chat reducer
+  (`ui/src/executors/acp/view.ts`) renders them as user bubbles. Verified
+  live against Copilot CLI 1.0.68 (kill → load → replay → context recall).
+
+### Fixed
+
+- **Tab rename caret**: double-clicking a tab to rename it now places the
+  caret at the end of the name instead of select-all highlighting it
+  (`ui/src/tabs/manager.ts`), and file-tree rows get the `-webkit-user-select`
+  prefix so text-selection stays disabled in the WebKit webview
+  (`ui/src/styles.css`).
+
 ## v0.8.119 — Interactive ACP Copilot tab + editable CSV preview
 
 ### Added
