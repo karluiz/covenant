@@ -98,17 +98,6 @@ export const slideRail = makeSlider({
   },
 });
 
-/// Left tabbar, toggled via body.tabbar-left-collapsed. Only meaningful
-/// in tabbar-left mode — in top mode the fold body class is inert and
-/// there is no column to slide.
-export const slideTabbar = makeSlider({
-  exitCls: "tabbar-slide-exit",
-  exitName: "tabbar-slide-out",
-  enterCls: "tabbar-slide-enter",
-  enterName: "tabbar-slide-in",
-  panel: () => {
-    if (!document.body.classList.contains("tabbar-left")) return null;
-    const el = document.getElementById("tabbar-host");
-    return el && el.offsetWidth > 0 ? el : null;
-  },
-});
+// The left tabbar fold no longer slides a transform here — its column
+// width tweens directly via a one-shot grid-track transition armed by
+// body.tabbar-fold-anim (main.ts applyTabbarCollapsed).

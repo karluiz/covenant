@@ -617,6 +617,14 @@ export function computeActivationRefit(opts: {
   };
 }
 
+/// True while the left-sidebar fold is tweening the #layout grid track
+/// (body.tabbar-fold-anim, armed by main.ts applyTabbarCollapsed). Pane
+/// ResizeObservers skip per-frame refits while this holds and defer one
+/// settle pass for after the tween.
+function foldTweenActive(): boolean {
+  return document.body.classList.contains("tabbar-fold-anim");
+}
+
 /// Pure policy for the ResizeObserver second-pass nudge. The nudge exists
 /// for sub-cell drift while VISIBLE (status bar mount, splitter settle —
 /// host height changed but fit() resolved to the same cols/rows). It must
@@ -1083,18 +1091,40 @@ export class TabManager {
 
     // ResizeObserver so fit() fires whenever the pane-host dimensions change.
     let rafId: number | null = null;
+    let foldSettle: number | null = null;
+    const doFit = (): void => {
+      if (paneHost1.offsetWidth === 0 || paneHost1.offsetHeight === 0) return;
+      try { fit.fit(); } catch { /* ignore */ }
+      if (sessionId) void resizeSession(sessionId as SessionId, term.cols, term.rows).catch(() => {});
+    };
     const ro = new ResizeObserver(() => {
       if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
-        if (paneHost1.offsetWidth === 0 || paneHost1.offsetHeight === 0) return;
-        try { fit.fit(); } catch { /* ignore */ }
-        if (sessionId) void resizeSession(sessionId as SessionId, term.cols, term.rows).catch(() => {});
+        // During the sidebar fold tween the pane width changes every
+        // frame — refitting + PTY-resizing per frame is the jank the
+        // snap design avoided. Defer a single settle pass instead.
+        if (foldTweenActive()) {
+          if (foldSettle === null) {
+            const settle = (): void => {
+              if (foldTweenActive()) { foldSettle = window.setTimeout(settle, 100); return; }
+              foldSettle = null;
+              doFit();
+            };
+            foldSettle = window.setTimeout(settle, 100);
+          }
+          return;
+        }
+        doFit();
       });
     });
     ro.observe(paneHost1);
     // Push cleanup into the parent tab's disposers so closeTab tears it down.
-    tab.disposers.push({ dispose: () => { ro.disconnect(); if (rafId !== null) cancelAnimationFrame(rafId); } });
+    tab.disposers.push({ dispose: () => {
+      ro.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      if (foldSettle !== null) window.clearTimeout(foldSettle);
+    } });
     tab.disposers.push({ dispose: () => { try { term.dispose(); } catch { /* ignore */ } } });
 
     // D14 — active-pane border: wire pane-1 focus via focusin.
@@ -3818,16 +3848,14 @@ export class TabManager {
     // keeps stale rows and the viewport stops short of the bottom (user
     // can't scroll to last line). rAF-debounced to coalesce bursts.
     let rafId: number | null = null;
+    let foldSettle: number | null = null;
     // Last host size this observer acted on. 0x0 means the pane was
     // display:none — the next non-zero pass is a reveal (tab switch),
     // which activate() already fits/nudges; re-nudging here repainted
     // the terminal right after it became visible (visible flicker).
     let lastRoWidth = 0;
     let lastRoHeight = 0;
-    const ro = new ResizeObserver(() => {
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
+    const roFit = (): void => {
         const roWidth = termHost.offsetWidth;
         const roHeight = termHost.offsetHeight;
         const revealing = lastRoWidth === 0 || lastRoHeight === 0;
@@ -3870,6 +3898,26 @@ export class TabManager {
             console.error("resize failed (RO)", e),
           );
         });
+    };
+    const ro = new ResizeObserver(() => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        // During the sidebar fold tween the host width changes every
+        // frame — refitting + PTY-resizing per frame is the jank the
+        // snap design avoided. Defer a single settle pass instead.
+        if (foldTweenActive()) {
+          if (foldSettle === null) {
+            const settle = (): void => {
+              if (foldTweenActive()) { foldSettle = window.setTimeout(settle, 100); return; }
+              foldSettle = null;
+              roFit();
+            };
+            foldSettle = window.setTimeout(settle, 100);
+          }
+          return;
+        }
+        roFit();
       });
     });
     ro.observe(termHost);
@@ -3877,6 +3925,7 @@ export class TabManager {
       dispose: () => {
         ro.disconnect();
         if (rafId !== null) cancelAnimationFrame(rafId);
+        if (foldSettle !== null) window.clearTimeout(foldSettle);
       },
     };
 

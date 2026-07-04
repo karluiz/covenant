@@ -10009,42 +10009,20 @@ body.tabbar-left #tabbar-fold svg {
     height: 16px;
 }
 
-/* No grid-template-columns transition on #layout — same reasoning as
-   .tab-pane: track tweens run layout+paint every frame and refit xterm
-   each frame. The fold snaps the grid once and slides #tabbar-host with
-   a transform keyframe on the compositor (blocks/rail-slide.ts). */
-@keyframes tabbar-slide-out {
-    to { transform: translateX(-100%); }
-}
-@keyframes tabbar-slide-in {
-    from { transform: translateX(-100%); }
-}
-#tabbar-host.tabbar-slide-exit {
-    animation: tabbar-slide-out 220ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-}
-#tabbar-host.tabbar-slide-enter {
-    animation: tabbar-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-/* Backdrop under the sliding tabbar. body/#app-content/#layout are all
-   transparent (NSVisualEffectView pass-through), so while the host
-   translates, the strip behind it would expose the raw vibrancy —
-   a blurred-wallpaper flash. Occlude the host's grid cell with the
-   sidebar surface for the animation's duration only. As #layout's
-   ::before it paints beneath the host (tree order; the animating
-   transform keeps the host in the same stacking layer). */
-body.tabbar-left #layout:has(> #tabbar-host.tabbar-slide-exit)::before,
-body.tabbar-left #layout:has(> #tabbar-host.tabbar-slide-enter)::before {
-    content: "";
-    grid-column: 1;
-    grid-row: 1;
-    background: var(--sidebar-bg);
-    border-right: 1px solid var(--border);
+/* No permanent grid-template-columns transition on #layout — other
+   layout switches (right rail, activity view, top-tabbar mode) must
+   SNAP, and a standing transition would tween them all. The fold arms
+   it for one toggle via body.tabbar-fold-anim (main.ts
+   applyTabbarCollapsed, cleared on a timer). The terminal
+   ResizeObservers are gated on the same class so xterm isn't refit and
+   the PTY isn't resized on every frame of the tween (tabs/manager.ts);
+   the fold handler's deferred refitActive lands after cleanup. */
+body.tabbar-left.tabbar-fold-anim #layout {
+    transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 @media (prefers-reduced-motion: reduce) {
-    #tabbar-host.tabbar-slide-exit,
-    #tabbar-host.tabbar-slide-enter {
-        /* 1ms, not none — animationend must still fire the snap. */
-        animation-duration: 1ms;
+    body.tabbar-left.tabbar-fold-anim #layout {
+        transition: none;
     }
 }
 

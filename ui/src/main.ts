@@ -20,7 +20,7 @@ import { EditorView } from "@codemirror/view";
 import { selectAll as cmSelectAll } from "@codemirror/commands";
 
 import { dismissBootSplash } from "./boot-splash";
-import { slideRail, slideTabbar } from "./blocks/rail-slide";
+import { slideRail } from "./blocks/rail-slide";
 import { attachTooltip } from "./tooltip/tooltip";
 import { runUpdateCheck } from "./updater/check";
 import { showUpdateBanner } from "./updater/banner";
@@ -300,12 +300,23 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
 /// Toggle the collapsed state of the vertical tabbar. Only meaningful
 /// when `body.tabbar-left` is active; in top mode the fold chevron is
 /// hidden by CSS so the body class is harmless.
+///
+/// `animate: true` arms a one-shot grid-track transition on #layout via
+/// body.tabbar-fold-anim (styles.css) so the column width tweens instead
+/// of snapping. The same class gates the terminal ResizeObservers
+/// (tabs/manager.ts) for the tween's duration; the caller's deferred
+/// refitActive picks up the final size. Cleared on a timer rather than
+/// transitionend so an interrupted tween can't leave the class stuck.
+let tabbarFoldAnimTimer: number | undefined;
 function applyTabbarCollapsed(collapsed: boolean, animate = false): void {
-  const snap = (): void => {
-    document.body.classList.toggle("tabbar-left-collapsed", collapsed);
-  };
-  if (animate) slideTabbar(collapsed, snap);
-  else snap();
+  if (animate) {
+    window.clearTimeout(tabbarFoldAnimTimer);
+    document.body.classList.add("tabbar-fold-anim");
+    tabbarFoldAnimTimer = window.setTimeout(() => {
+      document.body.classList.remove("tabbar-fold-anim");
+    }, 260);
+  }
+  document.body.classList.toggle("tabbar-left-collapsed", collapsed);
   const btn = document.getElementById("tabbar-fold");
   if (btn) {
     const t = collapsed ? "Expand sidebar" : "Collapse sidebar";
