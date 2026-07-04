@@ -6,6 +6,48 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.121 — Boot splash v2: "First Prompt" motion identity
+
+### Added
+
+- **Boot splash v2 — "First Prompt"**: the startup splash is now a real
+  brand moment built on the fact that the logo's C contains a `>_` prompt
+  as its own subpaths. A gold underscore cursor hard-cuts in and blinks,
+  types the chevron, the prompt "executes" — a struck-bell bloom peaks at
+  0.5s and the gold C-ring sweeps in counter-clockwise via fat-stroke arc
+  masks — the three cyan agent connectors broadcast outward, nodes ignite
+  as each connector arrives, the ring countersigns (shimmer + converging
+  node tick), and `COVENANT` glyph-decodes below. A 1.35s heartbeat idle
+  (opacity/transform only, zero paint) loops until `boot()` resolves, then
+  an 800ms exit lets emitted light outlive reflected light — the cursor
+  blinks off last. Pure CSS keyframes, no new dependencies; entirely
+  inline in `ui/index.html` so it paints on the first frame; light theme
+  and `prefers-reduced-motion` (static lockup) skins included. Dismissal
+  rewritten in `ui/src/boot-splash.ts` (`MIN_VISIBLE_MS` 600→1600ms so the
+  hook always lands; exit can fire safely from any act). The motion design
+  was authored and rendered as a HyperFrames composition first
+  (`videos/covenant-splash/`, git-excluded) and ported 1:1.
+
+- **Capabilities page IA restructure (Design B)**: section tabs, scope
+  chips, and a flat visual pass across the Capabilities panel
+  (`ui/src/capabilities/panel.ts`, `ui/src/styles.css`) — Covenant as the
+  source of truth with executors as projections.
+
+### Fixed
+
+- **Splash light-mode ring contrast**: the ring gradient's `#FDF7E6` crown
+  was white-on-white on the light field; a deeper `bsGoldLight` gradient
+  (`#D9B96E → #A9853F`) swaps in via CSS for ring/chevron/cursor on both
+  light paths, and the hot-edge/specular sweep bands deepen to amber so
+  the reveal frontier stays visible (`ui/index.html`).
+
+- **True Dark CDLC text contrast**: muted/dim text in the CDLC panel and
+  reader lifted to readable neutrals on True Dark (`ui/src/cdlc/styles.css`).
+
+- **Red wallpaper bleed on panel expand**: expanding the Teammate, Tasker,
+  or Activity panels no longer lets the wallpaper bleed through the
+  transparent `#layout` grid (`ui/src/styles.css`, `ui/src/tasker/styles.css`).
+
 ## v0.8.120 — ACP Copilot conversation resume across restarts
 
 ### Added
