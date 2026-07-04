@@ -259,9 +259,10 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
     }
     case "session_dead": {
       state.inFlight = false;
+      // Executor-neutral: this view now fronts copilot AND pi (pi-acp).
       state.items.push({
         kind: "notice",
-        text: "Copilot process exited. Restart to continue.",
+        text: "Agent process exited. Restart to continue.",
         variant: "dead",
       });
       break;

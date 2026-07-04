@@ -46,6 +46,51 @@ pub struct AcpSpawnOpts {
     pub cwd: PathBuf,
     pub program: Option<PathBuf>,
     pub extra_args: Vec<String>,
+    /// Agent-mode launch args appended after `extra_args`. `None` = the
+    /// copilot profile (`--acp --add-dir <cwd>`, the historical default).
+    /// `Some(args)` replaces it verbatim — e.g. `Some(vec![])` for
+    /// adapters like `pi-acp` that speak ACP with no flags at all.
+    pub agent_args: Option<Vec<String>>,
+}
+
+impl AcpSpawnOpts {
+    /// Launch profile for a named executor.
+    /// - `"copilot"` — the copilot binary with `--acp --add-dir <cwd>`
+    ///   (the historical default).
+    /// - `"pi"` — the community `pi-acp` adapter (ACP registry id
+    ///   `pi-acp`), which wraps the local `pi` binary and takes no args:
+    ///   a global install on PATH if present, else `npx -y pi-acp`.
+    pub fn for_executor(executor: &str, cwd: PathBuf) -> Result<Self, String> {
+        match executor {
+            "copilot" => Ok(Self {
+                cwd,
+                program: None,
+                extra_args: Vec::new(),
+                agent_args: None,
+            }),
+            "pi" => {
+                let path = augmented_path(std::env::var_os("PATH"));
+                let (program, extra_args) = match find_program_on_path("pi-acp", path.as_deref())
+                {
+                    Some(p) => (p, Vec::new()),
+                    // ponytail: unpinned npx fallback — first run pays the
+                    // package download; pin a version if that gets flaky.
+                    None => (
+                        find_program_on_path("npx", path.as_deref())
+                            .unwrap_or_else(|| PathBuf::from("npx")),
+                        vec!["-y".to_string(), "pi-acp".to_string()],
+                    ),
+                };
+                Ok(Self {
+                    cwd,
+                    program: Some(program),
+                    extra_args,
+                    agent_args: Some(Vec::new()),
+                })
+            }
+            other => Err(format!("unknown ACP executor: {other}")),
+        }
+    }
 }
 
 /// A resolver's answer to `session/request_permission`: either decide
@@ -161,7 +206,16 @@ impl AcpSession {
         for a in &opts.extra_args {
             cmd.arg(a);
         }
-        cmd.arg("--acp").arg("--add-dir").arg(&opts.cwd);
+        match &opts.agent_args {
+            None => {
+                cmd.arg("--acp").arg("--add-dir").arg(&opts.cwd);
+            }
+            Some(args) => {
+                for a in args {
+                    cmd.arg(a);
+                }
+            }
+        }
         cmd.current_dir(&opts.cwd);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -745,7 +799,28 @@ mod tests {
             cwd: std::env::temp_dir(),
             program: Some(PathBuf::from("sh")),
             extra_args: vec!["-c".into(), script.into()],
+            agent_args: None,
         }
+    }
+
+    #[test]
+    fn for_executor_profiles() {
+        let cwd = std::env::temp_dir();
+        // copilot: default binary + default (--acp --add-dir) launch args.
+        let c = AcpSpawnOpts::for_executor("copilot", cwd.clone()).unwrap();
+        assert!(c.program.is_none());
+        assert!(c.agent_args.is_none());
+        // pi: explicit program (pi-acp or npx fallback), NO copilot flags.
+        let p = AcpSpawnOpts::for_executor("pi", cwd.clone()).unwrap();
+        let prog = p.program.expect("pi resolves a program");
+        let name = prog.file_name().unwrap().to_string_lossy();
+        assert!(name == "pi-acp" || name == "npx", "got: {name}");
+        if name == "npx" {
+            assert_eq!(p.extra_args, vec!["-y".to_string(), "pi-acp".to_string()]);
+        }
+        assert_eq!(p.agent_args, Some(Vec::new()));
+        // unknown: hard error, not a silent copilot fallback.
+        assert!(AcpSpawnOpts::for_executor("hermes", cwd).is_err());
     }
 
     /// Fake agent: answers `initialize` (our id 1), emits one

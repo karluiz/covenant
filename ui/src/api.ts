@@ -2558,8 +2558,12 @@ export interface SpawnAcpResult {
   resumed: boolean;
 }
 
+/// Executors with an ACP launch profile in the backend
+/// (`AcpSpawnOpts::for_executor`).
+export type AcpExecutor = "copilot" | "pi";
+
 export async function spawnAcpSession(
-  opts: { cwd?: string | null; resumeAcpSessionId?: string | null } = {},
+  opts: { cwd?: string | null; resumeAcpSessionId?: string | null; executor?: AcpExecutor } = {},
 ): Promise<SpawnAcpResult> {
   return invoke<SpawnAcpResult>("spawn_acp_session", { opts });
 }

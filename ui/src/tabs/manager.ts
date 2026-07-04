@@ -99,7 +99,7 @@ import { detectExecutor } from "../executor";
 import { PiChatView } from "../executors/pi/view";
 import { spawnPiSession, piSetSessionName } from "../api";
 import { AcpChatView } from "../executors/acp/view";
-import { closeAcpSession, spawnAcpSession } from "../api";
+import { closeAcpSession, spawnAcpSession, type AcpExecutor } from "../api";
 import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
@@ -374,6 +374,9 @@ export interface SerializedPane {
   /// conversation via session/load on restore. Optional for backward
   /// compat; old manifests restore fresh (pre-resume behavior).
   acp_session_id?: string | null;
+  /// ACP panes only — which agent drives the tab ("copilot" | "pi").
+  /// Optional for backward compat; old manifests default to copilot.
+  acp_executor?: string | null;
 }
 
 export interface SerializedLayout {
@@ -406,6 +409,9 @@ export function serializeTab(tab: {
     spawn_id: p.spawn_id,
     aom_excluded: p.aomExcluded,
     acp_session_id: p.acpSessionId ?? null,
+    // Pane.executor is the static agent for acp panes but the *detected
+    // foreground* process for terminal panes — only the former persists.
+    acp_executor: p.kind === "acp" ? (p.executor ?? "copilot") : null,
   });
   const pane0 = tab.panes[0]!;
   const pane1 = tab.panes[1];
@@ -4446,10 +4452,14 @@ export class TabManager {
     /// session/load (transcript replays into the chat view). Falls back
     /// to a fresh session if the load fails.
     resumeAcpSessionId?: string | null;
+    /// Which agent drives the tab. Default "copilot".
+    executor?: AcpExecutor;
   }): Promise<Tab | null> {
     const id = crypto.randomUUID();
     const replayKey = id.replace(/-/g, "").slice(0, 26);
     const seq = this.nextSeq++;
+    const executor: AcpExecutor = opts?.executor ?? "copilot";
+    const executorTitle = executor === "pi" ? "pi" : "Copilot";
 
     // The tab appears IMMEDIATELY with a boot placeholder; copilot's ACP
     // handshake takes seconds and blocking ⌘⌥⇧C on it read as "nothing
@@ -4475,13 +4485,13 @@ export class TabManager {
 
     const boot = document.createElement("div");
     boot.className = "acp-boot";
-    boot.textContent = "Starting Copilot…";
+    boot.textContent = `Starting ${executorTitle}…`;
     acpPaneHost0.appendChild(boot);
 
     const tab: Tab = {
       id,
       kind: "acp",
-      defaultTitle: `copilot ${seq}`,
+      defaultTitle: `${executor} ${seq}`,
       customName: opts?.customName ?? null,
       color: opts?.color ?? null,
       groupId: opts?.groupId ?? null,
@@ -4506,7 +4516,7 @@ export class TabManager {
       xterm: null,
       piView: null,
       acpView: null, // mounted async once the ACP handshake resolves
-      executor: "copilot",
+      executor,
       operatorEnabled: false,
       operatorLive: false,
       operatorSolo: false,
@@ -4569,11 +4579,12 @@ export class TabManager {
         spawned = await spawnAcpSession({
           cwd: opts?.cwd ?? undefined,
           resumeAcpSessionId: opts?.resumeAcpSessionId ?? undefined,
+          executor,
         });
       } catch (err) {
         console.warn("spawnAcpSession failed", err);
         boot.classList.add("acp-boot-error");
-        boot.textContent = `Could not start Copilot: ${String(err)}`;
+        boot.textContent = `Could not start ${executorTitle}: ${String(err)}`;
         return;
       }
       // Tab closed while the handshake was in flight — reap the fresh
@@ -5408,6 +5419,7 @@ export class TabManager {
             cwd: t.cwd,
             skipActivate: true,
             resumeAcpSessionId: t.panes?.[0]?.acp_session_id ?? null,
+            executor: t.panes?.[0]?.acp_executor === "pi" ? "pi" : "copilot",
           });
         }
         return this.createTab({
@@ -7238,9 +7250,8 @@ export class TabManager {
         },
       },
       {
-        // Copilot only for now — the sole executor with a stable ACP
-        // server. Grows into an executor picker when claude/codex land.
-        label: "Start agent in ACP mode",
+        // Grows into an executor picker when claude/codex land.
+        label: "Start Copilot in ACP mode",
         badge: "NEW",
         icon: Icons.sparkles(),
         onClick: () => {
@@ -7249,6 +7260,21 @@ export class TabManager {
             groupId: group.id,
             color: group.color,
             cwd: group.rootDir ?? this.activeCwd(),
+          });
+        },
+      },
+      {
+        // pi via the community pi-acp adapter (npx fallback if not on PATH).
+        label: "Start pi in ACP mode",
+        badge: "BETA",
+        icon: Icons.sparkles(),
+        onClick: () => {
+          if (group.collapsed) this.toggleGroupCollapsed(group.id);
+          void this.createAcpTab({
+            groupId: group.id,
+            color: group.color,
+            cwd: group.rootDir ?? this.activeCwd(),
+            executor: "pi",
           });
         },
       },

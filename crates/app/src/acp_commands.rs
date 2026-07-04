@@ -245,6 +245,9 @@ pub struct SpawnAcpOpts {
     /// `session/update` frames. Falls back to a fresh `session/new` if the
     /// load fails (expired/unknown session).
     pub resume_acp_session_id: Option<String>,
+    /// Which agent drives this tab: "copilot" (default) or "pi". Resolved
+    /// to a launch profile by `AcpSpawnOpts::for_executor`.
+    pub executor: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -292,12 +295,9 @@ pub async fn spawn_acp_session(
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."));
 
+    let executor = opts.executor.clone().unwrap_or_else(|| "copilot".into());
     let session = AcpSession::spawn(
-        AcpSpawnOpts {
-            cwd: cwd.clone(),
-            program: None,
-            extra_args: Vec::new(),
-        },
+        AcpSpawnOpts::for_executor(&executor, cwd.clone())?,
         hybrid_resolver(),
     )
     .await
@@ -333,8 +333,13 @@ pub async fn spawn_acp_session(
             } else {
                 tail
             };
+            let hint = match executor.as_str() {
+                "copilot" => " Hint: requires GitHub Copilot CLI >= 1.0.68 with ACP support (`copilot --acp`).",
+                "pi" => " Hint: requires the pi-acp adapter (`npm i -g pi-acp`) and a configured `pi` binary.",
+                _ => "",
+            };
             return Err(format!(
-                "copilot ACP handshake failed ({e}). stderr: {tail}. Hint: requires GitHub Copilot CLI >= 1.0.68 with ACP support (`copilot --acp`)."
+                "{executor} ACP handshake failed ({e}). stderr: {tail}.{hint}"
             ));
         }
         Err(e) => {
@@ -437,7 +442,7 @@ pub async fn spawn_acp_session(
     // `register_external`/`set_phase`).
     let notch_hub = state.notch_hub.clone();
     notch_hub
-        .register_external(session_id, "copilot".to_string())
+        .register_external(session_id, executor.clone())
         .await;
 
     let mut rx = rx; // subscribed pre-handshake (see above) — buffered frames intact

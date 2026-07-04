@@ -51,6 +51,20 @@ describe("serializeTab", () => {
     expect(liftLegacyTab(s).panes![0].acp_session_id).toBe("wire-123");
   });
 
+  it("round-trips acp_executor for acp panes; shell panes emit null", () => {
+    const p = { ...pane("p0", "/a"), kind: "acp" as const, executor: "pi" };
+    const s = serializeTab(makeTab("t1", [p], { kind: "single", activePaneIdx: 0 }, { kind: "acp" }));
+    expect(s.panes![0].acp_executor).toBe("pi");
+    // acp pane with no executor set defaults to copilot on serialize.
+    const q = { ...pane("p1", "/b"), kind: "acp" as const, executor: null };
+    const s2 = serializeTab(makeTab("t2", [q], { kind: "single", activePaneIdx: 0 }, { kind: "acp" }));
+    expect(s2.panes![0].acp_executor).toBe("copilot");
+    // terminal panes never leak their detected foreground executor here.
+    const t = { ...pane("p2", "/c"), executor: "claude" };
+    const s3 = serializeTab(makeTab("t3", [t], { kind: "single", activePaneIdx: 0 }));
+    expect(s3.panes![0].acp_executor).toBeNull();
+  });
+
   it("serializes a single-pane shell tab", () => {
     const tab = {
       id: "t1",

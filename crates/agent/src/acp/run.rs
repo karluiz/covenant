@@ -70,6 +70,7 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
             cwd: opts.cwd.clone(),
             program: opts.program.clone(),
             extra_args: opts.extra_args_for_tests.clone(),
+            agent_args: None,
         },
         resolver,
     )
