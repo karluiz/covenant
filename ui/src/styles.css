@@ -16247,21 +16247,46 @@ body.theme-light .workspace-chip:hover .new-tab-kbd {
    active-agent header pinned on top + chronological stream below.
    Lives in #activity-sidebar; shown when body.sidebar-view-activity.
    =========================================================== */
+/* NO opacity fade — these hosts sit on the transparent vibrancy
+   #layout, so fading the host's opacity bleeds the blurred wallpaper
+   through the whole panel (a red flash on red wallpapers). A full
+   translateX(100%) slide would expose the same wallpaper strip behind
+   the moving panel, so it's a subtle opaque nudge instead. */
 @keyframes right-rail-panel-in {
   from {
-    opacity: 0;
     transform: translateX(6px);
   }
   to {
-    opacity: 1;
     transform: translateX(0);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   body.sidebar-view-activity #activity-sidebar,
-  body.sidebar-view-teammate #teammate-panel {
+  body.sidebar-view-teammate #teammate-panel,
+  body.sidebar-view-tasker #tasker-panel {
     animation: none;
   }
+}
+/* Backdrop under the nudging panel — same reasoning as the tabbar-fold
+   occluder: #layout is transparent (NSVisualEffectView pass-through),
+   so the 6px strip the translate exposes at the panel's left edge
+   would show the blurred wallpaper (a red line on red wallpapers).
+   Static while the view is open; the panel (z-index 1) paints over it. */
+body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker):not(.blocks-globally-collapsed):not(.tabbar-left)
+  #layout::after {
+  content: "";
+  grid-column: 2 / 3;
+  grid-row: 2 / 3;
+  background: var(--sidebar-bg);
+  border-left: 1px solid var(--border, #232831);
+}
+body.tabbar-left:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker):not(.blocks-globally-collapsed)
+  #layout::after {
+  content: "";
+  grid-column: 3 / 4;
+  grid-row: 1 / 2;
+  background: var(--sidebar-bg);
+  border-left: 1px solid var(--border, #232831);
 }
 #activity-sidebar[hidden] { display: none !important; }
 #activity-sidebar {

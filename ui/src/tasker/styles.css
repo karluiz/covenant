@@ -32,21 +32,11 @@ body.blocks-globally-collapsed #tasker-panel {
   display: none;
 }
 
-/* Animate in when opening */
+/* Animate in when opening — shared opaque-nudge keyframes live in
+   styles.css (right-rail-panel-in); no opacity fade here, it bleeds
+   the vibrancy wallpaper through the panel. */
 body.sidebar-view-tasker #tasker-panel {
   animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
-/* Match the animation used by activity and teammate sidebars */
-@keyframes right-rail-panel-in {
-  from {
-    opacity: 0;
-    transform: translateX(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
 }
 
 .tasker-panel {
