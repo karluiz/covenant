@@ -37,10 +37,25 @@ import {
   structureListDir,
   subscribeAcpEvents,
 } from "../../api";
-import type { AcpModelInfo, DirEntry } from "../../api";
+import type { AcpExecutor, AcpModelInfo, DirEntry } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
 
-const COPILOT_LOGO = brandIconSvg("copilot", 16) ?? "◈";
+/// Per-executor branding for the chat chrome. `cmdline` is what the
+/// empty-state shows as "your prompt goes to …".
+const EXECUTOR_BRAND: Record<AcpExecutor, { title: string; longName: string; cmdline: string; roleLabel: string }> = {
+  copilot: {
+    title: "Copilot",
+    longName: "GitHub Copilot's coding agent",
+    cmdline: "copilot --acp",
+    roleLabel: "copilot",
+  },
+  pi: {
+    title: "pi",
+    longName: "the pi coding agent (via the pi-acp adapter)",
+    cmdline: "pi-acp",
+    roleLabel: "pi",
+  },
+};
 
 const escapeHtml = (s: string): string =>
   s
@@ -301,6 +316,17 @@ export interface AcpChatViewOptions {
   /// Working directory of the ACP session. Threaded through to
   /// `spawnAcpSession` on restart.
   cwd?: string | null;
+  /// Which agent drives this tab ("copilot" default). Controls branding
+  /// (header, empty state, composer) and — critically — which agent
+  /// `restart()` respawns.
+  executor?: AcpExecutor;
+  /// Wire-level ACP sessionId from the spawn. `restart()` passes it as
+  /// `resumeAcpSessionId` so a crashed agent comes back with its
+  /// transcript, and reports the (possibly new) id via `onSessionChange`.
+  acpSessionId?: string | null;
+  /// Fired when `restart()` adopts a fresh session, so the owner (tab
+  /// manager) can re-point pane.sessionId / pane.acpSessionId and persist.
+  onSessionChange?: (sessionId: SessionId, acpSessionId: string) => void;
 }
 
 interface ToolCardDom {
@@ -342,6 +368,9 @@ export class AcpChatView {
   private readonly state: AcpStreamState = createAcpStreamState();
   private unlisten: (() => void) | null = null;
   private destroyed = false;
+  private readonly executor: AcpExecutor;
+  private acpSessionId: string | null;
+  private readonly onSessionChange?: (sessionId: SessionId, acpSessionId: string) => void;
 
   private statusEl!: HTMLElement;
   private messagesEl!: HTMLElement;
@@ -380,6 +409,9 @@ export class AcpChatView {
     this.onCloseCb = opts.onClose;
     this.cwd = opts.cwd ?? null;
     this.model = opts.model ?? null;
+    this.executor = opts.executor ?? "copilot";
+    this.acpSessionId = opts.acpSessionId ?? null;
+    this.onSessionChange = opts.onSessionChange;
     this.mount();
     void this.subscribe();
   }
@@ -424,11 +456,13 @@ export class AcpChatView {
   // -------------------------------------------------------------------------
 
   private mount(): void {
+    const brand = EXECUTOR_BRAND[this.executor];
+    const logo = brandIconSvg(this.executor, 16) ?? "◈";
     this.host.classList.add("acp-chat-view");
     this.host.innerHTML = `
       <div class="acp-chat-header">
-        <span class="acp-chat-logo" aria-hidden="true">${COPILOT_LOGO}</span>
-        <span class="acp-chat-title">Copilot</span>
+        <span class="acp-chat-logo" aria-hidden="true">${logo}</span>
+        <span class="acp-chat-title">${brand.title}</span>
         <button type="button" class="acp-model-chip" hidden></button>
         <span class="acp-chat-meta"></span>
         <span class="acp-chat-status" data-state="idle" aria-live="polite">idle</span>
@@ -436,11 +470,11 @@ export class AcpChatView {
       </div>
       <div class="acp-chat-messages" role="log" aria-live="polite">
         <div class="acp-chat-empty" role="note">
-          <h3>Copilot panel, not a terminal</h3>
-          <p>This is a structured chat session with GitHub Copilot's coding agent. Your prompt goes to <code>copilot --acp</code>; Covenant renders replies, tool runs, and permission requests as chat UI instead of raw shell output.</p>
+          <h3>${brand.title} panel, not a terminal</h3>
+          <p>This is a structured chat session with ${brand.longName}. Your prompt goes to <code>${brand.cmdline}</code>; Covenant renders replies, tool runs, and permission requests as chat UI instead of raw shell output.</p>
           <ul>
             <li>Tool calls that edit files or run shell commands show up as cards you can inspect.</li>
-            <li>When Copilot needs permission to act, you'll see a card with the wire's own options.</li>
+            <li>When ${brand.title} needs permission to act, you'll see a card with the wire's own options.</li>
             <li>Press <kbd>↩</kbd> to send; <kbd>⇧↩</kbd> for a new line.</li>
           </ul>
         </div>
@@ -451,8 +485,8 @@ export class AcpChatView {
         <textarea
           class="acp-chat-textarea"
           rows="2"
-          placeholder="Message Copilot…  (↩ send · ⇧↩ newline)"
-          aria-label="Message Copilot"
+          placeholder="Message ${brand.title}…  (↩ send · ⇧↩ newline)"
+          aria-label="Message ${brand.title}"
         ></textarea>
         <div class="acp-chat-actions">
           <button type="button" class="acp-chat-cancel" hidden>Cancel</button>
@@ -877,7 +911,7 @@ export class AcpChatView {
     this.hideEmptyState();
     const el = document.createElement("div");
     el.className = item.role === "thought" ? "acp-msg acp-msg-thought" : "acp-msg acp-msg-assistant";
-    el.innerHTML = `<div class="acp-msg-role">${item.role === "thought" ? "thinking" : "copilot"}</div><div class="acp-msg-content"></div>`;
+    el.innerHTML = `<div class="acp-msg-role">${item.role === "thought" ? "thinking" : EXECUTOR_BRAND[this.executor].roleLabel}</div><div class="acp-msg-content"></div>`;
     const contentEl = requireChild(el, ".acp-msg-content");
     contentEl.innerHTML = formatProse(item.text);
     this.messagesEl.appendChild(el);
@@ -1138,7 +1172,14 @@ export class AcpChatView {
       this.unlisten = null;
     }
     try {
-      const spawned = await spawnAcpSession({ cwd: this.cwd });
+      // Same executor as the original spawn, and resume the wire session
+      // so a crashed agent comes back with its transcript (falls back to
+      // fresh server-side if the session can't be loaded).
+      const spawned = await spawnAcpSession({
+        cwd: this.cwd,
+        executor: this.executor,
+        resumeAcpSessionId: this.acpSessionId ?? undefined,
+      });
       // destroy() may have run during the spawn await — don't adopt the
       // fresh session or resubscribe on a torn-down view. (subscribe()
       // has its own post-await guard for a destroy racing ITS await.)
@@ -1149,11 +1190,13 @@ export class AcpChatView {
         return;
       }
       this.sessionId = spawned.sessionId;
+      this.acpSessionId = spawned.acpSessionId;
+      this.onSessionChange?.(spawned.sessionId, spawned.acpSessionId);
       this.model = spawned.model ?? this.model;
       this.renderMeta();
       this.setInFlight(false);
       await this.subscribe();
-      this.appendNotice("Session restarted.", "info");
+      this.appendNotice(spawned.resumed ? "Session restarted — conversation resumed." : "Session restarted.", "info");
     } catch (err) {
       if (!this.destroyed) this.appendNotice(`restart failed: ${String(err)}`, "error");
     }

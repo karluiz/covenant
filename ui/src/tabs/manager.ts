@@ -4599,6 +4599,17 @@ export class TabManager {
         host: acpPaneHost0,
         cwd: opts?.cwd ?? null,
         model: spawned.model,
+        executor,
+        acpSessionId: spawned.acpSessionId,
+        // Keep the pane's session pointers fresh across in-view restarts
+        // so routing (context menu, prompts) and manifest persistence
+        // follow the live session instead of the dead one.
+        onSessionChange: (sid, acpSid) => {
+          pane0Acp.sessionId = sid;
+          pane0Acp.acpSessionId = acpSid;
+          this.rememberSessionName(sid, tabDisplayName(tab));
+          this.scheduleSave();
+        },
       });
       tab.acpView = view;
       pane0Acp.acpView = view;
