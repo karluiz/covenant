@@ -14556,9 +14556,25 @@ body.theme-light .boot-splash-meta-dot {
     letter-spacing: 0.18em;
     font-family: var(--ui-font, -apple-system, system-ui, sans-serif);
     pointer-events: none;
+    /* Window-centered (not grid-centered) so left/right asymmetry doesn't
+       shove it off-center — but that means nothing bounds it, so it
+       overflows into the icon row as the window narrows. Reserve ~310px
+       per side and clip; content that outgrows the reserve (brand, capsule)
+       degrades below instead of overlapping.
+       ponytail: fixed reserve, not measured — the regions are near-constant
+       width; revisit if the right icon row grows. */
+    max-width: calc(100vw - 620px);
+    overflow: hidden;
 }
 #app-titlebar-brand {
     color: var(--text, #d5d9de);
+    white-space: nowrap;
+}
+/* Hide the decorative brand before the bounded box shrinks below its width
+   and slivers it to "COVE…". The functional update capsule stays (it
+   collapses its own labels above). */
+@media (max-width: 760px) {
+    #app-titlebar-brand { display: none; }
 }
 #app-titlebar-right {
     display: flex;
