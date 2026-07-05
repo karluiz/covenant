@@ -6,6 +6,41 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.124 — ACP /resume + remote-control and titlebar fixes
+
+### Added
+
+- **ACP `/resume`**: load any past conversation into a live ACP tab via
+  `session/list` + `session/load` proxies (`acp_list_sessions` /
+  `acp_load_session` in `crates/app/src/acp_commands.rs`). The slash menu
+  always synthesizes `/resume`; the picker reuses the model-menu dropdown
+  (title + relative time), clears the transcript, and replays the loaded
+  session through the existing forwarder. The swapped wire id flows to the
+  pane + manifest so restart and app-restart resume follow the loaded
+  conversation (`ui/src/executors/acp/view.ts`).
+
+### Fixed
+
+- **Remote Send now submits in TUI executors**: the web dashboard appended
+  `\n`, which Claude Code's ink input treats as a paste (literal newline in
+  the composer) rather than Enter. `rc_agent::handle_send_input` now
+  normalizes the trailing CR/LF run to a single `\r` and routes through
+  `inject_operator_reply` (two-stage write, 60ms gap) so the submit lands as
+  a discrete keystroke (`crates/app/src/rc_agent.rs`).
+
+- **RC presence dot docked in the update capsule**: when an update banner
+  replaced the brand text, the red remote-control dot was left floating
+  orphaned beside the pill. The banner now adopts the dot into the capsule's
+  left edge and returns it on dismiss (`ui/src/updater/banner.ts`,
+  `ui/src/remote/presence-dot.ts`).
+
+- **Titlebar center no longer overflows on narrow windows**: the
+  absolute-centered region had no width bound, so the COVENANT brand and the
+  update capsule overlapped the right icon row as the window narrowed. The
+  center is now capped (`max-width: calc(100vw - 620px); overflow: hidden`),
+  the capsule sheds its "What's new ›" and "UPDATE" labels at 900px/720px,
+  and the decorative brand hides below 760px (`ui/src/styles.css`).
+
 ## v0.8.123 — Windows build fix for the Claude ACP executor
 
 ### Fixed
