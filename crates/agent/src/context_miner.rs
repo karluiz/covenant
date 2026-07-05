@@ -186,8 +186,24 @@ pub async fn run_miner(
     let mut tool_budget = opts.max_tool_calls;
     let forward = ForwardSink(sink);
 
+    // Hard ceiling so a model that ignores the wrap-up hints — or spams
+    // emit_finding calls that fail validation (they consume neither the
+    // finding cap nor the tool budget) — still terminates. Generous headroom
+    // above the legitimate work (one turn per read-tool + one per finding + grace).
+    let max_turns = opts.max_tool_calls + opts.max_findings + 8;
+    let mut turns = 0usize;
+
     loop {
         if cancel.load(Ordering::SeqCst) {
+            sink.emit(MinerEvent::RunDone {
+                findings_total: findings.len(),
+                stopped: true,
+            });
+            return Ok(findings);
+        }
+        turns += 1;
+        if turns > max_turns {
+            tracing::warn!("miner: hit hard turn ceiling ({max_turns}); stopping");
             sink.emit(MinerEvent::RunDone {
                 findings_total: findings.len(),
                 stopped: true,
@@ -384,6 +400,52 @@ mod tests {
         assert!(out.is_empty());
         assert_eq!(d.calls.load(Ordering::SeqCst), 0, "cancel checked before first turn");
         assert!(matches!(sink.0.lock().unwrap().last().unwrap(), MinerEvent::RunDone { stopped: true, .. }));
+    }
+
+    /// Always returns a turn with one INVALID emit_finding call, so neither
+    /// the finding cap nor the tool budget ever advances. Never runs out of
+    /// scripted turns — proves the hard turn ceiling is what stops the loop.
+    struct NeverStops;
+    #[async_trait]
+    impl StreamingDispatcher for NeverStops {
+        async fn stream_turn(
+            &self,
+            _system: &str,
+            _messages: &[DraftMessage],
+            _sink: &dyn StreamSink,
+        ) -> Result<ModelTurn, String> {
+            Ok(ModelTurn {
+                tool_calls: vec![ToolCall {
+                    id: "x".into(),
+                    name: "emit_finding".into(),
+                    input: serde_json::json!({ "category": "vibes", "title": "bad" }),
+                }],
+                text: String::new(),
+                emitted_spec: None,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn hard_turn_ceiling_terminates_a_model_that_never_stops() {
+        let mut opts = MinerOpts::default_for("s", "t");
+        opts.max_findings = 2;
+        opts.max_tool_calls = 2;
+        let sink = Collect(Mutex::new(vec![]));
+        let out = run_miner(
+            &NeverStops,
+            std::env::temp_dir().as_path(),
+            &opts,
+            &AtomicBool::new(false),
+            &sink,
+        )
+        .await
+        .unwrap();
+        assert!(out.is_empty());
+        assert!(matches!(
+            sink.0.lock().unwrap().last().unwrap(),
+            MinerEvent::RunDone { findings_total: 0, stopped: true }
+        ));
     }
 
     #[test]
