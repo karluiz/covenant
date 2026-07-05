@@ -82,6 +82,43 @@ body.theme-true-dark .cdlc-reader {
 }
 body.theme-true-dark .cdlc-loop .cdlc-loop-note { opacity: 1; }
 
+/* True Dark elevation pass — pure black flattens flat fills, so cards carry
+   their own depth: a neutral top-lit gradient + hairline top edge (neutral
+   lifts per the True Dark surface rule; accent stays on data only). */
+body.theme-true-dark .cdlc-skill-row,
+body.theme-true-dark .cdlc-search-result,
+body.theme-true-dark .cdlc-context-row,
+body.theme-true-dark .cdlc-stat {
+  background: linear-gradient(180deg, #18181b, #121214);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+body.theme-true-dark .cdlc-skill-row:hover,
+body.theme-true-dark .cdlc-search-result:hover {
+  background: linear-gradient(180deg, #1d1d21, #151518);
+}
+/* recede the section hairlines so the cards read first */
+body.theme-true-dark .cdlc-body h3::after { opacity: 0.4; }
+/* translucent-black code bg vanishes on pure black — go opaque */
+body.theme-true-dark .cdlc-preview { background: #0c0c0e; }
+/* adoption bars: lit-from-the-right gradient + soft glow instead of a slab */
+body.theme-true-dark .cdlc-bar { background: #1c1c1f; }
+body.theme-true-dark .cdlc-bar-fill {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 65%, #000),
+    var(--cdlc-accent, var(--accent, #7aa2f7)));
+  box-shadow: 0 0 10px -2px color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 55%, transparent);
+}
+body.theme-true-dark .cdlc-bar-fill.is-ok {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--ok, #9ece6a) 65%, #000),
+    var(--ok, #9ece6a));
+  box-shadow: 0 0 10px -2px color-mix(in srgb, var(--ok, #9ece6a) 55%, transparent);
+}
+/* hero token count gets the one glow in the readout */
+body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
+  text-shadow: 0 0 14px color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 45%, transparent);
+}
+
 .cdlc-panel button,
 .cdlc-panel input {
   box-sizing: border-box;
