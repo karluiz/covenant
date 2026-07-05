@@ -21,7 +21,12 @@ export function mountRemotePresenceDot(doc: Document = document): void {
   dot.setAttribute("aria-label", "Remote control active");
   dot.setAttribute("aria-haspopup", "true");
   dot.setAttribute("aria-expanded", "false");
-  center.appendChild(dot);
+  // If the update banner is already up, dock inside its capsule (left
+  // edge) instead of floating orphaned beside it. The banner's hide
+  // handler returns the dot to the titlebar center.
+  const banner = doc.getElementById("covenant-update-banner");
+  if (banner) banner.prepend(dot);
+  else center.appendChild(dot);
 
   const pop = doc.createElement("div");
   pop.id = "rc-presence-popover";

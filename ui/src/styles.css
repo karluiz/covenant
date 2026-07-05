@@ -13997,6 +13997,9 @@ button.status-segment.status-tg:focus-visible {
 }
 body.has-update-banner #app-titlebar-brand { display: none; }
 #app-titlebar-center:has(.update-banner) { pointer-events: auto; }
+/* RC presence dot docked inside the capsule — the banner's flex gap
+   spaces it; the standalone margin would double it. */
+.update-banner .rc-presence-dot { margin-left: 0; }
 
 .update-banner__pulse {
   width: 8px; height: 8px; border-radius: 50%;

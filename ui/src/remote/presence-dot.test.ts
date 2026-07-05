@@ -216,6 +216,20 @@ describe("mountRemotePresenceDot", () => {
     expect(mocks.setRemoteAllowOpen).toHaveBeenCalledWith(true);
   });
 
+  it("docks inside an already-mounted update banner instead of the center", () => {
+    document.body.innerHTML = `
+      <header id="app-titlebar">
+        <div id="app-titlebar-center">
+          <span id="app-titlebar-brand">COVENANT</span>
+          <div id="covenant-update-banner" class="update-banner"></div>
+        </div>
+      </header>`;
+    mountRemotePresenceDot(document);
+    const dot = document.getElementById("rc-presence-dot");
+    expect(dot?.parentElement?.id).toBe("covenant-update-banner");
+    expect(dot?.parentElement?.firstElementChild).toBe(dot);
+  });
+
   it("is a no-op when mounted twice", () => {
     mount();
     mountRemotePresenceDot(document);

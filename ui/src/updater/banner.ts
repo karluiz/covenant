@@ -55,6 +55,10 @@ export function showUpdateBanner(update: Update): void {
     .addEventListener("click", () => openReleaseNotesModal(update, startInstall));
 
   const hide = () => {
+    // Return an adopted RC presence dot to the titlebar before the
+    // capsule goes away, or it disappears with the banner.
+    const dot = banner.querySelector<HTMLElement>("#rc-presence-dot");
+    if (dot) center.prepend(dot);
     banner.remove();
     document.body.classList.remove(BODY_CLASS);
   };
@@ -62,6 +66,11 @@ export function showUpdateBanner(update: Update): void {
     .addEventListener("click", hide);
 
   center.appendChild(banner);
+  // Adopt an already-mounted RC presence dot into the capsule's left
+  // edge — otherwise it floats orphaned beside the pill once the brand
+  // text is hidden. Behavior (popover, kill switch) is unaffected.
+  const dot = document.getElementById("rc-presence-dot");
+  if (dot) banner.prepend(dot);
   document.body.classList.add(BODY_CLASS);
 }
 
