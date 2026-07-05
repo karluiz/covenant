@@ -39,6 +39,7 @@ import {
 } from "../../api";
 import type { AcpExecutor, AcpImageAttachment, AcpModelInfo, DirEntry } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
+import { Icons } from "../../icons";
 
 /// Per-executor branding for the chat chrome. `cmdline` is what the
 /// empty-state shows as "your prompt goes to …".
@@ -1234,7 +1235,10 @@ export class AcpChatView {
       chip.type = "button";
       chip.className = "acp-image-chip";
       chip.title = "Remove image";
-      chip.textContent = `🖼 image ${i + 1} · ${img.mimeType.replace("image/", "")} ✕`;
+      chip.innerHTML =
+        `<span class="acp-image-chip-icon">${Icons.image({ size: 13 })}</span>` +
+        `<span>image ${i + 1} · ${escapeHtml(img.mimeType.replace("image/", ""))}</span>` +
+        `<span class="acp-image-chip-x">${Icons.x({ size: 12 })}</span>`;
       chip.addEventListener("click", () => {
         this.pendingImages.splice(i, 1);
         this.renderImageStrip();

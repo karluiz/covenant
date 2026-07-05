@@ -565,6 +565,9 @@
   flex-wrap: wrap;
 }
 .acp-image-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid rgba(var(--ink-rgb), 0.14);
@@ -573,6 +576,20 @@
   font: inherit;
   font-size: 11.5px;
   cursor: pointer;
+}
+.acp-image-chip-icon,
+.acp-image-chip-x {
+  display: inline-flex;
+  align-items: center;
+}
+.acp-image-chip-icon {
+  color: var(--text-secondary, rgba(var(--ink-rgb), 0.6));
+}
+.acp-image-chip-x {
+  opacity: 0.55;
+}
+.acp-image-chip:hover .acp-image-chip-x {
+  opacity: 1;
 }
 .acp-image-chip:hover {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
