@@ -2598,14 +2598,28 @@ export async function closeAcpSession(sessionId: SessionId): Promise<void> {
   return invoke<void>("close_acp_session", { sessionId });
 }
 
+/// A pasted image riding an ACP prompt: base64 payload (no `data:` URL
+/// prefix) + mime type. Backend turns it into an ACP `image` block.
+export interface AcpImageAttachment {
+  mimeType: string;
+  data: string;
+}
+
 /// `attachments` are cwd-relative file paths (from @-mentions); the
 /// backend embeds each as an ACP `resource` block alongside the text.
+/// `images` are pasted screenshots/images (see AcpImageAttachment).
 export async function acpSendPrompt(
   sessionId: SessionId,
   text: string,
   attachments?: string[],
+  images?: AcpImageAttachment[],
 ): Promise<void> {
-  return invoke<void>("acp_send_prompt", { sessionId, text, attachments: attachments ?? null });
+  return invoke<void>("acp_send_prompt", {
+    sessionId,
+    text,
+    attachments: attachments ?? null,
+    images: images ?? null,
+  });
 }
 
 export async function acpRespondPermission(

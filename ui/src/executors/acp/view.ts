@@ -37,7 +37,7 @@ import {
   structureListDir,
   subscribeAcpEvents,
 } from "../../api";
-import type { AcpExecutor, AcpModelInfo, DirEntry } from "../../api";
+import type { AcpExecutor, AcpImageAttachment, AcpModelInfo, DirEntry } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
 
 /// Per-executor branding for the chat chrome. `cmdline` is what the
@@ -395,6 +395,10 @@ export class AcpChatView {
   private readonly executor: AcpExecutor;
   private acpSessionId: string | null;
   private readonly onSessionChange?: (sessionId: SessionId, acpSessionId: string) => void;
+  /// Images pasted into the composer, sent as ACP `image` blocks with
+  /// the next prompt and cleared. Rendered as removable chips.
+  private pendingImages: AcpImageAttachment[] = [];
+  private imageStripEl!: HTMLElement;
 
   private statusEl!: HTMLElement;
   private messagesEl!: HTMLElement;
@@ -506,6 +510,7 @@ export class AcpChatView {
       <form class="acp-chat-input" autocomplete="off">
         <div class="acp-slash-menu" role="listbox" hidden></div>
         <div class="acp-slash-menu acp-mention-menu" role="listbox" hidden></div>
+        <div class="acp-image-strip" hidden></div>
         <textarea
           class="acp-chat-textarea"
           rows="2"
@@ -537,6 +542,7 @@ export class AcpChatView {
       { passive: true },
     );
     this.emptyEl = requireChild(this.host, ".acp-chat-empty");
+    this.imageStripEl = requireChild(this.host, ".acp-image-strip");
     this.inputEl = requireChild(this.host, ".acp-chat-textarea") as HTMLTextAreaElement;
     this.sendBtn = requireChild(this.host, ".acp-chat-send") as HTMLButtonElement;
     this.cancelBtn = requireChild(this.host, ".acp-chat-cancel") as HTMLButtonElement;
@@ -552,6 +558,30 @@ export class AcpChatView {
     this.inputEl.addEventListener("input", () => {
       this.updateSlashMenu();
       void this.updateMentionMenu();
+    });
+    // Paste-to-attach: image/* clipboard items become ACP `image` blocks
+    // on the next send (both copilot and pi-acp advertise
+    // promptCapabilities.image). Text pastes flow through untouched.
+    this.inputEl.addEventListener("paste", (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files = [...items]
+        .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+        .map((it) => it.getAsFile())
+        .filter((f): f is File => f !== null);
+      if (files.length === 0) return;
+      e.preventDefault();
+      for (const f of files) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const url = String(reader.result ?? "");
+          const comma = url.indexOf(",");
+          if (comma < 0) return;
+          this.pendingImages.push({ mimeType: f.type, data: url.slice(comma + 1) });
+          this.renderImageStrip();
+        };
+        reader.readAsDataURL(f);
+      }
     });
     this.inputEl.addEventListener("keydown", (e) => {
       // Popup navigation wins over send while a menu is open. The two
@@ -1159,29 +1189,58 @@ export class AcpChatView {
 
   private async handleSend(): Promise<void> {
     const text = this.inputEl.value.trim();
-    if (text.length === 0 || this.state.inFlight) return;
+    const images = this.pendingImages;
+    if ((text.length === 0 && images.length === 0) || this.state.inFlight) return;
     this.hideSlashMenu();
     this.hideMentionMenu();
     // Only mentions whose @token survived editing become attachments.
     const attachments = [...this.mentions].filter((p) => text.includes(`@${p}`));
     this.mentions.clear();
     this.inputEl.value = "";
-    this.state.items.push({ kind: "user", text });
+    this.pendingImages = [];
+    this.renderImageStrip();
+    const shown = images.length > 0
+      ? `${text}${text ? "\n" : ""}[${images.length} image${images.length > 1 ? "s" : ""} attached]`
+      : text;
+    this.state.items.push({ kind: "user", text: shown });
     this.state.turnHadOutput = false; // armed: silent end_turn → notice
     this.hideEmptyState();
     const el = document.createElement("div");
     el.className = "acp-msg acp-msg-user";
-    el.innerHTML = `<div class="acp-msg-role">you</div><div class="acp-msg-content">${escapeHtml(text)}</div>`;
+    el.innerHTML = `<div class="acp-msg-role">you</div><div class="acp-msg-content">${escapeHtml(shown)}</div>`;
     this.messagesEl.appendChild(el);
     this.stickToBottom = true;
     this.setInFlight(true);
     this.scrollToBottom();
     try {
-      await acpSendPrompt(this.sessionId, text, attachments.length > 0 ? attachments : undefined);
+      await acpSendPrompt(
+        this.sessionId,
+        text,
+        attachments.length > 0 ? attachments : undefined,
+        images.length > 0 ? images : undefined,
+      );
     } catch (err) {
       this.setInFlight(false);
       this.appendNotice(`send failed: ${String(err)}`, "error");
     }
+  }
+
+  /// Removable chips for pasted images, above the textarea.
+  private renderImageStrip(): void {
+    this.imageStripEl.hidden = this.pendingImages.length === 0;
+    this.imageStripEl.textContent = "";
+    this.pendingImages.forEach((img, i) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "acp-image-chip";
+      chip.title = "Remove image";
+      chip.textContent = `🖼 image ${i + 1} · ${img.mimeType.replace("image/", "")} ✕`;
+      chip.addEventListener("click", () => {
+        this.pendingImages.splice(i, 1);
+        this.renderImageStrip();
+      });
+      this.imageStripEl.appendChild(chip);
+    });
   }
 
   private async handleCancel(): Promise<void> {

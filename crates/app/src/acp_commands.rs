@@ -572,6 +572,16 @@ pub async fn close_acp_session(
 // Prompting
 // ---------------------------------------------------------------------------
 
+/// A pasted image riding the prompt: base64 payload (no data: prefix)
+/// plus its mime type. Becomes an ACP `image` content block — both
+/// copilot and pi-acp advertise `promptCapabilities.image`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpImageAttachment {
+    pub mime_type: String,
+    pub data: String,
+}
+
 #[tauri::command]
 pub async fn acp_send_prompt(
     app: AppHandle,
@@ -579,6 +589,7 @@ pub async fn acp_send_prompt(
     session_id: String,
     text: String,
     attachments: Option<Vec<String>>,
+    images: Option<Vec<AcpImageAttachment>>,
 ) -> Result<(), String> {
     let (id, tab) = require(&state, &session_id).await?;
 
@@ -616,6 +627,26 @@ pub async fn acp_send_prompt(
                 "mimeType": "text/plain",
                 "text": String::from_utf8_lossy(&bytes),
             }
+        }));
+    }
+    // Pasted images → ACP `image` blocks. Cap the base64 payload so a
+    // screenshot can ride along but a 50 MB scan can't wedge the pipe.
+    // ponytail: 8 MiB b64 ≈ 6 MiB raw; raise if real screenshots hit it.
+    const IMAGE_B64_CAP: usize = 8 * 1024 * 1024;
+    for (i, img) in images.unwrap_or_default().into_iter().enumerate() {
+        if !img.mime_type.starts_with("image/") {
+            return Err(format!("image {i}: unsupported mime type {}", img.mime_type));
+        }
+        if img.data.is_empty() {
+            return Err(format!("image {i}: empty payload"));
+        }
+        if img.data.len() > IMAGE_B64_CAP {
+            return Err(format!("image {i}: too large (>6 MiB)"));
+        }
+        blocks.push(json!({
+            "type": "image",
+            "mimeType": img.mime_type,
+            "data": img.data,
         }));
     }
 
