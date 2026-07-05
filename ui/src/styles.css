@@ -14001,6 +14001,22 @@ body.has-update-banner #app-titlebar-brand { display: none; }
    spaces it; the standalone margin would double it. */
 .update-banner .rc-presence-dot { margin-left: 0; }
 
+/* Responsive: the capsule is absolute-centered, so as the window narrows
+   it marches toward the left tab strip and the right icon row. Shed the
+   lowest-priority pieces first. "What's new ›" is redundant (the version
+   chip opens the same modal), so it goes first; the "UPDATE" word next.
+   Dot + version + Install + dismiss always survive.
+   ponytail: viewport breakpoints as a proxy for the middle gap — the
+   titlebar spans the full window; container query if left/right ever
+   grow independently. */
+@media (max-width: 900px) {
+  .update-banner__whatsnew { display: none; }
+}
+@media (max-width: 720px) {
+  .update-banner__label { display: none; }
+  .update-banner { gap: 6px; padding-right: 2px; }
+}
+
 .update-banner__pulse {
   width: 8px; height: 8px; border-radius: 50%;
   background: #7aa2ff;
