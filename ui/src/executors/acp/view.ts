@@ -116,10 +116,23 @@ export interface AcpStreamState {
   /// Latest slash-command roster from `available_commands_update` —
   /// replaced wholesale on every update (the wire sends the full list).
   commands: AcpAvailableCommand[];
+  /// Whether any agent output (message/thought chunk or tool call)
+  /// arrived since the last user send. A `prompt_done` with this still
+  /// false is a silently-failed turn (e.g. a broken provider behind
+  /// pi-acp reports a clean empty end_turn) — surfaced as a notice
+  /// instead of pure silence. Reset by the view on each send.
+  turnHadOutput: boolean;
 }
 
 export function createAcpStreamState(): AcpStreamState {
-  return { items: [], tools: new Map(), pendingPerms: new Map(), inFlight: false, commands: [] };
+  return {
+    items: [],
+    tools: new Map(),
+    pendingPerms: new Map(),
+    inFlight: false,
+    commands: [],
+    turnHadOutput: false,
+  };
 }
 
 /// The trailing `@fragment` immediately before the caret, if any —
@@ -221,8 +234,10 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
       // discriminant, so `===` narrowing alone doesn't exclude it — pair
       // it with an `in` check on the field only the real variant has.
       if (u.sessionUpdate === "agent_message_chunk" && "content" in u) {
+        state.turnHadOutput = true;
         appendProse(state, "assistant", contentText(u.content));
       } else if (u.sessionUpdate === "agent_thought_chunk" && "content" in u) {
+        state.turnHadOutput = true;
         appendProse(state, "thought", contentText(u.content));
       } else if (u.sessionUpdate === "user_message_chunk" && "content" in u) {
         // Only emitted during a session/load replay — live prompts never
@@ -237,6 +252,7 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
           else state.items.push({ kind: "user", text });
         }
       } else if (isToolUpdate(u)) {
+        state.turnHadOutput = true;
         upsertTool(state, {
           toolCallId: u.toolCallId,
           title: u.title,
@@ -269,6 +285,14 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
       // (timeout, cancelled, refusal, max_tokens, errors).
       if (ev.stopReason !== "end_turn") {
         state.items.push({ kind: "notice", text: `Turn finished — ${ev.stopReason}`, variant: "divider" });
+      } else if (!state.turnHadOutput) {
+        // Clean end_turn with zero output = a provider failing silently
+        // behind the adapter (seen live: pi + a broken cf-gateway model).
+        state.items.push({
+          kind: "notice",
+          text: "The agent returned no output for this turn — the selected model/provider may be failing. Try switching models (/model).",
+          variant: "error",
+        });
       }
       break;
     }
@@ -1143,6 +1167,7 @@ export class AcpChatView {
     this.mentions.clear();
     this.inputEl.value = "";
     this.state.items.push({ kind: "user", text });
+    this.state.turnHadOutput = false; // armed: silent end_turn → notice
     this.hideEmptyState();
     const el = document.createElement("div");
     el.className = "acp-msg acp-msg-user";

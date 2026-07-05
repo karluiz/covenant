@@ -74,6 +74,25 @@ describe("reduceAcpEvent", () => {
     expect(state.items[0]).toEqual({ kind: "user", text: "fix it" });
   });
 
+  it("flags a silent turn: end_turn with zero output pushes an error notice", () => {
+    const state = createAcpStreamState();
+    state.items.push({ kind: "user", text: "hola" });
+    state.turnHadOutput = false;
+    reduceAcpEvent(state, { type: "prompt_done", stopReason: "end_turn" });
+    const last = state.items[state.items.length - 1] as AcpNoticeItem;
+    expect(last.kind).toBe("notice");
+    expect(last.variant).toBe("error");
+    expect(last.text).toContain("no output");
+  });
+
+  it("stays quiet on end_turn when the turn produced output", () => {
+    const state = createAcpStreamState();
+    state.turnHadOutput = false;
+    reduceAcpEvent(state, update({ sessionUpdate: "agent_message_chunk", content: { text: "hi" } }));
+    reduceAcpEvent(state, { type: "prompt_done", stopReason: "end_turn" });
+    expect(state.items.every((i) => i.kind !== "notice")).toBe(true);
+  });
+
   it("keeps agent_thought_chunk and agent_message_chunk as separate prose items", () => {
     const state = createAcpStreamState();
     reduceAcpEvent(state, update({ sessionUpdate: "agent_thought_chunk", content: { text: "thinking…" } }));
@@ -186,6 +205,7 @@ describe("reduceAcpEvent", () => {
   it("prompt_done flips inFlight; end_turn is silent, informative stop reasons get a divider", () => {
     const state = createAcpStreamState();
     state.inFlight = true;
+    state.turnHadOutput = true; // a normal turn — output arrived
     reduceAcpEvent(state, { type: "prompt_done", stopReason: "end_turn" });
 
     // The normal outcome renders nothing — a per-turn divider is noise.
