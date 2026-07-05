@@ -133,6 +133,13 @@ struct AcpTabSession {
     /// Model roster + current selection from `session/new`, kept in sync
     /// by `acp_set_model`. Same pull-based pattern as `commands`.
     models: std::sync::Mutex<AcpModels>,
+    /// Flipped true by `acp_mark_ready` once the frontend's Tauri event
+    /// listener is registered. The forwarder task holds its first emit
+    /// until then — otherwise a `session/load` replay burst is emitted
+    /// into the void and the transcript arrives with holes (the same
+    /// race `commands`/`models` dodge via pull, but replay frames have
+    /// no pull path).
+    ready_tx: tokio::sync::watch::Sender<bool>,
 }
 
 impl AcpTabSession {
@@ -525,6 +532,7 @@ pub async fn spawn_acp_session(
     let model = models.current.clone();
     let acp_session_id_out = acp_session_id.clone();
 
+    let (ready_tx, ready_rx) = tokio::sync::watch::channel(false);
     let tab_session = Arc::new(AcpTabSession {
         session: session.clone(),
         acp_session_id: std::sync::Mutex::new(acp_session_id),
@@ -532,6 +540,7 @@ pub async fn spawn_acp_session(
         commands: std::sync::Mutex::new(Vec::new()),
         cwd: cwd.clone(),
         models: std::sync::Mutex::new(models),
+        ready_tx,
     });
     let tab_for_task = tab_session.clone();
 
@@ -573,6 +582,21 @@ pub async fn spawn_acp_session(
             }
             notch_hub.drop_session(&session_id).await;
             registry.remove(&session_id).await;
+        }
+
+        // Hold the first emit until the frontend has registered its Tauri
+        // listener (`acp_mark_ready`): the resume replay burst arrives in
+        // `rx` immediately, and anything emitted before the listener lands
+        // is dropped by Tauri with no recovery. 5s escape hatch so a view
+        // that never mounts (spawn-then-close race) can't wedge the notch
+        // phases forever; events keep buffering in `rx` while we wait.
+        let mut ready_rx = ready_rx;
+        if !*ready_rx.borrow() {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(5),
+                ready_rx.wait_for(|ready| *ready),
+            )
+            .await;
         }
 
         loop {
@@ -805,6 +829,19 @@ pub async fn acp_respond_permission(
         .respond_permission(&request_key, &option_id)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Frontend signal that its Tauri event listener for this session's
+/// topic is registered — unblocks the forwarder's first emit (see the
+/// ready gate in `spawn_acp_session`). Idempotent.
+#[tauri::command]
+pub async fn acp_mark_ready(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let (_, tab) = require(&state, &session_id).await?;
+    let _ = tab.ready_tx.send(true);
+    Ok(())
 }
 
 /// Model roster + current selection for the tab's model picker.

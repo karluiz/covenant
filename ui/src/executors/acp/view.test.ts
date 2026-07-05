@@ -23,9 +23,11 @@ vi.mock("../../api", () => ({
 import {
   createAcpStreamState,
   filterSlashCommands,
+  isCommandNoise,
   markPermAnswered,
   mentionFragmentAt,
   reduceAcpEvent,
+  titleFromPrompt,
   type AcpNoticeItem,
   type AcpPermItem,
   type AcpProseItem,
@@ -84,6 +86,16 @@ describe("reduceAcpEvent", () => {
     reduceAcpEvent(state, update({ sessionUpdate: "user_message_chunk", content: { text: "it" } }));
     expect(state.items).toHaveLength(1);
     expect(state.items[0]).toEqual({ kind: "user", text: "fix it" });
+  });
+
+  it("drops replayed slash-command bookkeeping chunks (claude-agent-acp)", () => {
+    const state = createAcpStreamState();
+    // Verbatim shapes seen live in a claude-agent-acp session/load replay.
+    reduceAcpEvent(state, update({ sessionUpdate: "user_message_chunk", content: { text: "<command-name>/model</command-name>\n" } }));
+    reduceAcpEvent(state, update({ sessionUpdate: "user_message_chunk", content: { text: "<local-command-stdout>Set model to claude-opus-4.7</local-command-stdout>" } }));
+    reduceAcpEvent(state, update({ sessionUpdate: "user_message_chunk", content: { text: "fix the bug" } }));
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0]).toEqual({ kind: "user", text: "fix the bug" });
   });
 
   it("flags a silent turn: end_turn with zero output pushes an error notice", () => {
@@ -294,5 +306,30 @@ describe("reduceAcpEvent", () => {
     const notice = state.items[0] as AcpNoticeItem;
     expect(notice.kind).toBe("notice");
     expect(notice.variant).toBe("dead");
+  });
+});
+
+describe("isCommandNoise", () => {
+  it("matches harness bookkeeping tags, not user text", () => {
+    expect(isCommandNoise("<command-name>/model</command-name>")).toBe(true);
+    expect(isCommandNoise("  <local-command-stdout>ok</local-command-stdout>")).toBe(true);
+    expect(isCommandNoise("<command-message>login</command-message>")).toBe(true);
+    expect(isCommandNoise("fix the <command-name> parser")).toBe(false);
+    expect(isCommandNoise("<commandeer the ship>")).toBe(false);
+  });
+});
+
+describe("titleFromPrompt", () => {
+  it("takes the first non-empty line, capped at 48 chars", () => {
+    expect(titleFromPrompt("fix the login bug")).toBe("fix the login bug");
+    expect(titleFromPrompt("  \n\nfix it\nplease")).toBe("fix it");
+    const long = "a".repeat(60);
+    expect(titleFromPrompt(long)).toBe(`${"a".repeat(47)}…`);
+  });
+
+  it("rejects slash commands, harness noise, and empties", () => {
+    expect(titleFromPrompt("/model")).toBeNull();
+    expect(titleFromPrompt("<command-name>/x</command-name>")).toBeNull();
+    expect(titleFromPrompt("   ")).toBeNull();
   });
 });
