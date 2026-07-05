@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.123 — Windows build fix for the Claude ACP executor
+
+### Fixed
+
+- **Windows release build**: `prepare_claude_acp_config` used unix-only
+  permission APIs unconditionally, breaking the v0.8.122 Windows job (macOS
+  shipped fine). The chmod calls are now `#[cfg(unix)]`-gated
+  (`crates/app/src/acp_commands.rs`); Windows keeps default ACLs on the
+  copied credential file. No functional change on macOS.
+
 ## v0.8.122 — ACP goes multi-agent: pi + Claude tabs, image paste
 
 ### Added
