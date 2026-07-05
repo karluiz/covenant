@@ -1,5 +1,6 @@
 //! CDLC — the `.covenant/cdlc/` artifact, local install, and executor projection.
 
+pub mod compile;
 pub mod install;
 pub mod manifest;
 pub mod project;
@@ -26,4 +27,6 @@ pub enum CdlcError {
     TomlSer(#[from] toml::ser::Error),
     #[error("invalid skill package: {0}")]
     InvalidPackage(String),
+    #[error("{0}")]
+    Other(String),
 }
