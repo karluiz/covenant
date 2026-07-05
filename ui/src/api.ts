@@ -374,6 +374,28 @@ export async function operatorSetGithubAccess(
   return invoke<void>("operator_set_github_access", { id, access });
 }
 
+/// One row of the ACP /resume picker (from `session/list`).
+export interface AcpSessionListing {
+  sessionId: string;
+  cwd?: string | null;
+  title?: string | null;
+  updatedAt?: string | null;
+}
+
+export async function acpListSessions(sessionId: SessionId): Promise<AcpSessionListing[]> {
+  return invoke<AcpSessionListing[]>("acp_list_sessions", { sessionId });
+}
+
+/// Load a past conversation into the live tab; the transcript replays
+/// through the normal event stream. Returns the (possibly refreshed)
+/// model roster. Caller must clear its rendered transcript first.
+export async function acpLoadSession(
+  sessionId: SessionId,
+  acpSessionId: string,
+): Promise<AcpModels> {
+  return invoke<AcpModels>("acp_load_session", { sessionId, acpSessionId });
+}
+
 export async function operatorSetAcpEnabled(
   id: string,
   enabled: boolean,

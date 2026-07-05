@@ -29,6 +29,8 @@ import {
   acpCancel,
   acpGetCommands,
   acpGetModels,
+  acpListSessions,
+  acpLoadSession,
   acpRespondPermission,
   acpSendPrompt,
   acpSetModel,
@@ -37,9 +39,27 @@ import {
   structureListDir,
   subscribeAcpEvents,
 } from "../../api";
-import type { AcpExecutor, AcpImageAttachment, AcpModelInfo, DirEntry } from "../../api";
+import type {
+  AcpExecutor,
+  AcpImageAttachment,
+  AcpModelInfo,
+  AcpSessionListing,
+  DirEntry,
+} from "../../api";
 import { brandIconSvg } from "../../icons/brands";
 import { Icons } from "../../icons";
+
+/// Coarse relative time for the /resume picker ("3h ago", "2d ago").
+/// Exported for tests.
+export function relativeTime(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
 
 /// Quick-view lightbox for a pasted image. One at a time — opening
 /// replaces any existing overlay. Dismiss: click anywhere or Escape.
@@ -675,9 +695,14 @@ export class AcpChatView {
     // Synthesize /model when the agent has a model roster but doesn't
     // advertise a "model" command (pi-acp) — it routes to our native
     // picker in pickSlashCommand, never to the wire as prompt text.
+    // Same for /resume: all three agents implement session/list (verified
+    // live), but none advertises a slash command for it.
     let roster = this.state.commands;
     if (this.models.length > 0 && !roster.some((c) => c.name === "model")) {
       roster = [...roster, { name: "model", description: "Switch model (native picker)" }];
+    }
+    if (!roster.some((c) => c.name === "resume")) {
+      roster = [...roster, { name: "resume", description: "Load a past conversation" }];
     }
     this.slashItems = filterSlashCommands(roster, this.inputEl.value);
     if (this.slashItems.length === 0) {
@@ -730,6 +755,11 @@ export class AcpChatView {
     if (cmd.name === "model") {
       this.inputEl.value = "";
       this.openModelMenu();
+      return;
+    }
+    if (cmd.name === "resume") {
+      this.inputEl.value = "";
+      void this.openResumeMenu();
       return;
     }
     this.inputEl.value = `/${cmd.name} `;
@@ -900,6 +930,90 @@ export class AcpChatView {
       });
       this.modelMenuEl.appendChild(row);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // /resume picker — session/list roster in the same dropdown chrome as the
+  // model menu; picking calls session/load on the LIVE process and lets the
+  // replay repopulate the cleared transcript.
+  // -------------------------------------------------------------------------
+
+  private async openResumeMenu(): Promise<void> {
+    let listings: AcpSessionListing[];
+    try {
+      listings = await acpListSessions(this.sessionId);
+    } catch (err) {
+      this.appendNotice(`resume: ${String(err)}`, "error");
+      return;
+    }
+    const others = listings
+      .filter((l) => l.sessionId !== this.acpSessionId)
+      .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+    if (others.length === 0) {
+      this.appendNotice("No past conversations to resume.", "info");
+      return;
+    }
+    this.modelMenuEl.style.left = `${this.modelChipEl.offsetLeft}px`;
+    this.modelMenuEl.hidden = false;
+    this.modelMenuEl.textContent = "";
+    for (const l of others.slice(0, 20)) {
+      const row = document.createElement("div");
+      row.className = "acp-slash-row";
+      row.setAttribute("role", "option");
+      const name = document.createElement("span");
+      name.className = "acp-slash-name";
+      name.textContent = (l.title ?? l.sessionId).slice(0, 64);
+      row.appendChild(name);
+      if (l.updatedAt) {
+        const hint = document.createElement("span");
+        hint.className = "acp-slash-hint";
+        hint.textContent = relativeTime(l.updatedAt);
+        row.appendChild(hint);
+      }
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        void this.pickResume(l.sessionId);
+      });
+      this.modelMenuEl.appendChild(row);
+    }
+    document.addEventListener("mousedown", this.closeModelMenuOnOutsideClick);
+  }
+
+  private async pickResume(acpSessionId: string): Promise<void> {
+    this.closeModelMenu();
+    this.resetTranscript();
+    this.appendNotice("Loading conversation…", "info");
+    try {
+      const models = await acpLoadSession(this.sessionId, acpSessionId);
+      this.acpSessionId = acpSessionId;
+      this.onSessionChange?.(this.sessionId, acpSessionId);
+      if (models.available.length > 0) this.models = models.available;
+      if (models.current) this.model = models.current;
+      this.renderMeta();
+    } catch (err) {
+      this.appendNotice(`resume failed: ${String(err)}`, "error");
+    }
+  }
+
+  /// Clear the rendered conversation so a session/load replay can
+  /// repopulate from scratch. State and DOM caches reset together —
+  /// stale tool/perm DOM registries would otherwise re-bind replayed
+  /// toolCallIds to detached nodes.
+  private resetTranscript(): void {
+    this.state.items.length = 0;
+    this.state.tools.clear();
+    this.state.pendingPerms.clear();
+    this.state.turnHadOutput = false;
+    this.state.inFlight = false;
+    this.toolDoms.clear();
+    this.permDoms.clear();
+    // Keep the empty-state node (hidden) — clearing textContent would
+    // detach the element this.emptyEl points at.
+    for (const child of [...this.messagesEl.children]) {
+      if (child !== this.emptyEl) child.remove();
+    }
+    this.emptyEl.hidden = true;
+    this.setInFlight(false);
   }
 
   private async pickModel(modelId: string): Promise<void> {

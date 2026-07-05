@@ -30,12 +30,24 @@ import {
   type AcpPermItem,
   type AcpProseItem,
   type AcpToolItem,
+  relativeTime,
 } from "./view";
 import type { AcpPermissionRequest, AcpSessionUpdate, AcpTabEvent } from "../../api";
 
 function update(su: AcpSessionUpdate): AcpTabEvent {
   return { type: "update", update: { sessionId: "s1", update: su } };
 }
+
+describe("relativeTime", () => {
+  it("buckets seconds/minutes/hours/days and tolerates garbage", () => {
+    const now = Date.now();
+    expect(relativeTime(new Date(now - 5_000).toISOString())).toBe("just now");
+    expect(relativeTime(new Date(now - 120_000).toISOString())).toBe("2m ago");
+    expect(relativeTime(new Date(now - 2 * 3_600_000).toISOString())).toBe("2h ago");
+    expect(relativeTime(new Date(now - 3 * 86_400_000).toISOString())).toBe("3d ago");
+    expect(relativeTime("not-a-date")).toBe("");
+  });
+});
 
 describe("reduceAcpEvent", () => {
   it("creates one prose item from a single agent_message_chunk", () => {

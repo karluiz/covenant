@@ -4589,6 +4589,8 @@ pub fn run() {
             acp_commands::acp_get_commands,
             acp_commands::acp_get_models,
             acp_commands::acp_set_model,
+            acp_commands::acp_list_sessions,
+            acp_commands::acp_load_session,
             acp_commands::close_acp_session,
             score_auth_commands::score_signin_start,
             score_auth_commands::score_signin_poll,

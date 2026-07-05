@@ -117,8 +117,9 @@ fn tool_call_target(f: &ToolCallFields) -> String {
 struct AcpTabSession {
     session: Arc<AcpSession>,
     /// The wire-level `sessionId` returned by `session/new` — distinct
-    /// from our own [`SessionId`] registry key.
-    acp_session_id: String,
+    /// from our own [`SessionId`] registry key. Mutex: `acp_load_session`
+    /// (/resume picker) swaps it in-place on a live tab.
+    acp_session_id: std::sync::Mutex<String>,
     /// Guards against overlapping `session/prompt` calls on the same
     /// session (ACP has no queueing of its own).
     in_flight: AtomicBool,
@@ -132,6 +133,16 @@ struct AcpTabSession {
     /// Model roster + current selection from `session/new`, kept in sync
     /// by `acp_set_model`. Same pull-based pattern as `commands`.
     models: std::sync::Mutex<AcpModels>,
+}
+
+impl AcpTabSession {
+    /// Current wire-level ACP sessionId (swappable via `acp_load_session`).
+    fn wire_id(&self) -> String {
+        match self.acp_session_id.lock() {
+            Ok(g) => g.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
 }
 
 /// Model roster for the tab's picker. `available` comes from
@@ -516,7 +527,7 @@ pub async fn spawn_acp_session(
 
     let tab_session = Arc::new(AcpTabSession {
         session: session.clone(),
-        acp_session_id,
+        acp_session_id: std::sync::Mutex::new(acp_session_id),
         in_flight: AtomicBool::new(false),
         commands: std::sync::Mutex::new(Vec::new()),
         cwd: cwd.clone(),
@@ -744,7 +755,7 @@ pub async fn acp_send_prompt(
 
     let topic = format!("session://{id}/acp");
     let notch_hub = state.notch_hub.clone();
-    let acp_session_id = tab.acp_session_id.clone();
+    let acp_session_id = tab.wire_id();
     let session = tab.session.clone();
     let tab_for_flag = tab.clone();
     tokio::spawn(async move {
@@ -827,7 +838,7 @@ pub async fn acp_set_model(
         .session
         .request(
             "session/set_model",
-            json!({ "sessionId": tab.acp_session_id, "modelId": model_id }),
+            json!({ "sessionId": tab.wire_id(), "modelId": model_id }),
         )
         .await;
     match direct {
@@ -837,7 +848,7 @@ pub async fn acp_set_model(
                 .request(
                     "session/set_config_option",
                     json!({
-                        "sessionId": tab.acp_session_id,
+                        "sessionId": tab.wire_id(),
                         "configId": "model",
                         "value": model_id,
                     }),
@@ -871,13 +882,100 @@ pub async fn acp_get_commands(
     Ok(commands)
 }
 
+/// One row of the /resume picker: a past conversation the agent can load.
+/// Shape verified live on copilot 1.0.68, pi-acp 0.0.31 and
+/// claude-agent-acp 0.23.1 — all return `{sessionId, cwd, title, updatedAt}`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSessionListing {
+    pub session_id: String,
+    pub cwd: Option<String>,
+    pub title: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// List the agent's stored past sessions (`session/list`) for the tab's cwd.
+#[tauri::command]
+pub async fn acp_list_sessions(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Vec<AcpSessionListing>, String> {
+    let (_, tab) = require(&state, &session_id).await?;
+    let res = tab
+        .session
+        .request(
+            "session/list",
+            json!({ "cwd": tab.cwd.to_string_lossy() }),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let sessions = res
+        .get("sessions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(sessions
+        .iter()
+        .filter_map(|s| {
+            Some(AcpSessionListing {
+                session_id: s.get("sessionId")?.as_str()?.to_string(),
+                cwd: s.get("cwd").and_then(Value::as_str).map(str::to_string),
+                title: s.get("title").and_then(Value::as_str).map(str::to_string),
+                updated_at: s.get("updatedAt").and_then(Value::as_str).map(str::to_string),
+            })
+        })
+        .collect())
+}
+
+/// Load a past conversation into the live tab (`session/load`). The agent
+/// replays the whole transcript as ordinary `session/update` frames through
+/// the existing forwarder — the caller clears its view first and lets the
+/// replay repopulate it. On success the tab's wire id is swapped so all
+/// subsequent prompts/cancels/model-switches target the loaded session.
+#[tauri::command]
+pub async fn acp_load_session(
+    state: State<'_, AppState>,
+    session_id: String,
+    acp_session_id: String,
+) -> Result<AcpModels, String> {
+    let (_, tab) = require(&state, &session_id).await?;
+    if tab.in_flight.load(Ordering::Acquire) {
+        return Err("acp: prompt in flight — wait for the turn to finish".into());
+    }
+    let res = tab
+        .session
+        .request(
+            "session/load",
+            json!({
+                "sessionId": acp_session_id,
+                "cwd": tab.cwd.to_string_lossy(),
+                "mcpServers": [],
+            }),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    match tab.acp_session_id.lock() {
+        Ok(mut g) => *g = acp_session_id,
+        Err(poisoned) => *poisoned.into_inner() = acp_session_id,
+    }
+    let models = parse_models(&res);
+    // session/load may omit models (agent-dependent) — keep the old roster then.
+    if !models.available.is_empty() || models.current.is_some() {
+        match tab.models.lock() {
+            Ok(mut m) => *m = models.clone(),
+            Err(poisoned) => *poisoned.into_inner() = models.clone(),
+        }
+    }
+    Ok(models)
+}
+
 #[tauri::command]
 pub async fn acp_cancel(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let (_, tab) = require(&state, &session_id).await?;
     tab.session
         .notify(
             "session/cancel",
-            json!({ "sessionId": tab.acp_session_id }),
+            json!({ "sessionId": tab.wire_id() }),
         )
         .await
         .map_err(|e| e.to_string())
