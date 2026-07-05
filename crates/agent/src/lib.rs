@@ -7,6 +7,7 @@
 //! tests, etc.) and the API surface deliberately small.
 
 pub mod acp;
+pub mod context_miner;
 pub mod pi_rpc;
 pub mod provider;
 pub mod respond_tool;

@@ -262,6 +262,11 @@ use futures_util::StreamExt;
 pub struct AnthropicStreamingDispatcher {
     pub api_key: String,
     pub model: String,
+    /// Override the tool roster sent to the model. `None` keeps the
+    /// default spec_author roster (`tools::tool_specs()`) so existing
+    /// spec-chat call sites are byte-identical. The context miner sets
+    /// this to its own roster (spec tools + `emit_finding`).
+    pub tools: Option<serde_json::Value>,
 }
 
 #[async_trait]
@@ -295,7 +300,7 @@ impl StreamingDispatcher for AnthropicStreamingDispatcher {
             "output_config": { "effort": "xhigh" },
             "system": [{ "type": "text", "text": system,
                 "cache_control": { "type": "ephemeral" } }],
-            "tools": tools::tool_specs(),
+            "tools": self.tools.clone().unwrap_or_else(tools::tool_specs),
             "messages": api_messages,
         });
 

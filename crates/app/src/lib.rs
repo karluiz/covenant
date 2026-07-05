@@ -3251,7 +3251,11 @@ async fn spec_author_stream_step(
                     .clone()
                     .or_else(|| s.anthropic_api_key.clone())
                     .ok_or("Anthropic api key not configured — open Settings (⌘,)")?;
-                Box::new(sa::stream::AnthropicStreamingDispatcher { api_key, model })
+                Box::new(sa::stream::AnthropicStreamingDispatcher {
+                    api_key,
+                    model,
+                    tools: None,
+                })
             }
             ProviderKind::OpenAiCompat => {
                 let base = entry
