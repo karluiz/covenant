@@ -1,3 +1,0 @@
-id = "retencion-evidencia"
-scenario = "Ya verificamos la identidad del cliente y su cuenta fue aprobada hace un mes. Los archivos de la verificación (fotos del documento, selfie, resultado del match) ocupan bastante storage. ¿Puedo borrarlos para ahorrar costos?"
-rubric = "Indica que la evidencia de la verificación de identidad debe conservarse durante el período de retención regulatorio y NO autoriza borrarla por ahorro de costos. Falla si permite eliminar la evidencia antes de cumplir la retención."

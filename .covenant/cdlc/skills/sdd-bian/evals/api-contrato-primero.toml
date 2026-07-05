@@ -1,3 +1,0 @@
-id = "api-contrato-primero"
-scenario = "Necesito exponer la consulta de saldos de cuentas como API para un canal digital del banco. Tengo prisa: ¿arranco escribiendo el servicio en el framework de siempre y después documento, o cómo empiezo? ¿Qué entregables debo producir y en qué orden?"
-rubric = "Propone empezar por las specs, no por el código: OpenAPI 3.x como contrato (con el schema mapeado al modelo BIAN), Arazzo para la orquestación del proceso, Overlay solo si aplica, esquema de seguridad FAPI 2.0 y validación con Spectral/VACUUM; el código (mock-server, cliente) se genera desde las specs. Falla si propone escribir primero el código del servicio y documentar después."
