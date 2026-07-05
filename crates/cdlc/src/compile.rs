@@ -1,6 +1,7 @@
 //! Compile curated miner findings into a distributable skill package
 //! (SKILL.md + skill.toml) under `.covenant/cdlc/skills/<name>/`.
 
+use crate::install::valid_pkg_name;
 use crate::manifest::cdlc_dir;
 use crate::types::SkillManifest;
 use crate::CdlcError;
@@ -50,14 +51,6 @@ pub fn render_skill_md(name: &str, findings: &[CompiledFinding]) -> String {
     out
 }
 
-fn valid_skill_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 64
-        && name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
-
 pub fn write_skill_package(
     repo_root: &Path,
     name: &str,
@@ -66,30 +59,27 @@ pub fn write_skill_package(
     overwrite: bool,
 ) -> Result<PathBuf, CdlcError> {
     if findings.is_empty() {
-        return Err(CdlcError::Other("no accepted findings to compile".into()));
+        return Err(CdlcError::InvalidPackage("no accepted findings to compile".into()));
     }
-    if !valid_skill_name(name) {
-        return Err(CdlcError::Other(format!(
-            "invalid skill name '{name}' (kebab-case ascii, ≤64 chars)"
+    if !valid_pkg_name(name) {
+        return Err(CdlcError::InvalidPackage(format!(
+            "invalid skill name '{name}' (lowercase ascii/digits/dash/dot/underscore)"
         )));
     }
     let dir = cdlc_dir(repo_root).join("skills").join(name);
     if dir.exists() && !overwrite {
-        return Err(CdlcError::Other(format!("skill '{name}' already exists")));
+        return Err(CdlcError::InvalidPackage(format!("skill '{name}' already exists")));
     }
-    std::fs::create_dir_all(&dir).map_err(|e| CdlcError::Other(e.to_string()))?;
-    std::fs::write(dir.join("SKILL.md"), render_skill_md(name, findings))
-        .map_err(|e| CdlcError::Other(e.to_string()))?;
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("SKILL.md"), render_skill_md(name, findings))?;
     let manifest = SkillManifest {
         name: name.to_string(),
         version: "1.0.0".to_string(),
         owner: owner.map(str::to_string),
         deps: Vec::new(),
     };
-    let toml_text =
-        toml::to_string_pretty(&manifest).map_err(|e| CdlcError::Other(e.to_string()))?;
-    std::fs::write(dir.join("skill.toml"), toml_text)
-        .map_err(|e| CdlcError::Other(e.to_string()))?;
+    let toml_text = toml::to_string_pretty(&manifest)?;
+    std::fs::write(dir.join("skill.toml"), toml_text)?;
     Ok(dir)
 }
 

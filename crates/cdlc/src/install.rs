@@ -7,7 +7,7 @@ use std::path::Path;
 
 /// Accepts only safe package names: non-empty, no leading dot, no path separators.
 /// Allowed characters: lowercase ASCII letters, digits, `.`, `-`, `_`.
-fn valid_pkg_name(name: &str) -> bool {
+pub(crate) fn valid_pkg_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('.')
         && name.bytes().all(|b| {

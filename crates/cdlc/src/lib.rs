@@ -27,6 +27,4 @@ pub enum CdlcError {
     TomlSer(#[from] toml::ser::Error),
     #[error("invalid skill package: {0}")]
     InvalidPackage(String),
-    #[error("{0}")]
-    Other(String),
 }
