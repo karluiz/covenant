@@ -1573,14 +1573,16 @@ export class TabManager {
     document.body.appendChild(menu);
 
     // Position + flip-into-viewport entirely in LAYOUT px. The app applies CSS
-    // `zoom` to <html>; offsetWidth/Height and documentElement.client* are all
-    // layout px (never scaled by zoom), so they share one coordinate space.
-    // The only visual-px input is the click (x,y) — convert it once via `/ z`.
-    // (getBoundingClientRect/window.inner* are visual px under zoom and don't
-    // agree with layout px, which is why the menu used to clip at the bottom.)
+    // `zoom` to <html>; offsetWidth/Height are layout px, and the click (x,y)
+    // converts to layout via `/ z`. For the viewport, window.inner* is defined
+    // on the viewport itself (never scaled by element zoom), so `inner* / z`
+    // is the layout-px viewport under ANY WebKit zoom semantics —
+    // documentElement.client* is NOT (it reported visual px here, which made
+    // the clamp/maxHeight oversized at zoom > 1 and the menu clipped at the
+    // bottom).
     const margin = 8;
-    const vw = document.documentElement.clientWidth;
-    const vh = document.documentElement.clientHeight;
+    const vw = window.innerWidth / z;
+    const vh = window.innerHeight / z;
     // Cap height BEFORE measuring so a long menu scrolls internally instead
     // of overflowing past the clamp below.
     menu.style.maxHeight = `${vh - 2 * margin}px`;
