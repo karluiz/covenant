@@ -2616,6 +2616,12 @@ export async function acpSetModel(sessionId: SessionId, modelId: string): Promis
   return invoke<void>("acp_set_model", { sessionId, modelId });
 }
 
+/// Tell the backend this session's event listener is registered — the
+/// forwarder holds its first emit (e.g. a resume replay burst) until then.
+export async function acpMarkReady(sessionId: SessionId): Promise<void> {
+  return invoke<void>("acp_mark_ready", { sessionId });
+}
+
 export async function closeAcpSession(sessionId: SessionId): Promise<void> {
   return invoke<void>("close_acp_session", { sessionId });
 }

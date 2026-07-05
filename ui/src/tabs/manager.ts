@@ -4613,6 +4613,15 @@ export class TabManager {
           this.rememberSessionName(sid, tabDisplayName(tab));
           this.scheduleSave();
         },
+        // ACP tabs have no PTY, so the screen-based summarizer titler
+        // never fires for them — title off the first real user prompt
+        // instead. Same precedence as title_suggested: customName wins.
+        onTitle: (title) => {
+          const t = this.tabs.find((x) => x.id === id);
+          if (!t) return;
+          t.defaultTitle = title;
+          this.renderTabbar();
+        },
       });
       tab.acpView = view;
       pane0Acp.acpView = view;

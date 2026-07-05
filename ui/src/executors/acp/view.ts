@@ -31,6 +31,7 @@ import {
   acpGetModels,
   acpListSessions,
   acpLoadSession,
+  acpMarkReady,
   acpRespondPermission,
   acpSendPrompt,
   acpSetModel,
@@ -245,6 +246,46 @@ function isToolUpdate(u: AcpSessionUpdate): u is Extract<AcpSessionUpdate, { too
   return "toolCallId" in u;
 }
 
+/// Replayed user chunks that are really executor-harness bookkeeping
+/// (slash-command records), not typed prompts. Exported for tests.
+export function isCommandNoise(text: string): boolean {
+  return /^<(command-name|command-message|command-args|local-command-stdout)\b/.test(text.trimStart());
+}
+
+/// Persisted per-executor model preference — agents reset to their own
+/// default on every spawn, so the last explicit pick is re-applied
+/// post-handshake (see `applyPreferredModel`).
+function modelPrefKey(executor: AcpExecutor): string {
+  return `covenant.acp-model.${executor}`;
+}
+
+function preferredModel(executor: AcpExecutor): string | null {
+  try {
+    return localStorage.getItem(modelPrefKey(executor));
+  } catch {
+    return null;
+  }
+}
+
+function persistPreferredModel(executor: AcpExecutor, modelId: string): void {
+  try {
+    localStorage.setItem(modelPrefKey(executor), modelId);
+  } catch {
+    /* preference simply won't persist */
+  }
+}
+
+/// Derive a tab title from the first real user prompt: first non-empty
+/// line, hard-capped. Returns null for slash commands and harness noise.
+/// Exported for tests.
+export function titleFromPrompt(text: string): string | null {
+  const t = text.trim();
+  if (t.length === 0 || t.startsWith("/") || isCommandNoise(t)) return null;
+  const line = t.split("\n", 1)[0].trim();
+  if (line.length === 0) return null;
+  return line.length > 48 ? `${line.slice(0, 47).trimEnd()}…` : line;
+}
+
 /// Later non-empty field wins. Identical semantics to `merge_tool` in
 /// `crates/agent/src/acp/run.rs`: `null`/`undefined` on the incoming frame
 /// means "unchanged", not "clear the field" (tool_call_update frames omit
@@ -295,6 +336,11 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
         // Merge consecutive chunks into the trailing user item, mirroring
         // appendProse (copilot replays one coalesced chunk per message).
         const text = contentText(u.content);
+        // Claude Code transcripts store slash-command bookkeeping as user
+        // text (`<command-name>/model</command-name>`, `<local-command-
+        // stdout>…`); claude-agent-acp replays them verbatim (seen live).
+        // They're harness records, not something the user typed — drop.
+        if (text && isCommandNoise(text)) break;
         if (text) {
           const last = state.items[state.items.length - 1];
           if (last && last.kind === "user") last.text += text;
@@ -400,6 +446,10 @@ export interface AcpChatViewOptions {
   /// Fired when `restart()` adopts a fresh session, so the owner (tab
   /// manager) can re-point pane.sessionId / pane.acpSessionId and persist.
   onSessionChange?: (sessionId: SessionId, acpSessionId: string) => void;
+  /// Fired once per view with a tab title derived from the first real
+  /// user prompt (typed or replayed) — ACP tabs have no PTY, so the
+  /// screen-based summarizer titler never sees them.
+  onTitle?: (title: string) => void;
 }
 
 interface ToolCardDom {
@@ -444,6 +494,9 @@ export class AcpChatView {
   private readonly executor: AcpExecutor;
   private acpSessionId: string | null;
   private readonly onSessionChange?: (sessionId: SessionId, acpSessionId: string) => void;
+  private readonly onTitle?: (title: string) => void;
+  /// One title per view — first real user prompt wins.
+  private titleSent = false;
   /// Images pasted into the composer, sent as ACP `image` blocks with
   /// the next prompt and cleared. Rendered as removable chips.
   private pendingImages: AcpImageAttachment[] = [];
@@ -477,6 +530,9 @@ export class AcpChatView {
   /// same-role chunks updates one node instead of appending N.
   private lastProseItem: AcpProseItem | null = null;
   private lastProseEl: HTMLElement | null = null;
+  /// Same pattern for replayed user bubbles (`user_message_chunk`).
+  private lastUserItem: AcpUserItem | null = null;
+  private lastUserEl: HTMLElement | null = null;
 
   private stickToBottom = true;
 
@@ -489,6 +545,7 @@ export class AcpChatView {
     this.executor = opts.executor ?? "copilot";
     this.acpSessionId = opts.acpSessionId ?? null;
     this.onSessionChange = opts.onSessionChange;
+    this.onTitle = opts.onTitle;
     this.mount();
     void this.subscribe();
   }
@@ -1007,6 +1064,11 @@ export class AcpChatView {
     this.state.inFlight = false;
     this.toolDoms.clear();
     this.permDoms.clear();
+    // Detach the growing-node cursors — they point into removed DOM.
+    this.lastProseItem = null;
+    this.lastProseEl = null;
+    this.lastUserItem = null;
+    this.lastUserEl = null;
     // Keep the empty-state node (hidden) — clearing textContent would
     // detach the element this.emptyEl points at.
     for (const child of [...this.messagesEl.children]) {
@@ -1021,10 +1083,29 @@ export class AcpChatView {
     try {
       await acpSetModel(this.sessionId, modelId);
       this.model = modelId;
+      persistPreferredModel(this.executor, modelId);
       this.renderMeta();
       this.appendNotice(`Model switched to ${modelId}.`, "info");
     } catch (err) {
       this.appendNotice(`model switch failed: ${String(err)}`, "error");
+    }
+  }
+
+  /// Re-apply the user's persisted model pick for this executor. Agents
+  /// start every ACP session on their own default (copilot 1.0.68 ignores
+  /// even its settings.json `"model": "auto"` under --acp), so a one-time
+  /// pick would silently revert on every new tab/restart without this.
+  /// Silent on success — no notice spam on every spawn.
+  private async applyPreferredModel(): Promise<void> {
+    const want = preferredModel(this.executor);
+    if (!want || want === this.model) return;
+    if (!this.models.some((m) => m.modelId === want)) return;
+    try {
+      await acpSetModel(this.sessionId, want);
+      this.model = want;
+      this.renderMeta();
+    } catch {
+      /* stale preference or unsupported agent — the default stands */
     }
   }
 
@@ -1046,6 +1127,15 @@ export class AcpChatView {
         return;
       }
       this.unlisten = unlisten;
+      // Listener is live — unblock the forwarder's first emit. Without
+      // this, a resume replay burst is emitted before the listener lands
+      // and the transcript arrives with holes. (5s backend escape hatch
+      // keeps a failed call from wedging the stream.)
+      try {
+        await acpMarkReady(this.sessionId);
+      } catch {
+        /* forwarder falls back to its timeout */
+      }
       // Seed the slash + model rosters: their initial broadcasts raced this
       // listener's registration, so pull the backend's cached copies. Live
       // updates keep flowing through the event stream and replace them.
@@ -1063,6 +1153,7 @@ export class AcpChatView {
           this.models = models.available;
           if (models.current) this.model = models.current;
           this.renderMeta();
+          await this.applyPreferredModel();
         }
       } catch {
         /* model picker is a nicety */
@@ -1079,6 +1170,11 @@ export class AcpChatView {
         const u = ev.update.update;
         if (u.sessionUpdate === "agent_message_chunk" || u.sessionUpdate === "agent_thought_chunk") {
           this.renderProseTail();
+        } else if (u.sessionUpdate === "user_message_chunk") {
+          // Replay-only (live prompts never echo back) — without this the
+          // replayed transcript renders agent prose and tool cards but
+          // silently drops every YOU bubble.
+          this.renderUserTail();
         } else if ("toolCallId" in u) {
           this.renderTool(u.toolCallId);
         }
@@ -1104,6 +1200,36 @@ export class AcpChatView {
   // innerHTML of raw agent text: escape first, THEN apply the two
   // whitelisted transforms below).
   // -------------------------------------------------------------------------
+
+  /// Replayed user bubble — same one-growing-node pattern as
+  /// `renderProseTail`. Also feeds the tab-title inference: the first
+  /// real user prompt of a resumed conversation titles the tab.
+  private renderUserTail(): void {
+    const item = this.state.items[this.state.items.length - 1];
+    if (!item || item.kind !== "user") return;
+    if (this.lastUserItem === item && this.lastUserEl) {
+      this.lastUserEl.textContent = item.text;
+      return;
+    }
+    this.hideEmptyState();
+    const el = document.createElement("div");
+    el.className = "acp-msg acp-msg-user";
+    el.innerHTML = `<div class="acp-msg-role">you</div><div class="acp-msg-content"></div>`;
+    const contentEl = requireChild(el, ".acp-msg-content");
+    contentEl.textContent = item.text;
+    this.messagesEl.appendChild(el);
+    this.lastUserItem = item;
+    this.lastUserEl = contentEl;
+    this.maybeEmitTitle(item.text);
+  }
+
+  private maybeEmitTitle(text: string): void {
+    if (this.titleSent || !this.onTitle) return;
+    const title = titleFromPrompt(text);
+    if (title === null) return;
+    this.titleSent = true;
+    this.onTitle(title);
+  }
 
   private renderProseTail(): void {
     const item = this.state.items[this.state.items.length - 1];
@@ -1352,6 +1478,7 @@ export class AcpChatView {
     el.className = "acp-msg acp-msg-user";
     el.innerHTML = `<div class="acp-msg-role">you</div><div class="acp-msg-content">${escapeHtml(shown)}</div>`;
     this.messagesEl.appendChild(el);
+    this.maybeEmitTitle(text);
     this.stickToBottom = true;
     this.setInFlight(true);
     this.scrollToBottom();
@@ -1439,6 +1566,13 @@ export class AcpChatView {
       this.model = spawned.model ?? this.model;
       this.renderMeta();
       this.setInFlight(false);
+      // A resumed spawn replays the WHOLE transcript as session/update
+      // frames. Into a non-empty view that duplicates every prose bubble
+      // while the replayed tool_calls merge invisibly into the existing
+      // cards (same toolCallIds) — the "instructions lost in the middle"
+      // bug. Clear first and let the replay repopulate; a non-resumed
+      // restart keeps the old transcript as visual history.
+      if (spawned.resumed) this.resetTranscript();
       await this.subscribe();
       this.appendNotice(spawned.resumed ? "Session restarted — conversation resumed." : "Session restarted.", "info");
     } catch (err) {
