@@ -3928,7 +3928,7 @@ pub(crate) async fn inject_to_session(
 ///
 /// 60ms is enough for ink's input reducer to commit the body before
 /// the next keystroke event lands without being noticeable to humans.
-async fn inject_operator_reply(
+pub(crate) async fn inject_operator_reply(
     app: &AppHandle,
     session_id: SessionId,
     bytes: &[u8],

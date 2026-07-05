@@ -450,6 +450,19 @@ async fn handle_open_tab(app: &AppHandle, cwd: Option<String>) -> Option<OutFram
     None
 }
 
+/// Pure: replace the trailing CR/LF run with a single `\r`. The web
+/// dashboard appends `\n`, but TUI executors (Claude Code's ink input)
+/// treat `\n` (ctrl+J) as "insert newline" — only `\r` is Enter. The
+/// actual submit-as-discrete-keystroke split happens downstream in
+/// `inject_operator_reply`.
+fn normalize_submit(data: &str) -> Vec<u8> {
+    let body = data.trim_end_matches(['\r', '\n']);
+    let mut out = Vec::with_capacity(body.len() + 1);
+    out.extend_from_slice(body.as_bytes());
+    out.push(b'\r');
+    out
+}
+
 async fn handle_send_input(app: &AppHandle, session_id: &str, data: &str) -> Option<OutFrame> {
     let make_reject = |reason: &'static str, message: String| {
         Some(OutFrame::Rejected {
@@ -483,7 +496,8 @@ async fn handle_send_input(app: &AppHandle, session_id: &str, data: &str) -> Opt
             // NOTE: the gate is per-command, not transactional — a concurrent
             // rc_disarm_all between the armed-read and this inject can still let
             // one already-authorized, blocklist-passed command land. Acceptable.
-            if let Err(e) = crate::operator::inject_to_session(app, id, data.as_bytes()).await {
+            let payload = normalize_submit(data);
+            if let Err(e) = crate::operator::inject_operator_reply(app, id, &payload).await {
                 tracing::warn!(target: "rc_agent", error=%e, "inject failed");
                 return make_reject("inject_failed", e);
             }
@@ -560,6 +574,22 @@ mod tests {
     #[test]
     fn gate_injects_when_armed_and_clean() {
         assert_eq!(gate(Some(true), false), Gate::Inject);
+    }
+    #[test]
+    fn normalize_submit_turns_trailing_lf_into_cr() {
+        assert_eq!(normalize_submit("ls\n"), b"ls\r");
+    }
+    #[test]
+    fn normalize_submit_collapses_crlf_run() {
+        assert_eq!(normalize_submit("ls\r\n\n"), b"ls\r");
+    }
+    #[test]
+    fn normalize_submit_appends_cr_when_missing() {
+        assert_eq!(normalize_submit("ls"), b"ls\r");
+    }
+    #[test]
+    fn normalize_submit_keeps_interior_newlines() {
+        assert_eq!(normalize_submit("a\nb\n"), b"a\nb\r");
     }
     #[test]
     fn reject_payload_blocklist_uses_real_message() {
