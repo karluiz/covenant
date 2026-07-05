@@ -6,6 +6,70 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.122 — ACP goes multi-agent: pi + Claude tabs, image paste
+
+### Added
+
+- **pi as an ACP executor**: the group context menu gains "Start pi in ACP
+  mode" (BETA), driving the local `pi` binary through the community
+  `pi-acp` adapter (global install if on PATH, else `npx -y pi-acp`).
+  `AcpSpawnOpts::for_executor` in `crates/agent/src/acp/session.rs` now
+  resolves per-executor launch profiles instead of hardcoding copilot's
+  `--acp --add-dir` flags; the manifest persists `acp_executor` per pane
+  so restore and session/load resume reopen the right agent
+  (`ui/src/tabs/manager.ts`).
+
+- **Claude as an ACP executor**: "Start Claude in ACP mode" (BETA) runs
+  the official `@zed-industries/claude-agent-acp` adapter. The backend
+  prepares an isolated `CLAUDE_CONFIG_DIR` under the app config dir —
+  empty `settings.json` (the adapter's pinned Agent SDK rejects newer
+  user-settings fields), minimal `.claude.json`, and the Claude Code
+  Keychain credential copied to `.credentials.json` (0600, refreshed per
+  spawn) — so it authenticates headlessly with the user's existing login
+  (`crates/app/src/acp_commands.rs`).
+
+- **Paste images into ACP chats**: ⌘V of an image in the composer becomes
+  an ACP `image` content block on send (both copilot and pi advertise
+  image support; verified end-to-end on both). Pasted images show as
+  removable chips with a thumbnail; clicking a chip opens a quick-view
+  lightbox (`ui/src/executors/acp/view.ts`, `acp.css`).
+
+- **`/model` on every ACP agent**: `acp_set_model` falls back to
+  `session/set_config_option {configId: "model"}` when the agent doesn't
+  implement `session/set_model` (pi-acp's case — both wire paths verified
+  live), and the slash menu synthesizes `/model` whenever a model roster
+  exists but the agent doesn't advertise the command. The pi brand icon
+  is now Pi's real blocky pixel-P mark (`ui/src/icons/brands.ts`).
+
+- **CDLC True Dark elevation pass**: neutral-lift surfaces for the CDLC
+  panel on True Dark (`ui/src/cdlc/styles.css`).
+
+- **Smooth left-sidebar fold**: the tab bar fold tweens the `#layout`
+  grid track instead of snapping (`ui/src/tabs/manager.ts`,
+  `ui/src/blocks/rail-slide.ts`).
+
+### Fixed
+
+- **pi tab restarting as Copilot**: the ACP chat view hardcoded Copilot
+  branding and `restart()` respawned without an executor, so a dead pi
+  tab came back as copilot; restart now reuses the original executor,
+  resumes the wire session (transcript survives crashes), and re-points
+  the pane's session ids so routing and persistence follow the live
+  session (`ui/src/executors/acp/view.ts`).
+
+- **Silently-empty turns**: a provider failing behind an adapter can
+  report a clean `end_turn` with zero output (seen live with a broken
+  cf-gateway model through pi-acp); the chat now shows an error notice
+  pointing at the model picker instead of idling in silence.
+
+- **Pane context menu under zoom**: clamps to the real viewport when CSS
+  zoom is active, and long menus cap to the viewport height with
+  internal scroll (`ui/src/tabs/manager.ts`).
+
+- **cd-picker header bleed**: the suggestion-list header could lag out of
+  its scrollport in WKWebView and bleed rows over the prompt
+  (`ui/src/styles.css`).
+
 ## v0.8.121 — Boot splash v2: "First Prompt" motion identity
 
 ### Added
