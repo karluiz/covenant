@@ -276,10 +276,13 @@ pub struct SpawnAcpResult {
 ///   spawn so the token is as fresh as the last real Claude Code refresh.
 /// Sync fs + `security`(1) — call inside spawn_blocking.
 fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> {
-    use std::os::unix::fs::PermissionsExt;
     let dir = base.join("claude-acp");
     std::fs::create_dir_all(&dir).map_err(|e| format!("claude-acp config dir: {e}"))?;
-    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
 
     let settings = dir.join("settings.json");
     if !settings.exists() {
@@ -318,7 +321,14 @@ fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> 
     match cred {
         Some(c) => {
             std::fs::write(&cred_path, c).map_err(|e| format!("credentials copy: {e}"))?;
-            let _ = std::fs::set_permissions(&cred_path, std::fs::Permissions::from_mode(0o600));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(
+                    &cred_path,
+                    std::fs::Permissions::from_mode(0o600),
+                );
+            }
         }
         None if cred_path.exists() => { /* keep last-good copy */ }
         None => {
