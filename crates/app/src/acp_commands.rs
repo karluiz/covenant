@@ -691,7 +691,12 @@ pub async fn acp_get_models(
     Ok(models)
 }
 
-/// Switch the session's model via ACP `session/set_model`.
+/// Switch the session's model. Copilot implements `session/set_model`
+/// (verified live vs 1.0.68); pi-acp doesn't — its model switch is the
+/// spec's config-option surface: `session/set_config_option` with
+/// `configId: "model"` (verified live vs pi-acp 0.0.31). Try the direct
+/// method first and fall back on Method-not-found, so future executors
+/// get whichever surface they implement without a per-executor table.
 #[tauri::command]
 pub async fn acp_set_model(
     state: State<'_, AppState>,
@@ -699,13 +704,30 @@ pub async fn acp_set_model(
     model_id: String,
 ) -> Result<(), String> {
     let (_, tab) = require(&state, &session_id).await?;
-    tab.session
+    let direct = tab
+        .session
         .request(
             "session/set_model",
             json!({ "sessionId": tab.acp_session_id, "modelId": model_id }),
         )
-        .await
-        .map_err(|e| e.to_string())?;
+        .await;
+    match direct {
+        Ok(_) => {}
+        Err(e) if e.to_string().contains("Method not found") => {
+            tab.session
+                .request(
+                    "session/set_config_option",
+                    json!({
+                        "sessionId": tab.acp_session_id,
+                        "configId": "model",
+                        "value": model_id,
+                    }),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        Err(e) => return Err(e.to_string()),
+    }
     match tab.models.lock() {
         Ok(mut m) => m.current = Some(model_id),
         Err(poisoned) => poisoned.into_inner().current = Some(model_id),

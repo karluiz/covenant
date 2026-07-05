@@ -13,7 +13,8 @@
 //   - codex → no canonical OpenAI logo (trademark; Simple Icons does
 //     not include it). We use a generic 4-point sparkle as a neutral
 //     stand-in.
-//   - pi → local monogram matching Pi's terminal startup mark.
+//   - pi → blocky pixel-P mark matching Pi's real logo (square counter
+//     + detached lower-right block), drawn locally on a 4×4 cell grid.
 //
 // Every icon is rendered with `fill="currentColor"` so the
 // surrounding chip's brand color drives the tint via CSS — no
@@ -53,9 +54,9 @@ const OPENCODE_FRAME_PATH = "M4 3H20V21H4V3ZM7 6V18H17V6H7Z";
 const CODEX_SPARKLE_PATH =
   "M12 2L13.5 9.5L21 11L13.5 12.5L12 22L10.5 12.5L3 11L10.5 9.5L12 2Z";
 
-// Pi — compact filled π monogram, intentionally generic/local rather
-// than borrowing another project's logo.
-const PI_MONOGRAM_PATH = "M4 5H20V8H17V19H14V8H10V19H7V8H4V5Z";
+// Pi — the real blocky "Pi" mark: pixel P (square counter cut out via
+// evenodd) with the detached lower-right block, on a 4×4 cell grid.
+const PI_MONOGRAM_PATH = "M2 2h15v10h-5v5H7v5H2ZM7 7h5v5H7ZM17 12h5v10h-5Z";
 
 // Hermes (Nous Research) — stylised winged staff mark. A vertical
 // bar (the staff) topped with a pair of upswept wings, referencing the
@@ -71,7 +72,7 @@ const BRAND_ICONS: Record<string, BrandIcon> = {
   aider: { pathD: AIDER_BRAIN_PATH },
   opencode: { pathD: OPENCODE_FRAME_PATH, evenodd: true },
   codex: { pathD: CODEX_SPARKLE_PATH },
-  pi: { pathD: PI_MONOGRAM_PATH },
+  pi: { pathD: PI_MONOGRAM_PATH, evenodd: true },
   hermes: { pathD: HERMES_STAFF_PATH },
 };
 

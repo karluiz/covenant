@@ -589,7 +589,14 @@ export class AcpChatView {
   // -------------------------------------------------------------------------
 
   private updateSlashMenu(): void {
-    this.slashItems = filterSlashCommands(this.state.commands, this.inputEl.value);
+    // Synthesize /model when the agent has a model roster but doesn't
+    // advertise a "model" command (pi-acp) — it routes to our native
+    // picker in pickSlashCommand, never to the wire as prompt text.
+    let roster = this.state.commands;
+    if (this.models.length > 0 && !roster.some((c) => c.name === "model")) {
+      roster = [...roster, { name: "model", description: "Switch model (native picker)" }];
+    }
+    this.slashItems = filterSlashCommands(roster, this.inputEl.value);
     if (this.slashItems.length === 0) {
       this.hideSlashMenu();
       return;
