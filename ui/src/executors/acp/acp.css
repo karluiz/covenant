@@ -585,6 +585,32 @@
 .acp-image-chip-icon {
   color: var(--text-secondary, rgba(var(--ink-rgb), 0.6));
 }
+.acp-image-chip-thumb {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
+}
+/* Quick-view lightbox for pasted images. Opaque-ish backdrop on purpose:
+   #layout is vibrancy-transparent, so a translucent overlay would bleed
+   the wallpaper through. */
+.acp-image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+}
+.acp-image-preview-overlay img {
+  max-width: 86vw;
+  max-height: 86vh;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
+}
 .acp-image-chip-x {
   opacity: 0.55;
 }

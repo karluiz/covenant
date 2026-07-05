@@ -41,6 +41,28 @@ import type { AcpExecutor, AcpImageAttachment, AcpModelInfo, DirEntry } from "..
 import { brandIconSvg } from "../../icons/brands";
 import { Icons } from "../../icons";
 
+/// Quick-view lightbox for a pasted image. One at a time — opening
+/// replaces any existing overlay. Dismiss: click anywhere or Escape.
+function openImagePreview(dataUrl: string): void {
+  document.querySelector(".acp-image-preview-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "acp-image-preview-overlay";
+  const img = document.createElement("img");
+  img.src = dataUrl;
+  img.alt = "Pasted image preview";
+  overlay.appendChild(img);
+  const close = (): void => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") close();
+  };
+  overlay.addEventListener("click", close);
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(overlay);
+}
+
 /// Per-executor branding for the chat chrome. `cmdline` is what the
 /// empty-state shows as "your prompt goes to …".
 const EXECUTOR_BRAND: Record<AcpExecutor, { title: string; longName: string; cmdline: string; roleLabel: string }> = {
@@ -1226,22 +1248,29 @@ export class AcpChatView {
     }
   }
 
-  /// Removable chips for pasted images, above the textarea.
+  /// Removable chips for pasted images, above the textarea. Chip body
+  /// (thumbnail + label) opens a quick-view overlay; only the ✕ removes.
   private renderImageStrip(): void {
     this.imageStripEl.hidden = this.pendingImages.length === 0;
     this.imageStripEl.textContent = "";
     this.pendingImages.forEach((img, i) => {
+      const dataUrl = `data:${img.mimeType};base64,${img.data}`;
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "acp-image-chip";
-      chip.title = "Remove image";
+      chip.title = "Click to preview";
       chip.innerHTML =
-        `<span class="acp-image-chip-icon">${Icons.image({ size: 13 })}</span>` +
+        `<img class="acp-image-chip-thumb" src="${dataUrl}" alt="" />` +
         `<span>image ${i + 1} · ${escapeHtml(img.mimeType.replace("image/", ""))}</span>` +
-        `<span class="acp-image-chip-x">${Icons.x({ size: 12 })}</span>`;
-      chip.addEventListener("click", () => {
-        this.pendingImages.splice(i, 1);
-        this.renderImageStrip();
+        `<span class="acp-image-chip-x" title="Remove image">${Icons.x({ size: 12 })}</span>`;
+      chip.addEventListener("click", (e) => {
+        const x = chip.querySelector(".acp-image-chip-x");
+        if (x && e.target instanceof Node && x.contains(e.target)) {
+          this.pendingImages.splice(i, 1);
+          this.renderImageStrip();
+          return;
+        }
+        openImagePreview(dataUrl);
       });
       this.imageStripEl.appendChild(chip);
     });
