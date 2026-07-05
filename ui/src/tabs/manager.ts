@@ -4461,7 +4461,8 @@ export class TabManager {
     const replayKey = id.replace(/-/g, "").slice(0, 26);
     const seq = this.nextSeq++;
     const executor: AcpExecutor = opts?.executor ?? "copilot";
-    const executorTitle = executor === "pi" ? "pi" : "Copilot";
+    const executorTitle =
+      executor === "pi" ? "pi" : executor === "claude" ? "Claude" : "Copilot";
 
     // The tab appears IMMEDIATELY with a boot placeholder; copilot's ACP
     // handshake takes seconds and blocking ⌘⌥⇧C on it read as "nothing
@@ -5432,7 +5433,12 @@ export class TabManager {
             cwd: t.cwd,
             skipActivate: true,
             resumeAcpSessionId: t.panes?.[0]?.acp_session_id ?? null,
-            executor: t.panes?.[0]?.acp_executor === "pi" ? "pi" : "copilot",
+            executor:
+              t.panes?.[0]?.acp_executor === "pi"
+                ? "pi"
+                : t.panes?.[0]?.acp_executor === "claude"
+                  ? "claude"
+                  : "copilot",
           });
         }
         return this.createTab({
@@ -7288,6 +7294,22 @@ export class TabManager {
             color: group.color,
             cwd: group.rootDir ?? this.activeCwd(),
             executor: "pi",
+          });
+        },
+      },
+      {
+        // claude via the official claude-agent-acp adapter (isolated
+        // CLAUDE_CONFIG_DIR prepared backend-side).
+        label: "Start Claude in ACP mode",
+        badge: "BETA",
+        icon: Icons.sparkles(),
+        onClick: () => {
+          if (group.collapsed) this.toggleGroupCollapsed(group.id);
+          void this.createAcpTab({
+            groupId: group.id,
+            color: group.color,
+            cwd: group.rootDir ?? this.activeCwd(),
+            executor: "claude",
           });
         },
       },

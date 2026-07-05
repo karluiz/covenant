@@ -78,6 +78,12 @@ const EXECUTOR_BRAND: Record<AcpExecutor, { title: string; longName: string; cmd
     cmdline: "pi-acp",
     roleLabel: "pi",
   },
+  claude: {
+    title: "Claude",
+    longName: "Claude Code's agent (via the official claude-agent-acp adapter)",
+    cmdline: "claude-agent-acp",
+    roleLabel: "claude",
+  },
 };
 
 const escapeHtml = (s: string): string =>

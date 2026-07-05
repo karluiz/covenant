@@ -32,7 +32,7 @@ use karl_agent::acp::{
 use karl_session::{ExecutorPhase, SessionId};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
 use crate::AppState;
@@ -264,6 +264,72 @@ pub struct SpawnAcpResult {
     pub resumed: bool,
 }
 
+/// Prepare the isolated `CLAUDE_CONFIG_DIR` the claude ACP adapter runs
+/// against. Needed because the adapter's pinned Agent SDK rejects newer
+/// fields in the user's real `~/.claude/settings.json` (seen live:
+/// `permissions.defaultMode: auto` → session/new dies). The dir gets:
+/// - `settings.json` — `{}` if absent (user-customizable afterwards)
+/// - `.claude.json` — minimal onboarding + oauthAccount copied from the
+///   real state file (rewritten each spawn; cheap and tracks re-login)
+/// - `.credentials.json` — the "Claude Code-credentials" Keychain item
+///   (0600), same file the CLI itself uses on Linux. Re-copied on every
+///   spawn so the token is as fresh as the last real Claude Code refresh.
+/// Sync fs + `security`(1) — call inside spawn_blocking.
+fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = base.join("claude-acp");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("claude-acp config dir: {e}"))?;
+    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+
+    let settings = dir.join("settings.json");
+    if !settings.exists() {
+        std::fs::write(&settings, "{}\n").map_err(|e| format!("settings.json: {e}"))?;
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(raw) = std::fs::read_to_string(home.join(".claude.json")) {
+            if let Ok(full) = serde_json::from_str::<Value>(&raw) {
+                let mut mini = serde_json::Map::new();
+                for k in ["hasCompletedOnboarding", "lastOnboardingVersion", "oauthAccount"] {
+                    if let Some(v) = full.get(k) {
+                        mini.insert(k.to_string(), v.clone());
+                    }
+                }
+                let _ = std::fs::write(
+                    dir.join(".claude.json"),
+                    serde_json::to_string(&Value::Object(mini)).unwrap_or_else(|_| "{}".into()),
+                );
+            }
+        }
+    }
+
+    // Credentials: Keychain first (macOS), else the CLI's own file.
+    let cred_path = dir.join(".credentials.json");
+    let keychain = std::process::Command::new("security")
+        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .output();
+    let cred = match keychain {
+        Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+            Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        }
+        _ => dirs::home_dir()
+            .and_then(|h| std::fs::read_to_string(h.join(".claude/.credentials.json")).ok()),
+    };
+    match cred {
+        Some(c) => {
+            std::fs::write(&cred_path, c).map_err(|e| format!("credentials copy: {e}"))?;
+            let _ = std::fs::set_permissions(&cred_path, std::fs::Permissions::from_mode(0o600));
+        }
+        None if cred_path.exists() => { /* keep last-good copy */ }
+        None => {
+            return Err(
+                "no Claude Code credentials found — run `claude` once and log in first".into(),
+            )
+        }
+    }
+    Ok(dir)
+}
+
 /// Hybrid resolver: policy-approved requests are silently granted;
 /// everything else is deferred to the user via `PermissionPending`.
 fn hybrid_resolver() -> PermissionResolver {
@@ -296,12 +362,23 @@ pub async fn spawn_acp_session(
         .unwrap_or_else(|| PathBuf::from("."));
 
     let executor = opts.executor.clone().unwrap_or_else(|| "copilot".into());
-    let session = AcpSession::spawn(
-        AcpSpawnOpts::for_executor(&executor, cwd.clone())?,
-        hybrid_resolver(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let mut spawn_opts = AcpSpawnOpts::for_executor(&executor, cwd.clone())?;
+    if executor == "claude" {
+        let base = app
+            .path()
+            .app_config_dir()
+            .map_err(|e| format!("resolve app_config_dir: {e}"))?;
+        let cfg_dir = tokio::task::spawn_blocking(move || prepare_claude_acp_config(&base))
+            .await
+            .map_err(|e| format!("claude config prep: {e}"))??;
+        spawn_opts.env.push((
+            "CLAUDE_CONFIG_DIR".to_string(),
+            cfg_dir.to_string_lossy().into_owned(),
+        ));
+    }
+    let session = AcpSession::spawn(spawn_opts, hybrid_resolver())
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Subscribe BEFORE the handshake: copilot broadcasts
     // `available_commands_update` right after `initialize`, and a tokio
@@ -336,6 +413,7 @@ pub async fn spawn_acp_session(
             let hint = match executor.as_str() {
                 "copilot" => " Hint: requires GitHub Copilot CLI >= 1.0.68 with ACP support (`copilot --acp`).",
                 "pi" => " Hint: requires the pi-acp adapter (`npm i -g pi-acp`) and a configured `pi` binary.",
+                "claude" => " Hint: requires npx + a logged-in Claude Code (`claude`); the adapter is @zed-industries/claude-agent-acp.",
                 _ => "",
             };
             return Err(format!(

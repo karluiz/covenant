@@ -51,6 +51,10 @@ pub struct AcpSpawnOpts {
     /// `Some(args)` replaces it verbatim — e.g. `Some(vec![])` for
     /// adapters like `pi-acp` that speak ACP with no flags at all.
     pub agent_args: Option<Vec<String>>,
+    /// Extra environment for the child (e.g. `CLAUDE_CONFIG_DIR` for the
+    /// claude adapter's isolated config). Applied on top of the inherited
+    /// environment.
+    pub env: Vec<(String, String)>,
 }
 
 impl AcpSpawnOpts {
@@ -67,6 +71,7 @@ impl AcpSpawnOpts {
                 program: None,
                 extra_args: Vec::new(),
                 agent_args: None,
+                env: Vec::new(),
             }),
             "pi" => {
                 let path = augmented_path(std::env::var_os("PATH"));
@@ -86,6 +91,34 @@ impl AcpSpawnOpts {
                     program: Some(program),
                     extra_args,
                     agent_args: Some(Vec::new()),
+                    env: Vec::new(),
+                })
+            }
+            // Official Zed adapter over the Claude Agent SDK. Caller must
+            // add a CLAUDE_CONFIG_DIR env entry pointing at a prepared
+            // isolated config (see acp_commands::prepare_claude_acp_config)
+            // — the adapter's pinned SDK chokes on newer user-settings
+            // fields (`permissions.defaultMode: auto`) otherwise.
+            "claude" => {
+                let path = augmented_path(std::env::var_os("PATH"));
+                let (program, extra_args) =
+                    match find_program_on_path("claude-agent-acp", path.as_deref()) {
+                        Some(p) => (p, Vec::new()),
+                        None => (
+                            find_program_on_path("npx", path.as_deref())
+                                .unwrap_or_else(|| PathBuf::from("npx")),
+                            vec![
+                                "-y".to_string(),
+                                "@zed-industries/claude-agent-acp".to_string(),
+                            ],
+                        ),
+                    };
+                Ok(Self {
+                    cwd,
+                    program: Some(program),
+                    extra_args,
+                    agent_args: Some(Vec::new()),
+                    env: Vec::new(),
                 })
             }
             other => Err(format!("unknown ACP executor: {other}")),
@@ -203,6 +236,9 @@ impl AcpSession {
         // after the script lands in $0/$1... instead of being parsed as sh
         // invocation options (`sh --acp` is an invocation error). copilot
         // accepts its flags in any position.
+        for (k, v) in &opts.env {
+            cmd.env(k, v);
+        }
         for a in &opts.extra_args {
             cmd.arg(a);
         }
@@ -800,6 +836,7 @@ mod tests {
             program: Some(PathBuf::from("sh")),
             extra_args: vec!["-c".into(), script.into()],
             agent_args: None,
+            env: Vec::new(),
         }
     }
 
@@ -819,6 +856,14 @@ mod tests {
             assert_eq!(p.extra_args, vec!["-y".to_string(), "pi-acp".to_string()]);
         }
         assert_eq!(p.agent_args, Some(Vec::new()));
+        // claude: explicit program (claude-agent-acp or npx fallback),
+        // no copilot flags; env stays empty (caller injects config dir).
+        let c2 = AcpSpawnOpts::for_executor("claude", cwd.clone()).unwrap();
+        let prog = c2.program.expect("claude resolves a program");
+        let name = prog.file_name().unwrap().to_string_lossy();
+        assert!(name == "claude-agent-acp" || name == "npx", "got: {name}");
+        assert_eq!(c2.agent_args, Some(Vec::new()));
+        assert!(c2.env.is_empty());
         // unknown: hard error, not a silent copilot fallback.
         assert!(AcpSpawnOpts::for_executor("hermes", cwd).is_err());
     }
