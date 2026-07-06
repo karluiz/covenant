@@ -3425,6 +3425,39 @@ async fn search_session_files(
     ))
 }
 
+/// Raise RLIMIT_NOFILE to the platform ceiling. Finder-launched macOS apps
+/// get a soft limit of 256 fds; a terminal that holds a PTY master (plus
+/// dup'd reader/writer) per session, a scrollback log per session, and a
+/// spec-detector SQLite handle per visited repo exhausts that around ~50
+/// tabs — the next spawn then fails with EMFILE ("Too many open files").
+/// Every PTY-owning terminal (iTerm2, kitty, WezTerm) bumps this at boot.
+#[cfg(unix)]
+fn raise_fd_limit() {
+    // SAFETY: plain libc rlimit calls on a stack struct; no aliasing.
+    unsafe {
+        let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) != 0 {
+            return;
+        }
+        // macOS rejects soft limits above OPEN_MAX (10240) even when the
+        // hard limit reports RLIM_INFINITY, so clamp to whichever is lower.
+        let target = lim.rlim_max.min(10240);
+        if lim.rlim_cur >= target {
+            return;
+        }
+        let prev = lim.rlim_cur;
+        lim.rlim_cur = target;
+        if libc::setrlimit(libc::RLIMIT_NOFILE, &lim) != 0 {
+            tracing::warn!(soft = prev, "setrlimit(RLIMIT_NOFILE) failed; fd limit stays low");
+        } else {
+            tracing::info!(from = prev, to = target, "raised RLIMIT_NOFILE");
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn raise_fd_limit() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Install a panic hook that appends panic location + message + backtrace to
 /// `~/.karlTerminal/crash.log` before the default handler runs. With
@@ -3578,6 +3611,7 @@ pub fn run() {
         .init();
 
     install_crash_logger();
+    raise_fd_limit();
 
     tracing::info!("covenant starting");
 
