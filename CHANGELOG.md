@@ -6,6 +6,33 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.129 — Status bar workspace chip + cd-picker dismiss fix
+
+### Added
+
+- **Workspace chip in the status bar**: the left zone now opens with the
+  active workspace — color dot + uppercase name — fed live from
+  `workspaceManager.onChange`, so switch/rename/recolor reflect instantly.
+  Clicking it opens the same workspace palette as the tabbar chip (⌘⇧P)
+  via the new `StatusBar.onWorkspaceChipClick` hook (`ui/src/status/bar.ts`,
+  `ui/src/main.ts`, `ui/src/styles.css`).
+
+### Changed
+
+- **Git segment shows branch only**: the repo name duplicated the group
+  identity already visible in the active-tab chip, so the git chip is now
+  just the branch (e.g. `main`). The repo name remains in the tooltip and
+  aria-label; the branches/worktrees popover is unchanged
+  (`ui/src/status/bar.ts`).
+
+### Fixed
+
+- **cd-picker overlay never visually dismissed**: `165e785` added
+  `display: flex` to `.cd-picker`, which beats the UA `[hidden]{display:none}`
+  rule — every dismiss path (select, Enter, Esc, prompt reset) set
+  `el.hidden = true` without hiding the overlay. Restated
+  `.cd-picker[hidden] { display: none; }` (`ui/src/styles.css`).
+
 ## v0.8.128 — Tasker panel scroll fix for long task lists
 
 ### Fixed
