@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { spawnShortcutLabel, buildSpawnCmdline, SPAWN_SHORTCUT_MAX } from "./shortcuts";
+import {
+  spawnShortcutLabel,
+  buildSpawnCmdline,
+  acpExecutorFor,
+  SPAWN_SHORTCUT_MAX,
+} from "./shortcuts";
 import type { SpawnSpec } from "./types";
 
 const spec = (over: Partial<SpawnSpec>): SpawnSpec => ({
@@ -53,5 +58,28 @@ describe("buildSpawnCmdline", () => {
 
   it("skips injection when no theme is provided", () => {
     expect(buildSpawnCmdline(spec({ command: "claude" }), null)).toBe("claude");
+  });
+});
+
+describe("acpExecutorFor", () => {
+  it("maps ACP-capable executors by command", () => {
+    expect(acpExecutorFor(spec({ command: "claude" }))).toBe("claude");
+    expect(acpExecutorFor(spec({ command: "copilot" }))).toBe("copilot");
+    expect(acpExecutorFor(spec({ command: "pi" }))).toBe("pi");
+  });
+
+  it("maps gh copilot (command + args form)", () => {
+    expect(acpExecutorFor(spec({ command: "gh", args: ["copilot"] }))).toBe("copilot");
+  });
+
+  it("resolves path-prefixed commands", () => {
+    expect(acpExecutorFor(spec({ command: "/usr/local/bin/claude" }))).toBe("claude");
+  });
+
+  it("returns null for non-ACP executors", () => {
+    expect(acpExecutorFor(spec({ command: "codex" }))).toBeNull();
+    expect(acpExecutorFor(spec({ command: "ollama", args: ["run"] }))).toBeNull();
+    expect(acpExecutorFor(spec({ command: "gh", args: ["pr", "list"] }))).toBeNull();
+    expect(acpExecutorFor(spec({ command: "" }))).toBeNull();
   });
 });

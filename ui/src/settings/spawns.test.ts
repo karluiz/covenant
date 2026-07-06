@@ -109,3 +109,40 @@ describe("renderSpawnsTab (master-detail)", () => {
     expect(calls[calls.length - 1]![0].label).toBe("New spawn");
   });
 });
+
+describe("Launch as ACP tab", () => {
+  const acpRow = (host: HTMLElement): HTMLElement =>
+    host.querySelector<HTMLElement>('[data-role="acp"]')!;
+
+  it("shows the row for ACP-capable executors, hides it otherwise", async () => {
+    const host = await mount();
+    expect(acpRow(host).hidden).toBe(false); // claude selected initially
+    host.querySelectorAll<HTMLButtonElement>(".spawns-md-item")[1]!.click();
+    expect(acpRow(host).hidden).toBe(true); // codex
+  });
+
+  it("toggling the checkbox persists acp: true", async () => {
+    const host = await mount();
+    const check = acpRow(host).querySelector<HTMLInputElement>("input")!;
+    check.checked = true;
+    check.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    const calls = vi.mocked(upsertSpawn).mock.calls;
+    expect(calls[calls.length - 1]![0].acp).toBe(true);
+  });
+
+  it("editing the command to a non-ACP executor drops the flag on persist", async () => {
+    vi.mocked(listSpawns).mockResolvedValue([
+      spec({ id: "s-claude", label: "Claude", command: "claude", default: true, acp: true }),
+    ]);
+    const host = await mount();
+    const cmd = host.querySelector<HTMLInputElement>('input[name="command"]')!;
+    cmd.value = "codex";
+    cmd.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(acpRow(host).hidden).toBe(true);
+    cmd.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    const calls = vi.mocked(upsertSpawn).mock.calls;
+    expect(calls[calls.length - 1]![0].acp).toBe(false);
+  });
+});

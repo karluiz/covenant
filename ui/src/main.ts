@@ -87,7 +87,7 @@ import { ProjectNotesPanel } from "./project-notes/panel";
 import { CdlcPanel } from "./cdlc/panel";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
-import { buildSpawnCmdline } from "./spawns/shortcuts";
+import { buildSpawnCmdline, acpExecutorFor } from "./spawns/shortcuts";
 import {
   TeammatePanel,
   buildTaskInjection,
@@ -1163,6 +1163,17 @@ async function boot(): Promise<void> {
         const specs = await listSpawns();
         const spec = specs.find((s) => s.id === id);
         if (!spec || !spec.command) return;
+        // ACP spawn: opens a chat tab — there is no in-terminal ACP mode.
+        // Eligibility re-checked here in case the command was edited after
+        // the flag was set.
+        const acpExec = spec.acp ? acpExecutorFor(spec) : null;
+        if (acpExec) {
+          await manager.createAcpTab({
+            cwd: manager.activeCwd(),
+            executor: acpExec,
+          });
+          return;
+        }
         const cmdline = buildSpawnCmdline(spec, claudeTheme()) + "\n";
         const bytes = new TextEncoder().encode(cmdline);
         await writeToSession(sid, bytes);
@@ -1188,6 +1199,9 @@ async function boot(): Promise<void> {
     manager.defaultAgentCmdline = async (): Promise<string | null> => {
       const specs = await listSpawns();
       const spec = specs.find((s) => s.default) ?? specs[0];
+      // An ACP default spawn has no PTY cmdline to preload — the caller
+      // falls back to a plain tab.
+      if (spec?.acp && acpExecutorFor(spec)) return null;
       return spec && spec.command ? buildSpawnCmdline(spec, claudeTheme()) : null;
     };
     // Ctrl+N quick-spawn: launch the Nth executor (list order) in the
