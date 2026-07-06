@@ -529,6 +529,7 @@ export class AcpChatView {
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   private cancelBtn!: HTMLButtonElement;
+  private jumpBtn!: HTMLButtonElement;
 
   private readonly toolDoms: Map<string, ToolCardDom> = new Map();
   private readonly permDoms: Map<string, PermCardDom> = new Map();
@@ -656,6 +657,10 @@ export class AcpChatView {
         <div class="acp-slash-menu" role="listbox" hidden></div>
         <div class="acp-slash-menu acp-mention-menu" role="listbox" hidden></div>
         <div class="acp-image-strip" hidden></div>
+        <button type="button" class="acp-jump-present" hidden>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M8 13l4.5-4.5M8 13 3.5 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Jump to present
+        </button>
         <div class="acp-composer">
           <textarea
             class="acp-chat-textarea"
@@ -690,6 +695,7 @@ export class AcpChatView {
       () => {
         const el = this.messagesEl;
         this.stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        this.syncJumpChip();
       },
       { passive: true },
     );
@@ -711,6 +717,12 @@ export class AcpChatView {
     this.inputEl = requireChild(this.host, ".acp-chat-textarea") as HTMLTextAreaElement;
     this.sendBtn = requireChild(this.host, ".acp-chat-send") as HTMLButtonElement;
     this.cancelBtn = requireChild(this.host, ".acp-chat-cancel") as HTMLButtonElement;
+    this.jumpBtn = requireChild(this.host, ".acp-jump-present") as HTMLButtonElement;
+    this.jumpBtn.addEventListener("click", () => {
+      this.stickToBottom = true;
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      this.syncJumpChip();
+    });
 
     const form = requireChild(this.host, "form.acp-chat-input") as HTMLFormElement;
     form.addEventListener("submit", (e) => {
@@ -1676,10 +1688,23 @@ export class AcpChatView {
 
   private scrollToBottom(): void {
     requestAnimationFrame(() => {
-      if (!this.stickToBottom) return;
+      if (!this.stickToBottom) {
+        // Content grew while the user was scrolled up — no scroll event
+        // fires for that, so re-check the chip here.
+        this.syncJumpChip();
+        return;
+      }
       const el = this.messagesEl;
       el.scrollTop = el.scrollHeight;
     });
+  }
+
+  /// "Jump to present" chip: visible only while the transcript is
+  /// scrolled meaningfully away from the live edge.
+  private syncJumpChip(): void {
+    const el = this.messagesEl;
+    const away = el.scrollHeight - el.scrollTop - el.clientHeight >= 48;
+    this.jumpBtn.hidden = !away || this.stickToBottom;
   }
 }
 

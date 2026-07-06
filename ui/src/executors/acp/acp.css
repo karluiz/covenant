@@ -636,6 +636,36 @@
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
+/* "Jump to present" — floats above the composer while the transcript is
+   scrolled away from the live edge. */
+.acp-jump-present {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-panel) 88%, var(--accent));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.acp-jump-present:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--bg-panel) 78%, var(--accent));
+}
+.acp-jump-present svg { display: block; opacity: 0.85; }
+.acp-jump-present[hidden] { display: none; }
+
 /* Pasted-image chips — float above the composer like the slash menu. */
 .acp-image-strip {
   position: absolute;
