@@ -6,6 +6,69 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.125 — Claude ACP chat fixes + Linux packages
+
+### Added
+
+- **Linux release pipeline**: new `release-linux.yml` builds `.deb`, `.rpm`,
+  and AppImage for x86_64 on every tag; `release-manifest.yml` now gates
+  `latest.json` on all four platform jobs. Linux (like Intel macOS) ships
+  without local embeddings — the `ort` prebuilt needs glibc 2.38 and the
+  runner has 2.35 (`crates/pty/Cargo.toml` also gains the unix-wide `libc`
+  dep that the Linux build was missing). Landing page grew Fedora/Ubuntu/
+  AppImage download buttons (`landing/src/components/Install.astro`).
+
+- **Spawns: ACP variant**: a spawn can now declare `acp: true` and its run
+  opens as a structured ACP chat tab instead of a PTY, for the executors
+  with an ACP adapter — claude, copilot, pi (`ui/src/spawns/*,
+  ui/src/settings/spawns.ts`, `crates/app/src/spawns_store.rs`).
+
+### Changed
+
+- **CDLC chrome squared**: corner radii removed across CDLC panels per
+  `docs/DESIGN.md` (new: the design-guidelines doc itself), and agent
+  instructions consolidated into a canonical `AGENTS.md` (`CLAUDE.md` is now
+  a symlink); CDLC demo content moved out of this repo.
+
+### Fixed
+
+- **ACP prose renders markdown**: Claude streams real markdown (`##`
+  headings, `**bold**`, fenced code) which showed raw — agent/thought
+  bubbles now render through the shared escape-first mini renderer
+  (`ui/src/release/markdown.ts`, regression tests added) with dense
+  block styles in `ui/src/executors/acp/acp.css`.
+
+- **ACP transcript scrollable while streaming**: stick-to-bottom released
+  only >48px from the bottom, but every streamed chunk yanked the scroller
+  back before a trackpad could escape — upward wheel intent now releases
+  the stick immediately (`ui/src/executors/acp/view.ts`). Also promoted
+  `.acp-chat-messages` to its own compositing layer: under fractional UI
+  zoom, WKWebView tile invalidation dropped paints (tool cards became
+  black voids, stale tiles overlapped).
+
+- **ACP resume replay integrity**: the forwarder holds its first emit
+  behind an `acp_mark_ready` gate (5s escape hatch) so a `session/load`
+  replay burst can't race the frontend listener and drop frames; restart
+  clears the transcript before a resumed replay repopulates it; replayed
+  user messages render their YOU bubbles; slash-command bookkeeping chunks
+  are dropped. Model picks persist per executor and re-apply after every
+  handshake; ACP tabs title off the first real user prompt
+  (`crates/app/src/acp_commands.rs`, `ui/src/executors/acp/view.ts`).
+
+- **Claude adapter sees user skills/commands/agents**: the claude ACP
+  spawn now exposes the user's `~/.claude` skills, commands, and agents
+  dirs to the adapter (`crates/app/src/acp_commands.rs`), plus composer
+  polish (focus ring, square send/cancel buttons).
+
+- **cd-picker Esc really cancels**: dismissing the inline directory picker
+  now cancels the pending debounce timer and any in-flight directory query
+  so a stale listing can't revive the overlay (`ui/src/terminal/cd-picker.ts`).
+
+- **Stuck mouse-tracking disabled after output**: TUI apps that died
+  without cleaning up left the terminal eating scroll/click as mouse
+  reports; tracking is now reset after each output chunk
+  (`ui/src/tabs/manager.ts`).
+
 ## v0.8.124 — ACP /resume + remote-control and titlebar fixes
 
 ### Added
