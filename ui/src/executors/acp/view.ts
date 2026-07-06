@@ -106,6 +106,12 @@ const EXECUTOR_BRAND: Record<AcpExecutor, { title: string; longName: string; cmd
     cmdline: "claude-agent-acp",
     roleLabel: "claude",
   },
+  opencode: {
+    title: "OpenCode",
+    longName: "OpenCode's coding agent (first-party ACP server)",
+    cmdline: "opencode acp",
+    roleLabel: "opencode",
+  },
 };
 
 const escapeHtml = (s: string): string =>

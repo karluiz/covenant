@@ -2582,7 +2582,7 @@ export interface SpawnAcpResult {
 
 /// Executors with an ACP launch profile in the backend
 /// (`AcpSpawnOpts::for_executor`).
-export type AcpExecutor = "copilot" | "pi" | "claude";
+export type AcpExecutor = "copilot" | "pi" | "claude" | "opencode";
 
 export async function spawnAcpSession(
   opts: { cwd?: string | null; resumeAcpSessionId?: string | null; executor?: AcpExecutor } = {},

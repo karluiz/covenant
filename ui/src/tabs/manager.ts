@@ -4472,7 +4472,7 @@ export class TabManager {
     const seq = this.nextSeq++;
     const executor: AcpExecutor = opts?.executor ?? "copilot";
     const executorTitle =
-      executor === "pi" ? "pi" : executor === "claude" ? "Claude" : "Copilot";
+      { copilot: "Copilot", pi: "pi", claude: "Claude", opencode: "OpenCode" }[executor];
 
     // The tab appears IMMEDIATELY with a boot placeholder; copilot's ACP
     // handshake takes seconds and blocking ⌘⌥⇧C on it read as "nothing
@@ -5452,12 +5452,9 @@ export class TabManager {
             cwd: t.cwd,
             skipActivate: true,
             resumeAcpSessionId: t.panes?.[0]?.acp_session_id ?? null,
-            executor:
-              t.panes?.[0]?.acp_executor === "pi"
-                ? "pi"
-                : t.panes?.[0]?.acp_executor === "claude"
-                  ? "claude"
-                  : "copilot",
+            executor: (["pi", "claude", "opencode"] as const).find(
+              (e) => e === t.panes?.[0]?.acp_executor,
+            ) ?? "copilot",
           });
         }
         return this.createTab({
@@ -7329,6 +7326,21 @@ export class TabManager {
             color: group.color,
             cwd: group.rootDir ?? this.activeCwd(),
             executor: "claude",
+          });
+        },
+      },
+      {
+        // opencode's first-party ACP server (`opencode acp`).
+        label: "Start OpenCode in ACP mode",
+        badge: "BETA",
+        icon: Icons.sparkles(),
+        onClick: () => {
+          if (group.collapsed) this.toggleGroupCollapsed(group.id);
+          void this.createAcpTab({
+            groupId: group.id,
+            color: group.color,
+            cwd: group.rootDir ?? this.activeCwd(),
+            executor: "opencode",
           });
         },
       },

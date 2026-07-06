@@ -459,6 +459,7 @@ pub async fn spawn_acp_session(
                 "copilot" => " Hint: requires GitHub Copilot CLI >= 1.0.68 with ACP support (`copilot --acp`).",
                 "pi" => " Hint: requires the pi-acp adapter (`npm i -g pi-acp`) and a configured `pi` binary.",
                 "claude" => " Hint: requires npx + a logged-in Claude Code (`claude`); the adapter is @zed-industries/claude-agent-acp.",
+                "opencode" => " Hint: requires opencode >= 1.14 (`opencode acp`) with configured providers.",
                 _ => "",
             };
             return Err(format!(
