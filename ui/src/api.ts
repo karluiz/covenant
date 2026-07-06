@@ -2668,6 +2668,36 @@ export async function subscribeAcpEvents(
   return unlisten;
 }
 
+// ── CDLC Context Miner ───────────────────────────────────────────────
+
+export interface MinerFinding {
+  category: string;
+  title: string;
+  bodyMd: string;
+  evidence: string[];
+  confidence: string;
+}
+export type MinerEvent =
+  | { kind: "text_delta"; text: string }
+  | { kind: "tool_start"; id: string; tool: string; arg: string }
+  | { kind: "tool_result"; id: string; summary: string; ok: boolean }
+  | { kind: "finding"; id: string; finding: MinerFinding }
+  | { kind: "run_done"; findingsTotal: number; stopped: boolean }
+  | { kind: "error"; message: string };
+
+export async function cdlcMineStart(repoRoot: string, skillName: string, focus: string, thorough: boolean): Promise<string> {
+  return invoke<string>("cdlc_mine_start", { repoRoot, skillName, focus, thorough });
+}
+export async function cdlcMineStop(runId: string): Promise<void> {
+  return invoke<void>("cdlc_mine_stop", { runId });
+}
+export async function cdlcCompileSkill(repoRoot: string, skillName: string, findings: MinerFinding[], overwrite: boolean): Promise<string> {
+  return invoke<string>("cdlc_compile_skill", { repoRoot, skillName, findings, overwrite });
+}
+export async function subscribeMinerEvents(runId: string, cb: (ev: MinerEvent) => void): Promise<UnlistenFn> {
+  return listen<MinerEvent>(`cdlc://miner/${runId}`, (e) => cb(e.payload));
+}
+
 export interface VitalsInFlight {
   model: string;
   started_unix_ms: number;
