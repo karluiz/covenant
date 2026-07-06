@@ -184,6 +184,11 @@
      scroller isolates its tiles from the zoomed page layer. */
   transform: translateZ(0);
 }
+/* The scroller is a flex column, so children default to flex-shrink:1 —
+   and overflow:hidden cards (.acp-tool) resolve min-height:auto to 0 as
+   flex items. An overfull transcript then COMPRESSES the cards to "fit"
+   instead of overflowing into scroll. Never shrink transcript children. */
+.acp-chat-messages > * { flex-shrink: 0; }
 
 .acp-chat-empty {
   margin: auto;
