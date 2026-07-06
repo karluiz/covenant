@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.128 — Tasker panel scroll fix for long task lists
+
+### Fixed
+
+- **Tasker panel pushed the whole layout instead of scrolling**: with many
+  tasks, `#tasker-panel`'s min-content stretched `#layout`'s `1fr` grid row
+  past the viewport, shoving the entire app down instead of scrolling the
+  list. Added `overflow: hidden` to the panel (matching `#activity-sidebar`
+  and `#teammate-panel`) and `min-height: 0` to `.tasker-projects` so its
+  `flex: 1` can shrink and its own `overflow-y: auto` engages
+  (`ui/src/tasker/styles.css`). Board fullscreen mode unaffected.
+
 ## v0.8.127 — OpenCode ACP executor + traffic-light and ACP render fixes
 
 ### Added
