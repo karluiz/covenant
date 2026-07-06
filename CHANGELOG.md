@@ -6,6 +6,41 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.126 — ACP composer card + pane-menu routing fixes
+
+### Added
+
+- **Unified ACP composer card**: the ACP chat input is no longer a bare
+  full-width textarea with detached Cancel/Send buttons. It's now a single
+  rounded card centered at `min(760px, 100%)` with a borderless textarea
+  that auto-grows from one line (200px cap), an internal footer with the
+  `↩ send · ⇧↩ newline` hint, and a circular accent ↑ send button that
+  swaps in place for a ■ stop button while a turn streams. Send is
+  disabled when there is nothing to send; the focus ring moved to the
+  card (`:focus-within`). Slash/mention menus and the pasted-image strip
+  re-anchor to the centered card column (`ui/src/executors/acp/view.ts`,
+  `ui/src/executors/acp/acp.css`).
+
+### Fixed
+
+- **Pane menu dead on ACP tabs**: right-click Prompts/Skills wrote raw
+  bytes via `writeToSession`/`sendPromptToSession` — an ACP session has
+  no PTY (stdio JSON-RPC), so clicks vanished. Commands now stage into
+  the ACP composer for review and Prompts/Skills submit through it
+  (new `AcpChatView.insertText`/`submitText`); Split right/down are
+  hidden on acp/pi/browser tabs since splits spawn PTY panes
+  (`ui/src/tabs/manager.ts`).
+
+- **ACP transcript compressed instead of scrolling**: the transcript is a
+  flex-column scroller, so overflow-hidden tool cards resolved
+  `min-height: auto` to 0 and an overfull transcript squashed its blocks
+  to fit rather than overflowing into scroll. Transcript children are now
+  pinned `flex-shrink: 0` (`ui/src/executors/acp/acp.css`).
+
+- **Traffic lights nudged up**: macOS window controls sit at `y: 13`
+  (was 16) to center against the tab strip
+  (`crates/app/tauri.conf.json`).
+
 ## v0.8.125 — Claude ACP chat fixes + Linux packages
 
 ### Added
