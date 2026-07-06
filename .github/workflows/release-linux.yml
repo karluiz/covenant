@@ -53,8 +53,12 @@ jobs:
       # targets "all" on Linux = .deb + .rpm + .AppImage in one build.
       # Only the AppImage participates in the auto-updater (Tauri's Linux
       # updater cannot update deb/rpm installs — those upgrade via apt/dnf).
+      #
+      # --no-default-features drops embeddings (like the Intel macOS leg):
+      # ort's prebuilt onnxruntime needs glibc >= 2.38 (__isoc23_strto*),
+      # which 22.04 (glibc 2.35) can't link against.
       - name: Build Tauri bundles
-        run: npm run tauri build
+        run: npm run tauri build -- -- --no-default-features
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
