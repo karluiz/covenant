@@ -3228,6 +3228,17 @@ export class TabManager {
           onOutput: (chunk) => {
             term.write(chunk);
             if (tabRef.current?.pane.hidden) tabRef.current.wroteWhileHidden = true;
+            // Belt-and-suspenders: if a TUI exits without disabling mouse
+            // tracking we may not get a prompt_start (no shell integration, or
+            // the event arrives later). Detect the stuck state right after
+            // xterm processes the chunk — mouse tracking still on while back
+            // on the normal buffer means the app forgot to clean up.
+            if (
+              term.modes.mouseTrackingMode !== "none" &&
+              term.buffer.active.type === "normal"
+            ) {
+              term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+            }
           },
           onSessionEvent: (event) => {
             blocks?.handleEvent(event);
