@@ -153,7 +153,9 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
       if (data === "\x1b[A") { active = Math.max(0, active - 1); paint(); return true; }
       if (data === "\x1b[B") { active = Math.min(entries.length - 1, active + 1); paint(); return true; }
       if (data === "\r") { select(); return true; }
-      if (data === "\x1b") { hide(); return true; }
+      // reset, not hide: a pending debounce timer or in-flight query would
+    // otherwise re-render the picker after the user dismissed it.
+    if (data === "\x1b") { reset(); return true; }
       return false;
     },
     reset,
