@@ -22,6 +22,10 @@
   border-left: 1px solid var(--border);
   box-sizing: border-box;
   font-family: var(--ui-font);
+  /* Without this the grid item's min-content stretches #layout's 1fr row
+     past the viewport when the task list is long (content pushes the app
+     instead of scrolling). Same rule as #activity-sidebar / #teammate-panel. */
+  overflow: hidden;
 }
 
 /* Only render when the tasker view is selected and the right rail isn't folded */
@@ -65,6 +69,7 @@ body.sidebar-view-tasker #tasker-panel {
 
 .tasker-projects {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 8px 0;
   color: var(--text-primary);
