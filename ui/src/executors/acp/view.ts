@@ -49,6 +49,7 @@ import type {
 } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
 import { Icons } from "../../icons";
+import { renderMarkdown } from "../../release/markdown";
 
 /// Coarse relative time for the /resume picker ("3h ago", "2d ago").
 /// Exported for tests.
@@ -647,6 +648,19 @@ export class AcpChatView {
       },
       { passive: true },
     );
+    // Scrolling up must release bottom-stick IMMEDIATELY. The scroll
+    // handler above only releases once you're >48px from the bottom, but
+    // while a turn is streaming, every chunk yanks scrollTop back to the
+    // bottom — a trackpad can't escape the 48px window between chunks, so
+    // the transcript reads as unscrollable. Wheel intent (deltaY < 0)
+    // beats position.
+    this.messagesEl.addEventListener(
+      "wheel",
+      (e) => {
+        if (e.deltaY < 0) this.stickToBottom = false;
+      },
+      { passive: true },
+    );
     this.emptyEl = requireChild(this.host, ".acp-chat-empty");
     this.imageStripEl = requireChild(this.host, ".acp-image-strip");
     this.inputEl = requireChild(this.host, ".acp-chat-textarea") as HTMLTextAreaElement;
@@ -1196,9 +1210,11 @@ export class AcpChatView {
   }
 
   // -------------------------------------------------------------------------
-  // Prose rendering — escape-then-format only (no markdown lib, never
-  // innerHTML of raw agent text: escape first, THEN apply the two
-  // whitelisted transforms below).
+  // Prose rendering — agent prose goes through `renderMarkdown` (the same
+  // escape-first mini-renderer the changelog uses: headings, lists, fences,
+  // bold/italic — Claude streams real markdown and the backticks-only
+  // formatProse rendered it raw). Raw agent text never hits innerHTML
+  // unescaped in either path.
   // -------------------------------------------------------------------------
 
   /// Replayed user bubble — same one-growing-node pattern as
@@ -1235,7 +1251,7 @@ export class AcpChatView {
     const item = this.state.items[this.state.items.length - 1];
     if (!item || item.kind !== "prose") return;
     if (this.lastProseItem === item && this.lastProseEl) {
-      this.lastProseEl.innerHTML = formatProse(item.text);
+      this.lastProseEl.innerHTML = renderMarkdown(item.text);
       return;
     }
     this.hideEmptyState();
@@ -1243,7 +1259,7 @@ export class AcpChatView {
     el.className = item.role === "thought" ? "acp-msg acp-msg-thought" : "acp-msg acp-msg-assistant";
     el.innerHTML = `<div class="acp-msg-role">${item.role === "thought" ? "thinking" : EXECUTOR_BRAND[this.executor].roleLabel}</div><div class="acp-msg-content"></div>`;
     const contentEl = requireChild(el, ".acp-msg-content");
-    contentEl.innerHTML = formatProse(item.text);
+    contentEl.innerHTML = renderMarkdown(item.text);
     this.messagesEl.appendChild(el);
     this.lastProseItem = item;
     this.lastProseEl = contentEl;

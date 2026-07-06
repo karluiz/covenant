@@ -177,6 +177,12 @@
   gap: 12px;
   scrollbar-gutter: stable;
   overflow-anchor: none;
+  /* Own compositing layer. Under fractional UI zoom (CSS `zoom` on
+     <html>) WKWebView's tile invalidation of a rapidly-mutating scroller
+     falls apart: elements keep their layout height but paint as black
+     voids, and stale tiles overlap ("stacked" messages). Promoting the
+     scroller isolates its tiles from the zoomed page layer. */
+  transform: translateZ(0);
 }
 
 .acp-chat-empty {
@@ -240,15 +246,72 @@
   color: var(--text-tertiary);
 }
 .acp-msg-content {
-  white-space: pre-wrap;
+  /* Agent prose is markdown-rendered (block tags own the structure);
+     pre-wrap here would turn the \n between generated tags into phantom
+     blank lines. User bubbles are plain textContent and re-opt-in below. */
+  white-space: normal;
   word-wrap: break-word;
   line-height: 1.5;
 }
 .acp-msg-user .acp-msg-content {
+  white-space: pre-wrap;
   background: rgba(var(--ink-rgb), 0.04);
   border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   padding: 6px 10px;
   border-radius: 0 4px 4px 0;
+}
+/* Markdown blocks inside agent prose — dense chrome margins, no
+   default-UA airiness. */
+.acp-msg-content p,
+.acp-msg-content ul,
+.acp-msg-content pre {
+  margin: 0 0 8px;
+}
+.acp-msg-content > :last-child {
+  margin-bottom: 0;
+}
+.acp-msg-content h1,
+.acp-msg-content h2,
+.acp-msg-content h3,
+.acp-msg-content h4 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+.acp-msg-content > h1:first-child,
+.acp-msg-content > h2:first-child,
+.acp-msg-content > h3:first-child,
+.acp-msg-content > h4:first-child {
+  margin-top: 0;
+}
+.acp-msg-content ul {
+  padding-left: 18px;
+}
+.acp-msg-content li {
+  margin: 2px 0;
+}
+.acp-msg-content hr {
+  border: none;
+  height: 1px;
+  background: rgba(var(--ink-rgb), 0.08);
+  margin: 10px 0;
+}
+.acp-msg-content pre {
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(var(--ink-rgb), 0.05);
+  border: 1px solid rgba(var(--ink-rgb), 0.06);
+  overflow-x: auto;
+}
+.acp-msg-content pre code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  white-space: pre;
+}
+.acp-msg-content a {
+  color: var(--accent);
 }
 .acp-msg-assistant .acp-msg-content {
   padding: 2px 0;
