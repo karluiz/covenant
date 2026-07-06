@@ -15,6 +15,7 @@ mod archetypes;
 mod browser;
 mod capabilities_commands;
 mod cdlc_eval;
+mod cdlc_miner;
 mod cdlc_registry;
 pub mod cloud_sync;
 mod connectivity;
@@ -4232,6 +4233,8 @@ pub fn run() {
             let spec_edit_tracker = notch_hub.spec_edit_tracker();
             app.manage(spec_edit_tracker.clone());
 
+            app.manage(cdlc_miner::MinerRuns::new());
+
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
                 settings: settings_arc,
@@ -4461,6 +4464,9 @@ pub fn run() {
             cdlc_projection_status,
             cdlc_publish,
             cdlc_install_registry,
+            cdlc_miner::cdlc_mine_start,
+            cdlc_miner::cdlc_mine_stop,
+            cdlc_miner::cdlc_compile_skill,
             git_file_diff,
             git_stage,
             git_unstage,
