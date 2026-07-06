@@ -15,6 +15,9 @@ pub struct SpawnSpec {
     pub cwd: Option<String>,
     #[serde(default)]
     pub default: bool,
+    /// Launch as an ACP chat tab instead of a PTY command line.
+    #[serde(default)]
+    pub acp: bool,
 }
 
 pub struct SpawnStore {
@@ -64,6 +67,7 @@ impl SpawnStore {
                                 env: Default::default(),
                                 cwd: None,
                                 default: false,
+                                acp: false,
                             });
                             changed = true;
                         }
@@ -91,6 +95,7 @@ impl SpawnStore {
                     env: Default::default(),
                     cwd: None,
                     default: *id == "claude",
+                    acp: false,
                 })
                 .collect::<Vec<_>>();
             std::fs::create_dir_all(data_dir).ok();
@@ -162,10 +167,19 @@ mod tests {
             env: Default::default(),
             cwd: None,
             default: true,
+            acp: true,
         };
         let json = serde_json::to_string(&spec).unwrap();
         let back: SpawnSpec = serde_json::from_str(&json).unwrap();
         assert_eq!(spec, back);
+    }
+
+    #[test]
+    fn acp_defaults_false_for_legacy_json() {
+        // Pre-acp spawns.json rows have no "acp" key at all.
+        let legacy = r#"{"id":"claude","label":"Claude","icon":null,"command":"claude","cwd":null}"#;
+        let back: SpawnSpec = serde_json::from_str(legacy).unwrap();
+        assert!(!back.acp);
     }
 
     #[test]
@@ -198,6 +212,7 @@ mod tests {
             env: Default::default(),
             cwd: None,
             default: true,
+            acp: false,
         }];
         std::fs::write(
             dir.path().join("spawns.json"),
@@ -245,6 +260,7 @@ mod tests {
                 env: Default::default(),
                 cwd: None,
                 default: false,
+                acp: false,
             })
             .unwrap();
         assert!(store.list().unwrap().iter().any(|s| s.id == "ollama"));
