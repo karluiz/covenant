@@ -6290,6 +6290,31 @@ body:not(.statusbar-single-row) .sb-row .sb-center {
     color: var(--muted);
 }
 
+/* Workspace chip — leftmost segment; names the active workspace and
+   opens the workspace palette on click. */
+.status-segment.status-workspace {
+    cursor: pointer;
+    outline: none;
+}
+
+.status-segment.status-workspace .status-ws-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 1px rgba(var(--ink-rgb), 0.06);
+}
+
+.status-segment.status-workspace .status-text {
+    color: var(--muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    max-width: 140px;
+    white-space: nowrap;
+}
+
 /* Active-tab chip — leading segment so the user can always see which
    terminal is focused, especially when the vertical sidebar is
    collapsed or the top tabbar wraps. */

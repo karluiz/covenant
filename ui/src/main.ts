@@ -1275,6 +1275,15 @@ async function boot(): Promise<void> {
   const statusBar = new StatusBar(statusBarHost);
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
   applyIndicatorVisibility(initialSettings?.hidden_indicators ?? []);
+  // Leading workspace chip — mirrors the active workspace and opens
+  // the same palette as the tabbar chip.
+  const pushActiveWorkspace = (): void => {
+    const active = workspaceManager.list().find((w) => w.active) ?? null;
+    statusBar.setWorkspace(active ? { name: active.name, color: active.color } : null);
+  };
+  pushActiveWorkspace();
+  workspaceManager.onChange(pushActiveWorkspace);
+  statusBar.onWorkspaceChipClick = () => switcher.togglePopover();
   // Activity sidebar — single global instance, rendered into the right
   // column when the user picks the Activity view (and always available
   // when fullscreen hides the floating notch). Same D-combo layout as

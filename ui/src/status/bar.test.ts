@@ -82,6 +82,38 @@ describe("StatusBar.setTwoRow", () => {
   });
 });
 
+describe("StatusBar workspace chip", () => {
+  let host: HTMLDivElement;
+  let bar: StatusBar;
+
+  beforeEach(() => {
+    (globalThis as unknown as { __APP_VERSION__: string }).__APP_VERSION__ = "0.0.0-test";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    bar = new StatusBar(host);
+    bar.setEnabled(false);
+    bar.setEnabled(true);
+  });
+
+  it("renders name + color dot and fires onWorkspaceChipClick", () => {
+    const clicked = vi.fn();
+    bar.onWorkspaceChipClick = clicked;
+    bar.setWorkspace({ name: "Personal", color: "#ff0000" });
+    const chip = host.querySelector<HTMLElement>(".status-workspace");
+    expect(chip).not.toBeNull();
+    expect(chip!.textContent).toContain("Personal");
+    expect(chip!.querySelector(".status-ws-dot")).not.toBeNull();
+    chip!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(clicked).toHaveBeenCalledOnce();
+  });
+
+  it("setWorkspace(null) removes the chip", () => {
+    bar.setWorkspace({ name: "Personal", color: null });
+    bar.setWorkspace(null);
+    expect(host.querySelector(".status-workspace")).toBeNull();
+  });
+});
+
 describe("StatusBar mission chip", () => {
   let host: HTMLDivElement;
   let bar: StatusBar;
