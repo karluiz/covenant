@@ -1871,6 +1871,9 @@ body:not(.tabbar-left) #new-group {
 .prompt-hint-sep { opacity: 0.5; margin: 0 2px; }
 
 /* Docked to the bottom of the terminal pane (not floating at the cursor). */
+/* `display: flex` below beats the UA [hidden]{display:none} — restate it,
+   or el.hidden=true never visually hides the picker (stuck overlay). */
+.cd-picker[hidden] { display: none; }
 .cd-picker {
   position: absolute;
   left: 0;
