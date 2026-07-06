@@ -28,6 +28,7 @@ import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 import { csharp } from "@codemirror/legacy-modes/mode/clike";
+import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
 
 // Legacy StreamLanguage modes don't all advertise `commentTokens`, so
 // CodeMirror's toggle-comment command (Mod-/) has nothing to insert.
@@ -48,6 +49,7 @@ const csharpMode = withLineComment(csharp, "//");
 const shellMode = withLineComment(shell, "#");
 const tomlMode = withLineComment(toml, "#");
 const dockerMode = withLineComment(dockerFile, "#");
+const powerShellMode = withLineComment(powerShell, "#");
 
 // ---------------------------------------------------------------------------
 // dotenv grammar
@@ -307,6 +309,9 @@ const BY_EXT: Record<string, () => Extension> = {
   toml: () => StreamLanguage.define(tomlMode),
   cs: () => StreamLanguage.define(csharpMode),
   csx: () => StreamLanguage.define(csharpMode),
+  ps1: () => StreamLanguage.define(powerShellMode),
+  psm1: () => StreamLanguage.define(powerShellMode),
+  psd1: () => StreamLanguage.define(powerShellMode),
   tf: () => StreamLanguage.define(hcl),
   tfvars: () => StreamLanguage.define(hcl),
   hcl: () => StreamLanguage.define(hcl),

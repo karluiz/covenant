@@ -42,6 +42,12 @@ describe("languageForPath grammars", () => {
     expect(languageForPath("config.hcl")).not.toBeNull();
   });
 
+  it("resolves PowerShell for .ps1/.psm1/.psd1", () => {
+    expect(languageForPath("sign-windows.ps1")).not.toBeNull();
+    expect(languageForPath("module.psm1")).not.toBeNull();
+    expect(languageForPath("manifest.psd1")).not.toBeNull();
+  });
+
   it("returns null for unknown extensions", () => {
     expect(languageForPath("x.unknownext")).toBeNull();
   });
