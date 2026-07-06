@@ -618,15 +618,22 @@ export class AcpChatView {
         <div class="acp-slash-menu" role="listbox" hidden></div>
         <div class="acp-slash-menu acp-mention-menu" role="listbox" hidden></div>
         <div class="acp-image-strip" hidden></div>
-        <textarea
-          class="acp-chat-textarea"
-          rows="2"
-          placeholder="Message ${brand.title}…  (↩ send · ⇧↩ newline)"
-          aria-label="Message ${brand.title}"
-        ></textarea>
-        <div class="acp-chat-actions">
-          <button type="button" class="acp-chat-cancel" hidden>Cancel</button>
-          <button type="submit" class="acp-chat-send">Send</button>
+        <div class="acp-composer">
+          <textarea
+            class="acp-chat-textarea"
+            rows="1"
+            placeholder="Message ${brand.title}…"
+            aria-label="Message ${brand.title}"
+          ></textarea>
+          <div class="acp-chat-actions">
+            <span class="acp-composer-hint"><kbd>↩</kbd> send · <kbd>⇧↩</kbd> newline</span>
+            <button type="button" class="acp-chat-cancel" hidden aria-label="Stop" title="Stop">
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg>
+            </button>
+            <button type="submit" class="acp-chat-send" disabled aria-label="Send" title="Send">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M8 3 3.5 7.5M8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
         </div>
       </form>
     `;
@@ -676,6 +683,7 @@ export class AcpChatView {
     this.slashEl = requireChild(this.host, ".acp-slash-menu");
     this.mentionEl = requireChild(this.host, ".acp-mention-menu");
     this.inputEl.addEventListener("input", () => {
+      this.syncComposer();
       this.updateSlashMenu();
       void this.updateMentionMenu();
     });
@@ -825,15 +833,18 @@ export class AcpChatView {
     // ride a text prompt — route them to our native pickers instead.
     if (cmd.name === "model") {
       this.inputEl.value = "";
+      this.syncComposer();
       this.openModelMenu();
       return;
     }
     if (cmd.name === "resume") {
       this.inputEl.value = "";
+      this.syncComposer();
       void this.openResumeMenu();
       return;
     }
     this.inputEl.value = `/${cmd.name} `;
+    this.syncComposer();
     this.inputEl.focus();
   }
 
@@ -914,6 +925,7 @@ export class AcpChatView {
     if (entry.kind === "dir") {
       const repl = `@${dirPart}${entry.name}/`;
       this.inputEl.value = `${before}${repl}${after}`;
+      this.syncComposer();
       const pos = before.length + repl.length;
       this.inputEl.setSelectionRange(pos, pos);
       this.inputEl.focus();
@@ -923,6 +935,7 @@ export class AcpChatView {
     const rel = `${dirPart}${entry.name}`;
     const repl = `@${rel} `;
     this.inputEl.value = `${before}${repl}${after}`;
+    this.syncComposer();
     const pos = before.length + repl.length;
     this.inputEl.setSelectionRange(pos, pos);
     this.mentions.add(rel);
@@ -1482,6 +1495,7 @@ export class AcpChatView {
     const attachments = [...this.mentions].filter((p) => text.includes(`@${p}`));
     this.mentions.clear();
     this.inputEl.value = "";
+    this.syncComposer();
     this.pendingImages = [];
     this.renderImageStrip();
     const shown = images.length > 0
@@ -1516,6 +1530,7 @@ export class AcpChatView {
   private renderImageStrip(): void {
     this.imageStripEl.hidden = this.pendingImages.length === 0;
     this.imageStripEl.textContent = "";
+    this.syncComposer();
     this.pendingImages.forEach((img, i) => {
       const dataUrl = `data:${img.mimeType};base64,${img.data}`;
       const chip = document.createElement("button");
@@ -1598,10 +1613,23 @@ export class AcpChatView {
 
   private setInFlight(busy: boolean): void {
     this.state.inFlight = busy;
-    this.sendBtn.disabled = busy;
+    // Send and Stop swap in place — never side by side.
+    this.sendBtn.hidden = busy;
     this.cancelBtn.hidden = !busy;
+    if (!busy) this.syncComposer();
     this.statusEl.dataset.state = busy ? "running" : "idle";
     this.statusEl.textContent = busy ? "running…" : "idle";
+  }
+
+  /// Keep the composer card honest after any value change (typed or
+  /// programmatic): auto-grow the textarea to its content and disable
+  /// Send when there is nothing to send.
+  private syncComposer(): void {
+    const el = this.inputEl;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    this.sendBtn.disabled =
+      el.value.trim().length === 0 && this.pendingImages.length === 0;
   }
 
   private hideEmptyState(): void {
