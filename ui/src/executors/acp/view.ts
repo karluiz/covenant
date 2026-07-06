@@ -586,6 +586,24 @@ export class AcpChatView {
     this.inputEl?.focus();
   }
 
+  /// Put text in the composer for review (pane-menu Commands semantics —
+  /// the user reads it, then hits ↩).
+  insertText(text: string): void {
+    this.inputEl.value = text;
+    this.syncComposer();
+    this.inputEl.focus();
+  }
+
+  /// Put text in the composer and submit it (pane-menu Prompts/Skills
+  /// semantics). If a turn is already in flight, handleSend no-ops and
+  /// the text stays staged in the composer.
+  submitText(text: string): void {
+    this.inputEl.value = text;
+    this.syncComposer();
+    this.inputEl.focus();
+    void this.handleSend();
+  }
+
   // -------------------------------------------------------------------------
   // Mount
   // -------------------------------------------------------------------------
