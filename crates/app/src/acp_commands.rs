@@ -862,6 +862,20 @@ pub async fn acp_mark_ready(
     Ok(())
 }
 
+/// One-shot LLM tab title from the chat transcript — same titler the PTY
+/// summarizer uses off the live screen (ACP tabs have neither). Returns
+/// None when no summary route is configured; the frontend keeps its
+/// prompt-derived fallback title in that case.
+#[tauri::command]
+pub async fn acp_suggest_title(
+    state: State<'_, AppState>,
+    session_id: String,
+    transcript: String,
+) -> Result<Option<String>, String> {
+    let id = parse_session_id(&session_id)?;
+    crate::summarizer::suggest_title_oneshot(id, &state.settings, &state.vitals, &transcript).await
+}
+
 /// Model roster + current selection for the tab's model picker.
 #[tauri::command]
 pub async fn acp_get_models(

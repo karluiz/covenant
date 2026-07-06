@@ -2622,6 +2622,15 @@ export async function acpMarkReady(sessionId: SessionId): Promise<void> {
   return invoke<void>("acp_mark_ready", { sessionId });
 }
 
+/// One-shot LLM tab title from the chat transcript — same 2-word titler
+/// the PTY summarizer uses. Null when no summary route is configured.
+export async function acpSuggestTitle(
+  sessionId: SessionId,
+  transcript: string,
+): Promise<string | null> {
+  return invoke<string | null>("acp_suggest_title", { sessionId, transcript });
+}
+
 export async function closeAcpSession(sessionId: SessionId): Promise<void> {
   return invoke<void>("close_acp_session", { sessionId });
 }

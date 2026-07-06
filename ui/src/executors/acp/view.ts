@@ -35,6 +35,7 @@ import {
   acpRespondPermission,
   acpSendPrompt,
   acpSetModel,
+  acpSuggestTitle,
   closeAcpSession,
   spawnAcpSession,
   structureListDir,
@@ -1307,7 +1308,16 @@ export class AcpChatView {
     const title = titleFromPrompt(text);
     if (title === null) return;
     this.titleSent = true;
+    // Instant fallback (first prompt line) while the real titler runs —
+    // same 2-word LLM label PTY tabs get from the screen summarizer.
     this.onTitle(title);
+    void acpSuggestTitle(this.sessionId, text)
+      .then((t) => {
+        if (t && t.trim().length > 0) this.onTitle?.(t.trim());
+      })
+      .catch(() => {
+        /* fallback title already set */
+      });
   }
 
   private renderProseTail(): void {
