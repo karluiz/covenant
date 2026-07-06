@@ -6,6 +6,36 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.127 — OpenCode ACP executor + traffic-light and ACP render fixes
+
+### Added
+
+- **OpenCode as a fourth ACP executor**: opencode ≥ 1.14 ships a native
+  `opencode acp` subcommand (no adapter), verified live against 1.14.39
+  (loadSession, session/list with fork/resume caps, session/set_model, image
+  prompts, 154-model roster). `for_executor` resolves the binary from PATH
+  with a `~/.opencode/bin` fallback for GUI-launched installs; the group menu
+  gains "Start OpenCode in ACP mode" (BETA). `executorTitle` and restore
+  mapping collapse to lookup tables now that there are four executors.
+
+### Fixed
+
+- **Traffic lights heal after macOS resets them**: macOS re-lays-out the
+  standard window buttons to their default spot on theme changes and
+  fullscreen exits, silently dropping the configured `trafficLightPosition`,
+  and tao only re-applies its stored inset inside `drawRect` (which a
+  webview-covered window almost never triggers). Poke `setNeedsDisplay` on
+  Resized/Focused/ThemeChanged so the inset heals on the next display pass
+  (`crates/app/src/lib.rs`). With the reset fixed, the position is finally
+  measurable — `y=17` centers the lights at 19 to match the 28px titlebar
+  buttons in the 38px bar (`crates/app/tauri.conf.json`).
+
+- **ACP chat drops harness noise and stray fences**: `<task-notification>` /
+  `<system-reminder>` chunks are harness records, not typed prompts, so
+  `isCommandNoise` no longer renders them as YOU bubbles; and markdown code
+  fences from the claude adapter's tool results are stripped before render
+  since tool-card bodies are already a monospace `<pre>` (`ui/src/executors/acp/view.ts`).
+
 ## v0.8.126 — ACP composer card + pane-menu routing fixes
 
 ### Added
