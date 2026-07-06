@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.130 — PowerShell + tier-1 syntax highlighting pack
+
+### Added
+
+- **PowerShell syntax highlighting**: `.ps1`, `.psm1`, and `.psd1` files
+  now highlight in the Structure editor and the Changes diff viewer via
+  the `powerShell` mode already bundled in `@codemirror/legacy-modes` —
+  zero new dependencies. Includes `#` line-comment toggle (Mod-/) support
+  (`ui/src/structure/languages.ts`).
+
+- **Tier-1 grammar pack**: eight more languages wired into the shared
+  `languageForPath` resolver, all from the same bundled legacy-modes
+  package: Java/Kotlin/C/C++ (`.java`, `.kt`, `.kts`, `.c`, `.h`, `.cpp`,
+  `.cc`, `.hpp` via `clike`), Go (`.go`), ini-style configs (`.ini`,
+  `.properties`, `.conf`, `.cfg`, plus `.gitconfig`/`.npmrc`/`.editorconfig`
+  by basename), unified diffs (`.diff`, `.patch`), and nginx
+  (`nginx.conf` by basename, taking precedence over the `.conf` extension
+  mapping) (`ui/src/structure/languages.ts`).
+
 ## v0.8.129 — Status bar workspace chip + cd-picker dismiss fix
 
 ### Added
