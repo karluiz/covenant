@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.131 — EMFILE fd-limit fix + ACP chat polish
+
+### Added
+
+- **Jump-to-present chip in ACP chat**: a floating pill above the composer
+  appears once the transcript is scrolled ≥48px off the bottom; clicking it
+  re-arms bottom-stick and snaps to the live edge. Re-checked on stream
+  growth, since content growth fires no scroll event
+  (`ui/src/executors/acp/`).
+
+- **GFM tables in the mini markdown renderer**: agent prose with `|` tables
+  no longer flattens into a single paragraph — a pipe row followed by a
+  `|---|---|` separator (2+ columns) now renders a real `<table>`, with
+  cells running through the same escaped inline pass
+  (`ui/src/release/markdown.ts`, `ui/src/executors/acp/acp.css`).
+
+### Fixed
+
+- **"Too many open files" spawn failures at ~50 tabs**: Finder-launched
+  macOS apps get a 256-fd soft limit, and Covenant holds a PTY master
+  (plus dup'd reader/writer) per session, a scrollback log per session,
+  and a spec-detector SQLite connection per visited repo — at the ceiling,
+  spawning executors (e.g. the ACP claude adapter via `npx`) died with
+  EMFILE. The app now raises `RLIMIT_NOFILE` to `min(hard, 10240)` at
+  boot, like every PTY-owning terminal (`crates/app/src/lib.rs`).
+
 ## v0.8.130 — PowerShell + tier-1 syntax highlighting pack
 
 ### Added
