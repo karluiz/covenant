@@ -634,9 +634,13 @@
   font-size: 13px;
   line-height: 1.4;
 }
+.acp-chat-textarea {
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
 .acp-chat-textarea:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .acp-chat-actions {
   display: flex;
@@ -646,18 +650,33 @@
 .acp-chat-send,
 .acp-chat-cancel {
   padding: 7px 14px;
-  border-radius: 6px;
+  border-radius: 0;
   border: 1px solid rgba(var(--ink-rgb), 0.14);
   background: rgba(var(--ink-rgb), 0.05);
   color: var(--text-primary);
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 120ms ease,
+    opacity 160ms ease;
 }
 .acp-chat-send {
   background: var(--accent);
   border-color: var(--accent);
   color: #ffffff;
+}
+.acp-chat-send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 86%, #ffffff);
+  border-color: color-mix(in srgb, var(--accent) 86%, #ffffff);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.acp-chat-send:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
 }
 .acp-chat-send:disabled {
   opacity: 0.5;
@@ -666,5 +685,12 @@
 .acp-chat-cancel {
   color: var(--fail);
   border-color: color-mix(in srgb, var(--fail) 40%, transparent);
+}
+.acp-chat-cancel:hover {
+  background: color-mix(in srgb, var(--fail) 10%, transparent);
+  border-color: color-mix(in srgb, var(--fail) 60%, transparent);
+}
+.acp-chat-cancel:active {
+  transform: translateY(1px);
 }
 .acp-chat-cancel[hidden] { display: none; }

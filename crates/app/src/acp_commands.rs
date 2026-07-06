@@ -307,6 +307,23 @@ fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> 
         std::fs::write(&settings, "{}\n").map_err(|e| format!("settings.json: {e}"))?;
     }
 
+    // The isolated config dir hides the user's real `~/.claude` from the
+    // adapter, so user-level skills/commands/agents vanish from the slash
+    // roster. Symlink them in — live view, no staleness.
+    // ponytail: plugins/ not linked (adapter already owns that dir with its
+    // own state); link it too if plugin-provided skills are wanted in ACP.
+    #[cfg(unix)]
+    if let Some(home) = dirs::home_dir() {
+        let real = home.join(".claude");
+        for sub in ["skills", "commands", "agents"] {
+            let src = real.join(sub);
+            let dst = dir.join(sub);
+            if src.is_dir() && std::fs::symlink_metadata(&dst).is_err() {
+                let _ = std::os::unix::fs::symlink(&src, &dst);
+            }
+        }
+    }
+
     if let Some(home) = dirs::home_dir() {
         if let Ok(raw) = std::fs::read_to_string(home.join(".claude.json")) {
             if let Ok(full) = serde_json::from_str::<Value>(&raw) {
