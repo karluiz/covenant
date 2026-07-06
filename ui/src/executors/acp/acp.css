@@ -311,6 +311,25 @@
   border: 1px solid rgba(var(--ink-rgb), 0.06);
   overflow-x: auto;
 }
+.acp-msg-content table {
+  margin: 0 0 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.acp-msg-content th,
+.acp-msg-content td {
+  padding: 4px 10px;
+  border: 1px solid rgba(var(--ink-rgb), 0.1);
+  text-align: left;
+  vertical-align: top;
+}
+.acp-msg-content th {
+  font-weight: 650;
+  background: rgba(var(--ink-rgb), 0.04);
+}
+.acp-msg-content tbody tr:nth-child(even) {
+  background: rgba(var(--ink-rgb), 0.02);
+}
 .acp-msg-content pre code {
   padding: 0;
   border-radius: 0;

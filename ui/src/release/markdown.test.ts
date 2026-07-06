@@ -54,4 +54,27 @@ describe("renderMarkdown", () => {
     expect(html).toContain("<pre><code>");
     expect(html).toContain("todavía streameando");
   });
+
+  it("renders GFM tables (the ACP flattened-table bug)", () => {
+    const html = renderMarkdown(
+      "| Policy | Behavior |\n|--------|----------|\n| `SuggestOnly` | Propose only |\n| `FullAuto` | Full autonomy |",
+    );
+    expect(html).toContain("<table>");
+    expect(html).toContain("<th>Policy</th>");
+    expect(html).toContain("<td><code>SuggestOnly</code></td>");
+    expect(html).toContain("<td>Full autonomy</td>");
+    expect(html).not.toContain("<p>");
+  });
+
+  it("table ends at the first non-pipe line; alignment colons tolerated", () => {
+    const html = renderMarkdown("| a | b |\n| :--- | ---: |\n| 1 | 2 |\nafter");
+    expect(html).toContain("<td>1</td>");
+    expect(html).toContain("<p>after</p>");
+  });
+
+  it("a plain --- after a pipe-containing paragraph stays an hr, not a table", () => {
+    const html = renderMarkdown("uses a | pipe\n\n---");
+    expect(html).toContain("<hr>");
+    expect(html).not.toContain("<table>");
+  });
 });

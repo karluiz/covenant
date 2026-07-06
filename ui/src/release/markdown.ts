@@ -4,12 +4,13 @@
 //   inline `code`, **bold**, *italic*
 //   bare links [text](url)
 //   horizontal rules (---)
+//   GFM tables (| a | b | + |---|---| separator)
 //   paragraphs separated by blank lines
 //
 // We deliberately avoid pulling in a full markdown library — the format
 // of our changelog is tightly controlled by us, and a 60-line custom
 // parser saves ~20 KB and one more dep to keep in sync. If the format
-// ever needs tables, images, or footnotes, swap to `marked`.
+// ever needs images or footnotes, swap to `marked`.
 
 const ESCAPE_RE = /[&<>"']/g;
 const ESCAPE_MAP: Record<string, string> = {
@@ -38,6 +39,21 @@ function inline(s: string): string {
       `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`,
   );
   return out;
+}
+
+// ponytail: alignment colons (:---:) are accepted but ignored; escaped
+// pipes (\|) inside cells are not supported. Add if agent output hits it.
+const TABLE_SEP_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/;
+
+/// Split `| a | b |` into trimmed cell strings, tolerating missing
+/// boundary pipes.
+function splitRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((c) => c.trim());
 }
 
 /// Render a markdown string to HTML. Output is safe to drop into
@@ -100,6 +116,28 @@ export function renderMarkdown(src: string): string {
       closeList();
       const level = heading[1].length;
       out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    // GFM table: a row with pipes whose NEXT line is a |---|---|
+    // separator. The separator needs at least one interior pipe (2+
+    // columns), so a plain `---` hr never triggers this branch.
+    if (line.includes("|") && TABLE_SEP_RE.test(lines[i + 1] ?? "")) {
+      flushPara();
+      closeList();
+      const header = splitRow(line);
+      const rows: string[][] = [];
+      i += 2; // skip header + separator
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      i--; // the for-loop's i++ steps past the last row
+      const thead = `<thead><tr>${header.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>`;
+      const tbody = rows
+        .map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`)
+        .join("");
+      out.push(`<table>${thead}<tbody>${tbody}</tbody></table>`);
       continue;
     }
 
