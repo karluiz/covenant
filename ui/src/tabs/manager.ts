@@ -1395,6 +1395,10 @@ export class TabManager {
     const pane = tab.panes[paneIdx] ?? tab.panes[0];
     const sessionId = pane?.sessionId ?? null;
     const groupId = tab.groupId ?? null;
+    // ACP chat panes have no PTY — writeToSession/sendPromptToSession bytes
+    // would vanish into the JSON-RPC stdio pipe. Route text through the
+    // chat composer instead.
+    const acpView = pane?.kind === "acp" ? (pane.acpView ?? tab.acpView ?? null) : null;
 
     // Fetch saved items: commands are per-group, prompts are global. Both are
     // best-effort — a failure just omits that section.
@@ -1512,8 +1516,9 @@ export class TabManager {
       addItem("Start agent", () => run(sessionId), Icons.headphones());
     }
 
-    // Split actions (only when the feature is on / a split exists).
-    if (flag && isSingle) {
+    // Split actions (only when the feature is on / a split exists). Splits
+    // spawn PTY panes — meaningless on acp/pi/browser tabs, so hide them.
+    if (flag && isSingle && tab.kind === "shell") {
       addItem("Split right", () => void this.splitActivePane("horizontal"), Icons.splitRight());
       addItem("Split down", () => void this.splitActivePane("vertical"), Icons.splitDown());
     }
@@ -1526,35 +1531,29 @@ export class TabManager {
     }
 
     const encoder = new TextEncoder();
-    // Commands/prompts need a target session. `sessionId` is a const, so the
-    // truthiness narrowing below carries into the click closures.
-    if (sessionId) {
+    // Commands/prompts need a text target: the pane's PTY, or the ACP chat
+    // composer. `paste` stages text for review; `submit` sends it.
+    const paste = acpView
+      ? (text: string) => acpView.insertText(text)
+      : sessionId
+        ? (text: string) => void writeToSession(sessionId, encoder.encode(text))
+        : null;
+    const submit = acpView
+      ? (text: string) => acpView.submitText(text)
+      : sessionId
+        ? (text: string) => void sendPromptToSession(sessionId, text)
+        : null;
+    if (paste && submit) {
       // Commands paste WITHOUT a trailing newline — the user reviews then hits
       // Enter (matches the Commands tab "paste" semantics).
       if (commands.length > 0) {
         addSection("Commands");
-        addCapped(commands, (c) =>
-          addItem(
-            c.title,
-            () => {
-              void writeToSession(sessionId, encoder.encode(c.command));
-            },
-            Icons.terminal(),
-          ),
-        );
+        addCapped(commands, (c) => addItem(c.title, () => paste(c.command), Icons.terminal()));
       }
       // Prompts send AND submit (bracketed paste + carriage return).
       if (prompts.length > 0) {
         addSection("Prompts");
-        addCapped(prompts, (p) =>
-          addItem(
-            p.title,
-            () => {
-              void sendPromptToSession(sessionId, p.body);
-            },
-            Icons.noteText(),
-          ),
-        );
+        addCapped(prompts, (p) => addItem(p.title, () => submit(p.body), Icons.noteText()));
       }
       // Skills: same send+submit path as Prompts, just a curated slash-command
       // list. ponytail: hardcoded — the app has no skill registry, and a skill
@@ -1562,7 +1561,7 @@ export class TabManager {
       // list needs to be user-editable.
       addSection("Skills");
       for (const s of TabManager.PANE_MENU_SKILLS) {
-        addItem(s.title, () => void sendPromptToSession(sessionId, s.body), Icons.zap());
+        addItem(s.title, () => submit(s.body), Icons.zap());
       }
     }
 
