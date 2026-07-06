@@ -248,9 +248,23 @@ function isToolUpdate(u: AcpSessionUpdate): u is Extract<AcpSessionUpdate, { too
 }
 
 /// Replayed user chunks that are really executor-harness bookkeeping
-/// (slash-command records), not typed prompts. Exported for tests.
+/// (slash-command records, background-task notifications, context
+/// reminders), not typed prompts. Exported for tests.
 export function isCommandNoise(text: string): boolean {
-  return /^<(command-name|command-message|command-args|local-command-stdout)\b/.test(text.trimStart());
+  return /^<(command-name|command-message|command-args|local-command-stdout|task-notification|system-reminder)\b/.test(
+    text.trimStart(),
+  );
+}
+
+/// Tool results arrive from the claude adapter as markdown with ``` fences,
+/// but tool-card bodies render into a monospace <pre> — the fence lines are
+/// pure noise there. Drop lines that are only a fence (with optional lang
+/// tag); everything else stays verbatim. Exported for tests.
+export function stripFences(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*```[\w-]*\s*$/.test(line))
+    .join("\n");
 }
 
 /// Persisted per-executor model preference — agents reset to their own
@@ -1371,7 +1385,7 @@ export class AcpChatView {
       cmdEl.className = "acp-shell-cmd";
       cmdEl.innerHTML = `<code>${escapeHtml(command)}</code>`;
       dom.bodyEl.appendChild(cmdEl);
-      const out = joinContentText(f.content);
+      const out = stripFences(joinContentText(f.content));
       if (out.length > 0) {
         const outEl = document.createElement("pre");
         outEl.className = "acp-shell-out";
@@ -1379,7 +1393,7 @@ export class AcpChatView {
         dom.bodyEl.appendChild(outEl);
       }
     } else {
-      const out = joinContentText(f.content);
+      const out = stripFences(joinContentText(f.content));
       if (out.length > 0) {
         const outEl = document.createElement("pre");
         outEl.className = "acp-shell-out";

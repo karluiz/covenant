@@ -24,6 +24,7 @@ import {
   createAcpStreamState,
   filterSlashCommands,
   isCommandNoise,
+  stripFences,
   markPermAnswered,
   mentionFragmentAt,
   reduceAcpEvent,
@@ -316,6 +317,29 @@ describe("isCommandNoise", () => {
     expect(isCommandNoise("<command-message>login</command-message>")).toBe(true);
     expect(isCommandNoise("fix the <command-name> parser")).toBe(false);
     expect(isCommandNoise("<commandeer the ship>")).toBe(false);
+  });
+
+  it("matches harness-injected task notifications and system reminders", () => {
+    expect(
+      isCommandNoise("<task-notification>\n<task-id>bfq0q3396</task-id>\n</task-notification>\nRead the output file"),
+    ).toBe(true);
+    expect(isCommandNoise("<system-reminder>context</system-reminder>")).toBe(true);
+    expect(isCommandNoise("the <task-notification> tag is documented")).toBe(false);
+  });
+});
+
+describe("stripFences", () => {
+  it("drops fence-only lines, keeps content verbatim", () => {
+    expect(stripFences("```\nhello\n```")).toBe("hello");
+    expect(stripFences("```console\nCommand running\n```")).toBe("Command running");
+    expect(stripFences("prose before\n```\ncode\n```\nprose after")).toBe(
+      "prose before\ncode\nprose after",
+    );
+    expect(stripFences("  ```\nindented fence\n  ```")).toBe("indented fence");
+  });
+
+  it("leaves unfenced text untouched", () => {
+    expect(stripFences("plain `inline` text")).toBe("plain `inline` text");
   });
 });
 
