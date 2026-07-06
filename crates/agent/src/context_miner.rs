@@ -460,4 +460,33 @@ mod tests {
         assert!(ok.is_some());
         assert!(parse_finding(&serde_json::json!({"category": "nope"})).is_none());
     }
+
+    /// Real mining run against this repository. Requires ANTHROPIC_API_KEY
+    /// (or the settings-resolved key path used by the app — this test uses
+    /// the env var directly).
+    /// Run: cargo test -p karl-agent context_miner::tests::smoke_real_miner -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "spends real tokens; needs ANTHROPIC_API_KEY"]
+    async fn smoke_real_miner() {
+        let key = match std::env::var("ANTHROPIC_API_KEY") {
+            Ok(k) => k,
+            Err(_) => { eprintln!("no key; skipping"); return; }
+        };
+        let dispatcher = crate::spec_author::stream::AnthropicStreamingDispatcher {
+            api_key: key,
+            model: "claude-haiku-4-5-20251001".to_string(),
+            tools: Some(miner_tool_specs()),
+        };
+        struct Print;
+        impl MinerSink for Print {
+            fn emit(&self, e: MinerEvent) { eprintln!("{e:?}"); }
+        }
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf();
+        let mut opts = MinerOpts::default_for("covenant-conventions", "rust error-handling conventions");
+        opts.max_findings = 5;
+        opts.max_tool_calls = 20;
+        let out = run_miner(&dispatcher, &repo, &opts, &AtomicBool::new(false), &Print).await.unwrap();
+        assert!(!out.is_empty(), "expected at least one finding");
+        assert!(out.iter().all(|f| !f.evidence.is_empty()), "findings must cite evidence");
+    }
 }

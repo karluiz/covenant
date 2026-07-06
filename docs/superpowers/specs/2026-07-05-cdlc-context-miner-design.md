@@ -1,7 +1,7 @@
 # CDLC Context Miner — a dedicated Context Creator
 
 **Date:** 2026-07-05
-**Status:** Design approved
+**Status:** Implemented (v1, feat/cdlc-context-miner)
 **Work front:** CDLC Generate (replaces the interim "Spec Creator with `cdlcContext: true`" flow)
 
 ---
