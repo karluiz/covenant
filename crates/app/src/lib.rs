@@ -4277,6 +4277,35 @@ pub fn run() {
                 // from exit without a baseline).
                 let last_fs = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 main_win.on_window_event(move |ev| {
+                    // macOS re-lays-out the standard window buttons back to
+                    // their default spot on theme changes / fullscreen exit,
+                    // dropping the configured trafficLightPosition. tao
+                    // re-applies its stored inset in the content view's
+                    // drawRect, but the webview covers that view so it
+                    // almost never redraws on its own — mark it dirty and
+                    // the inset heals on the next display pass.
+                    #[cfg(target_os = "macos")]
+                    if matches!(
+                        ev,
+                        tauri::WindowEvent::Resized(_)
+                            | tauri::WindowEvent::Focused(_)
+                            | tauri::WindowEvent::ThemeChanged(_)
+                    ) {
+                        if let Some(win) = handle.get_webview_window("main") {
+                            if let Ok(ns_win) = win.ns_window() {
+                                unsafe {
+                                    use objc2::runtime::AnyObject;
+                                    let ns_win = ns_win as *mut AnyObject;
+                                    let content: *mut AnyObject =
+                                        objc2::msg_send![ns_win, contentView];
+                                    if !content.is_null() {
+                                        let _: () =
+                                            objc2::msg_send![content, setNeedsDisplay: true];
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if let tauri::WindowEvent::Resized(_) = ev {
                         let h = handle.clone();
                         let last_fs = last_fs.clone();
