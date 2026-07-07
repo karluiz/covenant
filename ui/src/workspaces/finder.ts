@@ -11,4 +11,7 @@ export interface TabRow {
   tabIndex: number;
   title: string;
   isActiveTabInWorkspace: boolean;
+  /// Last activation timestamp (ms). Only live tabs in the active
+  /// workspace have one; hibernated workspaces report null.
+  lastActiveAt: number | null;
 }

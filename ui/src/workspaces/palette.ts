@@ -14,6 +14,7 @@ import {
 } from "./palette-items";
 
 const SECTION_TITLES: Record<keyof Sections, string> = {
+  recent: "Recent",
   workspaces: "Workspaces",
   tabs: "Tabs",
   actions: "Actions",
@@ -172,7 +173,7 @@ export class CommandPalette {
     }
 
     let flatIdx = 0;
-    const order: Array<keyof Sections> = ["workspaces", "tabs", "actions"];
+    const order: Array<keyof Sections> = ["recent", "workspaces", "tabs", "actions"];
     let html = "";
     for (const key of order) {
       const items = sections[key];
@@ -205,9 +206,13 @@ export class CommandPalette {
       item.kind === "action"
         ? `<span class="cp-icon">${escapeHtml(item.icon ?? "▸")}</span>`
         : `<span class="cp-dot" style="background:${item.color ? escapeHtml(item.color) : "var(--chip-dot, #888)"}"></span>`;
-    const sub = item.subtitle
-      ? `<span class="cp-sub">${escapeHtml(item.subtitle)}</span>`
+    const groupPart = item.subtitleGroup
+      ? `${item.subtitle ? " › " : ""}<span class="cp-sub-group">${escapeHtml(item.subtitleGroup)}</span>`
       : "";
+    const sub =
+      item.subtitle || item.subtitleGroup
+        ? `<span class="cp-sub">${item.subtitle ? escapeHtml(item.subtitle) : ""}${groupPart}</span>`
+        : "";
     const badge = item.current ? `<span class="cp-current">current</span>` : "";
     return `
       <div class="command-palette-item${active}" role="option" data-index="${idx}">

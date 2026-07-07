@@ -13,7 +13,7 @@ function row(p: Partial<TabRow>): TabRow {
   return {
     workspaceId: "ws-1", workspaceName: "Workspace 1", workspaceColor: null,
     workspaceActive: false, groupId: null, groupName: null, groupColor: null,
-    tabIndex: 0, title: "tab", isActiveTabInWorkspace: false, ...p,
+    tabIndex: 0, title: "tab", isActiveTabInWorkspace: false, lastActiveAt: null, ...p,
   };
 }
 const noop = () => {};
@@ -74,6 +74,33 @@ describe("buildSections", () => {
     for (let i = 0; i < 20; i++) tabs.push(row({ title: `tab-${i}`, tabIndex: i }));
     const s = buildSections("tab", { workspaces: [], tabs, actions: [], activeWorkspaceId: "a" });
     expect(s.tabs).toHaveLength(8);
+  });
+
+  it("empty query: recent lists recently activated tabs, newest first, excluding the current tab", () => {
+    const tabs = [
+      row({ workspaceId: "b", workspaceActive: true, title: "current", tabIndex: 0, isActiveTabInWorkspace: true, lastActiveAt: 900 }),
+      row({ workspaceId: "b", workspaceActive: true, title: "older", tabIndex: 1, lastActiveAt: 100 }),
+      row({ workspaceId: "b", workspaceActive: true, title: "newer", tabIndex: 2, lastActiveAt: 500 }),
+      row({ workspaceId: "b", workspaceActive: true, title: "never", tabIndex: 3, lastActiveAt: null }),
+    ];
+    const s = buildSections("", { workspaces: [], tabs, actions: [], activeWorkspaceId: "b" });
+    expect(s.recent.map((i) => i.title)).toEqual(["newer", "older"]);
+    // Recent tabs don't repeat in the Tabs section.
+    expect(s.tabs.map((i) => i.title)).toEqual(["current", "never"]);
+  });
+
+  it("non-empty query: recent section is empty", () => {
+    const tabs = [row({ title: "match", tabIndex: 0, lastActiveAt: 100 })];
+    const s = buildSections("mat", { workspaces: [], tabs, actions: [], activeWorkspaceId: "ws-1" });
+    expect(s.recent).toEqual([]);
+    expect(s.tabs.map((i) => i.title)).toEqual(["match"]);
+  });
+
+  it("tab items expose the group name separately for uppercase CSS rendering", () => {
+    const tabs = [row({ workspaceName: "pandoras", groupName: "fReelance", title: "data", tabIndex: 0 })];
+    const s = buildSections("data", { workspaces: [], tabs, actions: [], activeWorkspaceId: "ws-1" });
+    expect(s.tabs[0].subtitle).toBe("in pandoras");
+    expect(s.tabs[0].subtitleGroup).toBe("fReelance");
   });
 
   it("tab item run switches workspace then activates index", async () => {

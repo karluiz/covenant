@@ -1714,6 +1714,12 @@ export class TabManager {
   /// terminal", which is impossible while a fullscreen panel covers it.
   public onTabActivated: (() => void) | null = null;
 
+  /// Per-tab activation timestamps for the palette's Recent section.
+  /// ponytail: in-memory only — recency resets when a workspace
+  /// hibernates (its PTYs die anyway); persist in the manifest if
+  /// cross-workspace recency ever matters.
+  private tabLastActive = new Map<string, number>();
+
   /// Fires whenever any tab's operator_id changes (bind, rebind, or unbind).
   /// Subscribers should recompute derived state across the full tab list,
   /// not just the active tab. Use this in the teammate panel to keep the
@@ -5356,12 +5362,14 @@ export class TabManager {
     title: string;
     groupId: string | null;
     isActive: boolean;
+    lastActiveAt: number | null;
   }> {
     return this.tabs.map((t, index) => ({
       index,
       title: tabDisplayName(t),
       groupId: t.groupId,
       isActive: t.id === this.activeId,
+      lastActiveAt: this.tabLastActive.get(t.id) ?? null,
     }));
   }
 
@@ -5874,6 +5882,7 @@ export class TabManager {
     else tab.pane.style.removeProperty("visibility");
 
     this.activeId = id;
+    this.tabLastActive.set(id, Date.now());
     this.renderTabbar();
     this.onTabActivated?.();
     this.onActiveContextChange?.(activePane(tab).cwd);

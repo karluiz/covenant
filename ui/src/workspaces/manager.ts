@@ -221,6 +221,7 @@ export class WorkspaceManager {
             tabIndex: t.index,
             title: t.title,
             isActiveTabInWorkspace: t.isActive,
+            lastActiveAt: t.lastActiveAt,
           });
         }
       } else {
@@ -237,6 +238,7 @@ export class WorkspaceManager {
             tabIndex: i,
             title: t.custom_name ?? `Tab ${i + 1}`,
             isActiveTabInWorkspace: i === w.active_index,
+            lastActiveAt: null,
           });
         });
       }

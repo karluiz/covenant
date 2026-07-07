@@ -8,7 +8,7 @@ function makeManager(over: Record<string, unknown> = {}) {
       { id: "b", name: "beta", color: null, root_dir: null, active: false, tab_count: 1, last_used_at: 100 },
     ],
     listAllTabs: () => [
-      { workspaceId: "a", workspaceName: "alpha", workspaceColor: null, workspaceActive: true, groupId: null, groupName: null, groupColor: null, tabIndex: 0, title: "editor", isActiveTabInWorkspace: true },
+      { workspaceId: "a", workspaceName: "alpha", workspaceColor: null, workspaceActive: true, groupId: null, groupName: null, groupColor: null, tabIndex: 0, title: "editor", isActiveTabInWorkspace: true, lastActiveAt: null },
     ],
     activeId_: () => "a",
     switchTo: vi.fn().mockResolvedValue(undefined),
