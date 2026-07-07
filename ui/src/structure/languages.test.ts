@@ -42,6 +42,40 @@ describe("languageForPath grammars", () => {
     expect(languageForPath("config.hcl")).not.toBeNull();
   });
 
+  it("resolves PowerShell for .ps1/.psm1/.psd1", () => {
+    expect(languageForPath("sign-windows.ps1")).not.toBeNull();
+    expect(languageForPath("module.psm1")).not.toBeNull();
+    expect(languageForPath("manifest.psd1")).not.toBeNull();
+  });
+
+  it("resolves clike family for .java/.kt/.c/.cpp", () => {
+    expect(languageForPath("Main.java")).not.toBeNull();
+    expect(languageForPath("Build.kts")).not.toBeNull();
+    expect(languageForPath("pty.c")).not.toBeNull();
+    expect(languageForPath("term.hpp")).not.toBeNull();
+  });
+
+  it("resolves Go for .go", () => {
+    expect(languageForPath("main.go")).not.toBeNull();
+  });
+
+  it("resolves properties for ini-style configs, by ext and by name", () => {
+    expect(languageForPath("setup.ini")).not.toBeNull();
+    expect(languageForPath("app.properties")).not.toBeNull();
+    expect(languageForPath("sshd.conf")).not.toBeNull();
+    expect(languageForPath(".gitconfig")).not.toBeNull();
+    expect(languageForPath(".editorconfig")).not.toBeNull();
+  });
+
+  it("resolves diff for .diff/.patch", () => {
+    expect(languageForPath("fix.diff")).not.toBeNull();
+    expect(languageForPath("0001-fix.patch")).not.toBeNull();
+  });
+
+  it("resolves nginx for nginx.conf by basename", () => {
+    expect(languageForPath("/etc/nginx/nginx.conf")).not.toBeNull();
+  });
+
   it("returns null for unknown extensions", () => {
     expect(languageForPath("x.unknownext")).toBeNull();
   });

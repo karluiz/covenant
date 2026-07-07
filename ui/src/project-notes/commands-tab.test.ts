@@ -59,6 +59,8 @@ describe("CommandsTab", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(host.querySelector(".pn-cmd-title")?.textContent).toBe("Run");
     expect(host.querySelector(".pn-cmd-code")?.textContent).toBe("npm run dev");
+    expect(host.querySelector(".rail-row .rail-name.pn-cmd-title")).not.toBeNull();
+    expect(host.querySelector(".rail-new.pn-cmd-new")).not.toBeNull();
   });
 
   it("paste calls writeToActiveTabInGroup with no newline", async () => {

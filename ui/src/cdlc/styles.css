@@ -148,7 +148,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   height: 7px;
   transform: rotate(45deg);
   background: var(--cdlc-accent, var(--accent, #7aa2f7));
-  border-radius: 1.5px;
+  border-radius: 0;
   box-shadow: 0 0 8px -1px color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 70%, transparent);
 }
 
@@ -166,7 +166,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   background: transparent;
   border: 0;
   color: var(--muted, #6c7280);
-  border-radius: 5px;
+  border-radius: 0;
   cursor: pointer;
   opacity: 0.75;
   transition: opacity 120ms, background 120ms, color 120ms;
@@ -191,7 +191,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   color: var(--text-primary, #f5f6f7);
   background: var(--cdlc-lift-1);
   border: 1px solid var(--cdlc-line);
-  border-radius: 6px;
+  border-radius: 0;
   cursor: pointer;
   opacity: 0.85;
   transition: opacity 120ms, background 120ms, border-color 120ms;
@@ -218,7 +218,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   font-size: 16px;
   line-height: 1;
   padding: 2px 6px;
-  border-radius: 5px;
+  border-radius: 0;
   cursor: pointer;
   opacity: 0.75;
   transition: opacity 120ms, background 120ms, color 120ms;
@@ -277,7 +277,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   margin-bottom: 6px;
   background: var(--cdlc-lift-1);
   border: 1px solid var(--cdlc-line);
-  border-radius: 7px;
+  border-radius: 0;
   font-size: 12px;
   transition: border-color 120ms, background 120ms;
 }
@@ -321,7 +321,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   background: transparent;
   color: var(--muted, #6c7280);
   border: 1px solid var(--cdlc-line);
-  border-radius: 6px;
+  border-radius: 0;
   padding: 4px 10px;
   font-size: 11px;
   cursor: pointer;
@@ -359,7 +359,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   background: var(--cdlc-lift-1);
   color: var(--text-primary, #f5f6f7);
   border: 1px solid var(--cdlc-line);
-  border-radius: 6px;
+  border-radius: 0;
   padding: 6px 9px;
   font-size: 12px;
   transition: border-color 120ms;
@@ -461,7 +461,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   font-size: 20px;
   line-height: 1;
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: 0;
   cursor: pointer;
 }
 .cdlc-reader-close:hover {
@@ -486,7 +486,7 @@ body.tabbar-left .cdlc-reader { top: 38px; }
   overflow: auto;
   background: var(--pn-code-bg, rgb(0 0 0 / 0.28));
   border: 1px solid var(--cdlc-line);
-  border-radius: 6px;
+  border-radius: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11.5px;
   line-height: 1.5;
@@ -513,7 +513,7 @@ body.tabbar-left .cdlc-reader { top: 38px; }
   margin: 2px 0 4px;
   background: var(--cdlc-line);
   border: 1px solid var(--cdlc-line);
-  border-radius: 8px;
+  border-radius: 0;
   overflow: hidden;
 }
 .cdlc-stat {
@@ -559,13 +559,13 @@ body.tabbar-left .cdlc-reader { top: 38px; }
 .cdlc-meter-top .cdlc-meta { margin-left: auto; }
 .cdlc-bar {
   height: 3px;
-  border-radius: 3px;
+  border-radius: 0;
   background: var(--cdlc-line);
   overflow: hidden;
 }
 .cdlc-bar-fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: 0;
   background: var(--cdlc-accent, var(--accent, #7aa2f7));
   transition: width 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }

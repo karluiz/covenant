@@ -27,7 +27,12 @@ import { tags as t } from "@lezer/highlight";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
-import { csharp } from "@codemirror/legacy-modes/mode/clike";
+import { csharp, java, kotlin, c, cpp } from "@codemirror/legacy-modes/mode/clike";
+import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
+import { go } from "@codemirror/legacy-modes/mode/go";
+import { properties } from "@codemirror/legacy-modes/mode/properties";
+import { diff } from "@codemirror/legacy-modes/mode/diff";
+import { nginx } from "@codemirror/legacy-modes/mode/nginx";
 
 // Legacy StreamLanguage modes don't all advertise `commentTokens`, so
 // CodeMirror's toggle-comment command (Mod-/) has nothing to insert.
@@ -48,6 +53,14 @@ const csharpMode = withLineComment(csharp, "//");
 const shellMode = withLineComment(shell, "#");
 const tomlMode = withLineComment(toml, "#");
 const dockerMode = withLineComment(dockerFile, "#");
+const powerShellMode = withLineComment(powerShell, "#");
+const javaMode = withLineComment(java, "//");
+const kotlinMode = withLineComment(kotlin, "//");
+const cMode = withLineComment(c, "//");
+const cppMode = withLineComment(cpp, "//");
+const goMode = withLineComment(go, "//");
+const propertiesMode = withLineComment(properties, "#");
+const nginxMode = withLineComment(nginx, "#");
 
 // ---------------------------------------------------------------------------
 // dotenv grammar
@@ -307,6 +320,24 @@ const BY_EXT: Record<string, () => Extension> = {
   toml: () => StreamLanguage.define(tomlMode),
   cs: () => StreamLanguage.define(csharpMode),
   csx: () => StreamLanguage.define(csharpMode),
+  java: () => StreamLanguage.define(javaMode),
+  kt: () => StreamLanguage.define(kotlinMode),
+  kts: () => StreamLanguage.define(kotlinMode),
+  c: () => StreamLanguage.define(cMode),
+  h: () => StreamLanguage.define(cMode),
+  cpp: () => StreamLanguage.define(cppMode),
+  cc: () => StreamLanguage.define(cppMode),
+  hpp: () => StreamLanguage.define(cppMode),
+  go: () => StreamLanguage.define(goMode),
+  ini: () => StreamLanguage.define(propertiesMode),
+  properties: () => StreamLanguage.define(propertiesMode),
+  conf: () => StreamLanguage.define(propertiesMode),
+  cfg: () => StreamLanguage.define(propertiesMode),
+  diff: () => StreamLanguage.define(diff),
+  patch: () => StreamLanguage.define(diff),
+  ps1: () => StreamLanguage.define(powerShellMode),
+  psm1: () => StreamLanguage.define(powerShellMode),
+  psd1: () => StreamLanguage.define(powerShellMode),
   tf: () => StreamLanguage.define(hcl),
   tfvars: () => StreamLanguage.define(hcl),
   hcl: () => StreamLanguage.define(hcl),
@@ -321,6 +352,10 @@ const BY_NAME: Record<string, () => Extension> = {
   Makefile: () => StreamLanguage.define(shellMode), // close enough; shell-shaped
   "Cargo.lock": () => StreamLanguage.define(tomlMode),
   "Cargo.toml": () => StreamLanguage.define(tomlMode),
+  "nginx.conf": () => StreamLanguage.define(nginxMode),
+  ".gitconfig": () => StreamLanguage.define(propertiesMode),
+  ".npmrc": () => StreamLanguage.define(propertiesMode),
+  ".editorconfig": () => StreamLanguage.define(propertiesMode),
 };
 
 /// Resolve a CodeMirror language extension for `path`. Returns null

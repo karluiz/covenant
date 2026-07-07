@@ -6,6 +6,337 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.135 — Somnus toggle in Indicators settings
+
+### Added
+
+- **Somnus indicator toggle**: Settings → Appearance → Indicators grows a
+  "Somnus REST client" entry (Titlebar group) to show/hide the moon
+  button `#titlebar-somnus`, same registry-driven mechanism as the other
+  indicators (`ui/src/indicators.ts`).
+
+## v0.8.134 — Somnus JSON explorer + in-grid fullscreen
+
+### Added
+
+- **JSON explorer**: JSON responses render as a lazy collapsible tree
+  instead of a flat `<pre>` — children are built on first toggle, 500
+  children max per node, typed leaf coloring for strings/numbers/bools
+  (`ui/src/somnus/json-tree.ts`, wired in `panel.ts`).
+
+### Changed
+
+- **Honest history truncation**: replayed history entries whose stored
+  body hit the 256 KB cap are now flagged as truncated (with the real
+  total size) instead of silently rendering a broken prefix
+  (`ui/src/somnus/panel.ts`).
+
+### Fixed
+
+- **Fullscreen without the yellow edge glow**: `body.somnus-expanded`
+  switches from `position: fixed` to an in-grid row/column span — the
+  fixed flip vacated the grid cell for a paint frame and flashed the
+  wallpaper through the vibrant `#layout` (`ui/src/somnus/somnus.css`).
+
+- **Entrance nudge on the inner `.rail-panel`**: the open animation
+  moved off the host so its 160ms translate no longer exposes a sliver
+  of transparent `#layout` (wallpaper bleed) along the panel's left
+  border (`ui/src/somnus/somnus.css`, `right-rail-panel-in`).
+
+## v0.8.133 — Somnus REST client (rail composer + history)
+
+### Added
+
+- **Somnus REST client**: a new right-rail panel (moon titlebar button,
+  ⌘⌥R) to compose HTTP requests — method, URL, headers, body — send
+  them, and keep an automatic history. All HTTP goes through Rust
+  (`crates/app/src/somnus.rs`, reqwest with a 30s timeout, http/https
+  only, 256 KB stored / 2 MB displayed body caps, binary bodies not
+  stored); the webview never fetches cross-origin. History persists in
+  a new `somnus_history` table (`crates/app/src/storage.rs`) with
+  record/list/delete/clear commands, written by `somnus_send` itself so
+  future operator requests share the same write-path (`ui/src/somnus/`).
+
+- **curl paste**: pasting a `curl ...` command into the URL input parses
+  `-X`, `-H`, and `-d`/`--data`/`--data-raw` into the composer fields
+  (`ui/src/somnus/curl.ts`).
+
+- **Fullscreen mode**: the expand button (or Esc to leave) switches the
+  panel to a fixed fullscreen layout — history as a full-height left
+  column, roomier composer on top of the main area, response below it,
+  with an empty-state hint instead of a blank void
+  (`body.somnus-expanded`, Tasker-board precedent).
+
+### Fixed
+
+- **Sharp corners in Tasker**: zeroed every px `border-radius` in the
+  Tasker list and kanban board (`ui/src/tasker/styles.css`, `board.css`)
+  — status dots keep their 50%.
+
+- **Sharp corners in Somnus**: radius-0 sweep plus a reset of WebKit's
+  native input/select chrome (`-webkit-appearance: none` with an
+  explicit border and a hand-drawn select chevron), which otherwise
+  keeps rounded corners regardless of CSS (`ui/src/somnus/somnus.css`).
+
+## v0.8.132 — Spec Author v2 + switcher Recent section
+
+### Added
+
+- **Spec Author v2 backend**: real repo tools (regex+glob `grep`, `glob`,
+  `git_log`, `git_show` — all jailed to the repo), a code-enforced
+  `ask_user` tool (one question per turn, persisted for resume), a
+  rewritten propose-first prompt (EXPLORE → APPROACHES → CLARIFY → DRAFT →
+  SELF-REVIEW → EMIT), and image attachments — base64 in via
+  `spec_author_stream_step`, materialized into
+  `docs/specs/assets/<draft-id>/` on publish (`crates/app`, spec-author
+  dispatchers).
+
+- **Spec Creator v2 frontend**: question chips for `ask_user`, image
+  attach + preview in the composer, and resume that rebuilds the full
+  activity stream from the transcript (`ui/src/spec-chat/`).
+
+- **Recent section in the ⌘⌥T switcher**: the five most recently
+  activated tabs lead the palette (current tab excluded, deduped out of
+  Tabs); group names in tab subtitles now render uppercase via a
+  dedicated `.cp-sub-group` span (`ui/src/workspaces/`,
+  `ui/src/tabs/manager.ts`).
+
+- **LLM tab titles for ACP chats**: chat tabs retitle to a 2-word label
+  derived from the prompt, reusing the PTY screen titler
+  (`acp_suggest_title`).
+
+### Changed
+
+- **Structure tree uses the shared ContextMenu**: the hand-rolled
+  context menu (and its per-callsite zoom counter-scaling) is replaced by
+  the same `ContextMenu` component the editor and tabs use
+  (`ui/src/structure/tree.ts`).
+
+- **Sharp-corner design pass**: `border-radius` flattened to 0 across the
+  changes viewer, Spec Creator entrance/immersive chrome, and global
+  styles.
+
+- **UI polish**: ACP YOU bubbles render attached-image thumbnails with
+  lightbox, the global search mode badge gets per-mode icons, the status
+  bar operator chip can clear its bound operator, and sidebar resizers
+  capture the pointer so releasing outside the window restores the
+  cursor.
+
+- **Somnus REST client design doc**: right-rail HTTP composer + history
+  design approved (`docs/`), implementation not started.
+
+## v0.8.131 — EMFILE fd-limit fix + ACP chat polish
+
+### Added
+
+- **Jump-to-present chip in ACP chat**: a floating pill above the composer
+  appears once the transcript is scrolled ≥48px off the bottom; clicking it
+  re-arms bottom-stick and snaps to the live edge. Re-checked on stream
+  growth, since content growth fires no scroll event
+  (`ui/src/executors/acp/`).
+
+- **GFM tables in the mini markdown renderer**: agent prose with `|` tables
+  no longer flattens into a single paragraph — a pipe row followed by a
+  `|---|---|` separator (2+ columns) now renders a real `<table>`, with
+  cells running through the same escaped inline pass
+  (`ui/src/release/markdown.ts`, `ui/src/executors/acp/acp.css`).
+
+### Fixed
+
+- **"Too many open files" spawn failures at ~50 tabs**: Finder-launched
+  macOS apps get a 256-fd soft limit, and Covenant holds a PTY master
+  (plus dup'd reader/writer) per session, a scrollback log per session,
+  and a spec-detector SQLite connection per visited repo — at the ceiling,
+  spawning executors (e.g. the ACP claude adapter via `npx`) died with
+  EMFILE. The app now raises `RLIMIT_NOFILE` to `min(hard, 10240)` at
+  boot, like every PTY-owning terminal (`crates/app/src/lib.rs`).
+
+## v0.8.130 — PowerShell + tier-1 syntax highlighting pack
+
+### Added
+
+- **PowerShell syntax highlighting**: `.ps1`, `.psm1`, and `.psd1` files
+  now highlight in the Structure editor and the Changes diff viewer via
+  the `powerShell` mode already bundled in `@codemirror/legacy-modes` —
+  zero new dependencies. Includes `#` line-comment toggle (Mod-/) support
+  (`ui/src/structure/languages.ts`).
+
+- **Tier-1 grammar pack**: eight more languages wired into the shared
+  `languageForPath` resolver, all from the same bundled legacy-modes
+  package: Java/Kotlin/C/C++ (`.java`, `.kt`, `.kts`, `.c`, `.h`, `.cpp`,
+  `.cc`, `.hpp` via `clike`), Go (`.go`), ini-style configs (`.ini`,
+  `.properties`, `.conf`, `.cfg`, plus `.gitconfig`/`.npmrc`/`.editorconfig`
+  by basename), unified diffs (`.diff`, `.patch`), and nginx
+  (`nginx.conf` by basename, taking precedence over the `.conf` extension
+  mapping) (`ui/src/structure/languages.ts`).
+
+## v0.8.129 — Status bar workspace chip + cd-picker dismiss fix
+
+### Added
+
+- **Workspace chip in the status bar**: the left zone now opens with the
+  active workspace — color dot + uppercase name — fed live from
+  `workspaceManager.onChange`, so switch/rename/recolor reflect instantly.
+  Clicking it opens the same workspace palette as the tabbar chip (⌘⇧P)
+  via the new `StatusBar.onWorkspaceChipClick` hook (`ui/src/status/bar.ts`,
+  `ui/src/main.ts`, `ui/src/styles.css`).
+
+### Changed
+
+- **Git segment shows branch only**: the repo name duplicated the group
+  identity already visible in the active-tab chip, so the git chip is now
+  just the branch (e.g. `main`). The repo name remains in the tooltip and
+  aria-label; the branches/worktrees popover is unchanged
+  (`ui/src/status/bar.ts`).
+
+### Fixed
+
+- **cd-picker overlay never visually dismissed**: `165e785` added
+  `display: flex` to `.cd-picker`, which beats the UA `[hidden]{display:none}`
+  rule — every dismiss path (select, Enter, Esc, prompt reset) set
+  `el.hidden = true` without hiding the overlay. Restated
+  `.cd-picker[hidden] { display: none; }` (`ui/src/styles.css`).
+
+## v0.8.128 — Tasker panel scroll fix for long task lists
+
+### Fixed
+
+- **Tasker panel pushed the whole layout instead of scrolling**: with many
+  tasks, `#tasker-panel`'s min-content stretched `#layout`'s `1fr` grid row
+  past the viewport, shoving the entire app down instead of scrolling the
+  list. Added `overflow: hidden` to the panel (matching `#activity-sidebar`
+  and `#teammate-panel`) and `min-height: 0` to `.tasker-projects` so its
+  `flex: 1` can shrink and its own `overflow-y: auto` engages
+  (`ui/src/tasker/styles.css`). Board fullscreen mode unaffected.
+
+## v0.8.127 — OpenCode ACP executor + traffic-light and ACP render fixes
+
+### Added
+
+- **OpenCode as a fourth ACP executor**: opencode ≥ 1.14 ships a native
+  `opencode acp` subcommand (no adapter), verified live against 1.14.39
+  (loadSession, session/list with fork/resume caps, session/set_model, image
+  prompts, 154-model roster). `for_executor` resolves the binary from PATH
+  with a `~/.opencode/bin` fallback for GUI-launched installs; the group menu
+  gains "Start OpenCode in ACP mode" (BETA). `executorTitle` and restore
+  mapping collapse to lookup tables now that there are four executors.
+
+### Fixed
+
+- **Traffic lights heal after macOS resets them**: macOS re-lays-out the
+  standard window buttons to their default spot on theme changes and
+  fullscreen exits, silently dropping the configured `trafficLightPosition`,
+  and tao only re-applies its stored inset inside `drawRect` (which a
+  webview-covered window almost never triggers). Poke `setNeedsDisplay` on
+  Resized/Focused/ThemeChanged so the inset heals on the next display pass
+  (`crates/app/src/lib.rs`). With the reset fixed, the position is finally
+  measurable — `y=17` centers the lights at 19 to match the 28px titlebar
+  buttons in the 38px bar (`crates/app/tauri.conf.json`).
+
+- **ACP chat drops harness noise and stray fences**: `<task-notification>` /
+  `<system-reminder>` chunks are harness records, not typed prompts, so
+  `isCommandNoise` no longer renders them as YOU bubbles; and markdown code
+  fences from the claude adapter's tool results are stripped before render
+  since tool-card bodies are already a monospace `<pre>` (`ui/src/executors/acp/view.ts`).
+
+## v0.8.126 — ACP composer card + pane-menu routing fixes
+
+### Added
+
+- **Unified ACP composer card**: the ACP chat input is no longer a bare
+  full-width textarea with detached Cancel/Send buttons. It's now a single
+  rounded card centered at `min(760px, 100%)` with a borderless textarea
+  that auto-grows from one line (200px cap), an internal footer with the
+  `↩ send · ⇧↩ newline` hint, and a circular accent ↑ send button that
+  swaps in place for a ■ stop button while a turn streams. Send is
+  disabled when there is nothing to send; the focus ring moved to the
+  card (`:focus-within`). Slash/mention menus and the pasted-image strip
+  re-anchor to the centered card column (`ui/src/executors/acp/view.ts`,
+  `ui/src/executors/acp/acp.css`).
+
+### Fixed
+
+- **Pane menu dead on ACP tabs**: right-click Prompts/Skills wrote raw
+  bytes via `writeToSession`/`sendPromptToSession` — an ACP session has
+  no PTY (stdio JSON-RPC), so clicks vanished. Commands now stage into
+  the ACP composer for review and Prompts/Skills submit through it
+  (new `AcpChatView.insertText`/`submitText`); Split right/down are
+  hidden on acp/pi/browser tabs since splits spawn PTY panes
+  (`ui/src/tabs/manager.ts`).
+
+- **ACP transcript compressed instead of scrolling**: the transcript is a
+  flex-column scroller, so overflow-hidden tool cards resolved
+  `min-height: auto` to 0 and an overfull transcript squashed its blocks
+  to fit rather than overflowing into scroll. Transcript children are now
+  pinned `flex-shrink: 0` (`ui/src/executors/acp/acp.css`).
+
+- **Traffic lights nudged up**: macOS window controls sit at `y: 13`
+  (was 16) to center against the tab strip
+  (`crates/app/tauri.conf.json`).
+
+## v0.8.125 — Claude ACP chat fixes + Linux packages
+
+### Added
+
+- **Linux release pipeline**: new `release-linux.yml` builds `.deb`, `.rpm`,
+  and AppImage for x86_64 on every tag; `release-manifest.yml` now gates
+  `latest.json` on all four platform jobs. Linux (like Intel macOS) ships
+  without local embeddings — the `ort` prebuilt needs glibc 2.38 and the
+  runner has 2.35 (`crates/pty/Cargo.toml` also gains the unix-wide `libc`
+  dep that the Linux build was missing). Landing page grew Fedora/Ubuntu/
+  AppImage download buttons (`landing/src/components/Install.astro`).
+
+- **Spawns: ACP variant**: a spawn can now declare `acp: true` and its run
+  opens as a structured ACP chat tab instead of a PTY, for the executors
+  with an ACP adapter — claude, copilot, pi (`ui/src/spawns/*,
+  ui/src/settings/spawns.ts`, `crates/app/src/spawns_store.rs`).
+
+### Changed
+
+- **CDLC chrome squared**: corner radii removed across CDLC panels per
+  `docs/DESIGN.md` (new: the design-guidelines doc itself), and agent
+  instructions consolidated into a canonical `AGENTS.md` (`CLAUDE.md` is now
+  a symlink); CDLC demo content moved out of this repo.
+
+### Fixed
+
+- **ACP prose renders markdown**: Claude streams real markdown (`##`
+  headings, `**bold**`, fenced code) which showed raw — agent/thought
+  bubbles now render through the shared escape-first mini renderer
+  (`ui/src/release/markdown.ts`, regression tests added) with dense
+  block styles in `ui/src/executors/acp/acp.css`.
+
+- **ACP transcript scrollable while streaming**: stick-to-bottom released
+  only >48px from the bottom, but every streamed chunk yanked the scroller
+  back before a trackpad could escape — upward wheel intent now releases
+  the stick immediately (`ui/src/executors/acp/view.ts`). Also promoted
+  `.acp-chat-messages` to its own compositing layer: under fractional UI
+  zoom, WKWebView tile invalidation dropped paints (tool cards became
+  black voids, stale tiles overlapped).
+
+- **ACP resume replay integrity**: the forwarder holds its first emit
+  behind an `acp_mark_ready` gate (5s escape hatch) so a `session/load`
+  replay burst can't race the frontend listener and drop frames; restart
+  clears the transcript before a resumed replay repopulates it; replayed
+  user messages render their YOU bubbles; slash-command bookkeeping chunks
+  are dropped. Model picks persist per executor and re-apply after every
+  handshake; ACP tabs title off the first real user prompt
+  (`crates/app/src/acp_commands.rs`, `ui/src/executors/acp/view.ts`).
+
+- **Claude adapter sees user skills/commands/agents**: the claude ACP
+  spawn now exposes the user's `~/.claude` skills, commands, and agents
+  dirs to the adapter (`crates/app/src/acp_commands.rs`), plus composer
+  polish (focus ring, square send/cancel buttons).
+
+- **cd-picker Esc really cancels**: dismissing the inline directory picker
+  now cancels the pending debounce timer and any in-flight directory query
+  so a stale listing can't revive the overlay (`ui/src/terminal/cd-picker.ts`).
+
+- **Stuck mouse-tracking disabled after output**: TUI apps that died
+  without cleaning up left the terminal eating scroll/click as mouse
+  reports; tracking is now reset after each output chunk
+  (`ui/src/tabs/manager.ts`).
+
 ## v0.8.124 — ACP /resume + remote-control and titlebar fixes
 
 ### Added

@@ -100,6 +100,7 @@ function makeMockTabManager(initial?: TabManifestV1): {
         title: t.custom_name ?? `Tab ${index + 1}`,
         groupId: t.group_id ?? null,
         isActive: index === state.manifest.active_index,
+        lastActiveAt: null,
       }));
     },
   };

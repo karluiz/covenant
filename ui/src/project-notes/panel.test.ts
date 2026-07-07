@@ -124,4 +124,14 @@ describe("ProjectNotesPanel", () => {
     p.switchTab("prompts");
     expect(host.querySelector(".pn-prompt-tab")).not.toBeNull();
   });
+
+  it("flushes the body padding for list tabs but not docs", () => {
+    const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "G1" }).mount(host);
+    const body = host.querySelector(".pn-body") as HTMLElement;
+    expect(body.classList.contains("pn-body--flush")).toBe(true); // default: commands
+    p.switchTab("docs");
+    expect(body.classList.contains("pn-body--flush")).toBe(false);
+    p.switchTab("drafts");
+    expect(body.classList.contains("pn-body--flush")).toBe(true);
+  });
 });

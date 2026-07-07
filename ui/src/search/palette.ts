@@ -21,6 +21,14 @@ type Mode = "content" | "files";
 const SEARCH_ICON_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="14" height="14"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
 
+// Mode badge icons: text lines for content grep, document for filename finder.
+const MODE_ICONS: Record<Mode, string> = {
+  content:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" width="11" height="11"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="16" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/></svg>',
+  files:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="11" height="11"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+};
+
 const DEBOUNCE_MS = 180;
 const HIT_LIMIT = 200;
 
@@ -116,7 +124,7 @@ export class GlobalSearchPalette {
           autocomplete="off"
           spellcheck="false"
         />
-        <span class="global-search-mode" title="Tab to toggle">${this.modeLabel()}</span>
+        <span class="global-search-mode" title="Tab to toggle" data-mode="${this.mode}">${this.modeBadgeHtml()}</span>
         <span class="global-search-status" aria-live="polite"></span>
       </header>
       <div class="global-search-results" role="listbox"></div>
@@ -140,8 +148,9 @@ export class GlobalSearchPalette {
     this.renderEmpty(this.emptyHint());
   }
 
-  private modeLabel(): string {
-    return this.mode === "content" ? "content" : "files";
+  private modeBadgeHtml(): string {
+    const label = this.mode === "content" ? "content" : "files";
+    return `${MODE_ICONS[this.mode]}<span>${label}</span>`;
   }
 
   private placeholderText(): string {
@@ -160,7 +169,10 @@ export class GlobalSearchPalette {
   private toggleMode(): void {
     this.mode = this.mode === "content" ? "files" : "content";
     if (this.inputEl) this.inputEl.placeholder = this.placeholderText();
-    if (this.modeEl) this.modeEl.textContent = this.modeLabel();
+    if (this.modeEl) {
+      this.modeEl.dataset.mode = this.mode;
+      this.modeEl.innerHTML = this.modeBadgeHtml();
+    }
     this.cursor = 0;
     this.hits = [];
     this.fileHits = [];

@@ -1871,6 +1871,9 @@ body:not(.tabbar-left) #new-group {
 .prompt-hint-sep { opacity: 0.5; margin: 0 2px; }
 
 /* Docked to the bottom of the terminal pane (not floating at the cursor). */
+/* `display: flex` below beats the UA [hidden]{display:none} — restate it,
+   or el.hidden=true never visually hides the picker (stuck overlay). */
+.cd-picker[hidden] { display: none; }
 .cd-picker {
   position: absolute;
   left: 0;
@@ -2054,6 +2057,9 @@ body:not(.tabbar-left) #new-group {
 }
 
 .global-search-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2064,6 +2070,11 @@ body:not(.tabbar-left) #new-group {
   flex-shrink: 0;
   cursor: default;
   user-select: none;
+}
+
+.global-search-mode[data-mode="files"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .global-search-file-hit {
@@ -3359,7 +3370,13 @@ body:not(.tabbar-left) #layout > #capabilities-page:not([hidden]) {
 #layout:has(> #drafts-page:not([hidden])) #beacon-panel,
 #layout:has(> #mission-page:not([hidden])) #beacon-panel,
 #layout:has(> #operator-page:not([hidden])) #beacon-panel,
-#layout:has(> #capabilities-page:not([hidden])) #beacon-panel {
+#layout:has(> #capabilities-page:not([hidden])) #beacon-panel,
+#layout:has(> #settings-page:not([hidden])) #somnus-panel,
+#layout:has(> #docs-page:not([hidden])) #somnus-panel,
+#layout:has(> #drafts-page:not([hidden])) #somnus-panel,
+#layout:has(> #mission-page:not([hidden])) #somnus-panel,
+#layout:has(> #operator-page:not([hidden])) #somnus-panel,
+#layout:has(> #capabilities-page:not([hidden])) #somnus-panel {
     display: none !important;
 }
 
@@ -3412,7 +3429,13 @@ body.tabbar-left.sidebar-view-beacon #layout:has(> #docs-page:not([hidden])),
 body.tabbar-left.sidebar-view-beacon #layout:has(> #drafts-page:not([hidden])),
 body.tabbar-left.sidebar-view-beacon #layout:has(> #mission-page:not([hidden])),
 body.tabbar-left.sidebar-view-beacon #layout:has(> #operator-page:not([hidden])),
-body.tabbar-left.sidebar-view-beacon #layout:has(> #capabilities-page:not([hidden])) {
+body.tabbar-left.sidebar-view-beacon #layout:has(> #capabilities-page:not([hidden])),
+body.tabbar-left.sidebar-view-somnus #layout:has(> #settings-page:not([hidden])),
+body.tabbar-left.sidebar-view-somnus #layout:has(> #docs-page:not([hidden])),
+body.tabbar-left.sidebar-view-somnus #layout:has(> #drafts-page:not([hidden])),
+body.tabbar-left.sidebar-view-somnus #layout:has(> #mission-page:not([hidden])),
+body.tabbar-left.sidebar-view-somnus #layout:has(> #operator-page:not([hidden])),
+body.tabbar-left.sidebar-view-somnus #layout:has(> #capabilities-page:not([hidden])) {
     grid-template-columns: var(--tabbar-w) minmax(0, 1fr) !important;
 }
 
@@ -4827,7 +4850,7 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     justify-content: center;
     height: var(--btn-h);
     padding: 0 18px;
-    border-radius: calc(var(--btn-h) / 2);
+    border-radius: 0;
     font: inherit;
     font-size: 12.5px;
     font-weight: 550;
@@ -5438,6 +5461,10 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 .command-palette-item .cp-sub {
   font-size: 11px;
   opacity: 0.55;
+}
+.command-palette-item .cp-sub-group {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .command-palette-empty {
   padding: 14px;
@@ -6287,6 +6314,31 @@ body:not(.statusbar-single-row) .sb-row .sb-center {
     color: var(--muted);
 }
 
+/* Workspace chip — leftmost segment; names the active workspace and
+   opens the workspace palette on click. */
+.status-segment.status-workspace {
+    cursor: pointer;
+    outline: none;
+}
+
+.status-segment.status-workspace .status-ws-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 1px rgba(var(--ink-rgb), 0.06);
+}
+
+.status-segment.status-workspace .status-text {
+    color: var(--muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    max-width: 140px;
+    white-space: nowrap;
+}
+
 /* Active-tab chip — leading segment so the user can always see which
    terminal is focused, especially when the vertical sidebar is
    collapsed or the top tabbar wraps. */
@@ -6669,7 +6721,8 @@ button.status-segment.status-mission .status-icon {
     margin-right: 5px;
 }
 
-button.status-segment.status-mission .status-mission-remove {
+button.status-segment.status-mission .status-mission-remove,
+button.status-chip-operator .status-mission-remove {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -6691,18 +6744,22 @@ button.status-segment.status-mission .status-mission-remove {
 }
 
 button.status-segment.status-mission:hover .status-mission-remove,
-button.status-segment.status-mission:focus-within .status-mission-remove {
+button.status-segment.status-mission:focus-within .status-mission-remove,
+button.status-chip-operator:hover .status-mission-remove,
+button.status-chip-operator:focus-within .status-mission-remove {
     width: 14px;
     margin-left: 3px;
     opacity: 1;
 }
 
-button.status-segment.status-mission .status-mission-remove:hover {
+button.status-segment.status-mission .status-mission-remove:hover,
+button.status-chip-operator .status-mission-remove:hover {
     background: color-mix(in srgb, var(--fail, #f87171) 22%, transparent);
     color: var(--fail, #f87171);
 }
 
-button.status-segment.status-mission .status-mission-remove:focus-visible {
+button.status-segment.status-mission .status-mission-remove:focus-visible,
+button.status-chip-operator .status-mission-remove:focus-visible {
     outline: none;
     box-shadow: 0 0 0 1px var(--fail, #f87171);
 }
@@ -8596,60 +8653,11 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .s
     opacity: 0.7;
 }
 
-/* Right-click context menu on tree rows. Floating popover anchored
-   at the cursor; closed on outside click or Escape. */
-.structure-context-menu {
-    position: fixed;
-    z-index: 1000;
-    min-width: 160px;
-    background: rgb(20 24 30 / 0.98);
-    border: 1px solid var(--border);
-    border-radius: 0;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
-    padding: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    font-family:
-        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-}
-.structure-context-menu-item {
-    appearance: none;
-    background: transparent;
-    border: 0;
-    color: var(--fg, #e5e7eb);
-    text-align: left;
-    padding: 6px 10px;
-    font-size: 12px;
-    border-radius: 0;
-    cursor: pointer;
-}
-.structure-context-menu-item:hover {
-    background: color-mix(in srgb, var(--accent, #b794f4) 14%, transparent);
-}
-.structure-context-menu-item.danger {
-    color: #f7768e;
-}
-.structure-context-menu-item.danger:hover {
-    background: rgba(247, 118, 142, 0.14);
-}
-/* True Dark/OLED: the menu hardcodes rgb(20 24 30) slate which floats grey
-   on near-black. Drop to the true-dark surface token. */
-body.theme-true-dark .structure-context-menu {
-    background: rgb(8 8 10 / 0.98);
-    border-color: var(--border);
-}
-/* Light theme: the structure file-tree menu, rename input, and confirm
-   dialog ship hardcoded dark surfaces (rgb(20 24 30) / black overlays)
-   that read as a black box in light mode. Override the surfaces + text
-   to light values; danger red and accent hovers already work on both. */
-body.theme-light .structure-context-menu {
-    background: rgb(252 252 253 / 0.99);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
-}
-body.theme-light .structure-context-menu-item {
-    color: var(--text-primary, #1f2329);
-}
+/* Tree right-click menus now use the shared .ctx-menu chrome
+   (ui/src/menu/context-menu.ts) — same look as editor/tab menus. */
+/* Light theme: the structure rename input and confirm dialog ship
+   hardcoded dark surfaces (black overlays) that read as a black box in
+   light mode. Override the surfaces + text to light values. */
 body.theme-light .structure-rename-input {
     background: rgba(0, 0, 0, 0.04);
     color: var(--text-primary, #1f2329);
@@ -16359,6 +16367,34 @@ body.sidebar-view-beacon .tab-pane:has(.editor-host:not([hidden])) > .editor-hos
   right: 0 !important;
 }
 
+/* Somnus sidebar — REST client (same layout as beacon) */
+body.sidebar-view-somnus:not(.blocks-globally-collapsed):not(.tabbar-left) #layout {
+  grid-template-columns: minmax(0, 1fr) var(--right-sidebar-w);
+}
+body.sidebar-view-somnus:not(.blocks-globally-collapsed):not(.tabbar-left) #tabbar-host,
+body.sidebar-view-somnus:not(.blocks-globally-collapsed):not(.tabbar-left) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-somnus.tabbar-left:not(.blocks-globally-collapsed) #layout {
+  grid-template-columns: var(--tabbar-w) minmax(0, 1fr) var(--right-sidebar-w);
+}
+body.sidebar-view-somnus.tabbar-left:not(.blocks-globally-collapsed) #somnus-panel {
+  grid-row: 1 / 2;
+  grid-column: 3 / 4;
+}
+body.sidebar-view-somnus.tabbar-left:not(.blocks-globally-collapsed) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-somnus:not(.blocks-globally-collapsed) .tab-pane {
+  grid-template-columns: 1fr 0 0 0 !important;
+}
+body.sidebar-view-somnus:not(.blocks-globally-collapsed) .tab-blocks {
+  display: none !important;
+}
+body.sidebar-view-somnus .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+  right: 0 !important;
+}
+
 /* TASKER Board (kanban) fullscreen — mirrors .pn-fullscreen */
 body.tasker-board #tasker-panel {
   position: fixed;
@@ -19739,3 +19775,13 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .rail-row:hover .rail-row-action, .rail-row:focus-within .rail-row-action, .rail-row-action:focus-visible { opacity: 1; }
 .rail-row-action:hover { color: var(--danger); background: rgba(var(--ink-rgb), 0.06); }
 .rail-row-action svg { width: 13px; height: 13px; }
+
+/* —— multi-action group: N hover-revealed buttons on one row —— */
+.rail-row-actions {
+  position: absolute; top: 6px; right: 6px;
+  display: flex; gap: 2px; opacity: 0; transition: opacity .1s;
+}
+.rail-row:hover .rail-row-actions, .rail-row:focus-within .rail-row-actions { opacity: 1; }
+.rail-row-actions .rail-row-action { position: static; opacity: 1; }
+.rail-row:has(.rail-row-actions) { padding-right: 82px; }
+.rail-row-action.is-neutral:hover { color: var(--fg); }

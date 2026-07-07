@@ -90,6 +90,12 @@ export interface ActiveTabInfo {
   groupColor: string | null;
 }
 
+/// Active workspace descriptor for the leading status-bar chip.
+export interface ActiveWorkspaceInfo {
+  name: string;
+  color: string | null;
+}
+
 export class StatusBar {
   private enabled = true;
   /// Layout mode. True = two-row (the shipped default). False = the
@@ -97,6 +103,7 @@ export class StatusBar {
   /// the `experimental.statusbar_two_row` setting.
   private twoRow = true;
   private currentTab: ActiveTabInfo | null = null;
+  private currentWorkspace: ActiveWorkspaceInfo | null = null;
   private currentCwd: string | null = null;
   private currentMission: MissionInfo | null = null;
   private currentSessionId: SessionId | null = null;
@@ -157,6 +164,10 @@ export class StatusBar {
   /// No-op stub until the picker is wired in Plan 3 Task 5.
   public onOperatorChipClick: ((sessionId: SessionId) => void) | null = null;
 
+  /// Fires when the user clicks the hover × on the pinned-operator chip —
+  /// unpins the operator from the tab (mirrors onMissionClearRequested).
+  public onOperatorClearRequested: ((sessionId: SessionId) => void) | null = null;
+
   /// Fired from the branch/worktree popover when the user wants a
   /// worktree in its own terminal tab.
   public onOpenGitWorktree: ((path: string, label: string) => void) | null = null;
@@ -164,6 +175,10 @@ export class StatusBar {
   /// Fired from the git branch popover "View changes" action.
   /// Wired by main.ts to open the ChangesSurface for the active repo.
   public onViewChanges: (() => void) | null = null;
+
+  /// Fired when the user clicks the workspace chip. Wired by main.ts
+  /// to the WorkspaceSwitcher palette (same as the tabbar chip).
+  public onWorkspaceChipClick: (() => void) | null = null;
 
   constructor(private readonly host: HTMLElement) {
     this.host.classList.add("status-bar");
@@ -225,6 +240,17 @@ export class StatusBar {
     if (this.twoRow === v) return;
     this.twoRow = v;
     document.body.classList.toggle("statusbar-single-row", !v);
+    this.render(this.lastDirCtx);
+  }
+
+  /// Pushed by main.ts whenever the active workspace changes (switch,
+  /// rename, recolor). Renders the leading chip in the left zone.
+  setWorkspace(info: ActiveWorkspaceInfo | null): void {
+    const a = this.currentWorkspace;
+    if ((a?.name ?? null) === (info?.name ?? null) && (a?.color ?? null) === (info?.color ?? null)) {
+      return;
+    }
+    this.currentWorkspace = info;
     this.render(this.lastDirCtx);
   }
 
@@ -590,6 +616,11 @@ export class StatusBar {
     right.className = "sb-zone sb-right";
 
     // ─── LEFT ────────────────────────────────────────────
+    if (this.currentWorkspace) {
+      left.appendChild(
+        workspaceSegment(this.currentWorkspace, () => this.onWorkspaceChipClick?.()),
+      );
+    }
     if (this.currentTab) left.appendChild(activeTabSegment(this.currentTab));
     if (ctx.git) {
       left.appendChild(this.gitSegment(ctx.git.repo_name, ctx.git.branch));
@@ -623,6 +654,28 @@ export class StatusBar {
       btn.addEventListener("click", () => {
         if (sid) this.onOperatorChipClick?.(sid);
       });
+
+      // Hover-revealed unpin ×. Same pattern as the mission chip's remove
+      // affordance (span role=button — a nested <button> is invalid), and
+      // reuses its class so the reveal/danger styling stays in one place.
+      const remove = document.createElement("span");
+      remove.className = "status-mission-remove";
+      remove.setAttribute("role", "button");
+      remove.setAttribute("tabindex", "0");
+      remove.setAttribute("aria-label", "Remove operator");
+      remove.innerHTML = Icons.x({ size: 11 });
+      attachTooltip(remove, "Unpin operator from this tab");
+      const fireRemove = (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (sid) this.onOperatorClearRequested?.(sid);
+      };
+      remove.addEventListener("click", fireRemove);
+      remove.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") fireRemove(e);
+      });
+      btn.appendChild(remove);
+
       framing.appendChild(btn);
     } else if (this.currentSessionId) {
       const sid = this.currentSessionId;
@@ -757,15 +810,12 @@ export class StatusBar {
     icon.innerHTML = GIT_BRANCH_SVG;
     el.appendChild(icon);
 
+    // Branch only — the repo name duplicates the group/tab identity
+    // already shown in the leading chips; it stays in the tooltip.
     const text = document.createElement("span");
     text.className = "status-text";
-    text.textContent = repoName;
+    text.textContent = branch;
     el.appendChild(text);
-
-    const sec = document.createElement("span");
-    sec.className = "status-secondary";
-    sec.textContent = branch;
-    el.appendChild(sec);
 
     el.addEventListener("click", () => this.openBranchPopover(el));
     el.addEventListener("keydown", (e) => {
@@ -1079,6 +1129,38 @@ export class StatusBar {
     if (!this.modal.isOpen()) return;
     this.modal.showContent(mission, content ?? "", sessionId);
   }
+}
+
+/// Leading workspace chip. Names the active workspace with its color
+/// dot; click opens the workspace palette (same as the tabbar chip).
+function workspaceSegment(info: ActiveWorkspaceInfo, onClick: () => void): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "status-segment status-workspace";
+  el.tabIndex = 0;
+  el.setAttribute("role", "button");
+  el.setAttribute("aria-label", `Workspace: ${info.name}. Click to switch workspace.`);
+  attachTooltip(el, {
+    title: `Workspace: ${info.name}`,
+    hint: "Click to switch workspace",
+  });
+
+  const dot = document.createElement("span");
+  dot.className = "status-ws-dot";
+  dot.style.background = info.color ?? "var(--muted)";
+  el.appendChild(dot);
+
+  const text = document.createElement("span");
+  text.className = "status-text";
+  text.textContent = info.name;
+  el.appendChild(text);
+
+  el.addEventListener("click", onClick);
+  el.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    onClick();
+  });
+  return el;
 }
 
 /// Leading active-tab chip. Renders the tab name with a small color

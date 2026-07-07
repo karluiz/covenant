@@ -31,9 +31,11 @@ import {
   acpGetModels,
   acpListSessions,
   acpLoadSession,
+  acpMarkReady,
   acpRespondPermission,
   acpSendPrompt,
   acpSetModel,
+  acpSuggestTitle,
   closeAcpSession,
   spawnAcpSession,
   structureListDir,
@@ -48,6 +50,7 @@ import type {
 } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
 import { Icons } from "../../icons";
+import { renderMarkdown } from "../../release/markdown";
 
 /// Coarse relative time for the /resume picker ("3h ago", "2d ago").
 /// Exported for tests.
@@ -83,6 +86,33 @@ function openImagePreview(dataUrl: string): void {
   document.body.appendChild(overlay);
 }
 
+/// YOU-bubble content: prompt text plus a thumbnail per attached image
+/// (click → the same lightbox as the composer chips).
+function buildUserContent(text: string, images: AcpImageAttachment[]): HTMLElement {
+  const content = document.createElement("div");
+  content.className = "acp-msg-content";
+  if (text) {
+    const t = document.createElement("div");
+    t.textContent = text;
+    content.appendChild(t);
+  }
+  if (images.length > 0) {
+    const grid = document.createElement("div");
+    grid.className = "acp-msg-images";
+    for (const img of images) {
+      const dataUrl = `data:${img.mimeType};base64,${img.data}`;
+      const thumb = document.createElement("img");
+      thumb.className = "acp-msg-image-thumb";
+      thumb.src = dataUrl;
+      thumb.alt = "Attached image";
+      thumb.addEventListener("click", () => openImagePreview(dataUrl));
+      grid.appendChild(thumb);
+    }
+    content.appendChild(grid);
+  }
+  return content;
+}
+
 /// Per-executor branding for the chat chrome. `cmdline` is what the
 /// empty-state shows as "your prompt goes to …".
 const EXECUTOR_BRAND: Record<AcpExecutor, { title: string; longName: string; cmdline: string; roleLabel: string }> = {
@@ -104,6 +134,12 @@ const EXECUTOR_BRAND: Record<AcpExecutor, { title: string; longName: string; cmd
     cmdline: "claude-agent-acp",
     roleLabel: "claude",
   },
+  opencode: {
+    title: "OpenCode",
+    longName: "OpenCode's coding agent (first-party ACP server)",
+    cmdline: "opencode acp",
+    roleLabel: "opencode",
+  },
 };
 
 const escapeHtml = (s: string): string =>
@@ -120,6 +156,9 @@ const escapeHtml = (s: string): string =>
 export interface AcpUserItem {
   kind: "user";
   text: string;
+  /// Images attached when the prompt was sent this session. Absent on
+  /// replayed transcripts (the wire replay doesn't carry image data).
+  images?: AcpImageAttachment[];
 }
 
 export interface AcpProseItem {
@@ -245,6 +284,60 @@ function isToolUpdate(u: AcpSessionUpdate): u is Extract<AcpSessionUpdate, { too
   return "toolCallId" in u;
 }
 
+/// Replayed user chunks that are really executor-harness bookkeeping
+/// (slash-command records, background-task notifications, context
+/// reminders), not typed prompts. Exported for tests.
+export function isCommandNoise(text: string): boolean {
+  return /^<(command-name|command-message|command-args|local-command-stdout|task-notification|system-reminder)\b/.test(
+    text.trimStart(),
+  );
+}
+
+/// Tool results arrive from the claude adapter as markdown with ``` fences,
+/// but tool-card bodies render into a monospace <pre> — the fence lines are
+/// pure noise there. Drop lines that are only a fence (with optional lang
+/// tag); everything else stays verbatim. Exported for tests.
+export function stripFences(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*```[\w-]*\s*$/.test(line))
+    .join("\n");
+}
+
+/// Persisted per-executor model preference — agents reset to their own
+/// default on every spawn, so the last explicit pick is re-applied
+/// post-handshake (see `applyPreferredModel`).
+function modelPrefKey(executor: AcpExecutor): string {
+  return `covenant.acp-model.${executor}`;
+}
+
+function preferredModel(executor: AcpExecutor): string | null {
+  try {
+    return localStorage.getItem(modelPrefKey(executor));
+  } catch {
+    return null;
+  }
+}
+
+function persistPreferredModel(executor: AcpExecutor, modelId: string): void {
+  try {
+    localStorage.setItem(modelPrefKey(executor), modelId);
+  } catch {
+    /* preference simply won't persist */
+  }
+}
+
+/// Derive a tab title from the first real user prompt: first non-empty
+/// line, hard-capped. Returns null for slash commands and harness noise.
+/// Exported for tests.
+export function titleFromPrompt(text: string): string | null {
+  const t = text.trim();
+  if (t.length === 0 || t.startsWith("/") || isCommandNoise(t)) return null;
+  const line = t.split("\n", 1)[0].trim();
+  if (line.length === 0) return null;
+  return line.length > 48 ? `${line.slice(0, 47).trimEnd()}…` : line;
+}
+
 /// Later non-empty field wins. Identical semantics to `merge_tool` in
 /// `crates/agent/src/acp/run.rs`: `null`/`undefined` on the incoming frame
 /// means "unchanged", not "clear the field" (tool_call_update frames omit
@@ -295,6 +388,11 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
         // Merge consecutive chunks into the trailing user item, mirroring
         // appendProse (copilot replays one coalesced chunk per message).
         const text = contentText(u.content);
+        // Claude Code transcripts store slash-command bookkeeping as user
+        // text (`<command-name>/model</command-name>`, `<local-command-
+        // stdout>…`); claude-agent-acp replays them verbatim (seen live).
+        // They're harness records, not something the user typed — drop.
+        if (text && isCommandNoise(text)) break;
         if (text) {
           const last = state.items[state.items.length - 1];
           if (last && last.kind === "user") last.text += text;
@@ -400,6 +498,10 @@ export interface AcpChatViewOptions {
   /// Fired when `restart()` adopts a fresh session, so the owner (tab
   /// manager) can re-point pane.sessionId / pane.acpSessionId and persist.
   onSessionChange?: (sessionId: SessionId, acpSessionId: string) => void;
+  /// Fired once per view with a tab title derived from the first real
+  /// user prompt (typed or replayed) — ACP tabs have no PTY, so the
+  /// screen-based summarizer titler never sees them.
+  onTitle?: (title: string) => void;
 }
 
 interface ToolCardDom {
@@ -444,6 +546,9 @@ export class AcpChatView {
   private readonly executor: AcpExecutor;
   private acpSessionId: string | null;
   private readonly onSessionChange?: (sessionId: SessionId, acpSessionId: string) => void;
+  private readonly onTitle?: (title: string) => void;
+  /// One title per view — first real user prompt wins.
+  private titleSent = false;
   /// Images pasted into the composer, sent as ACP `image` blocks with
   /// the next prompt and cleared. Rendered as removable chips.
   private pendingImages: AcpImageAttachment[] = [];
@@ -455,6 +560,7 @@ export class AcpChatView {
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   private cancelBtn!: HTMLButtonElement;
+  private jumpBtn!: HTMLButtonElement;
 
   private readonly toolDoms: Map<string, ToolCardDom> = new Map();
   private readonly permDoms: Map<string, PermCardDom> = new Map();
@@ -477,6 +583,9 @@ export class AcpChatView {
   /// same-role chunks updates one node instead of appending N.
   private lastProseItem: AcpProseItem | null = null;
   private lastProseEl: HTMLElement | null = null;
+  /// Same pattern for replayed user bubbles (`user_message_chunk`).
+  private lastUserItem: AcpUserItem | null = null;
+  private lastUserEl: HTMLElement | null = null;
 
   private stickToBottom = true;
 
@@ -489,6 +598,7 @@ export class AcpChatView {
     this.executor = opts.executor ?? "copilot";
     this.acpSessionId = opts.acpSessionId ?? null;
     this.onSessionChange = opts.onSessionChange;
+    this.onTitle = opts.onTitle;
     this.mount();
     void this.subscribe();
   }
@@ -528,6 +638,24 @@ export class AcpChatView {
     this.inputEl?.focus();
   }
 
+  /// Put text in the composer for review (pane-menu Commands semantics —
+  /// the user reads it, then hits ↩).
+  insertText(text: string): void {
+    this.inputEl.value = text;
+    this.syncComposer();
+    this.inputEl.focus();
+  }
+
+  /// Put text in the composer and submit it (pane-menu Prompts/Skills
+  /// semantics). If a turn is already in flight, handleSend no-ops and
+  /// the text stays staged in the composer.
+  submitText(text: string): void {
+    this.inputEl.value = text;
+    this.syncComposer();
+    this.inputEl.focus();
+    void this.handleSend();
+  }
+
   // -------------------------------------------------------------------------
   // Mount
   // -------------------------------------------------------------------------
@@ -560,15 +688,26 @@ export class AcpChatView {
         <div class="acp-slash-menu" role="listbox" hidden></div>
         <div class="acp-slash-menu acp-mention-menu" role="listbox" hidden></div>
         <div class="acp-image-strip" hidden></div>
-        <textarea
-          class="acp-chat-textarea"
-          rows="2"
-          placeholder="Message ${brand.title}…  (↩ send · ⇧↩ newline)"
-          aria-label="Message ${brand.title}"
-        ></textarea>
-        <div class="acp-chat-actions">
-          <button type="button" class="acp-chat-cancel" hidden>Cancel</button>
-          <button type="submit" class="acp-chat-send">Send</button>
+        <button type="button" class="acp-jump-present" hidden>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M8 13l4.5-4.5M8 13 3.5 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Jump to present
+        </button>
+        <div class="acp-composer">
+          <textarea
+            class="acp-chat-textarea"
+            rows="1"
+            placeholder="Message ${brand.title}…"
+            aria-label="Message ${brand.title}"
+          ></textarea>
+          <div class="acp-chat-actions">
+            <span class="acp-composer-hint"><kbd>↩</kbd> send · <kbd>⇧↩</kbd> newline</span>
+            <button type="button" class="acp-chat-cancel" hidden aria-label="Stop" title="Stop">
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg>
+            </button>
+            <button type="submit" class="acp-chat-send" disabled aria-label="Send" title="Send">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M8 3 3.5 7.5M8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
         </div>
       </form>
     `;
@@ -587,6 +726,20 @@ export class AcpChatView {
       () => {
         const el = this.messagesEl;
         this.stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        this.syncJumpChip();
+      },
+      { passive: true },
+    );
+    // Scrolling up must release bottom-stick IMMEDIATELY. The scroll
+    // handler above only releases once you're >48px from the bottom, but
+    // while a turn is streaming, every chunk yanks scrollTop back to the
+    // bottom — a trackpad can't escape the 48px window between chunks, so
+    // the transcript reads as unscrollable. Wheel intent (deltaY < 0)
+    // beats position.
+    this.messagesEl.addEventListener(
+      "wheel",
+      (e) => {
+        if (e.deltaY < 0) this.stickToBottom = false;
       },
       { passive: true },
     );
@@ -595,6 +748,12 @@ export class AcpChatView {
     this.inputEl = requireChild(this.host, ".acp-chat-textarea") as HTMLTextAreaElement;
     this.sendBtn = requireChild(this.host, ".acp-chat-send") as HTMLButtonElement;
     this.cancelBtn = requireChild(this.host, ".acp-chat-cancel") as HTMLButtonElement;
+    this.jumpBtn = requireChild(this.host, ".acp-jump-present") as HTMLButtonElement;
+    this.jumpBtn.addEventListener("click", () => {
+      this.stickToBottom = true;
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      this.syncJumpChip();
+    });
 
     const form = requireChild(this.host, "form.acp-chat-input") as HTMLFormElement;
     form.addEventListener("submit", (e) => {
@@ -605,6 +764,7 @@ export class AcpChatView {
     this.slashEl = requireChild(this.host, ".acp-slash-menu");
     this.mentionEl = requireChild(this.host, ".acp-mention-menu");
     this.inputEl.addEventListener("input", () => {
+      this.syncComposer();
       this.updateSlashMenu();
       void this.updateMentionMenu();
     });
@@ -754,15 +914,18 @@ export class AcpChatView {
     // ride a text prompt — route them to our native pickers instead.
     if (cmd.name === "model") {
       this.inputEl.value = "";
+      this.syncComposer();
       this.openModelMenu();
       return;
     }
     if (cmd.name === "resume") {
       this.inputEl.value = "";
+      this.syncComposer();
       void this.openResumeMenu();
       return;
     }
     this.inputEl.value = `/${cmd.name} `;
+    this.syncComposer();
     this.inputEl.focus();
   }
 
@@ -843,6 +1006,7 @@ export class AcpChatView {
     if (entry.kind === "dir") {
       const repl = `@${dirPart}${entry.name}/`;
       this.inputEl.value = `${before}${repl}${after}`;
+      this.syncComposer();
       const pos = before.length + repl.length;
       this.inputEl.setSelectionRange(pos, pos);
       this.inputEl.focus();
@@ -852,6 +1016,7 @@ export class AcpChatView {
     const rel = `${dirPart}${entry.name}`;
     const repl = `@${rel} `;
     this.inputEl.value = `${before}${repl}${after}`;
+    this.syncComposer();
     const pos = before.length + repl.length;
     this.inputEl.setSelectionRange(pos, pos);
     this.mentions.add(rel);
@@ -1007,6 +1172,11 @@ export class AcpChatView {
     this.state.inFlight = false;
     this.toolDoms.clear();
     this.permDoms.clear();
+    // Detach the growing-node cursors — they point into removed DOM.
+    this.lastProseItem = null;
+    this.lastProseEl = null;
+    this.lastUserItem = null;
+    this.lastUserEl = null;
     // Keep the empty-state node (hidden) — clearing textContent would
     // detach the element this.emptyEl points at.
     for (const child of [...this.messagesEl.children]) {
@@ -1021,10 +1191,29 @@ export class AcpChatView {
     try {
       await acpSetModel(this.sessionId, modelId);
       this.model = modelId;
+      persistPreferredModel(this.executor, modelId);
       this.renderMeta();
       this.appendNotice(`Model switched to ${modelId}.`, "info");
     } catch (err) {
       this.appendNotice(`model switch failed: ${String(err)}`, "error");
+    }
+  }
+
+  /// Re-apply the user's persisted model pick for this executor. Agents
+  /// start every ACP session on their own default (copilot 1.0.68 ignores
+  /// even its settings.json `"model": "auto"` under --acp), so a one-time
+  /// pick would silently revert on every new tab/restart without this.
+  /// Silent on success — no notice spam on every spawn.
+  private async applyPreferredModel(): Promise<void> {
+    const want = preferredModel(this.executor);
+    if (!want || want === this.model) return;
+    if (!this.models.some((m) => m.modelId === want)) return;
+    try {
+      await acpSetModel(this.sessionId, want);
+      this.model = want;
+      this.renderMeta();
+    } catch {
+      /* stale preference or unsupported agent — the default stands */
     }
   }
 
@@ -1046,6 +1235,15 @@ export class AcpChatView {
         return;
       }
       this.unlisten = unlisten;
+      // Listener is live — unblock the forwarder's first emit. Without
+      // this, a resume replay burst is emitted before the listener lands
+      // and the transcript arrives with holes. (5s backend escape hatch
+      // keeps a failed call from wedging the stream.)
+      try {
+        await acpMarkReady(this.sessionId);
+      } catch {
+        /* forwarder falls back to its timeout */
+      }
       // Seed the slash + model rosters: their initial broadcasts raced this
       // listener's registration, so pull the backend's cached copies. Live
       // updates keep flowing through the event stream and replace them.
@@ -1063,6 +1261,7 @@ export class AcpChatView {
           this.models = models.available;
           if (models.current) this.model = models.current;
           this.renderMeta();
+          await this.applyPreferredModel();
         }
       } catch {
         /* model picker is a nicety */
@@ -1079,6 +1278,11 @@ export class AcpChatView {
         const u = ev.update.update;
         if (u.sessionUpdate === "agent_message_chunk" || u.sessionUpdate === "agent_thought_chunk") {
           this.renderProseTail();
+        } else if (u.sessionUpdate === "user_message_chunk") {
+          // Replay-only (live prompts never echo back) — without this the
+          // replayed transcript renders agent prose and tool cards but
+          // silently drops every YOU bubble.
+          this.renderUserTail();
         } else if ("toolCallId" in u) {
           this.renderTool(u.toolCallId);
         }
@@ -1100,16 +1304,57 @@ export class AcpChatView {
   }
 
   // -------------------------------------------------------------------------
-  // Prose rendering — escape-then-format only (no markdown lib, never
-  // innerHTML of raw agent text: escape first, THEN apply the two
-  // whitelisted transforms below).
+  // Prose rendering — agent prose goes through `renderMarkdown` (the same
+  // escape-first mini-renderer the changelog uses: headings, lists, fences,
+  // bold/italic — Claude streams real markdown and the backticks-only
+  // formatProse rendered it raw). Raw agent text never hits innerHTML
+  // unescaped in either path.
   // -------------------------------------------------------------------------
+
+  /// Replayed user bubble — same one-growing-node pattern as
+  /// `renderProseTail`. Also feeds the tab-title inference: the first
+  /// real user prompt of a resumed conversation titles the tab.
+  private renderUserTail(): void {
+    const item = this.state.items[this.state.items.length - 1];
+    if (!item || item.kind !== "user") return;
+    if (this.lastUserItem === item && this.lastUserEl) {
+      this.lastUserEl.textContent = item.text;
+      return;
+    }
+    this.hideEmptyState();
+    const el = document.createElement("div");
+    el.className = "acp-msg acp-msg-user";
+    el.innerHTML = `<div class="acp-msg-role">you</div><div class="acp-msg-content"></div>`;
+    const contentEl = requireChild(el, ".acp-msg-content");
+    contentEl.textContent = item.text;
+    this.messagesEl.appendChild(el);
+    this.lastUserItem = item;
+    this.lastUserEl = contentEl;
+    this.maybeEmitTitle(item.text);
+  }
+
+  private maybeEmitTitle(text: string): void {
+    if (this.titleSent || !this.onTitle) return;
+    const title = titleFromPrompt(text);
+    if (title === null) return;
+    this.titleSent = true;
+    // Instant fallback (first prompt line) while the real titler runs —
+    // same 2-word LLM label PTY tabs get from the screen summarizer.
+    this.onTitle(title);
+    void acpSuggestTitle(this.sessionId, text)
+      .then((t) => {
+        if (t && t.trim().length > 0) this.onTitle?.(t.trim());
+      })
+      .catch(() => {
+        /* fallback title already set */
+      });
+  }
 
   private renderProseTail(): void {
     const item = this.state.items[this.state.items.length - 1];
     if (!item || item.kind !== "prose") return;
     if (this.lastProseItem === item && this.lastProseEl) {
-      this.lastProseEl.innerHTML = formatProse(item.text);
+      this.lastProseEl.innerHTML = renderMarkdown(item.text);
       return;
     }
     this.hideEmptyState();
@@ -1117,7 +1362,7 @@ export class AcpChatView {
     el.className = item.role === "thought" ? "acp-msg acp-msg-thought" : "acp-msg acp-msg-assistant";
     el.innerHTML = `<div class="acp-msg-role">${item.role === "thought" ? "thinking" : EXECUTOR_BRAND[this.executor].roleLabel}</div><div class="acp-msg-content"></div>`;
     const contentEl = requireChild(el, ".acp-msg-content");
-    contentEl.innerHTML = formatProse(item.text);
+    contentEl.innerHTML = renderMarkdown(item.text);
     this.messagesEl.appendChild(el);
     this.lastProseItem = item;
     this.lastProseEl = contentEl;
@@ -1198,7 +1443,7 @@ export class AcpChatView {
       cmdEl.className = "acp-shell-cmd";
       cmdEl.innerHTML = `<code>${escapeHtml(command)}</code>`;
       dom.bodyEl.appendChild(cmdEl);
-      const out = joinContentText(f.content);
+      const out = stripFences(joinContentText(f.content));
       if (out.length > 0) {
         const outEl = document.createElement("pre");
         outEl.className = "acp-shell-out";
@@ -1206,7 +1451,7 @@ export class AcpChatView {
         dom.bodyEl.appendChild(outEl);
       }
     } else {
-      const out = joinContentText(f.content);
+      const out = stripFences(joinContentText(f.content));
       if (out.length > 0) {
         const outEl = document.createElement("pre");
         outEl.className = "acp-shell-out";
@@ -1340,18 +1585,22 @@ export class AcpChatView {
     const attachments = [...this.mentions].filter((p) => text.includes(`@${p}`));
     this.mentions.clear();
     this.inputEl.value = "";
+    this.syncComposer();
     this.pendingImages = [];
     this.renderImageStrip();
-    const shown = images.length > 0
-      ? `${text}${text ? "\n" : ""}[${images.length} image${images.length > 1 ? "s" : ""} attached]`
-      : text;
-    this.state.items.push({ kind: "user", text: shown });
+    this.state.items.push({
+      kind: "user",
+      text,
+      images: images.length > 0 ? images : undefined,
+    });
     this.state.turnHadOutput = false; // armed: silent end_turn → notice
     this.hideEmptyState();
     const el = document.createElement("div");
     el.className = "acp-msg acp-msg-user";
-    el.innerHTML = `<div class="acp-msg-role">you</div><div class="acp-msg-content">${escapeHtml(shown)}</div>`;
+    el.innerHTML = `<div class="acp-msg-role">you</div>`;
+    el.appendChild(buildUserContent(text, images));
     this.messagesEl.appendChild(el);
+    this.maybeEmitTitle(text);
     this.stickToBottom = true;
     this.setInFlight(true);
     this.scrollToBottom();
@@ -1373,6 +1622,7 @@ export class AcpChatView {
   private renderImageStrip(): void {
     this.imageStripEl.hidden = this.pendingImages.length === 0;
     this.imageStripEl.textContent = "";
+    this.syncComposer();
     this.pendingImages.forEach((img, i) => {
       const dataUrl = `data:${img.mimeType};base64,${img.data}`;
       const chip = document.createElement("button");
@@ -1439,6 +1689,13 @@ export class AcpChatView {
       this.model = spawned.model ?? this.model;
       this.renderMeta();
       this.setInFlight(false);
+      // A resumed spawn replays the WHOLE transcript as session/update
+      // frames. Into a non-empty view that duplicates every prose bubble
+      // while the replayed tool_calls merge invisibly into the existing
+      // cards (same toolCallIds) — the "instructions lost in the middle"
+      // bug. Clear first and let the replay repopulate; a non-resumed
+      // restart keeps the old transcript as visual history.
+      if (spawned.resumed) this.resetTranscript();
       await this.subscribe();
       this.appendNotice(spawned.resumed ? "Session restarted — conversation resumed." : "Session restarted.", "info");
     } catch (err) {
@@ -1448,10 +1705,23 @@ export class AcpChatView {
 
   private setInFlight(busy: boolean): void {
     this.state.inFlight = busy;
-    this.sendBtn.disabled = busy;
+    // Send and Stop swap in place — never side by side.
+    this.sendBtn.hidden = busy;
     this.cancelBtn.hidden = !busy;
+    if (!busy) this.syncComposer();
     this.statusEl.dataset.state = busy ? "running" : "idle";
     this.statusEl.textContent = busy ? "running…" : "idle";
+  }
+
+  /// Keep the composer card honest after any value change (typed or
+  /// programmatic): auto-grow the textarea to its content and disable
+  /// Send when there is nothing to send.
+  private syncComposer(): void {
+    const el = this.inputEl;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    this.sendBtn.disabled =
+      el.value.trim().length === 0 && this.pendingImages.length === 0;
   }
 
   private hideEmptyState(): void {
@@ -1460,10 +1730,23 @@ export class AcpChatView {
 
   private scrollToBottom(): void {
     requestAnimationFrame(() => {
-      if (!this.stickToBottom) return;
+      if (!this.stickToBottom) {
+        // Content grew while the user was scrolled up — no scroll event
+        // fires for that, so re-check the chip here.
+        this.syncJumpChip();
+        return;
+      }
       const el = this.messagesEl;
       el.scrollTop = el.scrollHeight;
     });
+  }
+
+  /// "Jump to present" chip: visible only while the transcript is
+  /// scrolled meaningfully away from the live edge.
+  private syncJumpChip(): void {
+    const el = this.messagesEl;
+    const away = el.scrollHeight - el.scrollTop - el.clientHeight >= 48;
+    this.jumpBtn.hidden = !away || this.stickToBottom;
   }
 }
 

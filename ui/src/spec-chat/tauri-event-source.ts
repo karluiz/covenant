@@ -38,11 +38,11 @@ export function tauriEventSource(initialDraftId: string | null): SpecEventSource
       listenedId = null;
       subs.clear();
     },
-    async send(draftId, userMsg, cwd) {
+    async send(draftId, userMsg, cwd, images) {
       const id = draftId ?? currentId ?? mintUlid();
       currentId = id;
       await ensureListening(id);            // subscribe BEFORE backend emits
-      await specAuthorStreamStep(id, userMsg, cwd);
+      await specAuthorStreamStep(id, userMsg, cwd, images);
       return id;
     },
   };

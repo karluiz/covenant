@@ -1,4 +1,4 @@
-import type { SpecStreamEvent, SpecSectionKey } from './events';
+import type { SpecStreamEvent, SpecSectionKey, QuestionOption } from './events';
 import { parsePersistedTranscript } from './transcript';
 import { SECTIONS, parseSectionsFromMarkdown, parseSectionMarkers, stripLeadingHeading } from './sections';
 
@@ -8,7 +8,9 @@ export interface ConvMessage { role: 'user' | 'assistant'; content: string; }
 /** A historical tool call reconstructed from a resumed transcript — rendered
  *  inline as a chip mirroring the live one (verb · arg · hit). */
 export interface ToolChip { role: 'tool'; tool: string; arg?: string; summary?: string; }
-export type TimelineItem = ConvMessage | ToolChip;
+/** An ask_user question. `answered` disables its chips once the user replied. */
+export interface QuestionCard { role: 'question'; question: string; options: QuestionOption[]; answered: boolean; }
+export type TimelineItem = ConvMessage | ToolChip | QuestionCard;
 
 export interface StreamState {
   apply(e: SpecStreamEvent): void;
@@ -80,6 +82,10 @@ export function createStreamState(): StreamState {
           break;
         }
         case 'section_update': sections.set(e.section, { markdown: stripLeadingHeading(e.markdown), status: e.status }); break;
+        case 'question':
+          commitAssistant();
+          messages.push({ role: 'question', question: e.question, options: e.options, answered: false });
+          break;
         case 'turn_done': awaiting = e.awaiting_user; commitAssistant(); break;
         case 'final': finalMd = e.markdown; commitAssistant(); break;
         case 'error': err = e.message; break;
@@ -87,6 +93,10 @@ export function createStreamState(): StreamState {
       fire();
     },
     addUserMessage(t: string) {
+      // Answering closes any pending question card (chips go inert).
+      for (const m of messages) {
+        if (m.role === 'question' && !m.answered) m.answered = true;
+      }
       messages.push({ role: 'user', content: t });
       // Fresh activity for the new turn.
       text = '';

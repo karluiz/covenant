@@ -62,6 +62,7 @@ describe("NotesTab", () => {
     ];
     const tab = new NotesTab({ groupId: "g1" }).mount(host);
     await tab.refresh();
+    expect(host.querySelector(".rail-row.pn-note-card")).not.toBeNull();
     (host.querySelector(".pn-note-del") as HTMLButtonElement).click();
     await new Promise((r) => setTimeout(r, 0));
     expect(host.querySelector(".pn-note-card")).toBeNull();

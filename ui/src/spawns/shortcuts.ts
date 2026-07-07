@@ -1,4 +1,5 @@
 import type { SpawnSpec } from "./types";
+import type { AcpExecutor } from "../api";
 import { detectExecutor } from "../executor";
 
 /// How many spawns get an auto-assigned Ctrl+N shortcut. Bound to the
@@ -32,4 +33,14 @@ export function buildSpawnCmdline(
     args.push("--settings", `'{"theme":"${claudeTheme}"}'`);
   }
   return [spec.command, ...args].join(" ");
+}
+
+/// ACP executor a spawn maps to, or null when it can't drive an ACP tab.
+/// Runs the full cmdline through detectExecutor so `gh copilot` (command
+/// "gh", args ["copilot"]) resolves like it does everywhere else.
+export function acpExecutorFor(
+  spec: Pick<SpawnSpec, "command" | "args">,
+): AcpExecutor | null {
+  const name = detectExecutor([spec.command, ...spec.args].join(" "));
+  return name === "claude" || name === "copilot" || name === "pi" ? name : null;
 }

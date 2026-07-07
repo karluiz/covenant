@@ -1,7 +1,7 @@
 import type { SpawnSpec } from "../spawns/types";
 import { listSpawns, upsertSpawn, deleteSpawn } from "../spawns/api";
 import { CustomSelect } from "../ui/select";
-import { spawnShortcutLabel } from "../spawns/shortcuts";
+import { spawnShortcutLabel, acpExecutorFor } from "../spawns/shortcuts";
 
 /// Known executor presets. Picking one fills in defaults for any
 /// fields the user hasn't customised yet. "Custom" leaves the row
@@ -218,6 +218,30 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
     chipsHost.className = "spawns-md-hint";
     detailHost.appendChild(chipsHost);
 
+    // "Launch as ACP tab" — only rendered when the current command maps
+    // to an ACP-capable executor (claude / copilot / pi). Editing the
+    // command to anything else hides the row and drops the flag on the
+    // next persist (collect() re-validates eligibility).
+    const acpRow = document.createElement("label");
+    acpRow.className = "spawns-md-acp";
+    acpRow.dataset["role"] = "acp";
+    const acpCheck = document.createElement("input");
+    acpCheck.type = "checkbox";
+    acpCheck.checked = spec.acp === true;
+    const acpText = document.createElement("span");
+    acpText.textContent = "Launch as ACP tab (chat view instead of terminal)";
+    acpRow.append(acpCheck, acpText);
+    detailHost.appendChild(acpRow);
+
+    const currentDraft = (): { command: string; args: string[] } => ({
+      command: cmdInp.value.trim(),
+      args: argsInp.value.trim().split(/\s+/).filter(Boolean),
+    });
+    const updateAcpRow = (): void => {
+      acpRow.hidden = acpExecutorFor(currentDraft()) === null;
+    };
+    acpCheck.addEventListener("change", () => { void persist(); });
+
     const preview = document.createElement("div");
     preview.className = "spawns-md-preview";
     preview.dataset["role"] = "preview";
@@ -234,12 +258,13 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
       const selVal = brandSelect.value;
       const label = selVal === "__custom__" ? (spec.label || spec.id) : selVal;
       const argsRaw = argsInp.value.trim();
-      return {
+      const draft = {
         ...spec,
         label,
         command: cmdInp.value.trim(),
         args: argsRaw ? argsRaw.split(/\s+/).filter(Boolean) : [],
       };
+      return { ...draft, acp: acpCheck.checked && acpExecutorFor(draft) !== null };
     };
     const persist = async (): Promise<void> => {
       await persistSpec(collect());
@@ -247,7 +272,10 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
 
     for (const inp of [cmdInp, argsInp]) {
       inp.addEventListener("change", () => { void persist(); });
-      inp.addEventListener("input", updatePreview);
+      inp.addEventListener("input", () => {
+        updatePreview();
+        updateAcpRow();
+      });
     }
 
     brandSelect.element.addEventListener("change", () => {
@@ -314,6 +342,7 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
 
     renderChips(brandSelect.value);
     updatePreview();
+    updateAcpRow();
   };
 
   const render = (): void => {

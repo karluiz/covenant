@@ -36,7 +36,43 @@
     </a>
   </div>
 
-  <p class="mt-5 text-sm text-mist/60 fade-in-up delay-300">macOS &amp; Windows today · Linux community</p>
+  <div class="mt-4 flex flex-wrap items-center justify-center gap-4 fade-in-up delay-300">
+    <a
+      id="rpm-download"
+      href="https://github.com/karluiz/covenant/releases/latest"
+      target="_blank"
+      rel="noopener"
+      class="inline-flex items-center gap-3 rounded-lg border border-mist/15 bg-mist/[0.04] px-5 py-4 text-mist cursor-pointer hover:border-sky-500/40 hover:bg-mist/[0.08] transition-all"
+    >
+      <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+      </svg>
+      <span class="font-medium">Fedora</span>
+      <span class="text-mist/50 text-sm">.rpm</span>
+    </a>
+    <a
+      id="deb-download"
+      href="https://github.com/karluiz/covenant/releases/latest"
+      target="_blank"
+      rel="noopener"
+      class="inline-flex items-center gap-3 rounded-lg border border-mist/15 bg-mist/[0.04] px-5 py-4 text-mist cursor-pointer hover:border-sky-500/40 hover:bg-mist/[0.08] transition-all"
+    >
+      <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+      </svg>
+      <span class="font-medium">Ubuntu / Debian</span>
+      <span class="text-mist/50 text-sm">.deb</span>
+    </a>
+    <a
+      id="appimage-download"
+      href="https://github.com/karluiz/covenant/releases/latest"
+      target="_blank"
+      rel="noopener"
+      class="text-sm text-mist/50 hover:text-mist/80 underline underline-offset-4 transition-colors"
+    >AppImage</a>
+  </div>
+
+  <p class="mt-5 text-sm text-mist/60 fade-in-up delay-300">macOS · Windows · Linux</p>
 </section>
 
 <style>
@@ -79,24 +115,30 @@
     }
   });
 
-  // Resolve the latest Windows .msi asset so the button is a true one-click
-  // download. The MSI filename embeds the version (Covenant_<ver>_x64_en-US.msi),
-  // so a static "latest/download/<name>" link would 404 after each release —
-  // instead query the GitHub Releases API at runtime. The href already points
-  // at the releases page, so if the API is rate-limited/unreachable the button
-  // still works (just one extra click).
-  const winButton = document.getElementById('win-download') as HTMLAnchorElement | null;
-  if (winButton) {
-    fetch('https://api.github.com/repos/karluiz/covenant/releases/latest', {
-      headers: { Accept: 'application/vnd.github+json' },
+  // Resolve the latest per-platform assets so the buttons are true one-click
+  // downloads. Filenames embed the version (Covenant_<ver>_x64_en-US.msi,
+  // Covenant_<ver>_amd64.deb, …), so static "latest/download/<name>" links
+  // would 404 after each release — instead query the GitHub Releases API at
+  // runtime. Every href already points at the releases page, so if the API is
+  // rate-limited/unreachable the buttons still work (just one extra click).
+  const downloads: Array<[string, string]> = [
+    ['win-download', '.msi'],
+    ['rpm-download', '.rpm'],
+    ['deb-download', '.deb'],
+    ['appimage-download', '.appimage'],
+  ];
+  fetch('https://api.github.com/repos/karluiz/covenant/releases/latest', {
+    headers: { Accept: 'application/vnd.github+json' },
+  })
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error('release fetch failed'))))
+    .then((release: { assets?: Array<{ name: string; browser_download_url: string }> }) => {
+      for (const [id, ext] of downloads) {
+        const el = document.getElementById(id) as HTMLAnchorElement | null;
+        const asset = release.assets?.find((a) => a.name.toLowerCase().endsWith(ext));
+        if (el && asset) el.href = asset.browser_download_url;
+      }
     })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('release fetch failed'))))
-      .then((release: { assets?: Array<{ name: string; browser_download_url: string }> }) => {
-        const msi = release.assets?.find((a) => a.name.toLowerCase().endsWith('.msi'));
-        if (msi) winButton.href = msi.browser_download_url;
-      })
-      .catch(() => {
-        /* keep the releases-page fallback href */
-      });
-  }
+    .catch(() => {
+      /* keep the releases-page fallback hrefs */
+    });
 </script>

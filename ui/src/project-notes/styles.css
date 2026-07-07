@@ -114,6 +114,9 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   overflow: auto;
   padding: 12px;
 }
+/* List tabs run rail-* rows edge-to-edge; docs keeps the padded surface.
+   Single-class selector so `.pn-fullscreen .pn-body` still wins in fullscreen. */
+.pn-body--flush { padding: 0; }
 .pn-fullscreen .pn-body { padding: 24px 80px; }
 
 /* ── Section labels (split layout) ───────────────────────────────── */
@@ -152,66 +155,15 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 .pn-empty svg { opacity: 0.3; }
 
 /* ── Commands tab ────────────────────────────────────────────────── */
-.pn-cmd-tab { display: flex; flex-direction: column; gap: 12px; }
-.pn-cmd-new {
-  background: transparent;
-  border: 1px dashed var(--border, #2a2d35);
-  color: var(--muted, #8a8aa8);
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 120ms, color 120ms;
-}
-.pn-cmd-new:hover {
-  border-color: var(--pn-accent, var(--accent, #6aa9ff));
-  color: var(--text, #e6e8eb);
-}
+/* Rows + new-button ride the shared rail-* chrome (ui/src/styles.css). */
+.pn-cmd-tab { display: flex; flex-direction: column; }
 .pn-cmd-list { list-style: none; padding: 0; margin: 0; }
-.pn-cmd-row {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px;
-  margin-bottom: 6px;
-  background: var(--pn-subtle-1);
-  border: 1px solid var(--border, #2a2d35);
-  border-radius: 6px;
-  align-items: center;
-  transition: border-color 120ms;
-}
-.pn-cmd-row:hover { border-color: color-mix(in srgb, var(--pn-accent, var(--accent, #6aa9ff)) 40%, var(--border, #2a2d35)); }
-.pn-cmd-meta { flex: 1; min-width: 0; }
-.pn-cmd-title { font-weight: 500; font-size: 12px; }
-.pn-cmd-code {
-  font-family: var(--font-mono);
-  color: var(--muted, #8a8aa8);
-  display: block;
-  font-size: 11px;
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pn-cmd-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 120ms; }
-.pn-cmd-row:hover .pn-cmd-actions { opacity: 1; }
-.pn-cmd-actions button {
-  background: transparent;
-  color: var(--muted, #8a8aa8);
-  border: 1px solid var(--border, #2a2d35);
-  border-radius: 4px;
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: 10px;
-  font-family: var(--font-mono);
-}
-.pn-cmd-actions button:hover { color: var(--text, #e6e8eb); }
 
 /* ── Notes tab ───────────────────────────────────────────────────── */
 .pn-notes-tab { display: flex; flex-direction: column; }
 .pn-note-input {
-  width: 100%;
+  width: auto;
+  margin: 10px var(--rail-pad-x) 0;
   background: var(--pn-subtle-1);
   color: inherit;
   border: 1px solid var(--border, #2a2d35);
@@ -227,57 +179,26 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   outline: none;
   border-color: var(--pn-accent, var(--accent, #6aa9ff));
 }
-.pn-note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-/* Each note is a self-contained card: timestamp label on top, full-width
- * body below (no fixed timestamp column stealing rail width), delete tucked
- * top-right and revealed on hover. */
-.pn-note-card {
-  position: relative;
-  background: var(--pn-card-bg);
-  border: 1px solid var(--pn-card-border);
-  border-radius: 8px;
-  padding: 9px 12px 11px;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-.pn-note-card:hover { border-color: var(--pn-card-border-hover); }
-.pn-note-stamp {
-  display: block;
-  color: var(--muted, #8a8aa8);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.03em;
-  margin-bottom: 4px;
-}
+.pn-note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+/* Notes ride the shared rail-row chrome; only the body needs a clamp. */
 .pn-note-body {
-  color: var(--text, #e6e8eb);
+  font-size: var(--fs-body);
+  color: var(--fg);
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.6;
-  font-size: 13px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.pn-note-del {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  background: transparent;
-  border: 0;
-  color: var(--muted, #8a8aa8);
-  cursor: pointer;
-  opacity: 0;
-  font-size: 14px;
-  line-height: 1;
-  padding: 2px 4px;
-  transition: opacity 120ms ease, color 120ms ease;
-}
-.pn-note-card:hover .pn-note-del { opacity: 1; }
-.pn-note-del:hover { color: #e07070; }
 
 /* ── Docs tab ────────────────────────────────────────────────────── */
 .pn-docs-tab { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
 /* ── Command editor (modal) ──────────────────────────────────────── */
 .pn-cmd-editor {
-  margin-top: 12px;
+  margin: 8px var(--rail-pad-x);
   padding: 12px;
   background: var(--pn-subtle-1);
   border: 1px solid var(--border, #2a2d35);
@@ -331,8 +252,6 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 .pn-drafts-tab {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
   height: 100%;
   overflow-y: auto;
 }
@@ -346,63 +265,17 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 }
 
 /* ---- Prompts tab ---- */
-.pn-prompt-tab { display: flex; flex-direction: column; gap: 12px; }
-.pn-prompt-new {
-  background: transparent;
-  border: 1px dashed var(--border, #2a2d35);
-  color: var(--muted, #8a8aa8);
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 120ms, color 120ms;
-}
-.pn-prompt-new:hover {
-  border-color: var(--pn-accent, var(--accent, #6aa9ff));
-  color: var(--text, #e6e8eb);
-}
-.pn-prompt-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-.pn-prompt-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border, #2a2d35);
-  border-radius: 8px;
-  background: var(--surface, #14161b);
-}
-.pn-prompt-row:hover { border-color: color-mix(in srgb, var(--pn-accent, var(--accent, #6aa9ff)) 40%, var(--border, #2a2d35)); }
-.pn-prompt-row.pn-prompt-dragging { opacity: 0.5; }
-.pn-prompt-row.pn-prompt-drop-before { border-top: 2px solid var(--pn-accent, var(--accent, #6aa9ff)); }
-.pn-prompt-meta { flex: 1; min-width: 0; }
-.pn-prompt-title { font-weight: 500; font-size: 12px; }
-.pn-prompt-body {
-  font-size: 11px;
-  color: var(--fg-muted, #9aa0aa);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 2px;
-}
-.pn-prompt-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 120ms; }
-.pn-prompt-row:hover .pn-prompt-actions { opacity: 1; }
-.pn-prompt-actions button {
-  font-size: 11px;
-  padding: 2px 6px;
-  border: none;
-  background: transparent;
-  color: var(--fg-muted, #9aa0aa);
-  cursor: pointer;
-  border-radius: 4px;
-}
-.pn-prompt-actions button:hover { color: var(--text, #e6e8eb); }
+/* Rows + new-button ride the shared rail-* chrome (ui/src/styles.css). */
+.pn-prompt-tab { display: flex; flex-direction: column; }
+.pn-prompt-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.pn-prompt-dragging { opacity: 0.5; }
+.pn-prompt-body { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .pn-prompt-editor {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin: 8px var(--rail-pad-x);
   padding: 10px;
   border: 1px solid var(--border, #2a2d35);
   border-radius: 8px;

@@ -1355,6 +1355,57 @@ export async function beaconCancelWorkflow(cwd: string, runId: number): Promise<
   return invoke<void>("beacon_cancel_workflow", { cwd, runId });
 }
 
+// Somnus — REST client sidebar -----------------------------------------
+
+export type SomnusRequest = {
+  method: string;
+  url: string;
+  headers: [string, string][];
+  body: string | null;
+};
+
+export type SomnusResponse = {
+  status: number;
+  status_text: string;
+  headers: [string, string][];
+  body: string;
+  body_truncated: boolean;
+  body_binary: boolean;
+  duration_ms: number;
+  size_bytes: number;
+};
+
+export type SomnusHistoryEntry = {
+  id: string;
+  method: string;
+  url: string;
+  req_headers: [string, string][];
+  req_body: string | null;
+  status: number | null;
+  resp_headers: [string, string][];
+  resp_body: string | null;
+  error: string | null;
+  duration_ms: number | null;
+  size_bytes: number | null;
+  created_at_unix_ms: number;
+};
+
+export async function somnusSend(req: SomnusRequest): Promise<SomnusResponse> {
+  return invoke<SomnusResponse>("somnus_send", { req });
+}
+
+export async function somnusHistory(limit?: number): Promise<SomnusHistoryEntry[]> {
+  return invoke<SomnusHistoryEntry[]>("somnus_history", { limit: limit ?? null });
+}
+
+export async function somnusHistoryDelete(id: string): Promise<void> {
+  return invoke<void>("somnus_history_delete", { id });
+}
+
+export async function somnusHistoryClear(): Promise<void> {
+  return invoke<void>("somnus_history_clear", {});
+}
+
 // CDLC — local Covenant Dependency Lifecycle Catalog ------------------
 
 export interface InstalledRef {
@@ -2036,12 +2087,30 @@ export async function specAuthorSaveMarkdown(id: string, markdown: string): Prom
   return invoke<void>("spec_author_save_markdown", { id, markdown });
 }
 
+/** One composer-attached image, base64-encoded (no data: prefix). */
+export interface SpecAttachedImage {
+  dataB64: string;
+  mediaType: string;
+}
+
 export async function specAuthorStreamStep(
   draftId: string | null,
   userMsg: string,
   cwd: string | null,
+  images?: SpecAttachedImage[],
 ): Promise<string> {
-  return invoke<string>("spec_author_stream_step", { draftId, userMsg, cwd });
+  return invoke<string>("spec_author_stream_step", {
+    draftId, userMsg, cwd, images: images && images.length ? images : null,
+  });
+}
+
+/** Copy a draft's attached images into `<repoRoot>/docs/specs/assets/<id>/`.
+ *  Returns repo-relative paths; empty when the draft has no images. */
+export async function specAuthorMaterializeAssets(
+  id: string,
+  repoRoot: string,
+): Promise<string[]> {
+  return invoke<string[]>("spec_author_materialize_assets", { id, repoRoot });
 }
 
 export async function telegramTestConnection(): Promise<void> {
@@ -2582,7 +2651,7 @@ export interface SpawnAcpResult {
 
 /// Executors with an ACP launch profile in the backend
 /// (`AcpSpawnOpts::for_executor`).
-export type AcpExecutor = "copilot" | "pi" | "claude";
+export type AcpExecutor = "copilot" | "pi" | "claude" | "opencode";
 
 export async function spawnAcpSession(
   opts: { cwd?: string | null; resumeAcpSessionId?: string | null; executor?: AcpExecutor } = {},
@@ -2614,6 +2683,21 @@ export async function acpGetModels(sessionId: SessionId): Promise<AcpModels> {
 
 export async function acpSetModel(sessionId: SessionId, modelId: string): Promise<void> {
   return invoke<void>("acp_set_model", { sessionId, modelId });
+}
+
+/// Tell the backend this session's event listener is registered — the
+/// forwarder holds its first emit (e.g. a resume replay burst) until then.
+export async function acpMarkReady(sessionId: SessionId): Promise<void> {
+  return invoke<void>("acp_mark_ready", { sessionId });
+}
+
+/// One-shot LLM tab title from the chat transcript — same 2-word titler
+/// the PTY summarizer uses. Null when no summary route is configured.
+export async function acpSuggestTitle(
+  sessionId: SessionId,
+  transcript: string,
+): Promise<string | null> {
+  return invoke<string | null>("acp_suggest_title", { sessionId, transcript });
 }
 
 export async function closeAcpSession(sessionId: SessionId): Promise<void> {

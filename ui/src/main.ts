@@ -60,6 +60,8 @@ import { TaskerPanel } from "./tasker/panel";
 import { mountResourcesPanel } from "./resources/panel";
 import "./beacon/beacon.css";
 import { BeaconPanel } from "./beacon/panel";
+import "./somnus/somnus.css";
+import { SomnusPanel } from "./somnus/panel";
 import { resourcesSetActive, resourcesSampleNow, onResourcesUpdate } from "./api";
 import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
@@ -89,7 +91,7 @@ import "./cdlc/miner/miner.css";
 import { ContextMinerView } from "./cdlc/miner/view";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
-import { buildSpawnCmdline } from "./spawns/shortcuts";
+import { buildSpawnCmdline, acpExecutorFor } from "./spawns/shortcuts";
 import {
   TeammatePanel,
   buildTaskInjection,
@@ -250,6 +252,14 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
   ): void => {
     if (e.button !== 0) return;
     e.preventDefault();
+    // Capture the pointer so pointerup still arrives if the mouse is
+    // released outside the window — otherwise the global col-resize
+    // cursor set below is never restored.
+    try {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    } catch {
+      /* jsdom / unsupported — pointercancel listener below is the fallback */
+    }
     const startX = e.clientX;
     const key = side === "left" ? LEFT_SIDEBAR_WIDTH_KEY : RIGHT_SIDEBAR_WIDTH_KEY;
     const cssName = side === "left" ? "--tabbar-w-expanded" : "--right-sidebar-w";
@@ -285,6 +295,7 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
     const onUp = (): void => {
       window.removeEventListener("pointermove", onMove, true);
       window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
       document.body.classList.remove("sidebar-resizing");
       document.body.style.userSelect = prevSelect;
       document.body.style.cursor = prevCursor;
@@ -293,6 +304,7 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
     };
     window.addEventListener("pointermove", onMove, true);
     window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("pointercancel", onUp, true);
   };
 
   left.addEventListener("pointerdown", (e) => beginDrag(e, "left"));
@@ -554,6 +566,7 @@ async function boot(): Promise<void> {
   const taskerBtn = document.getElementById("titlebar-tasker");
   const resourcesBtn = document.getElementById("titlebar-resources");
   const beaconBtn = document.getElementById("titlebar-beacon");
+  const somnusBtn = document.getElementById("titlebar-somnus");
   const cdlcBtn = document.getElementById("titlebar-cdlc");
   type SidebarTitlebarView = "blocks" | "structure" | "activity" | "recall";
   const ACTIVITY_KEY = "covenant.sidebar-view-activity";
@@ -573,6 +586,7 @@ async function boot(): Promise<void> {
     tasker: taskerBtn,
     resources: resourcesBtn,
     beacon: beaconBtn,
+    somnus: somnusBtn,
   };
 
   const highlightRail = (target: RailTarget | null): void => {
@@ -613,6 +627,9 @@ async function boot(): Promise<void> {
       case "beacon":
         openBeaconPanel();
         break;
+      case "somnus":
+        openSomnusPanel();
+        break;
     }
   };
 
@@ -635,6 +652,9 @@ async function boot(): Promise<void> {
         break;
       case "beacon":
         closeBeaconPanel();
+        break;
+      case "somnus":
+        closeSomnusPanel();
         break;
       // Views (blocks/structure/activity/recall) need no teardown — folding
       // hides the rail; the view content stays rendered underneath.
@@ -895,6 +915,29 @@ async function boot(): Promise<void> {
     beaconBtn.innerHTML = Icons.radioTower({ size: 14 });
     attachTooltip(beaconBtn, "Beacon");
     beaconBtn.addEventListener("click", () => rail.toggle("beacon"));
+  }
+
+  // Somnus sidebar — REST client (composer + history).
+  const somnusPanelHost = requireEl<HTMLElement>("somnus-panel");
+  const somnusPanel = new SomnusPanel(somnusPanelHost, {
+    onClose: () => rail.toggle("somnus"),
+  });
+  const closeSomnusPanel = (): void => {
+    if (!document.body.classList.contains("sidebar-view-somnus")) return;
+    document.body.classList.remove("sidebar-view-somnus");
+    somnusPanelHost.classList.add("hidden");
+    somnusPanel.close();
+  };
+  const openSomnusPanel = (): void => {
+    document.body.classList.add("sidebar-view-somnus");
+    somnusPanelHost.classList.remove("hidden");
+    somnusPanel.render();
+  };
+
+  if (somnusBtn) {
+    somnusBtn.innerHTML = Icons.moon({ size: 14 });
+    attachTooltip(somnusBtn, "Somnus (⌘⌥R)");
+    somnusBtn.addEventListener("click", () => rail.toggle("somnus"));
   }
 
   // Resources sidebar — per-session CPU/memory usage. Mirrors the Tasker
@@ -1165,6 +1208,17 @@ async function boot(): Promise<void> {
         const specs = await listSpawns();
         const spec = specs.find((s) => s.id === id);
         if (!spec || !spec.command) return;
+        // ACP spawn: opens a chat tab — there is no in-terminal ACP mode.
+        // Eligibility re-checked here in case the command was edited after
+        // the flag was set.
+        const acpExec = spec.acp ? acpExecutorFor(spec) : null;
+        if (acpExec) {
+          await manager.createAcpTab({
+            cwd: manager.activeCwd(),
+            executor: acpExec,
+          });
+          return;
+        }
         const cmdline = buildSpawnCmdline(spec, claudeTheme()) + "\n";
         const bytes = new TextEncoder().encode(cmdline);
         await writeToSession(sid, bytes);
@@ -1190,6 +1244,9 @@ async function boot(): Promise<void> {
     manager.defaultAgentCmdline = async (): Promise<string | null> => {
       const specs = await listSpawns();
       const spec = specs.find((s) => s.default) ?? specs[0];
+      // An ACP default spawn has no PTY cmdline to preload — the caller
+      // falls back to a plain tab.
+      if (spec?.acp && acpExecutorFor(spec)) return null;
       return spec && spec.command ? buildSpawnCmdline(spec, claudeTheme()) : null;
     };
     // Ctrl+N quick-spawn: launch the Nth executor (list order) in the
@@ -1263,6 +1320,15 @@ async function boot(): Promise<void> {
   const statusBar = new StatusBar(statusBarHost);
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
   applyIndicatorVisibility(initialSettings?.hidden_indicators ?? []);
+  // Leading workspace chip — mirrors the active workspace and opens
+  // the same palette as the tabbar chip.
+  const pushActiveWorkspace = (): void => {
+    const active = workspaceManager.list().find((w) => w.active) ?? null;
+    statusBar.setWorkspace(active ? { name: active.name, color: active.color } : null);
+  };
+  pushActiveWorkspace();
+  workspaceManager.onChange(pushActiveWorkspace);
+  statusBar.onWorkspaceChipClick = () => switcher.togglePopover();
   // Activity sidebar — single global instance, rendered into the right
   // column when the user picks the Activity view (and always available
   // when fullscreen hides the floating notch). Same D-combo layout as
@@ -2029,6 +2095,10 @@ async function boot(): Promise<void> {
   // TODO: scroll to specific operator row when openTo API is added to SettingsPanel
   operatorPicker.onEditRequested = (_op) => { settings.toggle(); };
   statusBar.onOperatorChipClick = (sid) => { void operatorPicker.open(sid); };
+  statusBar.onOperatorClearRequested = (sid) => {
+    const tab = manager.tabForSession(sid);
+    if (tab) void manager.setTabOperator(tab.id, null);
+  };
   manager.onSetOperatorRequested = (sid) => { void operatorPicker.open(sid); };
 
   // ⌘⇧O → open operator picker for the active session.
@@ -2211,6 +2281,14 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "k" || e.key === "K")) {
       e.preventDefault();
       taskerBtn?.click();
+      return;
+    }
+    // ⌘⌥R → Somnus REST client sidebar. "®" is what ⌥R produces on macOS
+    // keyboards, so match it alongside the plain letter (same pattern as
+    // the ⌘⌥T "†" and ⌘⌥N "˜" handlers).
+    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "r" || e.key === "R" || e.key === "®")) {
+      e.preventDefault();
+      somnusBtn?.click();
       return;
     }
     // ⌘⇧G → create a new empty tab group (no member tab needed).

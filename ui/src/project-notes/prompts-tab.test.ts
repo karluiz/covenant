@@ -60,6 +60,8 @@ describe("PromptsTab", () => {
     (host.querySelector(".pn-prompt-save") as HTMLButtonElement).click();
     await new Promise((r) => setTimeout(r, 0));
     expect(host.querySelector(".pn-prompt-title")?.textContent).toBe("Review");
+    expect(host.querySelector(".rail-row .rail-name.pn-prompt-title")).not.toBeNull();
+    expect(host.querySelector(".rail-new.pn-prompt-new")).not.toBeNull();
   });
 
   it("send calls sendToActiveTabInGroup with the body", async () => {

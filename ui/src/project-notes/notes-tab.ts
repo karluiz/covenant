@@ -1,4 +1,5 @@
 import { projectNotesApi, type Note } from "./api";
+import { Icons } from "../icons";
 
 export interface NotesTabHooks {
   groupId: string;
@@ -30,7 +31,7 @@ export class NotesTab {
     this.list.className = "pn-note-list";
 
     this.sectionLabel = document.createElement("div");
-    this.sectionLabel.className = "pn-section-label";
+    this.sectionLabel.className = "rail-divider";
     this.sectionLabel.textContent = "recent";
 
     this.container.appendChild(this.input);
@@ -90,13 +91,13 @@ export class NotesTab {
     }
     for (const n of this.notes) {
       const li = document.createElement("li");
-      li.className = "pn-note-card";
+      li.className = "rail-row pn-note-card";
       li.dataset.id = n.id;
       const stamp = formatRelative(n.created_at_unix_ms);
       li.innerHTML = `
-        <span class="pn-note-stamp"></span>
         <div class="pn-note-body"></div>
-        <button class="pn-note-del" aria-label="Delete note">×</button>
+        <div class="rail-meta pn-note-stamp"></div>
+        <button class="rail-row-action pn-note-del" aria-label="Delete note">${Icons.trash({ size: 13 })}</button>
       `;
       (li.querySelector(".pn-note-stamp") as HTMLElement).textContent = stamp;
       (li.querySelector(".pn-note-body") as HTMLElement).textContent = n.body;

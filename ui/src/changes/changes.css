@@ -67,7 +67,7 @@ body.changes-fullscreen .cd-frame {
   background: rgba(var(--ink-rgb), 0.05);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 0;
   font-size: 12px;
   outline: none;
 }
@@ -87,7 +87,7 @@ body.changes-fullscreen .cd-frame {
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
-  border-radius: 6px;
+  border-radius: 0;
   cursor: pointer;
 }
 .cd-file:hover { background: rgba(var(--ink-rgb), 0.06); }
@@ -103,7 +103,7 @@ body.changes-fullscreen .cd-frame {
   opacity: 0;
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 5px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: rgba(var(--ink-rgb), 0.04);
   color: var(--text-primary);
@@ -131,7 +131,7 @@ body.changes-fullscreen .cd-frame {
   background: rgba(var(--ink-rgb), 0.05);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 0;
   font: inherit;
   font-size: 12px;
   line-height: 1.5;
@@ -146,7 +146,7 @@ body.changes-fullscreen .cd-frame {
 .cd-summarize, .cd-commit-btn {
   font-size: 12px;
   padding: 6px 12px;
-  border-radius: 7px;
+  border-radius: 0;
   border: 1px solid var(--border);
   cursor: pointer;
 }

@@ -53,10 +53,39 @@ pub enum MessageRole {
     Assistant,
 }
 
+/// A user-attached image stored on disk under the draft's asset directory.
+/// Bytes are loaded lazily when building an API request — the draft JSON only
+/// carries the path.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ImageRef {
+    pub path: String,
+    pub media_type: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct DraftMessage {
     pub role: MessageRole,
     pub content: String,
+    /// Images attached to this (user) message. Empty for legacy drafts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageRef>,
+}
+
+impl DraftMessage {
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::User,
+            content: content.into(),
+            images: Vec::new(),
+        }
+    }
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::Assistant,
+            content: content.into(),
+            images: Vec::new(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -213,16 +242,7 @@ impl Dispatcher for AnthropicDispatcher {
             .timeout(std::time::Duration::from_secs(180))
             .build()?;
 
-        let api_messages: Vec<serde_json::Value> = messages
-            .iter()
-            .map(|m| {
-                let role = match m.role {
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                };
-                serde_json::json!({ "role": role, "content": m.content })
-            })
-            .collect();
+        let api_messages = stream::anthropic_messages_json(messages);
 
         let body = serde_json::json!({
             "model": self.model,
@@ -331,19 +351,15 @@ pub async fn step<D: Dispatcher>(
     base_dir: &std::path::Path,
 ) -> Result<StepOutput> {
     // 1. Append user message.
-    draft.messages.push(DraftMessage {
-        role: MessageRole::User,
-        content: user_msg,
-    });
+    draft.messages.push(DraftMessage::user(user_msg));
 
     // 2. Dispatch — pass full conversation history.
     let response = dispatcher.dispatch(SYSTEM_PROMPT, &draft.messages).await?;
 
     // 3. Append assistant response.
-    draft.messages.push(DraftMessage {
-        role: MessageRole::Assistant,
-        content: response.clone(),
-    });
+    draft
+        .messages
+        .push(DraftMessage::assistant(response.clone()));
 
     // 4. Check for <spec>...</spec> emission.
     if let Some(markdown) = extract_spec(&response) {
@@ -497,15 +513,11 @@ pub async fn step_with_context<D: Dispatcher>(
 ) -> Result<StepOutput> {
     let (_root, system) = compose_system(cwd, base_dir);
 
-    draft.messages.push(DraftMessage {
-        role: MessageRole::User,
-        content: user_msg,
-    });
+    draft.messages.push(DraftMessage::user(user_msg));
     let response = dispatcher.dispatch(&system, &draft.messages).await?;
-    draft.messages.push(DraftMessage {
-        role: MessageRole::Assistant,
-        content: response.clone(),
-    });
+    draft
+        .messages
+        .push(DraftMessage::assistant(response.clone()));
 
     if let Some(markdown) = extract_spec(&response) {
         validate_spec_markdown(&markdown)?;
@@ -531,6 +543,90 @@ pub async fn step_with_context<D: Dispatcher>(
         phase: advanced_phase,
         text: response,
     })
+}
+
+// ── Image attachments ─────────────────────────────────────────────────────────
+
+/// Asset directory for a draft's attached images: `<base_dir>/spec-drafts/<id>/`.
+pub fn draft_assets_dir(base_dir: &Path, id: Ulid) -> PathBuf {
+    drafts_dir(base_dir).join(id.to_string())
+}
+
+pub fn ext_for_media_type(media_type: &str) -> &'static str {
+    match media_type {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ => "bin",
+    }
+}
+
+/// Persist decoded image bytes under the draft's asset dir. Returns, per image,
+/// the stored [`ImageRef`] and the canonical repo-relative path it will get on
+/// publish (`docs/specs/assets/<id>/img-N.<ext>`) — announced to the model so
+/// spec references are correct at draft time.
+pub fn save_attached_images(
+    base_dir: &Path,
+    id: Ulid,
+    images: &[(Vec<u8>, String)],
+) -> Result<Vec<(ImageRef, String)>> {
+    let dir = draft_assets_dir(base_dir, id);
+    std::fs::create_dir_all(&dir)?;
+    let existing = std::fs::read_dir(&dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("img-"))
+        .count();
+    let mut out = Vec::new();
+    for (i, (bytes, media_type)) in images.iter().enumerate() {
+        let fname = format!(
+            "img-{}.{}",
+            existing + i + 1,
+            ext_for_media_type(media_type)
+        );
+        let path = dir.join(&fname);
+        std::fs::write(&path, bytes)?;
+        out.push((
+            ImageRef {
+                path: path.display().to_string(),
+                media_type: media_type.clone(),
+            },
+            format!("docs/specs/assets/{}/{}", id, fname),
+        ));
+    }
+    Ok(out)
+}
+
+/// Copy every image attached to `id`'s draft into
+/// `<repo_root>/docs/specs/assets/<id>/`, returning repo-relative paths.
+/// No-op (empty vec) when the draft has no images.
+pub fn materialize_assets(base_dir: &Path, id: Ulid, repo_root: &Path) -> Result<Vec<String>> {
+    let draft = load_draft(base_dir, id)?;
+    let dest = repo_root
+        .join("docs")
+        .join("specs")
+        .join("assets")
+        .join(id.to_string());
+    let mut out = Vec::new();
+    for m in &draft.messages {
+        for img in &m.images {
+            let src = Path::new(&img.path);
+            let Some(fname) = src.file_name() else {
+                continue;
+            };
+            if !src.exists() {
+                continue;
+            }
+            std::fs::create_dir_all(&dest)?;
+            std::fs::copy(src, dest.join(fname))?;
+            out.push(format!(
+                "docs/specs/assets/{}/{}",
+                id,
+                fname.to_string_lossy()
+            ));
+        }
+    }
+    Ok(out)
 }
 
 /// Mark a draft as published. Loads, mutates status, saves.
@@ -599,6 +695,117 @@ fn extract_spec(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draft_message_images_serde_roundtrip_and_legacy() {
+        // Legacy JSON without `images` still loads.
+        let legacy = r#"{"role":"User","content":"hola"}"#;
+        let m: DraftMessage = serde_json::from_str(legacy).unwrap();
+        assert!(m.images.is_empty());
+        // Text-only messages serialize WITHOUT an images key (draft JSON stable).
+        let plain = serde_json::to_string(&DraftMessage::user("x")).unwrap();
+        assert!(!plain.contains("images"));
+        // With images: round-trip preserves refs.
+        let mut with = DraftMessage::user("mira el wireframe");
+        with.images.push(ImageRef {
+            path: "/tmp/img-1.png".into(),
+            media_type: "image/png".into(),
+        });
+        let json = serde_json::to_string(&with).unwrap();
+        let back: DraftMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, with);
+    }
+
+    #[test]
+    fn save_attached_images_numbers_sequentially() {
+        let tmp = tempfile::tempdir().unwrap();
+        let id = Ulid::new();
+        let first =
+            save_attached_images(tmp.path(), id, &[(vec![1, 2, 3], "image/png".into())]).unwrap();
+        assert_eq!(first.len(), 1);
+        assert!(first[0].0.path.ends_with("img-1.png"));
+        assert_eq!(first[0].1, format!("docs/specs/assets/{}/img-1.png", id));
+        // Second batch continues numbering.
+        let second =
+            save_attached_images(tmp.path(), id, &[(vec![4], "image/jpeg".into())]).unwrap();
+        assert!(second[0].0.path.ends_with("img-2.jpg"));
+        assert!(Path::new(&second[0].0.path).exists());
+    }
+
+    #[test]
+    fn materialize_assets_copies_into_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        let id = Ulid::new();
+        let saved =
+            save_attached_images(tmp.path(), id, &[(vec![9, 9], "image/png".into())]).unwrap();
+        let mut msg = DraftMessage::user("wireframe");
+        msg.images.push(saved[0].0.clone());
+        let draft = SpecDraft {
+            id,
+            messages: vec![msg],
+            partial_md: None,
+            last_updated: chrono::Utc::now(),
+            status: DraftStatus::InProgress { phase: Phase::Goal },
+            repo_root: None,
+        };
+        save_draft(tmp.path(), &draft).unwrap();
+
+        let rels = materialize_assets(tmp.path(), id, repo.path()).unwrap();
+        assert_eq!(rels, vec![format!("docs/specs/assets/{}/img-1.png", id)]);
+        assert!(repo.path().join(&rels[0]).exists());
+
+        // Draft without images → no-op.
+        let empty = SpecDraft {
+            id: Ulid::new(),
+            messages: vec![DraftMessage::user("sin fotos")],
+            partial_md: None,
+            last_updated: chrono::Utc::now(),
+            status: DraftStatus::InProgress { phase: Phase::Goal },
+            repo_root: None,
+        };
+        save_draft(tmp.path(), &empty).unwrap();
+        assert!(materialize_assets(tmp.path(), empty.id, repo.path())
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn anthropic_body_includes_image_blocks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let img_path = tmp.path().join("w.png");
+        std::fs::write(&img_path, [137, 80, 78, 71]).unwrap();
+        let mut msg = DraftMessage::user("el wireframe");
+        msg.images.push(ImageRef {
+            path: img_path.display().to_string(),
+            media_type: "image/png".into(),
+        });
+        let body = stream::anthropic_messages_json(&[DraftMessage::user("hola"), msg]);
+        // Text-only stays a plain string (cache-friendly).
+        assert!(body[0]["content"].is_string());
+        // Image message becomes blocks: image first, then text.
+        let blocks = body[1]["content"].as_array().unwrap();
+        assert_eq!(blocks[0]["type"], "image");
+        assert_eq!(blocks[0]["source"]["media_type"], "image/png");
+        assert_eq!(blocks[1]["type"], "text");
+
+        let oai = stream::openai_messages_json("sys", std::slice::from_ref(&body_msg(&img_path)));
+        let parts = oai[1]["content"].as_array().unwrap();
+        assert_eq!(parts[0]["type"], "image_url");
+        assert!(parts[0]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+    }
+
+    fn body_msg(img_path: &Path) -> DraftMessage {
+        let mut m = DraftMessage::user("mira");
+        m.images.push(ImageRef {
+            path: img_path.display().to_string(),
+            media_type: "image/png".into(),
+        });
+        m
+    }
 
     #[test]
     fn save_markdown_overwrites_partial_md() {

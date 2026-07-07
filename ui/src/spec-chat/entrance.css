@@ -170,7 +170,7 @@
   padding: 14px 16px;
   background: var(--se-card-bg);
   border: 1px solid var(--se-card-border);
-  border-radius: 12px;
+  border-radius: 0;
   cursor: pointer;
   transition:
     transform 0.22s cubic-bezier(0.18, 0.7, 0.27, 1),
@@ -232,7 +232,7 @@
   justify-content: center;
   background: transparent;
   border: none;
-  border-radius: 7px;
+  border-radius: 0;
   color: var(--se-txt-dim);
   cursor: pointer;
   opacity: 0;
@@ -259,7 +259,7 @@
   gap: 8px;
   padding: 13px 34px;
   border: none;
-  border-radius: 999px;
+  border-radius: 0;
   background: linear-gradient(180deg, var(--se-accent), var(--se-accent-soft));
   color: #fff;
   font-size: 14px;
@@ -325,7 +325,7 @@
   font-size: 11px;
   color: var(--se-txt-dim);
   border: 1px solid var(--se-card-border);
-  border-radius: 5px;
+  border-radius: 0;
   padding: 2px 7px;
   background: var(--se-card-bg);
 }

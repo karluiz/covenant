@@ -58,3 +58,35 @@ describe('mountActivityStream', () => {
     expect(bubble.textContent).not.toContain('<!--');
   });
 });
+
+describe('question cards', () => {
+  let host: HTMLElement;
+  beforeEach(() => { host = document.createElement('div'); document.body.appendChild(host); });
+
+  it('renders chips and fires onAnswer with the clicked label', () => {
+    const state = createStreamState();
+    const answers: string[] = [];
+    mountActivityStream(host, state, { onAnswer: (l) => answers.push(l) });
+    state.apply({
+      kind: 'question', question: '¿A o B?',
+      options: [{ label: 'A (recomendado)', detail: 'porque sí' }, { label: 'B' }],
+    });
+    const card = host.querySelector('.question-card')!;
+    expect(card.querySelector('.q-text')!.textContent).toBe('¿A o B?');
+    const chips = card.querySelectorAll<HTMLButtonElement>('.q-chip');
+    expect(chips).toHaveLength(2);
+    expect(chips[0]!.textContent).toContain('porque sí');
+    chips[0]!.click();
+    expect(answers).toEqual(['A (recomendado)']);
+  });
+
+  it('disables chips once the question is answered', () => {
+    const state = createStreamState();
+    mountActivityStream(host, state, { onAnswer: () => {} });
+    state.apply({ kind: 'question', question: '¿A o B?', options: [{ label: 'A' }, { label: 'B' }] });
+    state.addUserMessage('A');
+    const chips = host.querySelectorAll<HTMLButtonElement>('.q-chip');
+    expect(Array.from(chips).every((c) => c.disabled)).toBe(true);
+    expect(host.querySelector('.question-card.answered')).not.toBeNull();
+  });
+});

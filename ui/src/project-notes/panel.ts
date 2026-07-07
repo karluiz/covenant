@@ -160,6 +160,7 @@ export class ProjectNotesPanel {
       this.tabButtons[t].classList.toggle("is-active", t === this.currentTab);
     }
     this.body.replaceChildren();
+    this.body.classList.toggle("pn-body--flush", this.currentTab !== "docs");
     if (this.currentTab === "commands") {
       new CommandsTab({ groupId: this.opts.groupId }).mount(this.body);
     } else if (this.currentTab === "prompts") {

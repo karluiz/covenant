@@ -3,7 +3,8 @@ name: Release Manifest
 # Assembles the auto-updater manifest (latest.json) from the per-platform
 # artifacts that the macOS + Windows release workflows upload to the GitHub
 # Release. It is HARD-GATED: it only publishes once every required platform
-# (darwin-aarch64, darwin-x86_64, windows-x86_64) is present on the release.
+# (darwin-aarch64, darwin-x86_64, windows-x86_64, linux-x86_64) is present on
+# the release.
 # If a platform's build failed, latest.json is NOT touched, so the updater
 # keeps serving the previous good release instead of a broken partial manifest.
 #
@@ -15,7 +16,7 @@ name: Release Manifest
 
 on:
   workflow_run:
-    workflows: ["Release macOS", "Release Windows"]
+    workflows: ["Release macOS", "Release Windows", "Release Linux"]
     types: [completed]
 
 jobs:
@@ -48,9 +49,11 @@ jobs:
           X64_SIG=$(find_one '_x64\.app\.tar\.gz\.sig$')
           WIN_MSI=$(find_one '\.msi$')
           WIN_SIG=$(find_one '\.msi\.sig$')
+          LIN_APP=$(find_one '\.AppImage$')
+          LIN_SIG=$(find_one '\.AppImage\.sig$')
 
           missing=""
-          for v in ARM_TGZ ARM_SIG X64_TGZ X64_SIG WIN_MSI WIN_SIG; do
+          for v in ARM_TGZ ARM_SIG X64_TGZ X64_SIG WIN_MSI WIN_SIG LIN_APP LIN_SIG; do
             [ -z "${!v}" ] && missing="$missing $v"
           done
           if [ -n "$missing" ]; then
@@ -61,10 +64,11 @@ jobs:
 
           # Signature contents go inline into the manifest.
           gh release download "$TAG" --repo "$REPO" -D sigs \
-            -p "$ARM_SIG" -p "$X64_SIG" -p "$WIN_SIG"
+            -p "$ARM_SIG" -p "$X64_SIG" -p "$WIN_SIG" -p "$LIN_SIG"
           ARM_SIGV=$(cat "sigs/$ARM_SIG")
           X64_SIGV=$(cat "sigs/$X64_SIG")
           WIN_SIGV=$(cat "sigs/$WIN_SIG")
+          LIN_SIGV=$(cat "sigs/$LIN_SIG")
 
           jq -n \
             --arg v "$VERSION" --arg d "$DATE" \
@@ -72,17 +76,19 @@ jobs:
             --arg armurl "${BASE}/${ARM_TGZ}" --arg armsig "$ARM_SIGV" \
             --arg x64url "${BASE}/${X64_TGZ}" --arg x64sig "$X64_SIGV" \
             --arg winurl "${BASE}/${WIN_MSI}" --arg winsig "$WIN_SIGV" \
+            --arg linurl "${BASE}/${LIN_APP}" --arg linsig "$LIN_SIGV" \
             '{
               version: $v, notes: $notes, pub_date: $d,
               platforms: {
                 "darwin-aarch64": { signature: $armsig, url: $armurl },
                 "darwin-x86_64":  { signature: $x64sig, url: $x64url },
-                "windows-x86_64": { signature: $winsig, url: $winurl }
+                "windows-x86_64": { signature: $winsig, url: $winurl },
+                "linux-x86_64":   { signature: $linsig, url: $linurl }
               }
             }' > latest.json
 
           # Hard gate: every required platform key must carry a url + signature.
-          for key in darwin-aarch64 darwin-x86_64 windows-x86_64; do
+          for key in darwin-aarch64 darwin-x86_64 windows-x86_64 linux-x86_64; do
             u=$(jq -r --arg k "$key" '.platforms[$k].url // ""' latest.json)
             s=$(jq -r --arg k "$key" '.platforms[$k].signature // ""' latest.json)
             if [ -z "$u" ] || [ -z "$s" ]; then

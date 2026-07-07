@@ -13,6 +13,9 @@ export interface PaletteItem {
   id: string;
   title: string;
   subtitle?: string;
+  /// Group name, rendered as its own span so CSS can uppercase it
+  /// (groups render uppercase everywhere; never mutate the string).
+  subtitleGroup?: string;
   color?: string | null;
   icon?: string;
   current?: boolean;
@@ -28,6 +31,7 @@ export interface PaletteAction {
 }
 
 export interface Sections {
+  recent: PaletteItem[];
   workspaces: PaletteItem[];
   tabs: PaletteItem[];
   actions: PaletteItem[];
@@ -44,6 +48,7 @@ export interface BuildCtx {
   activateTab?: (index: number) => void;
 }
 
+const RECENT_CAP = 5;
 const WS_CAP = 5;
 const TAB_CAP = 8;
 const ACTION_CAP = 6;
@@ -73,12 +78,12 @@ function wsItem(w: WorkspaceView, ctx: BuildCtx, score: number): PaletteItem {
 }
 
 function tabItem(r: TabRow, ctx: BuildCtx, score: number): PaletteItem {
-  const where = [r.workspaceName, r.groupName].filter(Boolean).join(" › ");
   return {
     kind: "tab",
     id: `${r.workspaceId}:${r.tabIndex}`,
     title: r.title,
-    subtitle: where ? `in ${where}` : undefined,
+    subtitle: r.workspaceName ? `in ${r.workspaceName}` : undefined,
+    subtitleGroup: r.groupName ?? undefined,
     color: r.groupColor ?? r.workspaceColor,
     current: r.workspaceActive && r.isActiveTabInWorkspace,
     score,
@@ -103,15 +108,25 @@ export function buildSections(query: string, ctx: BuildCtx): Sections {
   const q = query.trim();
 
   if (q === "") {
+    const recentRows = ctx.tabs
+      .filter((r) => r.lastActiveAt !== null && !(r.workspaceActive && r.isActiveTabInWorkspace))
+      .sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0))
+      .slice(0, RECENT_CAP);
+    const recentIds = new Set(recentRows.map((r) => `${r.workspaceId}:${r.tabIndex}`));
+    const recent = recentRows.map((r) => tabItem(r, ctx, 0));
     const workspaces = [...ctx.workspaces]
       .sort((a, b) => b.last_used_at - a.last_used_at)
       .slice(0, WS_CAP)
       .map((w) => wsItem(w, ctx, 0));
     const tabs = ctx.tabs
-      .filter((r) => r.workspaceId === ctx.activeWorkspaceId)
+      .filter(
+        (r) =>
+          r.workspaceId === ctx.activeWorkspaceId &&
+          !recentIds.has(`${r.workspaceId}:${r.tabIndex}`),
+      )
       .slice(0, TAB_CAP)
       .map((r) => tabItem(r, ctx, 0));
-    return { workspaces, tabs, actions: [] };
+    return { recent, workspaces, tabs, actions: [] };
   }
 
   const workspaces: PaletteItem[] = [];
@@ -131,6 +146,7 @@ export function buildSections(query: string, ctx: BuildCtx): Sections {
   }
 
   return {
+    recent: [],
     workspaces: workspaces.sort(byScoreDesc).slice(0, WS_CAP),
     tabs: tabs.sort(byScoreDesc).slice(0, TAB_CAP),
     actions: actions.sort(byScoreDesc).slice(0, ACTION_CAP),
@@ -138,7 +154,7 @@ export function buildSections(query: string, ctx: BuildCtx): Sections {
 }
 
 /// Flatten sections into the cursor-traversal order (headers excluded):
-/// Workspaces → Tabs → Actions.
+/// Recent → Workspaces → Tabs → Actions.
 export function flattenSections(s: Sections): PaletteItem[] {
-  return [...s.workspaces, ...s.tabs, ...s.actions];
+  return [...s.recent, ...s.workspaces, ...s.tabs, ...s.actions];
 }

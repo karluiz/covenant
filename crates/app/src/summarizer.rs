@@ -397,6 +397,49 @@ async fn regenerate(
     Ok(())
 }
 
+/// One-shot tab title for a chat-based (ACP) session. Same prompt, route
+/// and budget as [`regenerate_agent_title`], but fed a conversation
+/// transcript instead of a PTY screen — ACP tabs have neither PTY nor
+/// screen, so the interval titler in [`run_loop`] never sees them.
+/// Returns Ok(None) when no summary route is configured or the model
+/// can't name the topic.
+pub async fn suggest_title_oneshot(
+    session_id: SessionId,
+    settings: &Arc<Mutex<Settings>>,
+    vitals: &crate::vitals::VitalsHandle,
+    transcript: &str,
+) -> Result<Option<String>, String> {
+    let text = transcript.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let resolved = {
+        let s = settings.lock().await;
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(_) => return Ok(None), // no route → silently no title
+        }
+    };
+    let started = Instant::now();
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: AGENT_TITLE_SYSTEM_PROMPT.to_string(),
+        user_message: format!("# Conversation with the agent\n{text}"),
+        max_tokens: AGENT_TITLE_MAX_TOKENS,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let model_for_vitals = req.model.clone();
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?;
+    let latency_ms = started.elapsed().as_millis();
+    vitals.record_complete(session_id, model_for_vitals, resp.usage, latency_ms as u32);
+    let (title, _) = split_title(&resp.text);
+    Ok((!title.is_empty()).then_some(title))
+}
+
 /// Split a summarizer response into (title, summary). The model is asked
 /// to make its first line `TITLE: <label>`. If absent, title is empty and
 /// the whole text is the summary (back-compat).

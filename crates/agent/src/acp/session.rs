@@ -121,6 +121,27 @@ impl AcpSpawnOpts {
                     env: Vec::new(),
                 })
             }
+            // First-party ACP server (`opencode acp`, verified vs 1.14.39:
+            // loadSession, session/list, session/set_model, image prompts).
+            // The default install lives at ~/.opencode/bin, which a
+            // GUI-launched app's PATH may not include — fall back there.
+            "opencode" => {
+                let path = augmented_path(std::env::var_os("PATH"));
+                let program = find_program_on_path("opencode", path.as_deref())
+                    .or_else(|| {
+                        let home = std::env::var_os("HOME").map(PathBuf::from)?;
+                        let p = home.join(".opencode/bin/opencode");
+                        p.exists().then_some(p)
+                    })
+                    .unwrap_or_else(|| PathBuf::from("opencode"));
+                Ok(Self {
+                    cwd,
+                    program: Some(program),
+                    extra_args: Vec::new(),
+                    agent_args: Some(vec!["acp".to_string()]),
+                    env: Vec::new(),
+                })
+            }
             other => Err(format!("unknown ACP executor: {other}")),
         }
     }
@@ -864,6 +885,10 @@ mod tests {
         assert!(name == "claude-agent-acp" || name == "npx", "got: {name}");
         assert_eq!(c2.agent_args, Some(Vec::new()));
         assert!(c2.env.is_empty());
+        // opencode: native `opencode acp` subcommand as agent_args.
+        let o = AcpSpawnOpts::for_executor("opencode", cwd.clone()).unwrap();
+        assert_eq!(o.agent_args, Some(vec!["acp".to_string()]));
+        assert!(o.program.is_some());
         // unknown: hard error, not a silent copilot fallback.
         assert!(AcpSpawnOpts::for_executor("hermes", cwd).is_err());
     }
