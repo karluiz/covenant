@@ -114,6 +114,9 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   overflow: auto;
   padding: 12px;
 }
+/* List tabs run rail-* rows edge-to-edge; docs keeps the padded surface.
+   Single-class selector so `.pn-fullscreen .pn-body` still wins in fullscreen. */
+.pn-body--flush { padding: 0; }
 .pn-fullscreen .pn-body { padding: 24px 80px; }
 
 /* ── Section labels (split layout) ───────────────────────────────── */
