@@ -10,6 +10,7 @@ import {
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { parseCurl } from "./curl";
+import { jsonTree, parseJsonBody } from "./json-tree";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -385,13 +386,21 @@ export class SomnusPanel {
       if (resp.body_truncated) {
         const note = document.createElement("div");
         note.className = "rail-notice";
-        note.textContent = "Response truncated at 2 MB";
+        note.textContent = `Response truncated (${fmtSize(resp.size_bytes)} total)`;
         this.responseHost.append(note);
       }
-      const pre = document.createElement("pre");
-      pre.className = "somnus-resp-body";
-      pre.textContent = prettyBody(resp.body);
-      this.responseHost.append(pre);
+      const parsed = parseJsonBody(resp.body);
+      if (parsed !== undefined) {
+        const tree = document.createElement("div");
+        tree.className = "somnus-json-tree";
+        tree.append(jsonTree(parsed));
+        this.responseHost.append(tree);
+      } else {
+        const pre = document.createElement("pre");
+        pre.className = "somnus-resp-body";
+        pre.textContent = prettyBody(resp.body);
+        this.responseHost.append(pre);
+      }
     }
   }
 
@@ -498,7 +507,9 @@ export class SomnusPanel {
         status_text: "",
         headers: entry.resp_headers,
         body: entry.resp_body ?? "",
-        body_truncated: false,
+        // Stored bodies are capped at 256 KB — if the original was bigger,
+        // this replay is a truncated (likely unparsable) prefix. Say so.
+        body_truncated: entry.resp_body !== null && (entry.size_bytes ?? 0) > 256 * 1024,
         body_binary: entry.resp_body === null,
         duration_ms: entry.duration_ms ?? 0,
         size_bytes: entry.size_bytes ?? 0,

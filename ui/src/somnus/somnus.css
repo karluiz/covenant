@@ -191,6 +191,69 @@ body.sidebar-view-somnus #somnus-panel {
   overflow-y: auto;
 }
 
+/* ── JSON explorer ── */
+.somnus-json-tree {
+  padding: 6px 8px;
+  background: var(--bg-elevated);
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  overflow: auto;
+  max-height: 40vh;
+}
+body.somnus-expanded #somnus-panel .somnus-json-tree {
+  max-height: none;
+}
+.jt-node > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  user-select: none;
+}
+.jt-node > summary::-webkit-details-marker {
+  display: none;
+}
+.jt-node > summary::before {
+  content: "▸";
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+.jt-node[open] > summary::before {
+  content: "▾";
+}
+.jt-children {
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.jt-leaf {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+.jt-key {
+  color: var(--text-secondary);
+}
+.jt-key::after {
+  content: ":";
+  color: var(--text-tertiary);
+}
+.jt-badge,
+.jt-more,
+.jt-null,
+.jt-bool {
+  color: var(--text-tertiary);
+}
+.jt-str {
+  color: #7ec9a2;
+  word-break: break-word;
+}
+.jt-num {
+  color: var(--accent);
+}
+
 /* ── History ── */
 .somnus-history .rail-name {
   overflow: hidden;
@@ -198,19 +261,18 @@ body.sidebar-view-somnus #somnus-panel {
   white-space: nowrap;
 }
 
-/* ── Fullscreen (body.somnus-expanded) — mirrors body.tasker-board ── */
-body.somnus-expanded #somnus-panel {
-  position: fixed;
-  inset: 38px 0 0 0;
-  bottom: calc(var(--statusbar-h) + 1px);
-  width: 100vw;
-  height: auto;
-  max-width: none;
-  border: none;
+/* ── Fullscreen (body.somnus-expanded) ──
+   IN-GRID span, not position:fixed: the fixed flip vacates the grid cell and
+   promotes a compositor layer for one frame, which flashes the wallpaper
+   through the vibrant (transparent) #layout at the panel edges. Spanning the
+   grid keeps the panel in-flow — same reveal, no layer churn. */
+/* #layout > bumps specificity above the tabbar-left placement rule
+   (body.sidebar-view-somnus.tabbar-left… #somnus-panel) in styles.css. */
+body.somnus-expanded #layout > #somnus-panel {
+  grid-row: 1 / status-start;
+  grid-column: 1 / -1;
+  border-left: none;
   z-index: 80;
-}
-body.tabbar-left.somnus-expanded #somnus-panel {
-  top: 38px;
 }
 /* Spec layout: history = full-height left column; composer on top of the
    main area, response below it. The DOM stays rail-shaped (header, composer,
