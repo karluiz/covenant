@@ -40,6 +40,24 @@ body.sidebar-view-somnus #somnus-panel {
   animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+/* Sharp corners (Tasker precedent — radius 0 everywhere). The bare
+   input.rail-search / select.rail-select elements otherwise keep WebKit's
+   native rounded chrome, so reset appearance and restyle explicitly. */
+#somnus-panel input.rail-search {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-elevated);
+  padding: 6px 8px;
+  outline: 0;
+  font-family: var(--ui-font);
+  font-size: var(--fs-body);
+}
+#somnus-panel select.rail-select {
+  border-radius: 0;
+}
+
 /* ── Composer ── */
 .somnus-composer {
   flex: 0 0 auto;
@@ -66,7 +84,7 @@ body.sidebar-view-somnus #somnus-panel {
   flex: 0 0 auto;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: var(--rail-radius);
+  border-radius: 0;
   background: var(--bg-elevated);
   color: var(--text-primary, #e6e8ee);
   font-size: var(--fs-meta);
@@ -104,7 +122,7 @@ body.sidebar-view-somnus #somnus-panel {
   min-height: 72px;
   resize: vertical;
   border: 1px solid var(--border);
-  border-radius: var(--rail-radius);
+  border-radius: 0;
   background: var(--bg-elevated);
   color: var(--text-primary, #e6e8ee);
   font-family: var(--mono-font, ui-monospace, monospace);
@@ -154,7 +172,7 @@ body.sidebar-view-somnus #somnus-panel {
 .somnus-resp-body {
   margin: 0;
   padding: 6px 8px;
-  border-radius: var(--rail-radius);
+  border-radius: 0;
   background: var(--bg-elevated);
   font-family: var(--mono-font, ui-monospace, monospace);
   font-size: var(--fs-micro);
