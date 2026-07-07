@@ -2,8 +2,40 @@
 
 use crate::spec_author::{tools, DraftMessage, DraftStatus, MessageRole, SpecDraft};
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+
+/// One selectable answer in an `ask_user` question.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct QuestionOption {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Parsed `ask_user` tool input. Persisted in the transcript as an assistant
+/// message wrapped in `<!--question:{json}-->` so resume rebuilds the card and
+/// the model sees its own question on replay.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AskUser {
+    pub question: String,
+    pub options: Vec<QuestionOption>,
+}
+
+pub const QUESTION_MARKER_OPEN: &str = "<!--question:";
+pub const QUESTION_MARKER_CLOSE: &str = "-->";
+
+/// Extract a persisted question from an assistant message, if present.
+/// The close marker is matched from the END so `-->` inside the JSON payload
+/// (e.g. an arrow in the question text) cannot truncate the parse.
+pub fn parse_question_marker(text: &str) -> Option<AskUser> {
+    let start = text.find(QUESTION_MARKER_OPEN)? + QUESTION_MARKER_OPEN.len();
+    let end = text.rfind(QUESTION_MARKER_CLOSE)?;
+    if end <= start {
+        return None;
+    }
+    serde_json::from_str(&text[start..end]).ok()
+}
 
 /// One model turn's parsed output from a streaming response.
 pub struct ModelTurn {
@@ -37,19 +69,20 @@ pub trait StreamingDispatcher: Send + Sync {
 /// Run the agentic tool-loop for one user message: repeatedly stream a turn,
 /// execute any tool calls (emitting tool_start/tool_result), feed results back,
 /// until the model answers or emits a spec. Enforces `max_tool_calls`.
+#[allow(clippy::too_many_arguments)]
 pub async fn step_streaming(
     dispatcher: &dyn StreamingDispatcher,
     draft: &mut SpecDraft,
     user_msg: String,
+    images: Vec<crate::spec_author::ImageRef>,
     repo_root: &Path,
     system: &str,
     sink: &dyn StreamSink,
     max_tool_calls: usize,
 ) -> Result<(), String> {
-    draft.messages.push(DraftMessage {
-        role: MessageRole::User,
-        content: user_msg,
-    });
+    let mut msg = DraftMessage::user(user_msg);
+    msg.images = images;
+    draft.messages.push(msg);
     let mut tool_budget = max_tool_calls;
 
     loop {
@@ -58,10 +91,9 @@ pub async fn step_streaming(
             .await?;
 
         if !turn.text.is_empty() {
-            draft.messages.push(DraftMessage {
-                role: MessageRole::Assistant,
-                content: turn.text.clone(),
-            });
+            draft
+                .messages
+                .push(DraftMessage::assistant(turn.text.clone()));
         }
 
         const KNOWN_SECTIONS: &[&str] = &[
@@ -102,8 +134,16 @@ pub async fn step_streaming(
             return Ok(());
         }
 
+        // Repo tools run first; `ask_user` ends the turn. Only ONE question per
+        // turn is honored — extras are dropped with explicit feedback, so the
+        // one-question rule is enforced in code, not prompt.
+        let (questions, repo_calls): (Vec<ToolCall>, Vec<ToolCall>) = turn
+            .tool_calls
+            .into_iter()
+            .partition(|c| c.name == "ask_user");
+
         let mut feedback = String::new();
-        for call in turn.tool_calls {
+        for call in repo_calls {
             if tool_budget == 0 {
                 sink.emit(SpecStreamEvent::Error {
                     message: "tool-call budget exhausted".into(),
@@ -138,10 +178,45 @@ pub async fn step_streaming(
                 ok,
             });
         }
-        draft.messages.push(DraftMessage {
-            role: MessageRole::User,
-            content: feedback,
-        });
+
+        if let Some(first) = questions.first() {
+            let parsed: Option<AskUser> = serde_json::from_value(first.input.clone()).ok();
+            match parsed {
+                Some(q) if !q.options.is_empty() => {
+                    if questions.len() > 1 {
+                        feedback.push_str(
+                            "[ask_user dropped — only one question per turn; only the first was shown]\n\n",
+                        );
+                    }
+                    if !feedback.is_empty() {
+                        draft.messages.push(DraftMessage::user(feedback));
+                    }
+                    let marker = format!(
+                        "{}{}{}",
+                        QUESTION_MARKER_OPEN,
+                        serde_json::to_string(&q).unwrap_or_default(),
+                        QUESTION_MARKER_CLOSE
+                    );
+                    draft.messages.push(DraftMessage::assistant(marker));
+                    sink.emit(SpecStreamEvent::Question {
+                        question: q.question,
+                        options: q.options,
+                    });
+                    sink.emit(SpecStreamEvent::TurnDone {
+                        awaiting_user: true,
+                    });
+                    return Ok(());
+                }
+                _ => {
+                    // Malformed ask_user: tell the model and let it retry.
+                    feedback.push_str(
+                        "[ask_user rejected — input must be {question, options:[{label, detail?}] (2-4)}]\n\n",
+                    );
+                }
+            }
+        }
+
+        draft.messages.push(DraftMessage::user(feedback));
     }
 }
 
@@ -174,6 +249,10 @@ pub enum SpecStreamEvent {
     },
     TurnDone {
         awaiting_user: bool,
+    },
+    Question {
+        question: String,
+        options: Vec<QuestionOption>,
     },
     Final {
         markdown: String,
@@ -259,6 +338,72 @@ fn looks_secret(t: &str) -> bool {
 
 use futures_util::StreamExt;
 
+/// Build the Anthropic `messages` array. Text-only messages stay plain strings
+/// (prompt-cache friendly); messages with images become content-block arrays
+/// with base64 image blocks before the text. Unreadable image files are
+/// skipped — the text (which names the attachment) still flows.
+pub fn anthropic_messages_json(messages: &[DraftMessage]) -> Vec<serde_json::Value> {
+    use base64::Engine as _;
+    messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                MessageRole::User => "user",
+                MessageRole::Assistant => "assistant",
+            };
+            if m.images.is_empty() {
+                return serde_json::json!({ "role": role, "content": m.content });
+            }
+            let mut blocks: Vec<serde_json::Value> = Vec::new();
+            for img in &m.images {
+                if let Ok(bytes) = std::fs::read(&img.path) {
+                    blocks.push(serde_json::json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": img.media_type,
+                            "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+                        }
+                    }));
+                }
+            }
+            blocks.push(serde_json::json!({ "type": "text", "text": m.content }));
+            serde_json::json!({ "role": role, "content": blocks })
+        })
+        .collect()
+}
+
+/// Same for OpenAI-shaped endpoints: image parts as data-URI `image_url`.
+pub fn openai_messages_json(system: &str, messages: &[DraftMessage]) -> Vec<serde_json::Value> {
+    use base64::Engine as _;
+    let mut out: Vec<serde_json::Value> =
+        vec![serde_json::json!({ "role": "system", "content": system })];
+    for m in messages {
+        let role = match m.role {
+            MessageRole::User => "user",
+            MessageRole::Assistant => "assistant",
+        };
+        if m.images.is_empty() {
+            out.push(serde_json::json!({ "role": role, "content": m.content }));
+            continue;
+        }
+        let mut parts: Vec<serde_json::Value> = Vec::new();
+        for img in &m.images {
+            if let Ok(bytes) = std::fs::read(&img.path) {
+                let uri = format!(
+                    "data:{};base64,{}",
+                    img.media_type,
+                    base64::engine::general_purpose::STANDARD.encode(bytes)
+                );
+                parts.push(serde_json::json!({ "type": "image_url", "image_url": { "url": uri } }));
+            }
+        }
+        parts.push(serde_json::json!({ "type": "text", "text": m.content }));
+        out.push(serde_json::json!({ "role": role, "content": parts }));
+    }
+    out
+}
+
 pub struct AnthropicStreamingDispatcher {
     pub api_key: String,
     pub model: String,
@@ -273,16 +418,7 @@ impl StreamingDispatcher for AnthropicStreamingDispatcher {
         sink: &dyn StreamSink,
     ) -> Result<ModelTurn, String> {
         let client = reqwest::Client::new();
-        let api_messages: Vec<serde_json::Value> = messages
-            .iter()
-            .map(|m| {
-                let role = match m.role {
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                };
-                serde_json::json!({ "role": role, "content": m.content })
-            })
-            .collect();
+        let api_messages = anthropic_messages_json(messages);
 
         // Opus 4.8 supports adaptive thinking only (`{type:"enabled", budget_tokens}`
         // 400s). `display:"summarized"` opts back into streamed thinking text (the
@@ -443,16 +579,7 @@ impl StreamingDispatcher for OpenAiStreamingDispatcher {
         sink: &dyn StreamSink,
     ) -> Result<ModelTurn, String> {
         let client = reqwest::Client::new();
-
-        let mut api_messages: Vec<serde_json::Value> =
-            vec![serde_json::json!({ "role": "system", "content": system })];
-        for m in messages {
-            let role = match m.role {
-                MessageRole::User => "user",
-                MessageRole::Assistant => "assistant",
-            };
-            api_messages.push(serde_json::json!({ "role": role, "content": m.content }));
-        }
+        let api_messages = openai_messages_json(system, messages);
 
         let mut body = serde_json::json!({
             "max_tokens": 4096,
@@ -639,9 +766,18 @@ mod tests {
         let disp = ScriptedDispatcher {
             calls: Mutex::new(0),
         };
-        step_streaming(&disp, &mut draft, "hi".into(), &root, "sys", &sink, 40)
-            .await
-            .unwrap();
+        step_streaming(
+            &disp,
+            &mut draft,
+            "hi".into(),
+            vec![],
+            &root,
+            "sys",
+            &sink,
+            40,
+        )
+        .await
+        .unwrap();
         let events = sink.0.lock().unwrap();
         assert!(events
             .iter()
@@ -687,6 +823,7 @@ mod tests {
             &AlwaysToolDispatcher,
             &mut draft,
             "hi".into(),
+            vec![],
             &std::env::temp_dir(),
             "sys",
             &sink,
@@ -698,6 +835,133 @@ mod tests {
         assert!(events
             .iter()
             .any(|e| matches!(e, SpecStreamEvent::Error { .. })));
+    }
+
+    // Mock: one turn with list_dir + two ask_user calls (tests ordering + drop).
+    struct QuestionDispatcher;
+    #[async_trait]
+    impl StreamingDispatcher for QuestionDispatcher {
+        async fn stream_turn(
+            &self,
+            _s: &str,
+            _m: &[DraftMessage],
+            _sink: &dyn StreamSink,
+        ) -> Result<ModelTurn, String> {
+            let ask = |q: &str| ToolCall {
+                id: format!("q-{q}"),
+                name: "ask_user".into(),
+                input: serde_json::json!({
+                    "question": q,
+                    "options": [
+                        {"label": "A (recomendado)", "detail": "why A"},
+                        {"label": "B"}
+                    ]
+                }),
+            };
+            Ok(ModelTurn {
+                tool_calls: vec![
+                    ask("¿A o B?"),
+                    ToolCall {
+                        id: "t1".into(),
+                        name: "list_dir".into(),
+                        input: serde_json::json!({"path":"."}),
+                    },
+                    ask("¿segunda?"),
+                ],
+                text: String::new(),
+                emitted_spec: None,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn ask_user_ends_turn_with_question_event() {
+        let sink = VecSink(Mutex::new(vec![]));
+        let mut draft = fresh_draft();
+        step_streaming(
+            &QuestionDispatcher,
+            &mut draft,
+            "hi".into(),
+            vec![],
+            &std::env::temp_dir(),
+            "sys",
+            &sink,
+            40,
+        )
+        .await
+        .unwrap();
+        let events = sink.0.lock().unwrap();
+        // Repo tool ran before the question.
+        let tool_idx = events
+            .iter()
+            .position(|e| matches!(e, SpecStreamEvent::ToolResult { .. }))
+            .unwrap();
+        let q_idx = events
+            .iter()
+            .position(|e| matches!(e, SpecStreamEvent::Question { .. }))
+            .unwrap();
+        assert!(tool_idx < q_idx);
+        // Exactly ONE question surfaced despite two ask_user calls.
+        let q_count = events
+            .iter()
+            .filter(|e| matches!(e, SpecStreamEvent::Question { .. }))
+            .count();
+        assert_eq!(q_count, 1);
+        match &events[q_idx] {
+            SpecStreamEvent::Question { question, options } => {
+                assert_eq!(question, "¿A o B?");
+                assert_eq!(options.len(), 2);
+                assert_eq!(options[0].detail.as_deref(), Some("why A"));
+            }
+            _ => unreachable!(),
+        }
+        assert!(matches!(
+            events.last(),
+            Some(SpecStreamEvent::TurnDone {
+                awaiting_user: true
+            })
+        ));
+        // Transcript: tool feedback (with drop note) then the question marker.
+        let last = draft.messages.last().unwrap();
+        assert_eq!(last.role, MessageRole::Assistant);
+        let q = parse_question_marker(&last.content).unwrap();
+        assert_eq!(q.question, "¿A o B?");
+        let feedback = &draft.messages[draft.messages.len() - 2];
+        assert_eq!(feedback.role, MessageRole::User);
+        assert!(feedback.content.contains("only one question per turn"));
+    }
+
+    #[test]
+    fn question_marker_roundtrip_survives_arrow_in_text() {
+        let q = AskUser {
+            question: "¿migrar A --> B?".into(),
+            options: vec![QuestionOption {
+                label: "sí".into(),
+                detail: None,
+            }],
+        };
+        let marker = format!(
+            "{}{}{}",
+            QUESTION_MARKER_OPEN,
+            serde_json::to_string(&q).unwrap(),
+            QUESTION_MARKER_CLOSE
+        );
+        assert_eq!(parse_question_marker(&marker).unwrap(), q);
+        assert_eq!(parse_question_marker("no marker here"), None);
+    }
+
+    #[test]
+    fn question_event_serializes() {
+        let e = SpecStreamEvent::Question {
+            question: "¿A o B?".into(),
+            options: vec![QuestionOption {
+                label: "A".into(),
+                detail: Some("why".into()),
+            }],
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "question");
+        assert_eq!(v["options"][0]["label"], "A");
     }
 
     #[test]

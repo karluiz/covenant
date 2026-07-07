@@ -2968,6 +2968,7 @@ name = "karl-agent"
 version = "0.8.131"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
  "futures-util",

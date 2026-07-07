@@ -3171,6 +3171,17 @@ impl karl_agent::spec_author::stream::StreamSink for TauriSink {
     }
 }
 
+/// One composer-attached image, base64-encoded by the frontend.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachedImageDto {
+    data_b64: String,
+    media_type: String,
+}
+
+const MAX_SPEC_IMAGES: usize = 5;
+const MAX_SPEC_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+
 #[tauri::command]
 async fn spec_author_stream_step(
     app: tauri::AppHandle,
@@ -3178,6 +3189,7 @@ async fn spec_author_stream_step(
     draft_id: Option<String>,
     user_msg: String,
     cwd: Option<String>,
+    images: Option<Vec<AttachedImageDto>>,
 ) -> Result<String, String> {
     use karl_agent::spec_author as sa;
     let base_dir = sa::home_covenant_dir().map_err(|e| e.to_string())?;
@@ -3222,6 +3234,35 @@ async fn spec_author_stream_step(
         }
     }
     let (repo_root, system) = sa::compose_system(cwd_path.as_deref(), &base_dir);
+
+    // Decode + persist composer attachments; announce each image's canonical
+    // publish path in the message text so the model can reference it in the spec.
+    let mut user_msg = user_msg;
+    let mut image_refs: Vec<sa::ImageRef> = Vec::new();
+    if let Some(imgs) = images {
+        use base64::Engine as _;
+        if imgs.len() > MAX_SPEC_IMAGES {
+            return Err(format!("máximo {} imágenes por mensaje", MAX_SPEC_IMAGES));
+        }
+        let mut decoded: Vec<(Vec<u8>, String)> = Vec::new();
+        for img in &imgs {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(&img.data_b64)
+                .map_err(|e| format!("imagen inválida: {e}"))?;
+            if bytes.len() > MAX_SPEC_IMAGE_BYTES {
+                return Err("imagen supera 5MB".into());
+            }
+            decoded.push((bytes, img.media_type.clone()));
+        }
+        if !decoded.is_empty() {
+            let saved = sa::save_attached_images(&base_dir, draft.id, &decoded)
+                .map_err(|e| e.to_string())?;
+            for (r, publish_path) in saved {
+                user_msg.push_str(&format!("\n[imagen adjunta — al publicar: {publish_path}]"));
+                image_refs.push(r);
+            }
+        }
+    }
 
     let sink = TauriSink {
         app: app.clone(),
@@ -3322,6 +3363,7 @@ async fn spec_author_stream_step(
         &*dispatcher,
         &mut draft,
         user_msg,
+        image_refs,
         &repo_root,
         &system,
         &sink,
@@ -3385,6 +3427,26 @@ async fn spec_author_delete_draft(id: String) -> Result<(), String> {
 async fn spec_author_save_markdown(id: String, markdown: String) -> Result<(), String> {
     let ulid = id.parse::<Ulid>().map_err(|e| e.to_string())?;
     karl_agent::spec_author::save_markdown_default(ulid, &markdown).map_err(|e| e.to_string())
+}
+
+/// Copy a draft's attached images into `<repo_root>/docs/specs/assets/<id>/`
+/// so the published spec's visual references resolve for the executor.
+#[tauri::command]
+async fn spec_author_materialize_assets(
+    id: String,
+    repo_root: String,
+) -> Result<Vec<String>, String> {
+    use karl_agent::spec_author as sa;
+    let ulid = id.parse::<Ulid>().map_err(|e| e.to_string())?;
+    let cwd = std::path::PathBuf::from(&repo_root);
+    if !cwd.is_dir() {
+        return Err(format!("repo root is not a directory: {repo_root}"));
+    }
+    // The UI passes the tab's cwd — resolve up to the enclosing git root so
+    // assets land at the repo's docs/specs/assets/, not a subdirectory's.
+    let root = sa::resolve_repo_root(&cwd);
+    let base = sa::home_covenant_dir().map_err(|e| e.to_string())?;
+    sa::materialize_assets(&base, ulid, &root).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -4601,6 +4663,7 @@ pub fn run() {
             spec_author_mark_published,
             spec_author_delete_draft,
             spec_author_save_markdown,
+            spec_author_materialize_assets,
             validate_sendgrid_key,
             project_notes::project_notes_get,
             project_notes::project_command_create,

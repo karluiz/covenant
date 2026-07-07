@@ -135,3 +135,28 @@ describe('createStreamState', () => {
     expect(s.finalMarkdown()).toBeNull();
   });
 });
+
+describe('ask_user question flow', () => {
+  it('question event commits prose and appends an unanswered card', () => {
+    const s = createStreamState();
+    s.apply({ kind: 'text_delta', text: 'Exploré el repo.' });
+    s.apply({ kind: 'question', question: '¿A o B?', options: [{ label: 'A (recomendado)', detail: 'why' }, { label: 'B' }] });
+    const msgs = s.messages();
+    expect(msgs[msgs.length - 2]).toEqual({ role: 'assistant', content: 'Exploré el repo.' });
+    const card = msgs[msgs.length - 1]!;
+    expect(card.role).toBe('question');
+    if (card.role === 'question') {
+      expect(card.question).toBe('¿A o B?');
+      expect(card.options).toHaveLength(2);
+      expect(card.answered).toBe(false);
+    }
+  });
+
+  it('answering marks pending question cards answered', () => {
+    const s = createStreamState();
+    s.apply({ kind: 'question', question: '¿A o B?', options: [{ label: 'A' }, { label: 'B' }] });
+    s.addUserMessage('A');
+    const card = s.messages().find((m) => m.role === 'question')!;
+    expect(card.role === 'question' && card.answered).toBe(true);
+  });
+});

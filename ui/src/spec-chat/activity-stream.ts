@@ -10,10 +10,19 @@ const itemFromHtml = (html: string): HTMLElement => {
   return d.firstElementChild as HTMLElement;
 };
 
+export interface ActivityStreamOpts {
+  /** Called when the user clicks an option chip on a question card. */
+  onAnswer?: (label: string) => void;
+}
+
 /** Mount the reasoning/exploration stream. Renders incrementally: committed
  *  turns are append-only and live nodes (thinking, tools, streaming text) are
  *  updated in place, so a fast token stream never rebuilds the whole DOM. */
-export function mountActivityStream(host: HTMLElement, state: StreamState): () => void {
+export function mountActivityStream(
+  host: HTMLElement,
+  state: StreamState,
+  opts: ActivityStreamOpts = {},
+): () => void {
   const stream = document.createElement('div');
   stream.className = 'stream';
   host.appendChild(stream);
@@ -34,14 +43,36 @@ export function mountActivityStream(host: HTMLElement, state: StreamState): () =
   let liveText: HTMLElement | null = null;
   let errEl: HTMLElement | null = null;
   const toolRows = new Map<string, { box: HTMLElement; verb: HTMLElement; path: HTMLElement; hit: HTMLElement }>();
+  // Question cards mutate after commit (answered flips) — track them by index.
+  const questionCards = new Map<number, HTMLElement>();
+
+  const buildQuestionCard = (m: { question: string; options: { label: string; detail?: string }[] }): HTMLElement => {
+    const el = itemFromHtml(
+      `<div class="item"><div class="question-card">` +
+      `<div class="q-text">${esc(m.question)}</div>` +
+      `<div class="q-options"></div></div></div>`);
+    const optsEl = el.querySelector('.q-options') as HTMLElement;
+    for (const o of m.options) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'q-chip';
+      btn.innerHTML = o.detail
+        ? `<span class="q-label">${esc(o.label)}</span><span class="q-detail">${esc(o.detail)}</span>`
+        : `<span class="q-label">${esc(o.label)}</span>`;
+      btn.addEventListener('click', () => opts.onAnswer?.(o.label));
+      optsEl.appendChild(btn);
+    }
+    return el;
+  };
 
   const renderCommitted = () => {
     const msgs = state.messages();
-    // Committed turns are immutable & append-only; a shorter list means a
-    // wholesale replace (hydrate/reset), so rebuild from scratch.
+    // Committed turns are append-only; a shorter list means a wholesale
+    // replace (hydrate/reset), so rebuild from scratch.
     if (msgs.length < committedCount) {
       while (stream.firstChild && stream.firstChild !== live) stream.removeChild(stream.firstChild);
       committedCount = 0;
+      questionCards.clear();
     }
     for (let i = committedCount; i < msgs.length; i++) {
       const m = msgs[i]!;
@@ -52,6 +83,9 @@ export function mountActivityStream(host: HTMLElement, state: StreamState): () =
         el = itemFromHtml(
           `<div class="item"><div class="tool">` +
           `<span class="verb">${esc(m.tool)}</span>${path}${hit}</div></div>`);
+      } else if (m.role === 'question') {
+        el = buildQuestionCard(m);
+        questionCards.set(i, el);
       } else {
         const cls = m.role === 'user' ? 'user' : 'asst';
         const body = m.role === 'user' ? esc(m.content) : renderProse(m.content);
@@ -60,6 +94,14 @@ export function mountActivityStream(host: HTMLElement, state: StreamState): () =
       stream.insertBefore(el, live);
     }
     committedCount = msgs.length;
+    // Sync answered state on already-rendered cards (chips go inert).
+    for (const [i, el] of questionCards) {
+      const m = msgs[i];
+      if (!m || m.role !== 'question') continue;
+      const card = el.querySelector('.question-card');
+      card?.classList.toggle('answered', m.answered);
+      el.querySelectorAll<HTMLButtonElement>('.q-chip').forEach((b) => { b.disabled = m.answered; });
+    }
   };
 
   const renderThinking = () => {

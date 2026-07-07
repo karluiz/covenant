@@ -49,3 +49,46 @@ describe('parsePersistedTranscript', () => {
     ]);
   });
 });
+
+describe('question markers', () => {
+  const marker = (q: object) => `<!--question:${JSON.stringify(q)}-->`;
+
+  it('rebuilds an answered question card mid-transcript', () => {
+    const items = parsePersistedTranscript([
+      { role: 'user', content: 'quiero X' },
+      { role: 'assistant', content: marker({ question: '¿A o B?', options: [{ label: 'A' }, { label: 'B' }] }) },
+      { role: 'user', content: 'A' },
+    ]);
+    expect(items).toHaveLength(3);
+    const card = items[1]!;
+    expect(card.role).toBe('question');
+    if (card.role === 'question') {
+      expect(card.question).toBe('¿A o B?');
+      expect(card.answered).toBe(true);
+    }
+  });
+
+  it('a trailing question is still awaiting an answer on resume', () => {
+    const items = parsePersistedTranscript([
+      { role: 'user', content: 'quiero X' },
+      { role: 'assistant', content: marker({ question: '¿A o B?', options: [{ label: 'A' }] }) },
+    ]);
+    const card = items[items.length - 1]!;
+    expect(card.role === 'question' && !card.answered).toBe(true);
+  });
+
+  it('survives --> inside the question text', () => {
+    const items = parsePersistedTranscript([
+      { role: 'assistant', content: marker({ question: 'migrar A --> B?', options: [{ label: 'sí' }] }) },
+    ]);
+    const card = items[0]!;
+    expect(card.role === 'question' && card.question).toBe('migrar A --> B?');
+  });
+
+  it('malformed question JSON falls back to a plain assistant bubble', () => {
+    const items = parsePersistedTranscript([
+      { role: 'assistant', content: '<!--question:{not json}-->' },
+    ]);
+    expect(items[0]!.role).toBe('assistant');
+  });
+});
