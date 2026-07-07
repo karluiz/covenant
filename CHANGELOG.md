@@ -6,6 +6,41 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.133 — Somnus REST client (rail composer + history)
+
+### Added
+
+- **Somnus REST client**: a new right-rail panel (moon titlebar button,
+  ⌘⌥R) to compose HTTP requests — method, URL, headers, body — send
+  them, and keep an automatic history. All HTTP goes through Rust
+  (`crates/app/src/somnus.rs`, reqwest with a 30s timeout, http/https
+  only, 256 KB stored / 2 MB displayed body caps, binary bodies not
+  stored); the webview never fetches cross-origin. History persists in
+  a new `somnus_history` table (`crates/app/src/storage.rs`) with
+  record/list/delete/clear commands, written by `somnus_send` itself so
+  future operator requests share the same write-path (`ui/src/somnus/`).
+
+- **curl paste**: pasting a `curl ...` command into the URL input parses
+  `-X`, `-H`, and `-d`/`--data`/`--data-raw` into the composer fields
+  (`ui/src/somnus/curl.ts`).
+
+- **Fullscreen mode**: the expand button (or Esc to leave) switches the
+  panel to a fixed fullscreen layout — history as a full-height left
+  column, roomier composer on top of the main area, response below it,
+  with an empty-state hint instead of a blank void
+  (`body.somnus-expanded`, Tasker-board precedent).
+
+### Fixed
+
+- **Sharp corners in Tasker**: zeroed every px `border-radius` in the
+  Tasker list and kanban board (`ui/src/tasker/styles.css`, `board.css`)
+  — status dots keep their 50%.
+
+- **Sharp corners in Somnus**: radius-0 sweep plus a reset of WebKit's
+  native input/select chrome (`-webkit-appearance: none` with an
+  explicit border and a hand-drawn select chevron), which otherwise
+  keeps rounded corners regardless of CSS (`ui/src/somnus/somnus.css`).
+
 ## v0.8.132 — Spec Author v2 + switcher Recent section
 
 ### Added
