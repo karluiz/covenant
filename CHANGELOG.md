@@ -6,6 +6,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.135 — Somnus toggle in Indicators settings
+
+### Added
+
+- **Somnus indicator toggle**: Settings → Appearance → Indicators grows a
+  "Somnus REST client" entry (Titlebar group) to show/hide the moon
+  button `#titlebar-somnus`, same registry-driven mechanism as the other
+  indicators (`ui/src/indicators.ts`).
+
 ## v0.8.134 — Somnus JSON explorer + in-grid fullscreen
 
 ### Added
