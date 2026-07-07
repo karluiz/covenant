@@ -35,8 +35,11 @@ body.blocks-globally-collapsed #somnus-panel {
   display: none;
 }
 
-/* Shared opaque-nudge entrance — no opacity fade (vibrancy bleed). */
-body.sidebar-view-somnus #somnus-panel {
+/* Shared opaque-nudge entrance — on the INNER .rail-panel, not the host:
+   nudging the host exposes a 6px column of transparent #layout along its
+   left edge for 160ms and the wallpaper flashes through (vibrancy bleed).
+   The static opaque host keeps the grid cell covered while content slides. */
+body.sidebar-view-somnus #somnus-panel .rail-panel {
   animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 

@@ -100,6 +100,7 @@ import { ChangesSurface } from "./changes/index";
 import { gitRepoSummary } from "./api";
 import { handleHandoffRouted, type HandoffRoutedEvent } from "./teammate/handoff-spawn";
 import type { TabPlacement } from "./tabs/manager";
+import "./debug-somnus-probe"; // TEMP DEBUG — DELETE
 
 type LastCallChoice = "use" | "without" | "cancel";
 
