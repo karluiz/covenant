@@ -12,14 +12,8 @@ fn make_draft(status: DraftStatus) -> SpecDraft {
     SpecDraft {
         id: Ulid::new(),
         messages: vec![
-            DraftMessage {
-                role: MessageRole::User,
-                content: "What should the spec cover?".to_string(),
-            },
-            DraftMessage {
-                role: MessageRole::Assistant,
-                content: "Let's start with the goal.".to_string(),
-            },
+            DraftMessage::user("What should the spec cover?".to_string()),
+            DraftMessage::assistant("Let's start with the goal.".to_string()),
         ],
         partial_md: Some("## Goal\n\nFoo bar.".to_string()),
         last_updated: Utc::now(),
