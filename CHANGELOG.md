@@ -6,6 +6,53 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.132 — Spec Author v2 + switcher Recent section
+
+### Added
+
+- **Spec Author v2 backend**: real repo tools (regex+glob `grep`, `glob`,
+  `git_log`, `git_show` — all jailed to the repo), a code-enforced
+  `ask_user` tool (one question per turn, persisted for resume), a
+  rewritten propose-first prompt (EXPLORE → APPROACHES → CLARIFY → DRAFT →
+  SELF-REVIEW → EMIT), and image attachments — base64 in via
+  `spec_author_stream_step`, materialized into
+  `docs/specs/assets/<draft-id>/` on publish (`crates/app`, spec-author
+  dispatchers).
+
+- **Spec Creator v2 frontend**: question chips for `ask_user`, image
+  attach + preview in the composer, and resume that rebuilds the full
+  activity stream from the transcript (`ui/src/spec-chat/`).
+
+- **Recent section in the ⌘⌥T switcher**: the five most recently
+  activated tabs lead the palette (current tab excluded, deduped out of
+  Tabs); group names in tab subtitles now render uppercase via a
+  dedicated `.cp-sub-group` span (`ui/src/workspaces/`,
+  `ui/src/tabs/manager.ts`).
+
+- **LLM tab titles for ACP chats**: chat tabs retitle to a 2-word label
+  derived from the prompt, reusing the PTY screen titler
+  (`acp_suggest_title`).
+
+### Changed
+
+- **Structure tree uses the shared ContextMenu**: the hand-rolled
+  context menu (and its per-callsite zoom counter-scaling) is replaced by
+  the same `ContextMenu` component the editor and tabs use
+  (`ui/src/structure/tree.ts`).
+
+- **Sharp-corner design pass**: `border-radius` flattened to 0 across the
+  changes viewer, Spec Creator entrance/immersive chrome, and global
+  styles.
+
+- **UI polish**: ACP YOU bubbles render attached-image thumbnails with
+  lightbox, the global search mode badge gets per-mode icons, the status
+  bar operator chip can clear its bound operator, and sidebar resizers
+  capture the pointer so releasing outside the window restores the
+  cursor.
+
+- **Somnus REST client design doc**: right-rail HTTP composer + history
+  design approved (`docs/`), implementation not started.
+
 ## v0.8.131 — EMFILE fd-limit fix + ACP chat polish
 
 ### Added
