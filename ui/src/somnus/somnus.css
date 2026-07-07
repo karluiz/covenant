@@ -1,0 +1,215 @@
+/* Somnus — REST client sidebar (right rail, Beacon/Tasker host pattern).
+   Visual chrome comes from the shared .rail-* system in styles.css; this
+   file owns the host placement, composer layout, and fullscreen mode. */
+
+#somnus-panel.hidden {
+  display: none !important;
+}
+
+#somnus-panel,
+#somnus-panel * {
+  box-sizing: border-box;
+}
+
+#somnus-panel {
+  position: relative;
+  grid-row: 2 / 3;
+  grid-column: 2 / 3;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
+  background: var(--sidebar-bg);
+  border-left: 1px solid var(--border);
+  font-family: var(--ui-font);
+  /* Grid-item min-content otherwise stretches #layout's 1fr row when the
+     history list is long — same rule as #tasker-panel / #beacon-panel. */
+  overflow: hidden;
+}
+
+body:not(.sidebar-view-somnus) #somnus-panel {
+  display: none;
+}
+body.blocks-globally-collapsed #somnus-panel {
+  display: none;
+}
+
+/* Shared opaque-nudge entrance — no opacity fade (vibrancy bleed). */
+body.sidebar-view-somnus #somnus-panel {
+  animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ── Composer ── */
+.somnus-composer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px var(--rail-pad-x);
+  border-bottom: 1px solid var(--border);
+}
+.somnus-line {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.somnus-method {
+  flex: 0 0 auto;
+  width: 74px;
+}
+.somnus-url {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.somnus-send {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--rail-radius);
+  background: var(--bg-elevated);
+  color: var(--text-primary, #e6e8ee);
+  font-size: var(--fs-meta);
+  cursor: pointer;
+}
+.somnus-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* .rail-controls carries its own horizontal padding for panel-level use;
+   inside the already-padded composer that would double-indent the tabs. */
+.somnus-composer .rail-controls {
+  padding: 0;
+}
+.somnus-header-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.somnus-header-row .rail-search {
+  flex: 1 1 50%;
+  min-width: 0;
+}
+.somnus-add-header {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  padding: 0;
+}
+.somnus-bodybox {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--rail-radius);
+  background: var(--bg-elevated);
+  color: var(--text-primary, #e6e8ee);
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: var(--fs-meta);
+  padding: 6px 8px;
+}
+.somnus-bodybox:disabled {
+  opacity: 0.4;
+}
+/* Tab visibility: composer shows headers OR body */
+.rail-panel.somnus-tab-headers .somnus-bodybox {
+  display: none;
+}
+.rail-panel.somnus-tab-body .somnus-headers,
+.rail-panel.somnus-tab-body .somnus-add-header {
+  display: none;
+}
+
+/* ── Response ── */
+.somnus-response {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px var(--rail-pad-x);
+}
+.somnus-response:empty {
+  display: none;
+}
+.somnus-resp-status {
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  padding-left: 8px;
+  border-left: var(--rail-spine) solid var(--border);
+}
+.somnus-resp-status[data-spine="ok"] {
+  border-left-color: #34d399;
+}
+.somnus-resp-status[data-spine="fail"] {
+  border-left-color: #ef6b7e;
+}
+.somnus-resp-headers summary {
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.somnus-resp-headers pre,
+.somnus-resp-body {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--rail-radius);
+  background: var(--bg-elevated);
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+/* ── History ── */
+.somnus-history .rail-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Fullscreen (body.somnus-expanded) — mirrors body.tasker-board ── */
+body.somnus-expanded #somnus-panel {
+  position: fixed;
+  inset: 38px 0 0 0;
+  bottom: calc(var(--statusbar-h) + 1px);
+  width: 100vw;
+  height: auto;
+  max-width: none;
+  border: none;
+  z-index: 80;
+}
+body.tabbar-left.somnus-expanded #somnus-panel {
+  top: 38px;
+}
+/* History becomes a left column; response takes the main area. */
+body.somnus-expanded #somnus-panel .rail-body {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  overflow: hidden;
+}
+body.somnus-expanded #somnus-panel .somnus-history {
+  grid-column: 1;
+  grid-row: 1;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+body.somnus-expanded #somnus-panel .somnus-response {
+  grid-column: 2;
+  grid-row: 1;
+  overflow-y: auto;
+}
+body.somnus-expanded #somnus-panel .somnus-resp-body,
+body.somnus-expanded #somnus-panel .somnus-resp-headers pre {
+  max-height: none;
+}
+body.somnus-expanded #somnus-panel .somnus-composer {
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  border-bottom: none;
+}

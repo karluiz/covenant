@@ -62,6 +62,7 @@ mod score_sync_commands;
 mod scrollback;
 pub mod settings;
 mod soul;
+mod somnus;
 mod spawns_commands;
 mod spawns_store;
 mod spec_detector;
@@ -3870,6 +3871,7 @@ pub fn run() {
             app.manage(teammate_runtime.clone());
             app.manage(project_notes::Store::new(storage.conn()));
             app.manage(prompts::PromptStore::new(storage.conn()));
+            app.manage(somnus::Store::new(storage.conn()));
 
             // Task supervisor: aggregates per-session SessionEvent buses
             // and translates BlockFinished into operator sentiment +
@@ -4570,6 +4572,10 @@ pub fn run() {
             beacon_workflow_runs,
             beacon_rerun_workflow,
             beacon_cancel_workflow,
+            somnus::somnus_send,
+            somnus::somnus_history,
+            somnus::somnus_history_delete,
+            somnus::somnus_history_clear,
             cdlc_eval::cdlc_run_evals,
             cdlc_eval::cdlc_eval_summary,
             cdlc_local_status,

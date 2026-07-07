@@ -1355,6 +1355,57 @@ export async function beaconCancelWorkflow(cwd: string, runId: number): Promise<
   return invoke<void>("beacon_cancel_workflow", { cwd, runId });
 }
 
+// Somnus — REST client sidebar -----------------------------------------
+
+export type SomnusRequest = {
+  method: string;
+  url: string;
+  headers: [string, string][];
+  body: string | null;
+};
+
+export type SomnusResponse = {
+  status: number;
+  status_text: string;
+  headers: [string, string][];
+  body: string;
+  body_truncated: boolean;
+  body_binary: boolean;
+  duration_ms: number;
+  size_bytes: number;
+};
+
+export type SomnusHistoryEntry = {
+  id: string;
+  method: string;
+  url: string;
+  req_headers: [string, string][];
+  req_body: string | null;
+  status: number | null;
+  resp_headers: [string, string][];
+  resp_body: string | null;
+  error: string | null;
+  duration_ms: number | null;
+  size_bytes: number | null;
+  created_at_unix_ms: number;
+};
+
+export async function somnusSend(req: SomnusRequest): Promise<SomnusResponse> {
+  return invoke<SomnusResponse>("somnus_send", { req });
+}
+
+export async function somnusHistory(limit?: number): Promise<SomnusHistoryEntry[]> {
+  return invoke<SomnusHistoryEntry[]>("somnus_history", { limit: limit ?? null });
+}
+
+export async function somnusHistoryDelete(id: string): Promise<void> {
+  return invoke<void>("somnus_history_delete", { id });
+}
+
+export async function somnusHistoryClear(): Promise<void> {
+  return invoke<void>("somnus_history_clear", {});
+}
+
 // CDLC — local Covenant Dependency Lifecycle Catalog ------------------
 
 export interface InstalledRef {

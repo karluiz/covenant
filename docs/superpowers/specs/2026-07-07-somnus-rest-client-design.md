@@ -126,7 +126,7 @@ Stored `resp_body` is capped at **256 KB** to keep history.db lean (display cap 
 
 ## Data flow
 
-Panel Send → `api.ts somnus.send()` → `invoke("somnus_send")` → reqwest → history row written → `SomnusResponse` back → panel renders response + prepends the history entry locally (no re-fetch needed; `somnus_history` is for panel open / reload).
+Panel Send → `api.ts somnusSend()` → `invoke("somnus_send")` → reqwest → history row written → `SomnusResponse` back → panel renders response, then re-fetches `somnus_history` so rows carry their real ids (needed for per-row delete).
 
 ## Error handling
 
