@@ -347,7 +347,7 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 }
 
 /* ---- Prompts tab ---- */
-.pn-prompt-tab { display: flex; flex-direction: column; gap: 12px; }
+.pn-prompt-tab { display: flex; flex-direction: column; }
 .pn-prompt-new {
   background: transparent;
   border: 1px dashed var(--border, #2a2d35);
@@ -364,7 +364,8 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   border-color: var(--pn-accent, var(--accent, #6aa9ff));
   color: var(--text, #e6e8eb);
 }
-.pn-prompt-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.pn-prompt-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.pn-prompt-dragging { opacity: 0.5; }
 .pn-prompt-row {
   display: flex;
   align-items: flex-start;
@@ -379,14 +380,7 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 .pn-prompt-row.pn-prompt-drop-before { border-top: 2px solid var(--pn-accent, var(--accent, #6aa9ff)); }
 .pn-prompt-meta { flex: 1; min-width: 0; }
 .pn-prompt-title { font-weight: 500; font-size: 12px; }
-.pn-prompt-body {
-  font-size: 11px;
-  color: var(--fg-muted, #9aa0aa);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 2px;
-}
+.pn-prompt-body { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pn-prompt-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 120ms; }
 .pn-prompt-row:hover .pn-prompt-actions { opacity: 1; }
 .pn-prompt-actions button {
@@ -404,6 +398,7 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin: 8px var(--rail-pad-x);
   padding: 10px;
   border: 1px solid var(--border, #2a2d35);
   border-radius: 8px;

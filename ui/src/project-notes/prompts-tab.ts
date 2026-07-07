@@ -1,6 +1,7 @@
 import { promptsApi, type Prompt } from "./api";
 import { sendToActiveTabInGroup } from "./paste";
 import { attachTooltip } from "../tooltip/tooltip";
+import { Icons } from "../icons";
 
 export interface PromptsTabHooks {
   /// Used only to resolve the active terminal for "send". The prompt library
@@ -20,7 +21,7 @@ export class PromptsTab {
     this.container.className = "pn-prompt-tab";
 
     const newBtn = document.createElement("button");
-    newBtn.className = "pn-prompt-new";
+    newBtn.className = "rail-new pn-prompt-new";
     newBtn.textContent = "+ New prompt";
     newBtn.addEventListener("click", () => this.openEditor(null));
 
@@ -57,7 +58,7 @@ export class PromptsTab {
     }
     for (const p of this.prompts) {
       const li = document.createElement("li");
-      li.className = "pn-prompt-row";
+      li.className = "rail-row";
       li.dataset.id = p.id;
       li.draggable = true;
       li.addEventListener("dragstart", (e) => {
@@ -101,14 +102,12 @@ export class PromptsTab {
         }
       });
       li.innerHTML = `
-        <div class="pn-prompt-meta">
-          <div class="pn-prompt-title"></div>
-          <div class="pn-prompt-body"></div>
-        </div>
-        <div class="pn-prompt-actions">
-          <button class="pn-prompt-send">send</button>
-          <button class="pn-prompt-edit">edit</button>
-          <button class="pn-prompt-del">×</button>
+        <div class="rail-row-line"><span class="rail-name pn-prompt-title"></span></div>
+        <div class="rail-meta"><span class="pn-prompt-body"></span></div>
+        <div class="rail-row-actions">
+          <button class="rail-row-action is-neutral pn-prompt-send" aria-label="Send to active tab">${Icons.play({ size: 13 })}</button>
+          <button class="rail-row-action is-neutral pn-prompt-edit" aria-label="Edit">${Icons.pencil({ size: 13 })}</button>
+          <button class="rail-row-action pn-prompt-del" aria-label="Delete">${Icons.trash({ size: 13 })}</button>
         </div>
       `;
       (li.querySelector(".pn-prompt-title") as HTMLElement).textContent = p.title;
