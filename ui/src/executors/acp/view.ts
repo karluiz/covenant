@@ -86,6 +86,33 @@ function openImagePreview(dataUrl: string): void {
   document.body.appendChild(overlay);
 }
 
+/// YOU-bubble content: prompt text plus a thumbnail per attached image
+/// (click → the same lightbox as the composer chips).
+function buildUserContent(text: string, images: AcpImageAttachment[]): HTMLElement {
+  const content = document.createElement("div");
+  content.className = "acp-msg-content";
+  if (text) {
+    const t = document.createElement("div");
+    t.textContent = text;
+    content.appendChild(t);
+  }
+  if (images.length > 0) {
+    const grid = document.createElement("div");
+    grid.className = "acp-msg-images";
+    for (const img of images) {
+      const dataUrl = `data:${img.mimeType};base64,${img.data}`;
+      const thumb = document.createElement("img");
+      thumb.className = "acp-msg-image-thumb";
+      thumb.src = dataUrl;
+      thumb.alt = "Attached image";
+      thumb.addEventListener("click", () => openImagePreview(dataUrl));
+      grid.appendChild(thumb);
+    }
+    content.appendChild(grid);
+  }
+  return content;
+}
+
 /// Per-executor branding for the chat chrome. `cmdline` is what the
 /// empty-state shows as "your prompt goes to …".
 const EXECUTOR_BRAND: Record<AcpExecutor, { title: string; longName: string; cmdline: string; roleLabel: string }> = {
@@ -129,6 +156,9 @@ const escapeHtml = (s: string): string =>
 export interface AcpUserItem {
   kind: "user";
   text: string;
+  /// Images attached when the prompt was sent this session. Absent on
+  /// replayed transcripts (the wire replay doesn't carry image data).
+  images?: AcpImageAttachment[];
 }
 
 export interface AcpProseItem {
@@ -1558,15 +1588,17 @@ export class AcpChatView {
     this.syncComposer();
     this.pendingImages = [];
     this.renderImageStrip();
-    const shown = images.length > 0
-      ? `${text}${text ? "\n" : ""}[${images.length} image${images.length > 1 ? "s" : ""} attached]`
-      : text;
-    this.state.items.push({ kind: "user", text: shown });
+    this.state.items.push({
+      kind: "user",
+      text,
+      images: images.length > 0 ? images : undefined,
+    });
     this.state.turnHadOutput = false; // armed: silent end_turn → notice
     this.hideEmptyState();
     const el = document.createElement("div");
     el.className = "acp-msg acp-msg-user";
-    el.innerHTML = `<div class="acp-msg-role">you</div><div class="acp-msg-content">${escapeHtml(shown)}</div>`;
+    el.innerHTML = `<div class="acp-msg-role">you</div>`;
+    el.appendChild(buildUserContent(text, images));
     this.messagesEl.appendChild(el);
     this.maybeEmitTitle(text);
     this.stickToBottom = true;

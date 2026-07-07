@@ -164,6 +164,10 @@ export class StatusBar {
   /// No-op stub until the picker is wired in Plan 3 Task 5.
   public onOperatorChipClick: ((sessionId: SessionId) => void) | null = null;
 
+  /// Fires when the user clicks the hover × on the pinned-operator chip —
+  /// unpins the operator from the tab (mirrors onMissionClearRequested).
+  public onOperatorClearRequested: ((sessionId: SessionId) => void) | null = null;
+
   /// Fired from the branch/worktree popover when the user wants a
   /// worktree in its own terminal tab.
   public onOpenGitWorktree: ((path: string, label: string) => void) | null = null;
@@ -650,6 +654,28 @@ export class StatusBar {
       btn.addEventListener("click", () => {
         if (sid) this.onOperatorChipClick?.(sid);
       });
+
+      // Hover-revealed unpin ×. Same pattern as the mission chip's remove
+      // affordance (span role=button — a nested <button> is invalid), and
+      // reuses its class so the reveal/danger styling stays in one place.
+      const remove = document.createElement("span");
+      remove.className = "status-mission-remove";
+      remove.setAttribute("role", "button");
+      remove.setAttribute("tabindex", "0");
+      remove.setAttribute("aria-label", "Remove operator");
+      remove.innerHTML = Icons.x({ size: 11 });
+      attachTooltip(remove, "Unpin operator from this tab");
+      const fireRemove = (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (sid) this.onOperatorClearRequested?.(sid);
+      };
+      remove.addEventListener("click", fireRemove);
+      remove.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") fireRemove(e);
+      });
+      btn.appendChild(remove);
+
       framing.appendChild(btn);
     } else if (this.currentSessionId) {
       const sid = this.currentSessionId;

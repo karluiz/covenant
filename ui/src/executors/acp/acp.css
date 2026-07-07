@@ -725,6 +725,21 @@
   border-radius: 4px;
   border: 1px solid rgba(var(--ink-rgb), 0.14);
 }
+/* Attached-image thumbnails inside the YOU bubble. Click → lightbox. */
+.acp-msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.acp-msg-image-thumb {
+  display: block;
+  max-width: 180px;
+  max-height: 110px;
+  object-fit: cover;
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
+  cursor: zoom-in;
+}
 /* Quick-view lightbox for pasted images. Opaque-ish backdrop on purpose:
    #layout is vibrancy-transparent, so a translucent overlay would bleed
    the wallpaper through. */

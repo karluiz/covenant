@@ -8,7 +8,7 @@
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { resolveFileIcon, resolveFolderIcon } from "./file-icons";
-import { zoom } from "../zoom";
+import { ContextMenu, type MenuItem } from "../menu/context-menu";
 import {
   structureCopyInto,
   structureCreatePath,
@@ -97,6 +97,10 @@ export class StructureTree {
   /// `listEl` and then both append, doubling every entry.
   private refreshGen = 0;
 
+  /// Shared floating-menu chrome — same component the editor / tabs use,
+  /// so all context menus look and behave identically.
+  private readonly contextMenu = new ContextMenu(document.body);
+
   /// Path of the file currently open in the editor pane, or null when
   /// no file is open. The matching row gets `.is-active` (CSS gives it
   /// an accent tint + 2px left stripe). Set by manager.ts from
@@ -153,10 +157,7 @@ export class StructureTree {
       if ((ev.target as HTMLElement).closest(".structure-node")) return;
       ev.preventDefault();
       if (!this.cwd) return;
-      // Counter the <html> CSS zoom — same reasoning as the per-row
-      // handler below (position:fixed left/top live in zoomed space).
-      const z = zoom.level() || 1;
-      this.openRootContextMenu(ev.clientX / z, ev.clientY / z);
+      this.openRootContextMenu(ev.clientX, ev.clientY);
     });
   }
 
@@ -554,170 +555,70 @@ export class StructureTree {
 
     row.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
-      // The UI scales via CSS `zoom` on <html>. WebKit reports
-      // MouseEvent.clientX/Y in unzoomed layout coords, but a
-      // position:fixed element's left/top are interpreted in the zoomed
-      // space — so at zoom != 1 the menu drifts from the cursor,
-      // proportional to distance from the origin. Divide back into
-      // layout coords so the menu lands under the cursor at any zoom.
-      const z = zoom.level() || 1;
-      this.openContextMenu(ev.clientX / z, ev.clientY / z, node);
+      // ContextMenu.show handles the <html> CSS zoom counter-scaling.
+      this.openContextMenu(ev.clientX, ev.clientY, node);
     });
 
     return node;
   }
 
   private openContextMenu(x: number, y: number, node: NodeState): void {
-    closeAnyContextMenu();
-
-    const menu = document.createElement("div");
-    menu.className = "structure-context-menu";
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
-    menu.dataset.kind = "structure-context-menu";
+    const items: MenuItem[] = [];
 
     // For directories, offer creating new entries inside them. We
     // skip this for files (parent is implicit) and for symlinked
     // dirs (we don't traverse those).
     if (node.entry.kind === "dir" && !node.entry.is_symlink) {
-      menu.appendChild(
-        makeMenuItem("New File", () => {
-          closeAnyContextMenu();
-          void this.startCreateInDir(node, "file");
-        }),
-      );
-      menu.appendChild(
-        makeMenuItem("New Folder", () => {
-          closeAnyContextMenu();
-          void this.startCreateInDir(node, "dir");
-        }),
+      items.push(
+        { label: "New File", onClick: () => void this.startCreateInDir(node, "file") },
+        { label: "New Folder", onClick: () => void this.startCreateInDir(node, "dir") },
+        { divider: true },
       );
     }
 
-    menu.appendChild(
-      makeMenuItem("Reveal in Finder", () => {
-        closeAnyContextMenu();
-        void (async () => {
-          try {
-            const { revealItemInDir } = await import(
-              "@tauri-apps/plugin-opener"
-            );
-            await revealItemInDir(node.entry.path);
-          } catch (err) {
-            this.showError(`Reveal failed: ${err}`);
-          }
-        })();
-      }),
+    items.push(
+      { label: "Reveal in Finder", onClick: () => this.revealInFinder(node.entry.path) },
+      { divider: true },
+      { label: "Rename", onClick: () => this.startRename(node) },
+      {
+        label: "Move to Trash",
+        danger: true,
+        onClick: () => void this.confirmAndTrash(node),
+      },
     );
 
-    const rename = makeMenuItem("Rename", () => {
-      closeAnyContextMenu();
-      this.startRename(node);
-    });
-    menu.appendChild(rename);
+    this.contextMenu.show(x, y, items);
+  }
 
-    const del = makeMenuItem("Move to Trash", () => {
-      closeAnyContextMenu();
-      void this.confirmAndTrash(node);
-    });
-    del.classList.add("danger");
-    menu.appendChild(del);
-
-    this.finalizeContextMenu(menu, x, y);
+  private revealInFinder(path: string): void {
+    void (async () => {
+      try {
+        const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+        await revealItemInDir(path);
+      } catch (err) {
+        this.showError(`Reveal failed: ${err}`);
+      }
+    })();
   }
 
   /// Context menu for the empty list background / header — i.e. the tree
   /// root, with no node under the cursor. Offers creating entries at the
   /// root and revealing the root in Finder.
   private openRootContextMenu(x: number, y: number): void {
-    if (!this.cwd) return;
-    closeAnyContextMenu();
-
-    const menu = document.createElement("div");
-    menu.className = "structure-context-menu";
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
-    menu.dataset.kind = "structure-context-menu";
-
-    menu.appendChild(
-      makeMenuItem("New File", () => {
-        closeAnyContextMenu();
-        this.startCreateInRoot("file");
-      }),
-    );
-    menu.appendChild(
-      makeMenuItem("New Folder", () => {
-        closeAnyContextMenu();
-        this.startCreateInRoot("dir");
-      }),
-    );
-    menu.appendChild(
-      makeMenuItem("Reveal in Finder", () => {
-        closeAnyContextMenu();
-        const dir = this.cwd;
-        if (!dir) return;
-        void (async () => {
-          try {
-            const { revealItemInDir } = await import(
-              "@tauri-apps/plugin-opener"
-            );
-            await revealItemInDir(dir);
-          } catch (err) {
-            this.showError(`Reveal failed: ${err}`);
-          }
-        })();
-      }),
-    );
-
-    this.finalizeContextMenu(menu, x, y);
+    const dir = this.cwd;
+    if (!dir) return;
+    this.contextMenu.show(x, y, [
+      { label: "New File", onClick: () => this.startCreateInRoot("file") },
+      { label: "New Folder", onClick: () => this.startCreateInRoot("dir") },
+      { divider: true },
+      { label: "Reveal in Finder", onClick: () => this.revealInFinder(dir) },
+    ]);
   }
 
   /// Begin an inline "new file/folder" row at the tree root (this.cwd).
   private startCreateInRoot(kind: "file" | "dir"): void {
     if (!this.cwd) return;
     this.startInlineCreate(this.cwd, kind, this.listEl, 0, null);
-  }
-
-  /// Append a built menu to the body, flip it away from the nearest
-  /// viewport edge it would overflow, and wire outside-click / Escape
-  /// dismissal. Shared by the node and root context menus.
-  private finalizeContextMenu(
-    menu: HTMLElement,
-    x: number,
-    y: number,
-  ): void {
-    document.body.appendChild(menu);
-
-    // Flip the menu so it opens away from the nearest viewport edge it
-    // would overflow. Native right-click pattern: if the cursor is near
-    // the right edge, the menu's right edge anchors at the cursor and
-    // the menu opens leftward. Falls back to a viewport-edge clamp if
-    // even the flipped position would push the opposite edge off-screen
-    // (very narrow windows / very large menus).
-    requestAnimationFrame(() => {
-      const rect = menu.getBoundingClientRect();
-      const vw = document.documentElement.clientWidth;
-      const vh = document.documentElement.clientHeight;
-      if (rect.right > vw - 4) {
-        const flipped = x - rect.width;
-        menu.style.left = `${Math.max(4, flipped)}px`;
-      }
-      if (rect.bottom > vh - 4) {
-        const flipped = y - rect.height;
-        menu.style.top = `${Math.max(4, flipped)}px`;
-      }
-    });
-
-    const dismiss = (e: Event) => {
-      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
-      if (e instanceof MouseEvent && menu.contains(e.target as Node)) return;
-      closeAnyContextMenu();
-    };
-    setTimeout(() => {
-      document.addEventListener("click", dismiss, { once: true });
-      document.addEventListener("keydown", dismiss, { once: true });
-    }, 0);
-    menu.dataset.dismissBound = "1";
   }
 
   /// Swap the node's name span for an inline `<input>` and let the
@@ -1105,21 +1006,6 @@ function shortenCwd(cwd: string): string {
   const parts = cwd.split("/").filter(Boolean);
   if (parts.length <= 2) return cwd;
   return ".../" + parts.slice(-2).join("/");
-}
-
-function makeMenuItem(label: string, onClick: () => void): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "structure-context-menu-item";
-  btn.textContent = label;
-  btn.addEventListener("click", onClick);
-  return btn;
-}
-
-function closeAnyContextMenu(): void {
-  document
-    .querySelectorAll('[data-kind="structure-context-menu"]')
-    .forEach((el) => el.remove());
 }
 
 /// Modal confirmation for moving a path to Trash. Resolves with

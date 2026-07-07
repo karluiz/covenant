@@ -248,6 +248,14 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
   ): void => {
     if (e.button !== 0) return;
     e.preventDefault();
+    // Capture the pointer so pointerup still arrives if the mouse is
+    // released outside the window — otherwise the global col-resize
+    // cursor set below is never restored.
+    try {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    } catch {
+      /* jsdom / unsupported — pointercancel listener below is the fallback */
+    }
     const startX = e.clientX;
     const key = side === "left" ? LEFT_SIDEBAR_WIDTH_KEY : RIGHT_SIDEBAR_WIDTH_KEY;
     const cssName = side === "left" ? "--tabbar-w-expanded" : "--right-sidebar-w";
@@ -283,6 +291,7 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
     const onUp = (): void => {
       window.removeEventListener("pointermove", onMove, true);
       window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
       document.body.classList.remove("sidebar-resizing");
       document.body.style.userSelect = prevSelect;
       document.body.style.cursor = prevCursor;
@@ -291,6 +300,7 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
     };
     window.addEventListener("pointermove", onMove, true);
     window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("pointercancel", onUp, true);
   };
 
   left.addEventListener("pointerdown", (e) => beginDrag(e, "left"));
@@ -2045,6 +2055,10 @@ async function boot(): Promise<void> {
   // TODO: scroll to specific operator row when openTo API is added to SettingsPanel
   operatorPicker.onEditRequested = (_op) => { settings.toggle(); };
   statusBar.onOperatorChipClick = (sid) => { void operatorPicker.open(sid); };
+  statusBar.onOperatorClearRequested = (sid) => {
+    const tab = manager.tabForSession(sid);
+    if (tab) void manager.setTabOperator(tab.id, null);
+  };
   manager.onSetOperatorRequested = (sid) => { void operatorPicker.open(sid); };
 
   // ⌘⇧O → open operator picker for the active session.
