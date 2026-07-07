@@ -64,35 +64,20 @@ impl MinerSink for EmitSink {
     }
 }
 
-/// Resolve the Spec Creator role to an Anthropic model + api key and build
-/// the streaming dispatcher the miner drives. Mirrors the resolution in
-/// `spec_author_stream_step` (crates/app/src/lib.rs), but the miner is
-/// Anthropic-only by design — no OpenAI-compat / Azure Foundry branch.
+/// Resolve the Context Miner inference role to a streaming dispatcher, honoring
+/// the full provider routing (Anthropic / OpenAI-compat / Azure) via the shared
+/// `build_role_dispatcher`. The miner's `emit_finding` tool roster is injected
+/// in the provider's own tool format.
 fn build_miner_dispatcher(
     settings: &crate::settings::Settings,
-) -> Result<karl_agent::spec_author::stream::AnthropicStreamingDispatcher, String> {
-    use karl_agent::provider::ProviderKind;
-    let route = settings
-        .model_routes
-        .get(&crate::settings::Role::SpecCreator)
-        .ok_or("configure an Anthropic model for the Spec Creator role in Settings")?;
-    let entry = settings
-        .providers
-        .get(&route.provider_id)
-        .ok_or("configure an Anthropic model for the Spec Creator role in Settings")?;
-    if entry.kind != ProviderKind::Anthropic {
-        return Err("configure an Anthropic model for the Spec Creator role in Settings".into());
-    }
-    let api_key = entry
-        .api_key
-        .clone()
-        .or_else(|| settings.anthropic_api_key.clone())
-        .ok_or("configure an Anthropic model for the Spec Creator role in Settings")?;
-    Ok(karl_agent::spec_author::stream::AnthropicStreamingDispatcher {
-        api_key,
-        model: route.model.clone(),
-        tools: Some(karl_agent::context_miner::miner_tool_specs()),
-    })
+) -> Result<Box<dyn karl_agent::spec_author::stream::StreamingDispatcher>, String> {
+    use karl_agent::context_miner::{miner_tool_specs, miner_tool_specs_openai};
+    crate::build_role_dispatcher(
+        settings,
+        crate::settings::Role::ContextMiner,
+        Some(miner_tool_specs()),
+        Some(miner_tool_specs_openai()),
+    )
 }
 
 #[tauri::command]
@@ -129,7 +114,7 @@ pub async fn cdlc_mine_start(
     let runs_clone: MinerRuns = (*runs).clone();
     let run_id_task = run_id.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = run_miner(&dispatcher, &root, &opts, &cancel, &sink).await;
+        let _ = run_miner(dispatcher.as_ref(), &root, &opts, &cancel, &sink).await;
         // RunDone is already emitted by run_miner on every exit path.
         runs_clone.remove(&run_id_task);
     });

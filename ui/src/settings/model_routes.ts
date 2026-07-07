@@ -2,7 +2,7 @@ import type { Settings } from "../api";
 import { listModelsAnthropic, listModelsAzureFoundry, listModelsOpenAiCompat } from "../api";
 import { CustomSelect, type SelectOption } from "../ui/select";
 
-type Role = "summary" | "chat" | "operator" | "triage" | "spec_creator";
+type Role = "summary" | "chat" | "operator" | "triage" | "spec_creator" | "context_miner";
 
 // ponytail: in-flight dedupe so the 5 role rows mounting at once collapse
 // identical provider probes into ONE request (Azure throttles 5 parallel
@@ -24,6 +24,7 @@ const ROLE_LABEL: Record<Role, string> = {
   operator:     "Operator",
   triage:       "Triage (cheap classifier)",
   spec_creator: "Spec Creator",
+  context_miner: "Context Miner",
 };
 
 /** One-line tagline shown under each role title. */
@@ -33,6 +34,7 @@ const ROLE_TAGLINE: Record<Role, string> = {
   operator:     "Autonomous agent that runs tools across your sessions",
   triage:       "Cheap gate before an expensive operator call",
   spec_creator: "The immersive Spec Creator's research agent",
+  context_miner: "The CDLC Context Miner's repo-scanning agent",
 };
 
 /** Longer explanation shown as the default footer hint for each role. */
@@ -47,6 +49,8 @@ const ROLE_HINT: Record<Role, string> = {
     "A tiny classifier that decides whether the operator should wake up at all. The smallest model you have is fine.",
   spec_creator:
     "The streaming agent behind the immersive Spec Creator: it greps/reads your repo and drafts the spec. Needs tool use. Opus 4.8 explores deepest; Azure gpt-4o is faster/cheaper but shallower on long tool loops.",
+  context_miner:
+    "The agent behind the CDLC “New context” Miner: it scans your repo and emits findings that compile into a skill. Needs tool use (Anthropic, an OpenAI-compatible server, or Azure).",
 };
 
 export function renderModelsTab(
@@ -62,7 +66,7 @@ export function renderModelsTab(
     "Covenant routes each kind of LLM work to its own provider + model, so you can mix a cheap model for frequent jobs with a powerful one where it counts. Pick a provider, then a model it actually serves — the status line confirms it's reachable.";
   root.appendChild(intro);
 
-  for (const role of ["summary", "chat", "operator", "triage", "spec_creator"] as Role[]) {
+  for (const role of ["summary", "chat", "operator", "triage", "spec_creator", "context_miner"] as Role[]) {
     root.appendChild(renderRoleRow(role, settings, onChange));
   }
 }

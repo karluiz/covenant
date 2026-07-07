@@ -126,6 +126,13 @@ pub fn miner_tool_specs() -> Value {
     specs
 }
 
+/// The miner tool roster in OpenAI function-calling format, for
+/// OpenAI-compatible / Azure Foundry providers. Same tools as
+/// [`miner_tool_specs`], mechanically converted.
+pub fn miner_tool_specs_openai() -> Value {
+    tools::to_openai_tools(&miner_tool_specs())
+}
+
 fn system_prompt(opts: &MinerOpts) -> String {
     let depth = match opts.depth {
         MinerDepth::Quick => "Scan the highest-signal files (manifests, top-level modules, tests, CI config); do not exhaustively read the tree.",
@@ -462,6 +469,19 @@ mod tests {
         }));
         assert!(ok.is_some());
         assert!(parse_finding(&serde_json::json!({"category": "nope"})).is_none());
+    }
+
+    #[test]
+    fn openai_tool_roster_carries_emit_finding_as_a_function() {
+        let specs = miner_tool_specs_openai();
+        let arr = specs.as_array().expect("array");
+        let ef = arr
+            .iter()
+            .find(|t| t["function"]["name"] == "emit_finding")
+            .expect("emit_finding present in openai format");
+        assert_eq!(ef["type"], "function");
+        // Anthropic input_schema maps to OpenAI function.parameters.
+        assert_eq!(ef["function"]["parameters"]["required"][0], "category");
     }
 
     /// Real mining run against this repository. Requires ANTHROPIC_API_KEY

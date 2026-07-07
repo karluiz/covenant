@@ -573,6 +573,10 @@ pub struct OpenAiStreamingDispatcher {
     pub auth: OpenAiAuth,
     /// `None` for Azure OpenAI mode (deployment is in the URL); `Some` otherwise.
     pub model: Option<String>,
+    /// Override the tool roster sent to the model. `None` = the default
+    /// spec-author repo tools; `Some(..)` lets the context miner inject its
+    /// `emit_finding` tool (OpenAI function format).
+    pub tools: Option<serde_json::Value>,
 }
 
 #[async_trait]
@@ -590,7 +594,7 @@ impl StreamingDispatcher for OpenAiStreamingDispatcher {
             "max_tokens": 4096,
             "stream": true,
             "stream_options": { "include_usage": true },
-            "tools": tools::tool_specs_openai(),
+            "tools": self.tools.clone().unwrap_or_else(tools::tool_specs_openai),
             "tool_choice": "auto",
             "messages": api_messages,
         });

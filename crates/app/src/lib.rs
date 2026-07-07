@@ -3184,6 +3184,105 @@ struct AttachedImageDto {
 const MAX_SPEC_IMAGES: usize = 5;
 const MAX_SPEC_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 
+/// Build a streaming dispatcher for `role` from the settings routing, honoring
+/// any provider (Anthropic / OpenAI-compat / Azure Foundry). `anthropic_tools`
+/// / `openai_tools` override the tool roster per format (`None` = the
+/// dispatcher's default repo tools); the context miner passes its `emit_finding`
+/// roster so mining works on whatever provider the role points at.
+pub(crate) fn build_role_dispatcher(
+    s: &crate::settings::Settings,
+    role: crate::settings::Role,
+    anthropic_tools: Option<serde_json::Value>,
+    openai_tools: Option<serde_json::Value>,
+) -> Result<Box<dyn karl_agent::spec_author::stream::StreamingDispatcher>, String> {
+    use karl_agent::provider::{
+        azure_foundry::default_api_version, azure_foundry::AzureMode, ProviderKind,
+    };
+    use karl_agent::spec_author::stream as sast;
+    let route = s
+        .model_routes
+        .get(&role)
+        .ok_or("no model route configured — open Settings → Models")?;
+    let entry = s
+        .providers
+        .get(&route.provider_id)
+        .ok_or_else(|| format!("provider `{}` not configured", route.provider_id))?;
+    let model = route.model.clone();
+    match entry.kind {
+        ProviderKind::Anthropic => {
+            let api_key = entry
+                .api_key
+                .clone()
+                .or_else(|| s.anthropic_api_key.clone())
+                .ok_or("Anthropic api key not configured — open Settings (⌘,)")?;
+            Ok(Box::new(sast::AnthropicStreamingDispatcher {
+                api_key,
+                model,
+                tools: anthropic_tools,
+            }))
+        }
+        ProviderKind::OpenAiCompat => {
+            let base = entry
+                .base_url
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+            let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+            Ok(Box::new(sast::OpenAiStreamingDispatcher {
+                url,
+                api_key: entry.api_key.clone().unwrap_or_default(),
+                auth: sast::OpenAiAuth::Bearer,
+                model: Some(model),
+                tools: openai_tools,
+            }))
+        }
+        ProviderKind::AzureFoundry => {
+            let mode = entry.azure_mode.ok_or("Azure provider missing azure_mode")?;
+            let endpoint = entry
+                .base_url
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+                .ok_or("Azure provider missing endpoint")?;
+            let api_key = entry
+                .api_key
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+                .ok_or("Azure provider missing api_key")?;
+            let api_version = entry
+                .azure_api_version
+                .clone()
+                .unwrap_or_else(|| default_api_version(mode).to_string());
+            let base = endpoint.trim_end_matches('/');
+            let (url, body_model) = match mode {
+                AzureMode::AzureOpenAi => {
+                    let dep = entry
+                        .azure_deployment
+                        .clone()
+                        .ok_or("Azure OpenAI mode requires a deployment name")?;
+                    (
+                        format!(
+                            "{}/openai/deployments/{}/chat/completions?api-version={}",
+                            base, dep, api_version
+                        ),
+                        None,
+                    )
+                }
+                AzureMode::AiInference => (
+                    format!("{}/models/chat/completions?api-version={}", base, api_version),
+                    Some(model),
+                ),
+            };
+            Ok(Box::new(sast::OpenAiStreamingDispatcher {
+                url,
+                api_key,
+                auth: sast::OpenAiAuth::ApiKeyHeader,
+                model: body_model,
+                tools: openai_tools,
+            }))
+        }
+    }
+}
+
 #[tauri::command]
 async fn spec_author_stream_step(
     app: tauri::AppHandle,
@@ -3271,98 +3370,12 @@ async fn spec_author_stream_step(
         topic: topic.clone(),
     };
 
-    // Resolve the Spec Creator role to a provider + model from settings, and
-    // build the matching streaming dispatcher (Anthropic vs OpenAI/Azure).
-    let dispatcher: Box<dyn sa::stream::StreamingDispatcher> = {
-        use karl_agent::provider::{
-            azure_foundry::default_api_version, azure_foundry::AzureMode, ProviderKind,
-        };
+    // Resolve the Spec Creator role to a provider + model and build the
+    // matching streaming dispatcher (default tools). Shared with the context
+    // miner via `build_role_dispatcher`.
+    let dispatcher = {
         let s = state.settings.lock().await;
-        let route = s
-            .model_routes
-            .get(&crate::settings::Role::SpecCreator)
-            .ok_or("no Spec Creator model route configured — open Settings → Models")?;
-        let entry = s
-            .providers
-            .get(&route.provider_id)
-            .ok_or_else(|| format!("provider `{}` not configured", route.provider_id))?;
-        let model = route.model.clone();
-        match entry.kind {
-            ProviderKind::Anthropic => {
-                let api_key = entry
-                    .api_key
-                    .clone()
-                    .or_else(|| s.anthropic_api_key.clone())
-                    .ok_or("Anthropic api key not configured — open Settings (⌘,)")?;
-                Box::new(sa::stream::AnthropicStreamingDispatcher {
-                    api_key,
-                    model,
-                    tools: None,
-                })
-            }
-            ProviderKind::OpenAiCompat => {
-                let base = entry
-                    .base_url
-                    .clone()
-                    .filter(|s| !s.trim().is_empty())
-                    .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
-                let url = format!("{}/chat/completions", base.trim_end_matches('/'));
-                Box::new(sa::stream::OpenAiStreamingDispatcher {
-                    url,
-                    api_key: entry.api_key.clone().unwrap_or_default(),
-                    auth: sa::stream::OpenAiAuth::Bearer,
-                    model: Some(model),
-                })
-            }
-            ProviderKind::AzureFoundry => {
-                let mode = entry
-                    .azure_mode
-                    .ok_or("Azure provider missing azure_mode")?;
-                let endpoint = entry
-                    .base_url
-                    .clone()
-                    .filter(|s| !s.trim().is_empty())
-                    .ok_or("Azure provider missing endpoint")?;
-                let api_key = entry
-                    .api_key
-                    .clone()
-                    .filter(|s| !s.trim().is_empty())
-                    .ok_or("Azure provider missing api_key")?;
-                let api_version = entry
-                    .azure_api_version
-                    .clone()
-                    .unwrap_or_else(|| default_api_version(mode).to_string());
-                let base = endpoint.trim_end_matches('/');
-                let (url, body_model) = match mode {
-                    AzureMode::AzureOpenAi => {
-                        let dep = entry
-                            .azure_deployment
-                            .clone()
-                            .ok_or("Azure OpenAI mode requires a deployment name")?;
-                        (
-                            format!(
-                                "{}/openai/deployments/{}/chat/completions?api-version={}",
-                                base, dep, api_version
-                            ),
-                            None,
-                        )
-                    }
-                    AzureMode::AiInference => (
-                        format!(
-                            "{}/models/chat/completions?api-version={}",
-                            base, api_version
-                        ),
-                        Some(model),
-                    ),
-                };
-                Box::new(sa::stream::OpenAiStreamingDispatcher {
-                    url,
-                    api_key,
-                    auth: sa::stream::OpenAiAuth::ApiKeyHeader,
-                    model: body_model,
-                })
-            }
-        }
+        crate::build_role_dispatcher(&s, crate::settings::Role::SpecCreator, None, None)?
     };
 
     let result = sa::stream::step_streaming(
