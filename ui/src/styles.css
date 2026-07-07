@@ -19775,3 +19775,13 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .rail-row:hover .rail-row-action, .rail-row:focus-within .rail-row-action, .rail-row-action:focus-visible { opacity: 1; }
 .rail-row-action:hover { color: var(--danger); background: rgba(var(--ink-rgb), 0.06); }
 .rail-row-action svg { width: 13px; height: 13px; }
+
+/* —— multi-action group: N hover-revealed buttons on one row —— */
+.rail-row-actions {
+  position: absolute; top: 6px; right: 6px;
+  display: flex; gap: 2px; opacity: 0; transition: opacity .1s;
+}
+.rail-row:hover .rail-row-actions, .rail-row:focus-within .rail-row-actions { opacity: 1; }
+.rail-row-actions .rail-row-action { position: static; opacity: 1; }
+.rail-row:has(.rail-row-actions) { padding-right: 82px; }
+.rail-row-action.is-neutral:hover { color: var(--fg); }
