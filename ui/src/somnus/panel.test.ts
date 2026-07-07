@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtDuration, fmtSize, prettyBody, statusSpine } from "./panel";
+import { fmtDuration, fmtSize, prettyBody, relTimeMs, statusSpine } from "./panel";
 
 describe("statusSpine", () => {
   it("maps outcomes to rail spines", () => {
@@ -27,6 +27,17 @@ describe("fmtDuration", () => {
     expect(fmtDuration(850)).toBe("850 ms");
     expect(fmtDuration(1500)).toBe("1.50 s");
     expect(fmtDuration(null)).toBe("");
+  });
+});
+
+describe("relTimeMs", () => {
+  it("formats relative times and clamps future timestamps", () => {
+    const now = Date.now();
+    expect(relTimeMs(now - 5_000)).toBe("5s ago");
+    expect(relTimeMs(now - 5 * 60_000)).toBe("5m ago");
+    expect(relTimeMs(now - 3 * 3_600_000)).toBe("3h ago");
+    expect(relTimeMs(now - 2 * 86_400_000)).toBe("2d ago");
+    expect(relTimeMs(now + 60_000)).toBe("0s ago");
   });
 });
 

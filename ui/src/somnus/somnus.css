@@ -76,6 +76,11 @@ body.sidebar-view-somnus #somnus-panel {
   opacity: 0.45;
   cursor: default;
 }
+/* .rail-controls carries its own horizontal padding for panel-level use;
+   inside the already-padded composer that would double-indent the tabs. */
+.somnus-composer .rail-controls {
+  padding: 0;
+}
 .somnus-header-row {
   display: flex;
   gap: 4px;

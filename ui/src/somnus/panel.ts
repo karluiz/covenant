@@ -86,6 +86,7 @@ export class SomnusPanel {
   private sending = false;
   private loadedHistory = false;
   private expanded = false;
+  private expandTooltipDetach: () => void;
   private onEsc = (e: KeyboardEvent): void => {
     if (e.key === "Escape" && this.expanded) {
       e.stopPropagation();
@@ -119,7 +120,7 @@ export class SomnusPanel {
     this.expandBtn.setAttribute("aria-label", "Expand");
     this.expandBtn.innerHTML = Icons.maximize({ size: 15 });
     this.expandBtn.addEventListener("click", () => this.setExpanded(!this.expanded));
-    attachTooltip(this.expandBtn, "Expand");
+    this.expandTooltipDetach = attachTooltip(this.expandBtn, "Expand");
     const clearBtn = document.createElement("button");
     clearBtn.className = "rail-btn";
     clearBtn.setAttribute("aria-label", "Clear history");
@@ -184,17 +185,24 @@ export class SomnusPanel {
     this.sendBtn.addEventListener("click", () => void this.send());
     line.append(this.methodSel, this.urlInput, this.sendBtn);
 
+    const controls = document.createElement("div");
+    controls.className = "rail-controls";
     const tabs = document.createElement("div");
     tabs.className = "rail-tabs somnus-tabs";
     this.tabHeadersBtn = document.createElement("button");
     this.tabHeadersBtn.type = "button";
+    this.tabHeadersBtn.className = "rail-tab";
     this.tabHeadersBtn.textContent = "Headers";
+    this.tabHeadersBtn.dataset.tab = "headers";
     this.tabHeadersBtn.addEventListener("click", () => this.setTab("headers"));
     this.tabBodyBtn = document.createElement("button");
     this.tabBodyBtn.type = "button";
+    this.tabBodyBtn.className = "rail-tab";
     this.tabBodyBtn.textContent = "Body";
+    this.tabBodyBtn.dataset.tab = "body";
     this.tabBodyBtn.addEventListener("click", () => this.setTab("body"));
     tabs.append(this.tabHeadersBtn, this.tabBodyBtn);
+    controls.append(tabs);
 
     this.headersHost = document.createElement("div");
     this.headersHost.className = "somnus-headers";
@@ -209,7 +217,7 @@ export class SomnusPanel {
     this.bodyArea.placeholder = "Request body";
     this.bodyArea.spellcheck = false;
 
-    composer.append(line, tabs, this.headersHost, addHeader, this.bodyArea);
+    composer.append(line, controls, this.headersHost, addHeader, this.bodyArea);
 
     // ── Scroller: response + history ──
     const body = document.createElement("div");
@@ -507,7 +515,8 @@ export class SomnusPanel {
     this.expandBtn.innerHTML = expanded
       ? Icons.chevronsDownUp({ size: 15 })
       : Icons.maximize({ size: 15 });
-    attachTooltip(this.expandBtn, expanded ? "Collapse" : "Expand");
+    this.expandTooltipDetach();
+    this.expandTooltipDetach = attachTooltip(this.expandBtn, expanded ? "Collapse" : "Expand");
     if (expanded) window.addEventListener("keydown", this.onEsc, true);
     else window.removeEventListener("keydown", this.onEsc, true);
   }
