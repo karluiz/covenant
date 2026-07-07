@@ -507,9 +507,10 @@ export class SomnusPanel {
         status_text: "",
         headers: entry.resp_headers,
         body: entry.resp_body ?? "",
-        // Stored bodies are capped at 256 KB — if the original was bigger,
-        // this replay is a truncated (likely unparsable) prefix. Say so.
-        body_truncated: entry.resp_body !== null && (entry.size_bytes ?? 0) > 256 * 1024,
+        // Stored bodies are capped at STORE_CAP (2 MB, matches somnus.rs) —
+        // if the original was bigger, this replay is a truncated (likely
+        // unparsable) prefix. Say so.
+        body_truncated: entry.resp_body !== null && (entry.size_bytes ?? 0) > 2 * 1024 * 1024,
         body_binary: entry.resp_body === null,
         duration_ms: entry.duration_ms ?? 0,
         size_bytes: entry.size_bytes ?? 0,

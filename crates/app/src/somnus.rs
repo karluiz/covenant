@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 const DISPLAY_CAP: usize = 2 * 1024 * 1024; // 2 MB
 /// Storage cap — bodies persisted into history are capped harder to keep
 /// history.db lean.
-pub(crate) const STORE_CAP: usize = 256 * 1024; // 256 KB
+pub(crate) const STORE_CAP: usize = 2 * 1024 * 1024; // 2 MB — matches DISPLAY_CAP so history replay can re-render the JSON tree
 
 /// The verbs the composer offers. Validation whitelist for `send_request`.
 pub const METHODS: [&str; 7] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];

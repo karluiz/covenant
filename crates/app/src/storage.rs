@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS somnus_history (
     req_body            TEXT,
     status              INTEGER,         -- NULL when the send failed at the network layer
     resp_headers        TEXT,            -- JSON array of [k, v] pairs
-    resp_body           TEXT,            -- capped at STORE_CAP (256 KB)
+    resp_body           TEXT,            -- capped at STORE_CAP (2 MB)
     error               TEXT,            -- shaped network/timeout error, NULL on success
     duration_ms         INTEGER,
     size_bytes          INTEGER,
