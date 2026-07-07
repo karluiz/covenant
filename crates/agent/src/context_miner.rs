@@ -181,6 +181,7 @@ pub async fn run_miner(
         content: "Mine this repository now. Use read_file, grep, and list_dir to explore, and \
                    call emit_finding for each finding you can back with file:line evidence."
             .to_string(),
+        images: Vec::new(),
     }];
     let mut findings: Vec<MinerFinding> = Vec::new();
     let mut tool_budget = opts.max_tool_calls;
@@ -225,6 +226,7 @@ pub async fn run_miner(
             messages.push(DraftMessage {
                 role: MessageRole::Assistant,
                 content: turn.text.clone(),
+                images: Vec::new(),
             });
         }
         if turn.tool_calls.is_empty() {
@@ -284,6 +286,7 @@ pub async fn run_miner(
         messages.push(DraftMessage {
             role: MessageRole::User,
             content: feedback,
+            images: Vec::new(),
         });
     }
 }
