@@ -60,6 +60,8 @@ import { TaskerPanel } from "./tasker/panel";
 import { mountResourcesPanel } from "./resources/panel";
 import "./beacon/beacon.css";
 import { BeaconPanel } from "./beacon/panel";
+import "./somnus/somnus.css";
+import { SomnusPanel } from "./somnus/panel";
 import { resourcesSetActive, resourcesSampleNow, onResourcesUpdate } from "./api";
 import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
@@ -552,6 +554,7 @@ async function boot(): Promise<void> {
   const taskerBtn = document.getElementById("titlebar-tasker");
   const resourcesBtn = document.getElementById("titlebar-resources");
   const beaconBtn = document.getElementById("titlebar-beacon");
+  const somnusBtn = document.getElementById("titlebar-somnus");
   const cdlcBtn = document.getElementById("titlebar-cdlc");
   type SidebarTitlebarView = "blocks" | "structure" | "activity" | "recall";
   const ACTIVITY_KEY = "covenant.sidebar-view-activity";
@@ -571,6 +574,7 @@ async function boot(): Promise<void> {
     tasker: taskerBtn,
     resources: resourcesBtn,
     beacon: beaconBtn,
+    somnus: somnusBtn,
   };
 
   const highlightRail = (target: RailTarget | null): void => {
@@ -611,6 +615,9 @@ async function boot(): Promise<void> {
       case "beacon":
         openBeaconPanel();
         break;
+      case "somnus":
+        openSomnusPanel();
+        break;
     }
   };
 
@@ -633,6 +640,9 @@ async function boot(): Promise<void> {
         break;
       case "beacon":
         closeBeaconPanel();
+        break;
+      case "somnus":
+        closeSomnusPanel();
         break;
       // Views (blocks/structure/activity/recall) need no teardown — folding
       // hides the rail; the view content stays rendered underneath.
@@ -893,6 +903,29 @@ async function boot(): Promise<void> {
     beaconBtn.innerHTML = Icons.radioTower({ size: 14 });
     attachTooltip(beaconBtn, "Beacon");
     beaconBtn.addEventListener("click", () => rail.toggle("beacon"));
+  }
+
+  // Somnus sidebar — REST client (composer + history).
+  const somnusPanelHost = requireEl<HTMLElement>("somnus-panel");
+  const somnusPanel = new SomnusPanel(somnusPanelHost, {
+    onClose: () => rail.toggle("somnus"),
+  });
+  const closeSomnusPanel = (): void => {
+    if (!document.body.classList.contains("sidebar-view-somnus")) return;
+    document.body.classList.remove("sidebar-view-somnus");
+    somnusPanelHost.classList.add("hidden");
+    somnusPanel.close();
+  };
+  const openSomnusPanel = (): void => {
+    document.body.classList.add("sidebar-view-somnus");
+    somnusPanelHost.classList.remove("hidden");
+    somnusPanel.render();
+  };
+
+  if (somnusBtn) {
+    somnusBtn.innerHTML = Icons.moon({ size: 14 });
+    attachTooltip(somnusBtn, "Somnus (⌘⌥R)");
+    somnusBtn.addEventListener("click", () => rail.toggle("somnus"));
   }
 
   // Resources sidebar — per-session CPU/memory usage. Mirrors the Tasker
@@ -2227,6 +2260,14 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "k" || e.key === "K")) {
       e.preventDefault();
       taskerBtn?.click();
+      return;
+    }
+    // ⌘⌥R → Somnus REST client sidebar. "®" is what ⌥R produces on macOS
+    // keyboards, so match it alongside the plain letter (same pattern as
+    // the ⌘⌥T "†" and ⌘⌥N "˜" handlers).
+    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "r" || e.key === "R" || e.key === "®")) {
+      e.preventDefault();
+      somnusBtn?.click();
       return;
     }
     // ⌘⇧G → create a new empty tab group (no member tab needed).

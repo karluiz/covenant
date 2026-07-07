@@ -11,7 +11,8 @@ export type RailTarget =
   | "teammate"
   | "tasker"
   | "resources"
-  | "beacon";
+  | "beacon"
+  | "somnus";
 
 /// Side-effects the controller drives. Implementations live in main.ts and
 /// know nothing about each other — the controller sequences them. Keeping this
