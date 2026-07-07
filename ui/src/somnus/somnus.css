@@ -186,30 +186,58 @@ body.somnus-expanded #somnus-panel {
 body.tabbar-left.somnus-expanded #somnus-panel {
   top: 38px;
 }
-/* History becomes a left column; response takes the main area. */
-body.somnus-expanded #somnus-panel .rail-body {
+/* Spec layout: history = full-height left column; composer on top of the
+   main area, response below it. The DOM stays rail-shaped (header, composer,
+   .rail-body > response+history), so the panel becomes the grid and
+   .rail-body dissolves via display:contents to lift its children into it. */
+body.somnus-expanded #somnus-panel .rail-panel {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  overflow: hidden;
+  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+body.somnus-expanded #somnus-panel .rail-header {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  border-bottom: 1px solid var(--border);
+}
+body.somnus-expanded #somnus-panel .rail-body {
+  display: contents;
 }
 body.somnus-expanded #somnus-panel .somnus-history {
   grid-column: 1;
-  grid-row: 1;
+  grid-row: 2 / 4;
+  min-height: 0;
   overflow-y: auto;
   border-right: 1px solid var(--border);
 }
+body.somnus-expanded #somnus-panel .somnus-composer {
+  grid-column: 2;
+  grid-row: 2;
+  padding: 12px 16px;
+}
+body.somnus-expanded #somnus-panel .somnus-bodybox {
+  min-height: 140px;
+}
 body.somnus-expanded #somnus-panel .somnus-response {
   grid-column: 2;
-  grid-row: 1;
+  grid-row: 3;
+  min-height: 0;
   overflow-y: auto;
+  padding: 12px 16px;
 }
 body.somnus-expanded #somnus-panel .somnus-resp-body,
 body.somnus-expanded #somnus-panel .somnus-resp-headers pre {
   max-height: none;
 }
-body.somnus-expanded #somnus-panel .somnus-composer {
-  max-width: 960px;
-  width: 100%;
-  margin: 0 auto;
-  border-bottom: none;
+/* Rail mode hides an empty response; fullscreen keeps the cell and fills it
+   with a hint so the main area never reads as a black void. */
+body.somnus-expanded #somnus-panel .somnus-response:empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+body.somnus-expanded #somnus-panel .somnus-response:empty::after {
+  content: "Send a request — the response renders here.";
+  font-size: var(--fs-meta);
+  color: var(--text-tertiary);
 }
