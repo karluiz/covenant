@@ -328,6 +328,46 @@ impl Store {
     }
 }
 
+// ── Tauri commands ──────────────────────────────────────────────────
+
+use tauri::State;
+
+/// Send + record in one path. The v1 UI command and the future v2 operator
+/// tool both come through here, so every request lands in the same history.
+pub async fn send_and_record(store: &Store, req: SomnusRequest) -> Result<SomnusResponse, String> {
+    let result = send_request(&req).await;
+    if let Err(e) = store.record(&req, &result).await {
+        tracing::warn!(error = %e, "somnus history write failed");
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn somnus_send(
+    store: State<'_, Store>,
+    req: SomnusRequest,
+) -> Result<SomnusResponse, String> {
+    send_and_record(&store, req).await
+}
+
+#[tauri::command]
+pub async fn somnus_history(
+    store: State<'_, Store>,
+    limit: Option<u32>,
+) -> Result<Vec<SomnusHistoryEntry>, String> {
+    store.list(limit.unwrap_or(50)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_history_delete(store: State<'_, Store>, id: String) -> Result<(), String> {
+    store.delete(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_history_clear(store: State<'_, Store>) -> Result<(), String> {
+    store.clear().await.map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
