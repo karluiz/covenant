@@ -133,6 +133,201 @@ fn shape_reqwest_err(e: &reqwest::Error) -> String {
     }
 }
 
+// ── History store ───────────────────────────────────────────────────
+
+use std::sync::Arc;
+
+use rusqlite::{params, Connection};
+use thiserror::Error;
+use tokio::sync::Mutex;
+
+#[derive(Debug, Error)]
+pub enum StoreError {
+    #[error("sqlite: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    #[error("json: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("blocking task panicked: {0}")]
+    Join(String),
+}
+
+/// One row of somnus_history, as the UI consumes it.
+#[derive(Debug, Clone, Serialize)]
+pub struct SomnusHistoryEntry {
+    pub id: String,
+    pub method: String,
+    pub url: String,
+    pub req_headers: Vec<(String, String)>,
+    pub req_body: Option<String>,
+    pub status: Option<u16>,
+    pub resp_headers: Vec<(String, String)>,
+    pub resp_body: Option<String>,
+    pub error: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub size_bytes: Option<u64>,
+    pub created_at_unix_ms: i64,
+}
+
+/// Handle to the shared app DB connection (same pattern as project_notes).
+#[derive(Clone)]
+pub struct Store {
+    conn: Arc<Mutex<Connection>>,
+}
+
+impl Store {
+    pub fn new(conn: Arc<Mutex<Connection>>) -> Self {
+        Self { conn }
+    }
+
+    fn now_ms() -> i64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+
+    /// Persist one attempt (success or network error). Returns the new id.
+    pub async fn record(
+        &self,
+        req: &SomnusRequest,
+        result: &Result<SomnusResponse, String>,
+    ) -> Result<String, StoreError> {
+        let conn = self.conn.clone();
+        let id = ulid::Ulid::new().to_string();
+        let id_out = id.clone();
+        let method = req.method.trim().to_ascii_uppercase();
+        let url = req.url.trim().to_string();
+        let req_headers = serde_json::to_string(&req.headers)?;
+        let req_body = req.body.clone();
+        let now = Self::now_ms();
+        // Flatten the outcome into columns before entering spawn_blocking.
+        let (status, resp_headers, resp_body, error, duration_ms, size_bytes) = match result {
+            Ok(r) => {
+                let capped: Option<String> = if r.body_binary {
+                    None
+                } else {
+                    let end = r.body.len().min(STORE_CAP);
+                    // Slice on a char boundary so the cap can't split UTF-8.
+                    let mut end = end;
+                    while end > 0 && !r.body.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    Some(r.body[..end].to_string())
+                };
+                (
+                    Some(r.status as i64),
+                    Some(serde_json::to_string(&r.headers)?),
+                    capped,
+                    None,
+                    Some(r.duration_ms as i64),
+                    Some(r.size_bytes as i64),
+                )
+            }
+            Err(e) => (None, None, None, Some(e.clone()), None, None),
+        };
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO somnus_history
+                 (id, method, url, req_headers, req_body, status, resp_headers,
+                  resp_body, error, duration_ms, size_bytes, created_at_unix_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    id, method, url, req_headers, req_body, status, resp_headers,
+                    resp_body, error, duration_ms, size_bytes, now
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))??;
+        Ok(id_out)
+    }
+
+    /// Newest first.
+    pub async fn list(&self, limit: u32) -> Result<Vec<SomnusHistoryEntry>, StoreError> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<SomnusHistoryEntry>, StoreError> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, method, url, req_headers, req_body, status, resp_headers,
+                        resp_body, error, duration_ms, size_bytes, created_at_unix_ms
+                 FROM somnus_history
+                 ORDER BY created_at_unix_ms DESC, rowid DESC
+                 LIMIT ?1",
+            )?;
+            let parse_headers = |raw: Option<String>| -> Vec<(String, String)> {
+                raw.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+            };
+            let rows = stmt
+                .query_map(params![limit], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<i64>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                        row.get::<_, Option<String>>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                        row.get::<_, Option<i64>>(9)?,
+                        row.get::<_, Option<i64>>(10)?,
+                        row.get::<_, i64>(11)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(id, method, url, req_h, req_body, status, resp_h, resp_body, error, dur, size, at)| {
+                        SomnusHistoryEntry {
+                            id,
+                            method,
+                            url,
+                            req_headers: parse_headers(req_h),
+                            req_body,
+                            status: status.map(|s| s as u16),
+                            resp_headers: parse_headers(resp_h),
+                            resp_body,
+                            error,
+                            duration_ms: dur.map(|d| d as u64),
+                            size_bytes: size.map(|s| s as u64),
+                            created_at_unix_ms: at,
+                        }
+                    },
+                )
+                .collect())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    pub async fn delete(&self, id: &str) -> Result<(), StoreError> {
+        let conn = self.conn.clone();
+        let id = id.to_owned();
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM somnus_history WHERE id = ?1", params![id])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    pub async fn clear(&self) -> Result<(), StoreError> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM somnus_history", [])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,5 +459,120 @@ mod tests {
         // Port 1 is virtually guaranteed closed.
         let e = send_request(&req("GET", "http://127.0.0.1:1/x".into())).await.unwrap_err();
         assert!(e.starts_with("somnus: "), "{e}");
+    }
+
+    fn mem_store() -> Store {
+        crate::storage::ensure_sqlite_vec_loaded_for_tests();
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(crate::storage::SCHEMA).unwrap();
+        Store::new(Arc::new(Mutex::new(conn)))
+    }
+
+    fn ok_resp(body: &str) -> SomnusResponse {
+        SomnusResponse {
+            status: 200,
+            status_text: "OK".into(),
+            headers: vec![("content-type".into(), "text/plain".into())],
+            body: body.into(),
+            body_truncated: false,
+            body_binary: false,
+            duration_ms: 42,
+            size_bytes: body.len() as u64,
+        }
+    }
+
+    #[tokio::test]
+    async fn record_and_list_roundtrip() {
+        let store = mem_store();
+        let request = SomnusRequest {
+            method: "POST".into(),
+            url: "https://api.test/things".into(),
+            headers: vec![("Authorization".into(), "Bearer x".into())],
+            body: Some("{}".into()),
+        };
+        let id = store.record(&request, &Ok(ok_resp("created"))).await.unwrap();
+        assert!(!id.is_empty());
+        let rows = store.list(10).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.id, id);
+        assert_eq!(row.method, "POST");
+        assert_eq!(row.url, "https://api.test/things");
+        assert_eq!(row.req_headers, vec![("Authorization".to_string(), "Bearer x".to_string())]);
+        assert_eq!(row.req_body.as_deref(), Some("{}"));
+        assert_eq!(row.status, Some(200));
+        assert_eq!(row.resp_body.as_deref(), Some("created"));
+        assert_eq!(row.error, None);
+        assert_eq!(row.duration_ms, Some(42));
+    }
+
+    #[tokio::test]
+    async fn record_network_error_row() {
+        let store = mem_store();
+        let request = SomnusRequest {
+            method: "GET".into(),
+            url: "http://127.0.0.1:1/x".into(),
+            headers: Vec::new(),
+            body: None,
+        };
+        store
+            .record(&request, &Err("somnus: connection failed — refused".into()))
+            .await
+            .unwrap();
+        let rows = store.list(10).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status, None);
+        assert_eq!(rows[0].error.as_deref(), Some("somnus: connection failed — refused"));
+        assert!(rows[0].resp_body.is_none());
+    }
+
+    #[tokio::test]
+    async fn list_is_newest_first_and_limited() {
+        let store = mem_store();
+        let mk = |url: &str| SomnusRequest {
+            method: "GET".into(),
+            url: url.into(),
+            headers: Vec::new(),
+            body: None,
+        };
+        store.record(&mk("https://a.test"), &Ok(ok_resp("a"))).await.unwrap();
+        store.record(&mk("https://b.test"), &Ok(ok_resp("b"))).await.unwrap();
+        store.record(&mk("https://c.test"), &Ok(ok_resp("c"))).await.unwrap();
+        let rows = store.list(2).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].url, "https://c.test");
+        assert_eq!(rows[1].url, "https://b.test");
+    }
+
+    #[tokio::test]
+    async fn stored_body_is_capped() {
+        let store = mem_store();
+        let big = "y".repeat(STORE_CAP + 100);
+        let request = SomnusRequest {
+            method: "GET".into(),
+            url: "https://big.test".into(),
+            headers: Vec::new(),
+            body: None,
+        };
+        store.record(&request, &Ok(ok_resp(&big))).await.unwrap();
+        let rows = store.list(1).await.unwrap();
+        assert_eq!(rows[0].resp_body.as_ref().unwrap().len(), STORE_CAP);
+    }
+
+    #[tokio::test]
+    async fn delete_and_clear() {
+        let store = mem_store();
+        let request = SomnusRequest {
+            method: "GET".into(),
+            url: "https://a.test".into(),
+            headers: Vec::new(),
+            body: None,
+        };
+        let id = store.record(&request, &Ok(ok_resp("a"))).await.unwrap();
+        store.record(&request, &Ok(ok_resp("b"))).await.unwrap();
+        store.delete(&id).await.unwrap();
+        assert_eq!(store.list(10).await.unwrap().len(), 1);
+        store.clear().await.unwrap();
+        assert_eq!(store.list(10).await.unwrap().len(), 0);
     }
 }

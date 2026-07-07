@@ -266,6 +266,22 @@ CREATE TABLE IF NOT EXISTS teammate_handoffs (
 CREATE INDEX IF NOT EXISTS idx_handoffs_chain   ON teammate_handoffs(chain_id);
 CREATE INDEX IF NOT EXISTS idx_handoffs_task    ON teammate_handoffs(task_id);
 CREATE INDEX IF NOT EXISTS idx_handoffs_to      ON teammate_handoffs(to_operator_id);
+
+CREATE TABLE IF NOT EXISTS somnus_history (
+    id                  TEXT PRIMARY KEY,
+    method              TEXT NOT NULL,
+    url                 TEXT NOT NULL,
+    req_headers         TEXT NOT NULL,   -- JSON array of [k, v] pairs
+    req_body            TEXT,
+    status              INTEGER,         -- NULL when the send failed at the network layer
+    resp_headers        TEXT,            -- JSON array of [k, v] pairs
+    resp_body           TEXT,            -- capped at STORE_CAP (256 KB)
+    error               TEXT,            -- shaped network/timeout error, NULL on success
+    duration_ms         INTEGER,
+    size_bytes          INTEGER,
+    created_at_unix_ms  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_somnus_history_created ON somnus_history(created_at_unix_ms DESC);
 ";
 
 #[derive(Debug, Error)]
