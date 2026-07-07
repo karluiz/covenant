@@ -334,8 +334,6 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 .pn-drafts-tab {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
   height: 100%;
   overflow-y: auto;
 }
