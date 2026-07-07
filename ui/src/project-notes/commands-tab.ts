@@ -1,6 +1,7 @@
 import { projectNotesApi, type Command } from "./api";
 import { writeToActiveTabInGroup } from "./paste";
 import { attachTooltip } from "../tooltip/tooltip";
+import { Icons } from "../icons";
 
 export interface CommandsTabHooks {
   groupId: string;
@@ -18,7 +19,7 @@ export class CommandsTab {
     this.container.className = "pn-cmd-tab";
 
     const newBtn = document.createElement("button");
-    newBtn.className = "pn-cmd-new";
+    newBtn.className = "rail-new pn-cmd-new";
     newBtn.textContent = "+ New command";
     newBtn.addEventListener("click", () => this.openEditor(null));
 
@@ -56,17 +57,15 @@ export class CommandsTab {
     }
     for (const c of this.commands) {
       const li = document.createElement("li");
-      li.className = "pn-cmd-row";
+      li.className = "rail-row";
       li.dataset.id = c.id;
       li.innerHTML = `
-        <div class="pn-cmd-meta">
-          <div class="pn-cmd-title"></div>
-          <code class="pn-cmd-code"></code>
-        </div>
-        <div class="pn-cmd-actions">
-          <button class="pn-cmd-paste">paste</button>
-          <button class="pn-cmd-edit">edit</button>
-          <button class="pn-cmd-del">×</button>
+        <div class="rail-row-line"><span class="rail-name pn-cmd-title"></span></div>
+        <code class="rail-cmd pn-cmd-code"></code>
+        <div class="rail-row-actions">
+          <button class="rail-row-action is-neutral pn-cmd-paste" aria-label="Paste into active tab">${Icons.clipboard({ size: 13 })}</button>
+          <button class="rail-row-action is-neutral pn-cmd-edit" aria-label="Edit">${Icons.pencil({ size: 13 })}</button>
+          <button class="rail-row-action pn-cmd-del" aria-label="Delete">${Icons.trash({ size: 13 })}</button>
         </div>
       `;
       (li.querySelector(".pn-cmd-title") as HTMLElement).textContent = c.title;

@@ -155,7 +155,7 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 .pn-empty svg { opacity: 0.3; }
 
 /* ── Commands tab ────────────────────────────────────────────────── */
-.pn-cmd-tab { display: flex; flex-direction: column; gap: 12px; }
+.pn-cmd-tab { display: flex; flex-direction: column; }
 .pn-cmd-new {
   background: transparent;
   border: 1px dashed var(--border, #2a2d35);
@@ -280,7 +280,7 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 
 /* ── Command editor (modal) ──────────────────────────────────────── */
 .pn-cmd-editor {
-  margin-top: 12px;
+  margin: 8px var(--rail-pad-x);
   padding: 12px;
   background: var(--pn-subtle-1);
   border: 1px solid var(--border, #2a2d35);
