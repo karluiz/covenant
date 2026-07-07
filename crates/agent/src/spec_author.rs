@@ -357,7 +357,9 @@ pub async fn step<D: Dispatcher>(
     let response = dispatcher.dispatch(SYSTEM_PROMPT, &draft.messages).await?;
 
     // 3. Append assistant response.
-    draft.messages.push(DraftMessage::assistant(response.clone()));
+    draft
+        .messages
+        .push(DraftMessage::assistant(response.clone()));
 
     // 4. Check for <spec>...</spec> emission.
     if let Some(markdown) = extract_spec(&response) {
@@ -513,7 +515,9 @@ pub async fn step_with_context<D: Dispatcher>(
 
     draft.messages.push(DraftMessage::user(user_msg));
     let response = dispatcher.dispatch(&system, &draft.messages).await?;
-    draft.messages.push(DraftMessage::assistant(response.clone()));
+    draft
+        .messages
+        .push(DraftMessage::assistant(response.clone()));
 
     if let Some(markdown) = extract_spec(&response) {
         validate_spec_markdown(&markdown)?;
@@ -575,7 +579,11 @@ pub fn save_attached_images(
         .count();
     let mut out = Vec::new();
     for (i, (bytes, media_type)) in images.iter().enumerate() {
-        let fname = format!("img-{}.{}", existing + i + 1, ext_for_media_type(media_type));
+        let fname = format!(
+            "img-{}.{}",
+            existing + i + 1,
+            ext_for_media_type(media_type)
+        );
         let path = dir.join(&fname);
         std::fs::write(&path, bytes)?;
         out.push((
@@ -712,22 +720,14 @@ mod tests {
     fn save_attached_images_numbers_sequentially() {
         let tmp = tempfile::tempdir().unwrap();
         let id = Ulid::new();
-        let first = save_attached_images(
-            tmp.path(),
-            id,
-            &[(vec![1, 2, 3], "image/png".into())],
-        )
-        .unwrap();
+        let first =
+            save_attached_images(tmp.path(), id, &[(vec![1, 2, 3], "image/png".into())]).unwrap();
         assert_eq!(first.len(), 1);
         assert!(first[0].0.path.ends_with("img-1.png"));
         assert_eq!(first[0].1, format!("docs/specs/assets/{}/img-1.png", id));
         // Second batch continues numbering.
-        let second = save_attached_images(
-            tmp.path(),
-            id,
-            &[(vec![4], "image/jpeg".into())],
-        )
-        .unwrap();
+        let second =
+            save_attached_images(tmp.path(), id, &[(vec![4], "image/jpeg".into())]).unwrap();
         assert!(second[0].0.path.ends_with("img-2.jpg"));
         assert!(Path::new(&second[0].0.path).exists());
     }

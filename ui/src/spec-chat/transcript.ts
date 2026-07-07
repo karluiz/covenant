@@ -15,8 +15,30 @@ const TOOL_FEEDBACK_HEAD = /^\[tool\s+\S+\s+→\s+\S+\]/;
 // (`<arg> · <summary>`, absent in pre-parity drafts).
 const TOOL_HEADER = /^\[tool\s+(\S+)\s+→\s+\S+\](.*)$/;
 
+// ask_user questions persist as assistant messages `<!--question:{json}-->`
+// (crates/agent/src/spec_author/stream.rs). Close marker matched from the END
+// so `-->` inside the JSON can't truncate the parse.
+const QUESTION_OPEN = '<!--question:';
+const QUESTION_CLOSE = '-->';
+
+function parseQuestionMarker(text: string): { question: string; options: { label: string; detail?: string }[] } | null {
+  const start = text.indexOf(QUESTION_OPEN);
+  if (start < 0) return null;
+  const end = text.lastIndexOf(QUESTION_CLOSE);
+  const from = start + QUESTION_OPEN.length;
+  if (end <= from) return null;
+  try {
+    const parsed = JSON.parse(text.slice(from, end)) as { question?: unknown; options?: unknown };
+    if (typeof parsed.question !== 'string' || !Array.isArray(parsed.options)) return null;
+    return { question: parsed.question, options: parsed.options as { label: string; detail?: string }[] };
+  } catch {
+    return null;
+  }
+}
+
 /** Convert a persisted draft transcript into a renderable timeline, replacing
- *  synthetic tool-feedback turns with the tool chips they represent. */
+ *  synthetic tool-feedback turns with the tool chips they represent and
+ *  question markers with question cards (answered unless nothing follows). */
 export function parsePersistedTranscript(
   messages: readonly ConvMessage[],
 ): TimelineItem[] {
@@ -41,7 +63,17 @@ export function parsePersistedTranscript(
       }
       continue;
     }
+    if (m.role === 'assistant') {
+      const q = parseQuestionMarker(m.content);
+      if (q) {
+        out.push({ role: 'question', question: q.question, options: q.options, answered: true });
+        continue;
+      }
+    }
     out.push({ role: m.role, content: m.content });
   }
+  // Only a trailing question (nothing after it) is still awaiting an answer.
+  const last = out[out.length - 1];
+  if (last && last.role === 'question') last.answered = false;
   return out;
 }

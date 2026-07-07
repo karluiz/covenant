@@ -2036,12 +2036,30 @@ export async function specAuthorSaveMarkdown(id: string, markdown: string): Prom
   return invoke<void>("spec_author_save_markdown", { id, markdown });
 }
 
+/** One composer-attached image, base64-encoded (no data: prefix). */
+export interface SpecAttachedImage {
+  dataB64: string;
+  mediaType: string;
+}
+
 export async function specAuthorStreamStep(
   draftId: string | null,
   userMsg: string,
   cwd: string | null,
+  images?: SpecAttachedImage[],
 ): Promise<string> {
-  return invoke<string>("spec_author_stream_step", { draftId, userMsg, cwd });
+  return invoke<string>("spec_author_stream_step", {
+    draftId, userMsg, cwd, images: images && images.length ? images : null,
+  });
+}
+
+/** Copy a draft's attached images into `<repoRoot>/docs/specs/assets/<id>/`.
+ *  Returns repo-relative paths; empty when the draft has no images. */
+export async function specAuthorMaterializeAssets(
+  id: string,
+  repoRoot: string,
+): Promise<string[]> {
+  return invoke<string[]>("spec_author_materialize_assets", { id, repoRoot });
 }
 
 export async function telegramTestConnection(): Promise<void> {

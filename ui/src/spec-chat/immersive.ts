@@ -1,10 +1,14 @@
 import './immersive.css';
-import type { SpecEventSource } from './events';
+import type { SpecEventSource, OutgoingImage } from './events';
 import { createStreamState } from './stream-state';
 import { MarkdownEditor } from '../ui/markdown-editor';
 import { mountActivityStream } from './activity-stream';
 import { mountLiveSpec } from './live-spec';
-import { specAuthorLoadDraft, specAuthorDeleteDraft, specAuthorSaveMarkdown } from '../api';
+import { MAX_ATTACHMENTS, toAttachment, imagesFromClipboard, type PendingAttachment } from './attachments';
+import {
+  specAuthorLoadDraft, specAuthorDeleteDraft, specAuthorSaveMarkdown,
+  specAuthorMaterializeAssets,
+} from '../api';
 import { scheduleCloudPush } from '../settings/cloud_push';
 import type { SpecDraftSummary } from '../api';
 import { Icons } from '../icons';
@@ -44,8 +48,10 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
           <div class="stream-host"></div>
           <div class="composer">
             <div class="starters"></div>
+            <div class="attachments" hidden></div>
             <div class="box">
               <svg class="box-spark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 5.2L19 9l-5.4 1.8L12 16l-1.6-5.2L5 9l5.4-1.8L12 2z"/></svg>
+<button class="attach" aria-label="Attach image" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg></button>
 <button class="send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
             </div>
             <div class="composer-hint"><span><b>⏎</b> send · <b>⇧⏎</b> newline · <b>esc</b> close</span><span class="composer-engine"></span></div>
@@ -75,7 +81,9 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
       'No working directory from the active tab — the agent cannot explore your project');
   }
 
-  mountActivityStream(root.querySelector('.stream-host') as HTMLElement, state);
+  mountActivityStream(root.querySelector('.stream-host') as HTMLElement, state, {
+    onAnswer: (label) => sendText(label),
+  });
   // mountLiveSpec appends both .spine and .spec to its host; we want the spine in
   // the header and the spec in the right column. Mount into a temp host, then move.
   const tmp = document.createElement('div');
@@ -120,7 +128,15 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
   });
   pubBtn.addEventListener('click', () => {
     const md = state.finalMarkdown();
-    if (md && draftId) opts.onPublish?.(md, draftId);
+    if (!md || !draftId) return;
+    const id = draftId;
+    // Materialize attached images into the repo so the spec's visual
+    // references resolve for the executor. Best-effort — publish proceeds
+    // even if the copy fails (e.g. no repo attached).
+    const materialize = opts.cwd
+      ? specAuthorMaterializeAssets(id, opts.cwd).catch(() => [] as string[])
+      : Promise.resolve([] as string[]);
+    void materialize.then(() => opts.onPublish?.(md, id));
   });
 
   const delBtn = root.querySelector('.spec-creator-del') as HTMLButtonElement;
@@ -135,24 +151,85 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
 
   const boxEl = root.querySelector('.box') as HTMLElement;
   const sendBtn = root.querySelector('.send') as HTMLElement;
+  const attachBtn = root.querySelector('.attach') as HTMLButtonElement;
+  const attachRow = root.querySelector('.attachments') as HTMLElement;
   let composer: MarkdownEditor;
-  const submit = () => {
-    const text = composer.value.trim();
-    if (!text) return;
-    composer.value = '';
-    state.addUserMessage(text);
+
+  // Pending composer attachments (already downscaled + base64).
+  let pending: PendingAttachment[] = [];
+  const renderAttachments = () => {
+    attachRow.replaceChildren();
+    attachRow.hidden = pending.length === 0;
+    pending.forEach((p, i) => {
+      const chip = document.createElement('div');
+      chip.className = 'att-chip';
+      const img = document.createElement('img');
+      img.src = p.previewUrl;
+      img.alt = `attachment ${i + 1}`;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'att-del';
+      del.setAttribute('aria-label', 'Remove attachment');
+      del.textContent = '×';
+      del.addEventListener('click', () => { pending.splice(i, 1); renderAttachments(); });
+      chip.append(img, del);
+      attachRow.appendChild(chip);
+    });
+  };
+  const addBlobs = async (blobs: Blob[]) => {
+    for (const b of blobs) {
+      if (pending.length >= MAX_ATTACHMENTS) break;
+      const att = await toAttachment(b);
+      if (att) pending.push(att);
+    }
+    renderAttachments();
+  };
+
+  const sendText = (text: string, images: OutgoingImage[] = []) => {
+    if (!text.trim() && images.length === 0) return;
+    const shown = images.length
+      ? `${text.trim()}${text.trim() ? '\n' : ''}📎 ${images.length} imagen${images.length > 1 ? 'es' : ''}`
+      : text.trim();
+    state.addUserMessage(shown);
     void opts.source
-      .send(draftId, text, opts.cwd)
+      .send(draftId, text.trim(), opts.cwd, images.length ? images : undefined)
       .then((id) => { draftId = id; })
       .catch((err) => state.apply({ kind: 'error', message: String(err?.message ?? err) }));
+  };
+  const submit = () => {
+    const text = composer.value.trim();
+    if (!text && pending.length === 0) return;
+    const images: OutgoingImage[] = pending.map((p) => ({ dataB64: p.dataB64, mediaType: p.mediaType }));
+    composer.value = '';
+    pending = [];
+    renderAttachments();
+    sendText(text, images);
   };
   composer = new MarkdownEditor({
     mode: 'inline',
     placeholder: 'Describe the problem, paste an error, or name the feature…',
     onSubmit: () => submit(),
   });
-  boxEl.insertBefore(composer.element, sendBtn);
+  boxEl.insertBefore(composer.element, attachBtn);
   sendBtn.addEventListener('click', submit);
+
+  // ⌘V screenshots/wireframes → attachment chips.
+  boxEl.addEventListener('paste', (e) => {
+    const blobs = imagesFromClipboard(e as ClipboardEvent);
+    if (blobs.length) { e.preventDefault(); void addBlobs(blobs); }
+  }, true);
+  // Explicit picker for files on disk.
+  const picker = document.createElement('input');
+  picker.type = 'file';
+  picker.accept = 'image/*';
+  picker.multiple = true;
+  picker.style.display = 'none';
+  root.appendChild(picker);
+  picker.addEventListener('change', () => {
+    void addBlobs(Array.from(picker.files ?? []));
+    picker.value = '';
+  });
+  attachBtn.addEventListener('click', () => picker.click());
 
   // Starter chips — seed the empty state, vanish after the first turn.
   const startersEl = root.querySelector('.starters') as HTMLElement;

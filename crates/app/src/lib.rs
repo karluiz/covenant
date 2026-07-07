@@ -3438,10 +3438,13 @@ async fn spec_author_materialize_assets(
 ) -> Result<Vec<String>, String> {
     use karl_agent::spec_author as sa;
     let ulid = id.parse::<Ulid>().map_err(|e| e.to_string())?;
-    let root = std::path::PathBuf::from(&repo_root);
-    if !root.is_dir() {
+    let cwd = std::path::PathBuf::from(&repo_root);
+    if !cwd.is_dir() {
         return Err(format!("repo root is not a directory: {repo_root}"));
     }
+    // The UI passes the tab's cwd — resolve up to the enclosing git root so
+    // assets land at the repo's docs/specs/assets/, not a subdirectory's.
+    let root = sa::resolve_repo_root(&cwd);
     let base = sa::home_covenant_dir().map_err(|e| e.to_string())?;
     sa::materialize_assets(&base, ulid, &root).map_err(|e| e.to_string())
 }

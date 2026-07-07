@@ -596,7 +596,10 @@ mod tests {
             git_show(&r, "--upload-pack=/bin/sh", None).unwrap_err(),
             ToolError::Escape
         );
-        assert_eq!(git_show(&r, "$(rm -rf /)", None).unwrap_err(), ToolError::Escape);
+        assert_eq!(
+            git_show(&r, "$(rm -rf /)", None).unwrap_err(),
+            ToolError::Escape
+        );
         assert_eq!(git_show(&r, "", None).unwrap_err(), ToolError::Escape);
     }
 

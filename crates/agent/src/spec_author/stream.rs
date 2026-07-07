@@ -69,6 +69,7 @@ pub trait StreamingDispatcher: Send + Sync {
 /// Run the agentic tool-loop for one user message: repeatedly stream a turn,
 /// execute any tool calls (emitting tool_start/tool_result), feed results back,
 /// until the model answers or emits a spec. Enforces `max_tool_calls`.
+#[allow(clippy::too_many_arguments)]
 pub async fn step_streaming(
     dispatcher: &dyn StreamingDispatcher,
     draft: &mut SpecDraft,
@@ -90,7 +91,9 @@ pub async fn step_streaming(
             .await?;
 
         if !turn.text.is_empty() {
-            draft.messages.push(DraftMessage::assistant(turn.text.clone()));
+            draft
+                .messages
+                .push(DraftMessage::assistant(turn.text.clone()));
         }
 
         const KNOWN_SECTIONS: &[&str] = &[
@@ -763,9 +766,18 @@ mod tests {
         let disp = ScriptedDispatcher {
             calls: Mutex::new(0),
         };
-        step_streaming(&disp, &mut draft, "hi".into(), vec![], &root, "sys", &sink, 40)
-            .await
-            .unwrap();
+        step_streaming(
+            &disp,
+            &mut draft,
+            "hi".into(),
+            vec![],
+            &root,
+            "sys",
+            &sink,
+            40,
+        )
+        .await
+        .unwrap();
         let events = sink.0.lock().unwrap();
         assert!(events
             .iter()
@@ -905,7 +917,9 @@ mod tests {
         }
         assert!(matches!(
             events.last(),
-            Some(SpecStreamEvent::TurnDone { awaiting_user: true })
+            Some(SpecStreamEvent::TurnDone {
+                awaiting_user: true
+            })
         ));
         // Transcript: tool feedback (with drop note) then the question marker.
         let last = draft.messages.last().unwrap();
