@@ -214,7 +214,8 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 /* ── Notes tab ───────────────────────────────────────────────────── */
 .pn-notes-tab { display: flex; flex-direction: column; }
 .pn-note-input {
-  width: 100%;
+  width: auto;
+  margin: 10px var(--rail-pad-x) 0;
   background: var(--pn-subtle-1);
   color: inherit;
   border: 1px solid var(--border, #2a2d35);
@@ -230,7 +231,7 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   outline: none;
   border-color: var(--pn-accent, var(--accent, #6aa9ff));
 }
-.pn-note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.pn-note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
 /* Each note is a self-contained card: timestamp label on top, full-width
  * body below (no fixed timestamp column stealing rail width), delete tucked
  * top-right and revealed on hover. */
@@ -252,11 +253,15 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   margin-bottom: 4px;
 }
 .pn-note-body {
-  color: var(--text, #e6e8eb);
+  font-size: var(--fs-body);
+  color: var(--fg);
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.6;
-  font-size: 13px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .pn-note-del {
   position: absolute;
