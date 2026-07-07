@@ -6,6 +6,34 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.134 — Somnus JSON explorer + in-grid fullscreen
+
+### Added
+
+- **JSON explorer**: JSON responses render as a lazy collapsible tree
+  instead of a flat `<pre>` — children are built on first toggle, 500
+  children max per node, typed leaf coloring for strings/numbers/bools
+  (`ui/src/somnus/json-tree.ts`, wired in `panel.ts`).
+
+### Changed
+
+- **Honest history truncation**: replayed history entries whose stored
+  body hit the 256 KB cap are now flagged as truncated (with the real
+  total size) instead of silently rendering a broken prefix
+  (`ui/src/somnus/panel.ts`).
+
+### Fixed
+
+- **Fullscreen without the yellow edge glow**: `body.somnus-expanded`
+  switches from `position: fixed` to an in-grid row/column span — the
+  fixed flip vacated the grid cell for a paint frame and flashed the
+  wallpaper through the vibrant `#layout` (`ui/src/somnus/somnus.css`).
+
+- **Entrance nudge on the inner `.rail-panel`**: the open animation
+  moved off the host so its 160ms translate no longer exposes a sliver
+  of transparent `#layout` (wallpaper bleed) along the panel's left
+  border (`ui/src/somnus/somnus.css`, `right-rail-panel-in`).
+
 ## v0.8.133 — Somnus REST client (rail composer + history)
 
 ### Added
