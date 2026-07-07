@@ -62,6 +62,7 @@ mod score_sync_commands;
 mod scrollback;
 pub mod settings;
 mod soul;
+mod somnus;
 mod spawns_commands;
 mod spawns_store;
 mod spec_detector;
