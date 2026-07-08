@@ -6,6 +6,29 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.141 — LSP Phase 5: Java support (Eclipse JDT.LS)
+
+### Added
+
+- **Java code intelligence**: the Structure editor now offers diagnostics,
+  completion, hover, go-to-definition, rename, and code actions for
+  `.java` files, powered by the Eclipse JDT Language Server (pinned
+  `1.60.0`). Same on-demand, consent-gated download model — nothing
+  bundled (`crates/lsp/servers.json`, `ui/src/lsp/manager.ts`). This
+  completes the four target languages: **Rust, TypeScript, C#, Java.**
+- **tar.gz install + Java 21 runtime detection**: JDT.LS downloads as a
+  `.tar.gz` and launches on the user's own Java (≥ 21 required — a "needs
+  Java" banner appears otherwise). The runtime version parser was
+  generalized to read Java's `openjdk 17.0.18` version output
+  (`crates/lsp/src/{registry,install,runtime}.rs`).
+- **JDT.LS launcher**: Covenant spawns `java` with the Eclipse equinox
+  `-jar` launcher, a per-server writable copy of the OSGi configuration,
+  and a `-data` workspace directory (Java project import proceeds in the
+  background; features light up once the server signals `ServiceReady`).
+  The launch is validated end-to-end by an ignored smoke test that does a
+  real tarball download, spawns JDT.LS, waits for `ServiceReady`, and
+  resolves a cross-file Java definition (`crates/lsp/tests/smoke_java.rs`).
+
 ## v0.8.140 — LSP Phase 4: C# support (Roslyn)
 
 ### Added
