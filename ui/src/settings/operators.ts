@@ -1208,29 +1208,24 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     validation_error: null,
   };
 
-  // SOUL body — WYSIWYG markdown editor. `suppressBodyChange` guards the
-  // programmatic value-set path: MarkdownEditor.value = ... triggers Milkdown's
-  // change listener (a <textarea> would not), which would otherwise feed back
-  // into the raw source and fight the raw-source editor.
-  let suppressBodyChange = false;
-  const bodyEditor = new MarkdownEditor({
-    mode: "full",
-    placeholder: "Write this operator's soul — who it is, how it judges, what it will never do without you.",
-    onChange: (md) => {
-      if (suppressBodyChange) return;
-      view.body = md;
-      h.state.soulRaw = soulRawFromView(view);
-      src.value = h.state.soulRaw;
-    },
+  // SOUL body — plain-text markdown editor. A soul.md is authored source:
+  // headings and bullets typed by hand. Milkdown's WYSIWYG round-trip
+  // re-serializes and escapes that block syntax (## → \##, - → \-, * → \*),
+  // corrupting the saved file. A raw textarea passes the body through verbatim,
+  // and matches the inline editor (already a plain textarea). Programmatic
+  // `.value = ` never fires an `input` event, so no re-entrancy guard is needed.
+  const bodyEditor = document.createElement("textarea");
+  bodyEditor.className = "op-soul-body";
+  bodyEditor.spellcheck = false;
+  bodyEditor.placeholder =
+    "Write this operator's soul — who it is, how it judges, what it will never do without you.";
+  bodyEditor.addEventListener("input", () => {
+    view.body = bodyEditor.value;
+    h.state.soulRaw = soulRawFromView(view);
+    src.value = h.state.soulRaw;
   });
-  // The guard relies on Milkdown firing its change listener synchronously
-  // inside replaceAll() (true for the current version). try/finally ensures a
-  // throw from the editor can't wedge the flag and silently swallow all
-  // subsequent user edits.
   function setBodyValue(md: string): void {
-    suppressBodyChange = true;
-    try { bodyEditor.value = md; }
-    finally { suppressBodyChange = false; }
+    bodyEditor.value = md;
   }
 
   // Live pane: raw source + error — always visible on right.
@@ -1666,7 +1661,7 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       const label = document.createElement("div");
       label.className = "op-soul-section-title";
       label.textContent = "The soul";
-      host.append(label, bodyEditor.element);
+      host.append(label, bodyEditor);
     }
   }
 
