@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.139 — LSP Phase 3: TypeScript / JavaScript support
+
+### Added
+
+- **TypeScript & JavaScript code intelligence**: the Structure editor now
+  offers diagnostics, completion, hover, go-to-definition, rename, and
+  code actions for `.ts`/`.tsx`/`.mts`/`.cts`/`.js`/`.jsx`/`.mjs`/`.cjs`
+  files, powered by `typescript-language-server` (pinned
+  `typescript-language-server@5.3.0` + `typescript@6.0.3`). Same on-demand,
+  consent-gated download model as Rust — nothing is bundled
+  (`crates/lsp/servers.json`, `ui/src/lsp/manager.ts` language map).
+- **Runtime detection**: language servers that need a runtime (Node for
+  TypeScript) resolve it from the user's own toolchain via the login
+  shell (`$SHELL -lc 'command -v node'`), handling the minimal PATH that
+  macOS GUI apps inherit, and version-gate it (Node ≥ 18). A clear
+  "needs Node" banner with a Recheck button surfaces when it's missing or
+  too old (`crates/lsp/src/runtime.rs`, `ui/src/structure/editor.ts`).
+- **npm-based server install**: TypeScript's server + `typescript` install
+  through the user's `npm` into app-support (rather than the single
+  signed binary rust-analyzer uses), launched as `node <server>/cli.mjs
+  --stdio`. The registry and installer branch binary-vs-npm additively,
+  leaving the rust-analyzer path unchanged
+  (`crates/lsp/src/{registry,install}.rs`, `crates/app/src/lsp_commands.rs`).
+  Validated end-to-end by an ignored smoke test that does a real npm
+  install + node spawn + definition resolution (`crates/lsp/tests/smoke_ts.rs`).
+
 ## v0.8.138 — LSP Phase 2: full Rust IDE features in the editor
 
 ### Added
