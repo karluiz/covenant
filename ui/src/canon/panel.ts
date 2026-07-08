@@ -174,22 +174,6 @@ export function skillCard(opts: {
   return card;
 }
 
-/** Shimmer placeholder shown while the panel's first fetch is in flight — a
- *  section label + a few card rows, so entering Canon isn't a blank flash. */
-function canonSkeleton(): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "canon-skeleton";
-  const label = document.createElement("div");
-  label.className = "canon-skeleton-label";
-  wrap.appendChild(label);
-  for (let i = 0; i < 3; i++) {
-    const row = document.createElement("div");
-    row.className = "canon-skeleton-row";
-    wrap.appendChild(row);
-  }
-  return wrap;
-}
-
 /** Compact square action button: an icon + a tooltip (no visible text), so
  *  rows stay legible in the narrow rail. The SVG string is trusted (from Icons). */
 export function iconButton(svg: string, label: string, onClick: () => void): HTMLButtonElement {
@@ -454,10 +438,14 @@ export class CanonPanel {
       this.body.replaceChildren(empty);
       return;
     }
-    // Shimmer skeleton on the first fetch only (empty body) so entering Canon
-    // isn't a blank flash; background refreshes keep the existing content.
+    // Loading state on the first fetch only (empty body) — the shared
+    // `.rail-notice.is-loading` treatment used by every rail panel (Beacon et
+    // al.); background refreshes keep the existing content.
     if (this.body.childElementCount === 0) {
-      this.body.replaceChildren(canonSkeleton());
+      const loading = document.createElement("div");
+      loading.className = "rail-notice is-loading";
+      loading.textContent = "Loading Canon";
+      this.body.replaceChildren(loading);
     }
     try {
       const [status, orgs] = await Promise.all([

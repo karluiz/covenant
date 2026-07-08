@@ -158,29 +158,6 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
   white-space: nowrap;
 }
 
-/* ── First-fetch loading skeleton (pulse, not a gradient sweep — respects
-   the no-row-gradient rail rule). ── */
-.canon-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 4px 0;
-}
-.canon-skeleton-label,
-.canon-skeleton-row {
-  background: rgb(var(--ink-rgb, 245 246 247) / 0.06);
-  animation: canon-skeleton-pulse 1.2s ease-in-out infinite;
-}
-.canon-skeleton-label { width: 62px; height: 10px; }
-.canon-skeleton-row { height: 40px; }
-@keyframes canon-skeleton-pulse {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .canon-skeleton-label, .canon-skeleton-row { animation: none; }
-}
-
 /* ── Toolbar: org selector + Project, at the top of the body (not the
    cramped rail head). Sits between head and body, above the scroll area. ── */
 .canon-toolbar {
