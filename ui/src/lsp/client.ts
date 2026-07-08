@@ -94,6 +94,25 @@ export class LspClient {
     });
   }
 
+  // Task-3-verified post-initialize handshake for Roslyn (csharp) when the
+  // workspace has a `.sln`/`.slnx`: without this, cross-file definitions
+  // never resolve. Params are a FLAT `{ solution: <uri> }`, not nested —
+  // the manager sends this once per server, after `initialize` resolves
+  // and before any `didOpen`.
+  openSolution(solutionUri: string): void {
+    this.notify("solution/open", { solution: solutionUri });
+  }
+
+  // Task-4-verified post-initialize handshake for Roslyn (csharp) when the
+  // workspace is csproj-only (no `.sln`): `solution/open` expects an actual
+  // solution file and silently loads nothing for a bare `.csproj`. Params
+  // are a flat array of project URI STRINGS — `{ projects: [<uri>, ...] }`
+  // — not objects wrapping a `uri` field. Same one-per-server, pre-`didOpen`
+  // firing contract as `openSolution`.
+  openProject(projectUri: string): void {
+    this.notify("project/open", { projects: [projectUri] });
+  }
+
   // ponytail: we forward `changes` verbatim, whatever granularity the
   // caller built — a single `{text}` entry (no range) is a full-doc
   // replace, ranged entries are incremental edits. `LspDoc` (manager.ts)

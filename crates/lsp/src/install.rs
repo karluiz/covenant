@@ -10,12 +10,16 @@ pub fn install_root(data_dir: &Path, spec: &ServerSpec) -> PathBuf {
     data_dir.join("lsp").join(&spec.name).join(&spec.version)
 }
 
-/// Path to the runnable entry inside the install dir. For a `Binary`
-/// server this is the downloaded executable (`spec.cmd`); for an `Npm`
-/// server this is the JS entry point (`npm.bin_entry`) that gets launched
-/// with the user's node (resolved separately, see `runtime`).
+/// Path to the runnable entry inside the install dir. Precedence:
+/// `entry_subpath` (a nested entry inside an unpacked archive — the Roslyn
+/// zip case) wins if set; otherwise an `Npm` server resolves via
+/// `npm.bin_entry`; otherwise (the rust-analyzer `Binary`/`Gzip` case) it's
+/// `install_root.join(&spec.cmd)` directly.
 pub fn entry_path(data_dir: &Path, spec: &ServerSpec) -> PathBuf {
     let root = install_root(data_dir, spec);
+    if let Some(sub) = &spec.entry_subpath {
+        return root.join(sub);
+    }
     match &spec.npm {
         Some(npm) => root.join(&npm.bin_entry),
         None => root.join(&spec.cmd),
@@ -82,15 +86,47 @@ pub fn install_from_bytes(
             decoder.read_to_end(&mut out)?;
             std::fs::write(staging.join(&spec.cmd), out)?;
         }
+        ArchiveKind::Zip => {
+            let cursor = std::io::Cursor::new(bytes);
+            let mut archive = zip::ZipArchive::new(cursor)
+                .map_err(|e| LspError::Extract(format!("zip open: {e}")))?;
+            for i in 0..archive.len() {
+                let mut file = archive
+                    .by_index(i)
+                    .map_err(|e| LspError::Extract(format!("zip entry {i}: {e}")))?;
+                // `enclosed_name` is the zip-slip guard: it returns `None`
+                // for absolute paths or paths containing `..` components,
+                // which we skip rather than trust.
+                let Some(rel) = file.enclosed_name() else {
+                    tracing::warn!("skipping zip entry with unsafe path");
+                    continue;
+                };
+                let outpath = staging.join(rel);
+                if file.is_dir() {
+                    std::fs::create_dir_all(&outpath)?;
+                } else {
+                    if let Some(parent) = outpath.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    let mut outfile = std::fs::File::create(&outpath)?;
+                    std::io::copy(&mut file, &mut outfile)?;
+                }
+            }
+        }
     }
+
+    // The runnable entry within `staging`: `entry_subpath` when the archive
+    // nests it (Zip today), else `spec.cmd` directly (Gzip: a flat binary
+    // written above under that name).
+    let staged_entry = match &spec.entry_subpath {
+        Some(sub) => staging.join(sub),
+        None => staging.join(&spec.cmd),
+    };
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(
-            staging.join(&spec.cmd),
-            std::fs::Permissions::from_mode(0o755),
-        )?;
+        std::fs::set_permissions(&staged_entry, std::fs::Permissions::from_mode(0o755))?;
     }
 
     let _ = std::fs::remove_dir_all(&root);
@@ -278,7 +314,110 @@ mod tests {
             artifacts,
             runtime: None,
             npm: None,
+            entry_subpath: None,
         }
+    }
+
+    /// Build an in-memory zip with a nested entry at `entry_subpath`, plus a
+    /// decoy top-level file, mirroring the Roslyn nupkg's shape (payload
+    /// nested under `content/LanguageServer/<rid>/...`, other unrelated
+    /// files alongside it).
+    fn zip_with_nested_entry(entry_subpath: &str, payload: &[u8]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut buf);
+            let mut writer = zip::ZipWriter::new(cursor);
+            let opts = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            writer.start_file(entry_subpath, opts).unwrap();
+            writer.write_all(payload).unwrap();
+            writer.start_file("decoy/reference.dll", opts).unwrap();
+            writer.write_all(b"not the real payload").unwrap();
+            writer.finish().unwrap();
+        }
+        buf
+    }
+
+    fn zip_spec_with_sha_and_entry(sha256: &str, entry_subpath: &str) -> ServerSpec {
+        let mut artifacts = HashMap::new();
+        artifacts.insert(
+            crate::registry::platform_key().to_string(),
+            Artifact {
+                url: "https://example.invalid/x.zip".into(),
+                sha256: sha256.into(),
+                kind: ArchiveKind::Zip,
+            },
+        );
+        ServerSpec {
+            language: "csharp".into(),
+            name: "fake-roslyn".into(),
+            version: "1.0".into(),
+            cmd: "unused-for-zip".into(),
+            args: vec![],
+            root_markers: vec!["*.sln".into()],
+            approx_size_mb: 1,
+            artifacts,
+            runtime: Some(crate::registry::RuntimeSpec {
+                name: "dotnet".into(),
+                min_version: "10".into(),
+                version_arg: "--version".into(),
+            }),
+            npm: None,
+            entry_subpath: Some(entry_subpath.into()),
+        }
+    }
+
+    #[test]
+    fn installs_verified_zip_with_nested_entry_and_marks_it_executable() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry_subpath =
+            "content/LanguageServer/osx-arm64/Microsoft.CodeAnalysis.LanguageServer";
+        let payload = b"fake apphost bytes";
+        let zip_bytes = zip_with_nested_entry(entry_subpath, payload);
+        let sha = format!("{:x}", Sha256::digest(&zip_bytes));
+        let spec = zip_spec_with_sha_and_entry(&sha, entry_subpath);
+
+        let entry = install_from_bytes(&zip_bytes, &spec, dir.path()).unwrap();
+        assert_eq!(
+            entry,
+            dir.path().join("lsp/fake-roslyn/1.0").join(entry_subpath)
+        );
+        assert_eq!(std::fs::read(&entry).unwrap(), payload);
+        assert!(is_installed(dir.path(), &spec));
+
+        // The decoy file was extracted too (unzip preserves the whole
+        // archive, not just the entry), but is not what `is_installed`
+        // checks.
+        let decoy = dir.path().join("lsp/fake-roslyn/1.0/decoy/reference.dll");
+        assert!(decoy.is_file());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&entry).unwrap().permissions().mode();
+            assert_ne!(mode & 0o111, 0, "nested entry must be executable");
+            // The decoy file must NOT have been force-chmod'd executable —
+            // only the declared entry_subpath is.
+            let decoy_mode = std::fs::metadata(&decoy).unwrap().permissions().mode();
+            assert_eq!(
+                decoy_mode & 0o111,
+                0,
+                "only entry_subpath should be marked executable"
+            );
+        }
+    }
+
+    #[test]
+    fn zip_install_rejects_sha_mismatch_and_installs_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry_subpath =
+            "content/LanguageServer/osx-arm64/Microsoft.CodeAnalysis.LanguageServer";
+        let zip_bytes = zip_with_nested_entry(entry_subpath, b"payload");
+        let spec = zip_spec_with_sha_and_entry(&"0".repeat(64), entry_subpath);
+
+        let err = install_from_bytes(&zip_bytes, &spec, dir.path()).unwrap_err();
+        assert!(matches!(err, crate::LspError::ShaMismatch { .. }));
+        assert!(!is_installed(dir.path(), &spec));
     }
 
     fn npm_spec_with_version(version: &str) -> ServerSpec {
@@ -300,6 +439,7 @@ mod tests {
                 packages: vec!["fake-ts-ls@1.2.3".into()],
                 bin_entry: "node_modules/fake-ts-ls/lib/cli.mjs".into(),
             }),
+            entry_subpath: None,
         }
     }
 

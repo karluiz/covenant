@@ -30,6 +30,10 @@ describe("lspLanguageId", () => {
     }
   });
 
+  it("maps .cs to csharp", () => {
+    expect(lspLanguageId("/repo/src/Program.cs")).toBe("csharp");
+  });
+
   it("maps unsupported extensions to null", () => {
     expect(lspLanguageId("/repo/README.md")).toBeNull();
     expect(lspLanguageId("/repo/Makefile")).toBeNull();

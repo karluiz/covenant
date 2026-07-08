@@ -21,6 +21,8 @@ pub enum LspError {
     Io(#[from] std::io::Error),
     #[error("server spawn failed: {0}")]
     Spawn(String),
+    #[error("archive extraction failed: {0}")]
+    Extract(String),
     #[error("runtime {name} not found or too old (need >= {min}, found {found:?})")]
     RuntimeMissing {
         name: String,

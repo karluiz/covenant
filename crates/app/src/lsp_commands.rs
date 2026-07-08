@@ -35,10 +35,11 @@ impl LspState {
     }
 }
 
-/// Populated on `LspServerStatus` when an npm-method server needs a runtime
-/// (e.g. node) that isn't present, or is present but too old. `found` is
-/// `None` when the runtime binary wasn't found at all, `Some(version)` when
-/// it was found but failed the minimum-version check.
+/// Populated on `LspServerStatus` when a server that declares a `runtime`
+/// requirement (e.g. node for npm-method servers, or dotnet for a
+/// binary-with-runtime server like Roslyn/csharp) needs it and it isn't
+/// present. `found` is `None` when the runtime binary wasn't found at all,
+/// `Some(version)` when it was found but failed the minimum-version check.
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeMissingInfo {
     pub name: String,
@@ -53,9 +54,11 @@ pub struct LspServerStatus {
     pub version: String,
     pub installed: bool,
     pub approx_size_mb: u32,
-    /// `Some` only for npm-method servers whose runtime dependency (node)
-    /// is missing or too old. Binary servers (rust-analyzer) always report
-    /// `None` here.
+    /// `Some` only for servers that declare a `runtime` requirement in the
+    /// manifest (npm-method servers like typescript, or a binary-with-runtime
+    /// server like Roslyn/csharp) whose runtime dependency is missing or too
+    /// old. Plain binary servers with no runtime (rust-analyzer) always
+    /// report `None` here.
     pub runtime_missing: Option<RuntimeMissingInfo>,
 }
 
@@ -63,6 +66,210 @@ pub struct LspServerStatus {
 pub struct LspStartResult {
     pub server_id: u64,
     pub root: String,
+    /// Absolute path to the `.sln`/`.slnx` (falling back to the first
+    /// `.csproj`) found under `root` (see `find_solution_path`), for
+    /// servers that need a post-initialize project-load handshake
+    /// (currently csharp/Roslyn only — cross-file definitions never resolve
+    /// without it). `None` for every other language.
+    pub solution_path: Option<String>,
+    /// Which handshake `solution_path` needs: `"solution"` (empirically
+    /// verified `solution/open {"solution": "<uri>"}` — see task-3-report)
+    /// for a `.sln`/`.slnx`, `"project"` (empirically verified
+    /// `project/open {"projects": ["<uri>"]}` — see task-4-report) for a
+    /// bare `.csproj` with no solution file. `None` iff `solution_path` is
+    /// `None`.
+    pub solution_kind: Option<String>,
+}
+
+/// Directory names never worth descending into while searching for a
+/// solution/project file: build output, dependency caches, and VCS/hidden
+/// dirs. Checked by exact name; hidden dirs (leading `.`) are skipped
+/// separately in `find_first_bounded`.
+const SKIP_DIRS: &[&str] = &["bin", "obj", "node_modules", ".git"];
+
+/// Depth bound for the recursive descent below. `root` itself is depth 0;
+/// `root/src/App.csproj` is found at depth 1. Kept small since this walks
+/// on every `lsp_start` call — a repo with a `.sln`/`.csproj` more than a
+/// few directories below `root` is not a layout we need to support.
+const MAX_DESCENT_DEPTH: u32 = 3;
+
+/// First `root` entry (direct children only, sorted by name for a
+/// deterministic result) whose filename ends with `suffix`.
+fn find_direct_child(root: &Path, suffix: &str) -> Option<PathBuf> {
+    let mut entries: Vec<_> = std::fs::read_dir(root).ok()?.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+    entries.into_iter().find_map(|entry| {
+        let name = entry.file_name();
+        let name = name.to_str()?;
+        name.ends_with(suffix).then(|| root.join(name))
+    })
+}
+
+/// Bounded, depth-first search under (but not including) `dir` for the
+/// first file whose name ends with `suffix`. Directory entries are sorted
+/// so the result is stable across filesystems/platforms rather than
+/// dependent on readdir order. Skips `SKIP_DIRS` and hidden directories;
+/// stops descending past `MAX_DESCENT_DEPTH`.
+fn find_first_bounded(dir: &Path, suffix: &str, depth: u32) -> Option<PathBuf> {
+    if depth > MAX_DESCENT_DEPTH {
+        return None;
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(dir).ok()?.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+
+    // Files at this level first, so a shallower match always wins over one
+    // found by descending into an earlier sibling directory.
+    for entry in &entries {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if entry.path().is_file() && name.ends_with(suffix) {
+            return Some(entry.path());
+        }
+    }
+    for entry in &entries {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !entry.path().is_dir() {
+            continue;
+        }
+        if name.starts_with('.') || SKIP_DIRS.contains(&name) {
+            continue;
+        }
+        if let Some(found) = find_first_bounded(&entry.path(), suffix, depth + 1) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// A `.sln`/`.slnx` (else a `.csproj`), for languages whose server needs a
+/// post-initialize project-load handshake (currently csharp/Roslyn only).
+/// `root` is the outermost ancestor `detect_root` found containing one of
+/// `spec.root_markers` — for csharp that includes `global.json`, which is
+/// commonly the *only* thing at the repo root, with the actual
+/// `.sln`/`.csproj` nested under `src/` or similar. So this does not stop
+/// at `root`'s direct children: it prefers a `.sln` directly in `root`,
+/// then falls back to a bounded recursive descent (depth `MAX_DESCENT_DEPTH`,
+/// skipping `SKIP_DIRS`/hidden dirs) for the first `.sln`, then repeats the
+/// same direct/descent search for `.csproj`. The returned kind string
+/// (`"solution"` / `"project"`) tells the caller which handshake to send —
+/// `solution/open` and `project/open` are NOT interchangeable: Roslyn's
+/// `solution/open` expects an actual `.sln`/`.slnx` and silently loads
+/// nothing for a bare `.csproj` (verified empirically — see
+/// task-4-report.md). Logs a warning (not silent) when nothing is found at
+/// all, since that means no handshake ever fires and cross-file resolution
+/// silently degrades.
+fn find_solution_path(root: &Path, language: &str) -> Option<(String, &'static str)> {
+    if language != "csharp" {
+        return None;
+    }
+    let sln = find_direct_child(root, ".sln")
+        .or_else(|| find_direct_child(root, ".slnx"))
+        .or_else(|| find_first_bounded(root, ".sln", 1))
+        .or_else(|| find_first_bounded(root, ".slnx", 1));
+    if let Some(p) = sln {
+        return Some((p.to_string_lossy().to_string(), "solution"));
+    }
+
+    let proj = find_direct_child(root, ".csproj").or_else(|| find_first_bounded(root, ".csproj", 1));
+    if let Some(p) = proj {
+        return Some((p.to_string_lossy().to_string(), "project"));
+    }
+
+    tracing::warn!(
+        root = %root.to_string_lossy(),
+        "csharp: no .sln/.csproj found under root; no project-load handshake will fire, cross-file resolution degraded"
+    );
+    None
+}
+
+#[cfg(test)]
+mod find_solution_path_tests {
+    use super::*;
+    use std::fs;
+
+    fn touch(p: &Path) {
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, "").unwrap();
+    }
+
+    #[test]
+    fn global_json_at_root_finds_nested_csproj() {
+        let t = tempfile::tempdir().unwrap();
+        touch(&t.path().join("global.json"));
+        touch(&t.path().join("src/App.csproj"));
+        let found = find_solution_path(t.path(), "csharp");
+        assert_eq!(
+            found,
+            Some((
+                t.path()
+                    .join("src/App.csproj")
+                    .to_string_lossy()
+                    .to_string(),
+                "project"
+            ))
+        );
+    }
+
+    #[test]
+    fn prefers_sln_directly_in_root() {
+        let t = tempfile::tempdir().unwrap();
+        touch(&t.path().join("Foo.sln"));
+        touch(&t.path().join("src/App.csproj"));
+        let found = find_solution_path(t.path(), "csharp");
+        assert_eq!(
+            found,
+            Some((
+                t.path().join("Foo.sln").to_string_lossy().to_string(),
+                "solution"
+            ))
+        );
+    }
+
+    #[test]
+    fn empty_dir_returns_none() {
+        let t = tempfile::tempdir().unwrap();
+        assert_eq!(find_solution_path(t.path(), "csharp"), None);
+    }
+
+    #[test]
+    fn non_csharp_short_circuits_without_touching_disk() {
+        // A nonexistent path would fail any read_dir call; confirms the
+        // language check returns None before ever inspecting `root`.
+        let bogus = Path::new("/does/not/exist/at/all");
+        assert_eq!(find_solution_path(bogus, "rust"), None);
+    }
+
+    #[test]
+    fn skips_bin_obj_and_hidden_dirs() {
+        let t = tempfile::tempdir().unwrap();
+        touch(&t.path().join("global.json"));
+        touch(&t.path().join("bin/Decoy.csproj"));
+        touch(&t.path().join("obj/Decoy2.csproj"));
+        touch(&t.path().join(".hidden/Decoy3.csproj"));
+        touch(&t.path().join("src/App.csproj"));
+        let found = find_solution_path(t.path(), "csharp");
+        assert_eq!(
+            found,
+            Some((
+                t.path()
+                    .join("src/App.csproj")
+                    .to_string_lossy()
+                    .to_string(),
+                "project"
+            ))
+        );
+    }
+
+    #[test]
+    fn descent_beyond_max_depth_is_not_found() {
+        let t = tempfile::tempdir().unwrap();
+        touch(&t.path().join("global.json"));
+        // depth: a/b/c/d/Too.csproj is 4 levels below root — beyond
+        // MAX_DESCENT_DEPTH (3) — so it must not be found.
+        touch(&t.path().join("a/b/c/d/Too.csproj"));
+        assert_eq!(find_solution_path(t.path(), "csharp"), None);
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,16 +306,18 @@ pub fn lsp_server_status(
     let mut installed = install::is_installed(&state.data_dir, spec);
     let mut runtime_missing = None;
 
-    if spec.install_kind() == InstallKind::Npm {
-        if let Some(rt) = &spec.runtime {
-            if let Err(e) = runtime::detect(&rt.as_runtime_req()) {
-                match e {
-                    LspError::RuntimeMissing { name, min, found } => {
-                        runtime_missing = Some(RuntimeMissingInfo { name, min, found });
-                        installed = false;
-                    }
-                    other => return Err(other.to_string()),
+    // Runtime gate is orthogonal to install_kind: an npm-method server
+    // (typescript) and a binary-with-runtime server (csharp/Roslyn, whose
+    // zip download is unrelated to `dotnet`) both declare `spec.runtime`
+    // and must be gated the same way.
+    if let Some(rt) = &spec.runtime {
+        if let Err(e) = runtime::detect(&rt.as_runtime_req()) {
+            match e {
+                LspError::RuntimeMissing { name, min, found } => {
+                    runtime_missing = Some(RuntimeMissingInfo { name, min, found });
+                    installed = false;
                 }
+                other => return Err(other.to_string()),
             }
         }
     }
@@ -131,6 +340,33 @@ pub async fn lsp_download_server(
 ) -> Result<(), String> {
     let spec = registry::spec_for_language(&language).map_err(|e| e.to_string())?;
     let topic = format!("lsp://download/{language}");
+
+    // Runtime gate is orthogonal to install_kind: csharp (Binary — a zip
+    // download of the Roslyn nupkg, not `npm install`) still declares
+    // `spec.runtime` (dotnet) and must be gated the same as an npm-method
+    // server. Resolve up front so both branches can fail fast on a missing
+    // runtime instead of downloading first.
+    let node_dir = if let Some(rt) = &spec.runtime {
+        let resolved = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
+        // Node's PARENT DIR (not the binary itself) so npm_install's
+        // resolve_npm_path fast path finds `npm` next to it instead of
+        // falling back to a login-shell lookup. Unused for the Binary
+        // branch below (csharp/dotnet) — only npm_install needs it.
+        let dir = resolved
+            .path
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| {
+                format!(
+                    "cannot resolve parent directory of {}",
+                    resolved.path.display()
+                )
+            })?;
+        Some(dir)
+    } else {
+        None
+    };
+
     match spec.install_kind() {
         InstallKind::Binary => {
             install::download(spec, &state.data_dir, |received, total| {
@@ -140,18 +376,9 @@ pub async fn lsp_download_server(
             .map_err(|e| e.to_string())?;
         }
         InstallKind::Npm => {
-            let rt = spec
-                .runtime
-                .as_ref()
+            let node_dir = node_dir
                 .ok_or_else(|| format!("{} is an npm server but has no runtime spec", spec.name))?;
-            let node = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
-            // Node's PARENT DIR (not the binary itself) so npm_install's
-            // resolve_npm_path fast path finds `npm` next to it instead of
-            // falling back to a login-shell lookup.
-            let node_dir = node.path.parent().ok_or_else(|| {
-                format!("cannot resolve parent directory of {}", node.path.display())
-            })?;
-            install::npm_install(spec, &state.data_dir, node_dir, |message| {
+            install::npm_install(spec, &state.data_dir, &node_dir, |message| {
                 let _ = app.emit(
                     &topic,
                     NpmInstallProgress {
@@ -200,8 +427,21 @@ pub async fn lsp_start(
     if !install::is_installed(&state.data_dir, spec) {
         return Err(format!("{} is not installed", spec.name));
     }
+
+    // Runtime gate: any spec with a runtime requirement (npm-method AND
+    // binary-with-runtime like Roslyn/csharp) must have it present before
+    // spawn, even though the entry itself is already installed and — for
+    // csharp — is spawned directly rather than via `dotnet <entry>`.
+    if let Some(rt) = &spec.runtime {
+        runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
+    }
+
     let root = root::detect_root(Path::new(&file_path), &spec.root_markers);
     let root_str = root.to_string_lossy().to_string();
+    let (solution_path, solution_kind) = match find_solution_path(&root, &language) {
+        Some((path, kind)) => (Some(path), Some(kind.to_string())),
+        None => (None, None),
+    };
     let key = (language.clone(), root_str.clone());
 
     // Step 1: fast path — an already-live server for this key.
@@ -212,6 +452,8 @@ pub async fn lsp_start(
                 return Ok(LspStartResult {
                     server_id: id,
                     root: root_str,
+                    solution_path,
+                    solution_kind,
                 });
             }
         }
@@ -219,17 +461,26 @@ pub async fn lsp_start(
         // (re)spawn below, never held across the spawn await.
     }
 
+    // `id` is allocated before spawn args are built because the Roslyn
+    // (binary-with-runtime) branch needs it for the per-server log dir
+    // name. A simple atomic increment — reordering it earlier has no
+    // bearing on the race-loser cleanup below (a lost race just leaves an
+    // orphaned, harmless log dir under that id).
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+
     // Step 2: spawn with no lock held — this can be slow (process launch,
     // handshake) and must never block lsp_send/lsp_stop for other servers.
-    // Binary servers (rust-analyzer) spawn `entry_path` directly — the
-    // downloaded binary IS the command. Npm servers spawn the resolved
-    // `node` binary with the JS entry point as its first argument, since
-    // the "binary" here is a `.mjs`/`.js` file that can't execute itself.
+    // Three cases:
+    //   - Npm servers spawn the resolved `node` binary with the JS entry
+    //     point as its first argument, since the "binary" here is a
+    //     `.mjs`/`.js` file that can't execute itself.
+    //   - Binary-with-runtime (csharp/Roslyn) spawns `entry_path` DIRECTLY
+    //     — the apphost self-resolves the dotnet runtime, we never launch
+    //     via `dotnet <entry>` — but requires Roslyn's mandatory CLI args
+    //     plus a writable per-server log dir.
+    //   - Plain Binary with no runtime (rust-analyzer) spawns `entry_path`
+    //     directly with `spec.args` — unchanged from before this task.
     let (bin, spawn_args): (PathBuf, Vec<String>) = match spec.install_kind() {
-        InstallKind::Binary => (
-            install::entry_path(&state.data_dir, spec),
-            spec.args.clone(),
-        ),
         InstallKind::Npm => {
             let rt = spec
                 .runtime
@@ -241,9 +492,29 @@ pub async fn lsp_start(
             args.extend(spec.args.iter().cloned());
             (node.path, args)
         }
+        InstallKind::Binary if spec.runtime.is_some() => {
+            let entry = install::entry_path(&state.data_dir, spec);
+            let log_dir = state.data_dir.join("lsp").join("logs").join(id.to_string());
+            std::fs::create_dir_all(&log_dir)
+                .map_err(|e| format!("creating lsp log dir {}: {e}", log_dir.display()))?;
+            // Required by the Roslyn CLI: it errors out without
+            // --logLevel/--extensionLogDirectory/--stdio.
+            let mut args = vec![
+                "--logLevel".to_string(),
+                "Information".to_string(),
+                "--extensionLogDirectory".to_string(),
+                log_dir.to_string_lossy().to_string(),
+                "--stdio".to_string(),
+            ];
+            args.extend(spec.args.iter().cloned());
+            (entry, args)
+        }
+        InstallKind::Binary => (
+            install::entry_path(&state.data_dir, spec),
+            spec.args.clone(),
+        ),
     };
 
-    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     let msg_topic = format!("lsp://{id}/message");
     let exit_topic = format!("lsp://{id}/exit");
     let app_msg = app.clone();
@@ -295,6 +566,8 @@ pub async fn lsp_start(
             return Ok(LspStartResult {
                 server_id: winner_id,
                 root: root_str,
+                solution_path,
+                solution_kind,
             });
         }
     }
@@ -305,6 +578,8 @@ pub async fn lsp_start(
     Ok(LspStartResult {
         server_id: id,
         root: root_str,
+        solution_path,
+        solution_kind,
     })
 }
 

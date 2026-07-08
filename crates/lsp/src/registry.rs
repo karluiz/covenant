@@ -16,6 +16,7 @@ pub struct Artifact {
 #[serde(rename_all = "lowercase")]
 pub enum ArchiveKind {
     Gzip,
+    Zip,
 }
 
 /// A runtime (e.g. Node.js) a server needs on the user's machine. Mirrors
@@ -74,6 +75,14 @@ pub struct ServerSpec {
     pub runtime: Option<RuntimeSpec>,
     #[serde(default)]
     pub npm: Option<NpmSpec>,
+    /// Entry point relative to `install_root`, for a binary artifact whose
+    /// runnable file is nested inside the unpacked archive (e.g. the Roslyn
+    /// nupkg's payload lives under `content/LanguageServer/<rid>/...`).
+    /// `None` means the entry is `install_root.join(&cmd)` directly (the
+    /// rust-analyzer case: a flat gzipped binary with no wrapping archive
+    /// structure).
+    #[serde(default)]
+    pub entry_subpath: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,6 +172,40 @@ mod tests {
         assert_eq!(spec.install_kind(), InstallKind::Binary);
         assert!(spec.npm.is_none());
         assert!(spec.runtime.is_none());
+    }
+
+    #[test]
+    fn csharp_entry_is_zip_with_entry_subpath_and_runtime() {
+        let spec = spec_for_language("csharp").expect("csharp in manifest");
+        assert_eq!(spec.name, "roslyn-language-server");
+        assert_eq!(spec.install_kind(), InstallKind::Binary);
+        assert!(spec.npm.is_none());
+
+        let entry_subpath = spec
+            .entry_subpath
+            .as_ref()
+            .expect("csharp entry has entry_subpath");
+        assert_eq!(
+            entry_subpath,
+            "content/LanguageServer/osx-arm64/Microsoft.CodeAnalysis.LanguageServer"
+        );
+
+        let runtime = spec
+            .runtime
+            .as_ref()
+            .expect("csharp entry has runtime spec");
+        assert_eq!(runtime.name, "dotnet");
+
+        assert!(spec.root_markers.contains(&"*.sln".to_string()));
+    }
+
+    #[test]
+    #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), ignore)]
+    fn csharp_artifact_is_zip_kind() {
+        let spec = spec_for_language("csharp").unwrap();
+        let art = spec.artifact().expect("artifact for current platform");
+        assert_eq!(art.kind, ArchiveKind::Zip);
+        assert_eq!(art.sha256.len(), 64);
     }
 
     #[test]
