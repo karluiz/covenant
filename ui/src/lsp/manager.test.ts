@@ -20,9 +20,17 @@ vi.mock("../api", () => ({
 }));
 
 describe("lspLanguageId", () => {
-  it("maps .rs to rust and everything else to null in P1", () => {
+  it("maps .rs to rust", () => {
     expect(lspLanguageId("/repo/src/main.rs")).toBe("rust");
-    expect(lspLanguageId("/repo/src/app.ts")).toBeNull();
+  });
+
+  it("maps TS/JS extensions (incl. JSX/module variants) to typescript", () => {
+    for (const ext of ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"]) {
+      expect(lspLanguageId(`/repo/src/app.${ext}`)).toBe("typescript");
+    }
+  });
+
+  it("maps unsupported extensions to null", () => {
     expect(lspLanguageId("/repo/README.md")).toBeNull();
     expect(lspLanguageId("/repo/Makefile")).toBeNull();
   });
