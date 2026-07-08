@@ -1534,6 +1534,7 @@ async function boot(): Promise<void> {
             getActiveOrg: () => manager.groupCanonOrg(a.groupId),
             setActiveOrg: (slug) => manager.setGroupCanonOrg(a.groupId, slug),
             onNewContext: () => launchContextMiner(a.groupId, a.groupLabel),
+            onClose: () => { void activeCanonPanel?.refresh(); },
           }).open();
         });
       },

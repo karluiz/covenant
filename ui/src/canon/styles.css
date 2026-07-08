@@ -80,7 +80,6 @@ body.theme-true-dark .canon-reader {
   --muted: #8b919d;
   --fg-dim: #9aa0ab;
 }
-body.theme-true-dark .canon-loop .canon-loop-note { opacity: 1; }
 
 /* True Dark elevation pass — pure black flattens flat fills, so cards carry
    their own depth: a neutral top-lit gradient + hairline top edge (neutral
@@ -480,7 +479,6 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
 
 /* ── Buttons (secondary, house style) ── */
 .canon-new-context-btn,
-.canon-search-row button,
 .canon-card-head button {
   background: transparent;
   color: var(--muted, #6c7280);
@@ -493,7 +491,6 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
   transition: color 120ms, border-color 120ms, background 120ms;
 }
 .canon-new-context-btn:hover,
-.canon-search-row button:hover,
 .canon-card-head button:hover {
   color: var(--text-primary, #f5f6f7);
   border-color: var(--canon-accent, var(--accent, #7aa2f7));
@@ -510,35 +507,6 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
   line-height: 0;
 }
 .canon-icon-btn svg { display: block; }
-
-/* ── Registry search ── */
-.canon-search-row {
-  display: flex;
-  gap: 6px;
-  margin: 8px 0 6px;
-}
-.canon-search-row input {
-  flex: 1;
-  min-width: 0;
-  background: var(--canon-lift-1);
-  color: var(--text-primary, #f5f6f7);
-  border: 1px solid var(--canon-line);
-  border-radius: 0;
-  padding: 6px 9px;
-  font-size: 12px;
-  transition: border-color 120ms;
-}
-.canon-search-row input::placeholder { color: var(--muted, #6c7280); }
-.canon-search-row input:focus {
-  outline: none;
-  border-color: var(--canon-accent, var(--accent, #7aa2f7));
-}
-
-.canon-error {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: var(--danger, #e85a5a);
-}
 
 /* Skill / registry cards: a head row (name + meta + actions), an optional
    one-line description, and a collapsible SKILL.md preview underneath. */
@@ -580,12 +548,6 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
   line-height: 1.45;
   color: var(--fg-dim, #8b929b);
 }
-.canon-empty {
-  margin: 4px 0;
-  font-size: 12px;
-  color: var(--muted, #6c7280);
-}
-
 /* ── Full-screen SKILL.md reader (rendered markdown, like the spec preview) ── */
 .canon-reader {
   position: fixed;
@@ -751,10 +713,3 @@ body.tabbar-left .canon-reader { top: 38px; }
   transition: width 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .canon-bar-fill.is-ok { background: var(--ok, #9ece6a); }
-
-.canon-loop .canon-loop-note {
-  margin: 12px 0 0;
-  font-size: 11px;
-  color: var(--muted, #6c7280);
-  opacity: 0.8;
-}

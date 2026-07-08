@@ -8,6 +8,7 @@ import {
   canonLocalStatus, canonMyOrgs, canonCreateOrg, canonPublish,
   canonReadLocal, canonExport, canonRunEvals, onCanonEvalProgress,
 } from "../api";
+import { resolveActiveOrg } from "./org";
 
 /** Derive a valid org slug from a display name: lowercase, [a-z0-9-] only,
  *  collapse runs of dashes, trim leading/trailing dashes, cap at 40. Mirrors
@@ -269,13 +270,7 @@ export class CanonPanel {
   /** The org whose registry this group works against: the group's saved
    *  choice, else the personal org, else the first org, else null. */
   activeOrg(): Org | null {
-    if (this.orgs.length === 0) return null;
-    const saved = this.opts.getActiveOrg?.() ?? null;
-    if (saved) {
-      const hit = this.orgs.find((o) => o.slug === saved);
-      if (hit) return hit;
-    }
-    return this.orgs.find((o) => o.personal) ?? this.orgs[0];
+    return resolveActiveOrg(this.orgs, this.opts.getActiveOrg?.() ?? null);
   }
 
   private updateOrgChip(): void {

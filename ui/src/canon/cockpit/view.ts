@@ -25,6 +25,7 @@ import {
   canonEvalSummary,
 } from "../../api";
 import { slugify, skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
+import { resolveActiveOrg } from "../org";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 
@@ -40,6 +41,10 @@ export interface CanonCockpitOpts {
   /** Launch the repo-mining Context Miner for this group (same flow the
    *  rail panel used to expose directly — now only reachable from here). */
   onNewContext?: () => void;
+  /** Called after the overlay is torn down — lets the caller refresh the
+   *  still-mounted rail panel, whose org chip otherwise goes stale until
+   *  its next own refresh (e.g. after this cockpit switched/created an org). */
+  onClose?: () => void;
 }
 
 /** A small uppercase subhead inside the Loop section (Adoption / Inference /
@@ -121,6 +126,7 @@ export class CanonCockpitView {
     this.root.remove();
     document.body.classList.remove("canon-cockpit-open");
     document.removeEventListener("keydown", this.onKey);
+    this.opts.onClose?.();
   }
 
   showSection(key: SectionKey): void {
@@ -142,17 +148,10 @@ export class CanonCockpitView {
     }
   }
 
-  /** The org this cockpit is scoped to: the group's saved choice, else the
-   *  personal org, else the first org, else null. Mirrors CanonPanel's
-   *  `activeOrg()` in panel.ts — keep the resolution order in sync. */
+  /** The org this cockpit is scoped to. Delegates to the shared resolver in
+   *  org.ts — keep the resolution order in one place. */
   private activeOrg(): Org | null {
-    if (this.opts.orgs.length === 0) return null;
-    const saved = this.opts.getActiveOrg();
-    if (saved) {
-      const hit = this.opts.orgs.find((o) => o.slug === saved);
-      if (hit) return hit;
-    }
-    return this.opts.orgs.find((o) => o.personal) ?? this.opts.orgs[0];
+    return resolveActiveOrg(this.opts.orgs, this.opts.getActiveOrg());
   }
 
   private note(text: string): HTMLElement {
