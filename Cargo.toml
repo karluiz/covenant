@@ -12,6 +12,7 @@ members = [
     "crates/score",
     "crates/store",
     "crates/cdlc",
+    "crates/lsp",
 ]
 
 [workspace.package]
@@ -45,6 +46,7 @@ async-trait = "0.1"
 sysinfo = "0.33"
 toml = "0.8"
 sha2 = "0.10"
+flate2 = "1"
 chrono = { version = "0.4", features = ["clock"] }
 karl-metrics = { path = "crates/metrics" }
 
