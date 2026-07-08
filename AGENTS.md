@@ -24,6 +24,46 @@ If a feature does not contribute to that loop, it is out of scope until M5+.
 
 ---
 
+## The Ontology — who is who (read this when you forget what you're building)
+
+Covenant is a **chain of delegation of the self**. Three tiers, one principal:
+
+```
+       YOU (Karluiz)  —  the principal / human in the loop
+       │                 the will, the accountable one, the source of authority
+       ▼  delegates authority over a domain to
+  ┌──────────────┐
+  │   OPERATOR   │  a version of you, put in charge
+  │ (orquestador)│  NOT a bot with a permission table — a facet of your own judgment
+  └──────────────┘
+       │  directs / wields
+       ▼
+  ┌──────────────┐
+  │   EXECUTOR   │  the harness — claude, codex, copilot, pi, hermes
+  │ (ag. ejecutor)│  the hands, the construction tool
+  └──────────────┘
+       │  operates on
+       ▼
+   the terminal / repo / world
+```
+
+The one idea everything else derives from: **an operator is a projection of the principal's own judgment onto a domain he can't personally attend to.** When an operator answers a prompt, that is not a rule firing — it is *you-as-you-would-decide-in-this-domain* answering. It carries your authority because it carries a piece of your criterion.
+
+Corollary that governs the `soul.md`: **an `ALWAYS-YES` rule is a decision the principal has already made.** So a soul is not a config file — it is a delegation written as a letter to yourself. Four layers, top to bottom:
+
+| Layer | What it says |
+|---|---|
+| **Mandate** | Whose version this is, and what slice of *your* authority it holds |
+| **Disposition** | How this facet of you weighs risk vs. throughput — the temperament the yes/no's derive from |
+| **Reflexes** | The concrete `ALWAYS-YES` / `ESCALATE` table (decisions you pre-made) |
+| **Voice** | How this version of you talks |
+
+A soul that is only Reflexes + Voice (a bare permission table) does not do justice to what an operator is. Write the Mandate and Disposition first; the reflexes fall out of them.
+
+Naming: in-product, **you are "you" / the principal** (never labeled "executor" — that word is the harness tier: claude/codex/etc.). The operator is *"a version of you."*
+
+---
+
 ## Core Principle: Own the PTY, do not "intercept stdout"
 
 The shell (zsh / bash / fish) is a child process running inside a **pseudo-terminal we own**. Every byte of stdout/stderr passes through our Rust backend before being rendered, and we can write back to the PTY at any time. There is no "interception" — we are the master.
