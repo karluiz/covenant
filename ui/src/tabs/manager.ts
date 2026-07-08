@@ -5795,6 +5795,16 @@ export class TabManager {
     }
     // tab.finder is a per-tab overlay (not per-pane in D14 v0); keep its dispose.
     tab.finder?.dispose();
+    // The tab (and its StructureEditor) is discarded here for good — close the
+    // editor so it releases its LSP doc + the module-level code-intel
+    // subscription (else the instance leaks via that Set). close() is
+    // idempotent and open() re-arms the subscription, so this is safe even
+    // on the stash/replace paths that reuse the editor on reattach.
+    try {
+      tab.editor?.close();
+    } catch {
+      /* ignore */
+    }
     if (tab.pane.parentElement === this.workspace) {
       this.workspace.removeChild(tab.pane);
     }
