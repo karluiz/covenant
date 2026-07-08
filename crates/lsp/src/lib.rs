@@ -1,6 +1,7 @@
 pub mod framing;
 pub mod install;
 pub mod registry;
+pub mod root;
 
 use thiserror::Error;
 
