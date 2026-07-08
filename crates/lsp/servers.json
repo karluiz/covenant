@@ -40,6 +40,21 @@
       "artifacts": {
         "macos-aarch64": { "url": "https://pkgs.dev.azure.com/azure-public/vside/_packaging/vs-impl/nuget/v3/flat2/microsoft.codeanalysis.languageserver.osx-arm64/5.4.0-2.26179.14/microsoft.codeanalysis.languageserver.osx-arm64.5.4.0-2.26179.14.nupkg", "sha256": "b8583ea7571767b8b6b157cdbece5aa8945aece55cca151040c747a134052a9d", "kind": "zip" }
       }
+    },
+    {
+      "language": "java",
+      "name": "jdtls",
+      "version": "1.60.0",
+      "cmd": "jdtls",
+      "args": [],
+      "root_markers": ["pom.xml", "build.gradle", "settings.gradle", ".project"],
+      "approx_size_mb": 51,
+      "runtime": { "name": "java", "min_version": "21", "version_arg": "--version" },
+      "entry_subpath": "plugins/org.eclipse.equinox.launcher_1.7.200.v20260619-2039.jar",
+      "config_subpath": "config_mac_arm",
+      "artifacts": {
+        "macos-aarch64": { "url": "https://download.eclipse.org/jdtls/milestones/1.60.0/jdt-language-server-1.60.0-202606262232.tar.gz", "sha256": "e94c303d8198f977930803582738771fd18c52c5492878410bf222b1aa81ef1d", "kind": "targz" }
+      }
     }
   ]
 }

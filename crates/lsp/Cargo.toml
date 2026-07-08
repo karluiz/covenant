@@ -16,6 +16,7 @@ sha2 = { workspace = true }
 flate2 = { workspace = true }
 futures-util = { workspace = true }
 zip = { workspace = true }
+tar = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

@@ -113,6 +113,17 @@ pub fn install_from_bytes(
                 }
             }
         }
+        ArchiveKind::TarGz => {
+            let decoder = flate2::read::GzDecoder::new(bytes);
+            let mut archive = tar::Archive::new(decoder);
+            // `unpack` preserves relative paths and (on unix) file
+            // permissions/mode bits from the tar entries themselves, and
+            // rejects absolute paths / `..` components (tar-slip guard) the
+            // same way `enclosed_name` does for zip above.
+            archive
+                .unpack(&staging)
+                .map_err(|e| LspError::Extract(format!("tar.gz unpack: {e}")))?;
+        }
     }
 
     // The runnable entry within `staging`: `entry_subpath` when the archive
@@ -315,6 +326,7 @@ mod tests {
             runtime: None,
             npm: None,
             entry_subpath: None,
+            config_subpath: None,
         }
     }
 
@@ -364,6 +376,7 @@ mod tests {
             }),
             npm: None,
             entry_subpath: Some(entry_subpath.into()),
+            config_subpath: None,
         }
     }
 
@@ -420,6 +433,110 @@ mod tests {
         assert!(!is_installed(dir.path(), &spec));
     }
 
+    /// Build an in-memory tar.gz mirroring jdtls's shape: a nested launcher
+    /// jar under `plugins/`, plus an unrelated config file under
+    /// `config_mac_arm/` to prove the whole archive is unpacked (not just
+    /// the one entry), with the launcher entry's mode bits set explicitly
+    /// so the perms-preserved assertion below is meaningful.
+    fn targz_with_nested_entry(entry_subpath: &str, payload: &[u8]) -> Vec<u8> {
+        let enc = GzEncoder::new(Vec::new(), Compression::default());
+        let mut builder = tar::Builder::new(enc);
+
+        let mut header = tar::Header::new_gnu();
+        header.set_path(entry_subpath).unwrap();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder.append(&header, payload).unwrap();
+
+        let config_payload = b"osgi.bundles=fake";
+        let mut config_header = tar::Header::new_gnu();
+        config_header.set_path("config_mac_arm/config.ini").unwrap();
+        config_header.set_size(config_payload.len() as u64);
+        config_header.set_mode(0o644);
+        config_header.set_cksum();
+        builder.append(&config_header, &config_payload[..]).unwrap();
+
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap()
+    }
+
+    fn targz_spec_with_sha_and_entry(sha256: &str, entry_subpath: &str) -> ServerSpec {
+        let mut artifacts = HashMap::new();
+        artifacts.insert(
+            crate::registry::platform_key().to_string(),
+            Artifact {
+                url: "https://example.invalid/x.tar.gz".into(),
+                sha256: sha256.into(),
+                kind: ArchiveKind::TarGz,
+            },
+        );
+        ServerSpec {
+            language: "java".into(),
+            name: "fake-jdtls".into(),
+            version: "1.0".into(),
+            cmd: "unused-for-targz".into(),
+            args: vec![],
+            root_markers: vec!["pom.xml".into()],
+            approx_size_mb: 1,
+            artifacts,
+            runtime: Some(crate::registry::RuntimeSpec {
+                name: "java".into(),
+                min_version: "21".into(),
+                version_arg: "--version".into(),
+            }),
+            npm: None,
+            entry_subpath: Some(entry_subpath.into()),
+            config_subpath: Some("config_mac_arm".into()),
+        }
+    }
+
+    #[test]
+    fn installs_verified_targz_with_nested_entry_and_preserves_the_whole_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry_subpath = "plugins/org.eclipse.equinox.launcher_1.7.200.v1.jar";
+        let payload = b"fake equinox launcher jar bytes";
+        let targz_bytes = targz_with_nested_entry(entry_subpath, payload);
+        let sha = format!("{:x}", Sha256::digest(&targz_bytes));
+        let spec = targz_spec_with_sha_and_entry(&sha, entry_subpath);
+
+        let entry = install_from_bytes(&targz_bytes, &spec, dir.path()).unwrap();
+        assert_eq!(
+            entry,
+            dir.path().join("lsp/fake-jdtls/1.0").join(entry_subpath)
+        );
+        assert_eq!(std::fs::read(&entry).unwrap(), &payload[..]);
+        assert!(is_installed(dir.path(), &spec));
+
+        // The whole archive was unpacked, not just the declared entry —
+        // the sibling config dir (for `config_subpath`, consumed by T2)
+        // must be present too.
+        let config_ini = dir
+            .path()
+            .join("lsp/fake-jdtls/1.0/config_mac_arm/config.ini");
+        assert!(config_ini.is_file());
+        assert_eq!(std::fs::read(&config_ini).unwrap(), b"osgi.bundles=fake");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&entry).unwrap().permissions().mode();
+            assert_ne!(mode & 0o111, 0, "nested entry must be executable");
+        }
+    }
+
+    #[test]
+    fn targz_install_rejects_sha_mismatch_and_installs_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry_subpath = "plugins/org.eclipse.equinox.launcher_1.7.200.v1.jar";
+        let targz_bytes = targz_with_nested_entry(entry_subpath, b"payload");
+        let spec = targz_spec_with_sha_and_entry(&"0".repeat(64), entry_subpath);
+
+        let err = install_from_bytes(&targz_bytes, &spec, dir.path()).unwrap_err();
+        assert!(matches!(err, crate::LspError::ShaMismatch { .. }));
+        assert!(!is_installed(dir.path(), &spec));
+    }
+
     fn npm_spec_with_version(version: &str) -> ServerSpec {
         ServerSpec {
             language: "typescript".into(),
@@ -440,6 +557,7 @@ mod tests {
                 bin_entry: "node_modules/fake-ts-ls/lib/cli.mjs".into(),
             }),
             entry_subpath: None,
+            config_subpath: None,
         }
     }
 

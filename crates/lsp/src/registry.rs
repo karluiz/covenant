@@ -17,6 +17,7 @@ pub struct Artifact {
 pub enum ArchiveKind {
     Gzip,
     Zip,
+    TarGz,
 }
 
 /// A runtime (e.g. Node.js) a server needs on the user's machine. Mirrors
@@ -83,6 +84,13 @@ pub struct ServerSpec {
     /// structure).
     #[serde(default)]
     pub entry_subpath: Option<String>,
+    /// Config dir to copy alongside the entry for a JVM launcher (e.g.
+    /// jdtls's `config_mac_arm`, which the equinox launcher reads via
+    /// `-configuration`). `None` for every non-jdtls server. Declared here
+    /// for the manifest to carry it through parsing; consumed by the
+    /// server-spawn path (P5 task 2), not by `install`/`registry` directly.
+    #[serde(default)]
+    pub config_subpath: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,5 +238,55 @@ mod tests {
             .as_ref()
             .expect("typescript entry has runtime spec");
         assert_eq!(runtime.name, "node");
+    }
+
+    #[test]
+    fn java_entry_is_targz_with_entry_and_config_subpath_and_runtime() {
+        let spec = spec_for_language("java").expect("java in manifest");
+        assert_eq!(spec.name, "jdtls");
+        assert_eq!(spec.install_kind(), InstallKind::Binary);
+        assert!(spec.npm.is_none());
+
+        let entry_subpath = spec
+            .entry_subpath
+            .as_ref()
+            .expect("java entry has entry_subpath");
+        assert_eq!(
+            entry_subpath,
+            "plugins/org.eclipse.equinox.launcher_1.7.200.v20260619-2039.jar"
+        );
+
+        let config_subpath = spec
+            .config_subpath
+            .as_ref()
+            .expect("java entry has config_subpath");
+        assert_eq!(config_subpath, "config_mac_arm");
+
+        let runtime = spec.runtime.as_ref().expect("java entry has runtime spec");
+        assert_eq!(runtime.name, "java");
+        assert_eq!(runtime.min_version, "21");
+
+        assert!(spec.root_markers.contains(&"pom.xml".to_string()));
+    }
+
+    #[test]
+    #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), ignore)]
+    fn java_artifact_is_targz_kind() {
+        let spec = spec_for_language("java").unwrap();
+        let art = spec.artifact().expect("artifact for current platform");
+        assert_eq!(art.kind, ArchiveKind::TarGz);
+        assert_eq!(art.sha256.len(), 64);
+    }
+
+    /// Additive constraint: rust/TS/C# entries must still parse and keep
+    /// their existing shape after adding TarGz + config_subpath.
+    #[test]
+    fn preexisting_entries_unaffected_by_targz_addition() {
+        let rust = spec_for_language("rust").unwrap();
+        assert!(rust.config_subpath.is_none());
+        let csharp = spec_for_language("csharp").unwrap();
+        assert!(csharp.config_subpath.is_none());
+        let ts = spec_for_language("typescript").unwrap();
+        assert!(ts.config_subpath.is_none());
     }
 }
