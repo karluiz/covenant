@@ -90,6 +90,7 @@ import { CustomSelect } from "../ui/select";
 import { ContextMenu } from "../menu/context-menu";
 import { applyLspDiagnostics, lspCompletionSource, lspExtensions, type LspHost } from "../lsp/cm6";
 import { lspManager, lspLanguageId, type LspDoc, type LspDocStatus } from "../lsp/manager";
+import { lspRangeToCm, pathToUri } from "../lsp/positions";
 
 export interface EditorCallbacks {
   onSave?: (path: string) => void;
@@ -572,6 +573,21 @@ export class StructureEditor {
       doc: () => this.lspDoc,
       openFile: (p, line) => {
         void this.open(p, { line });
+      },
+      // Rename / code-actions (WorkspaceEdit applier, edits.ts): the
+      // "active" file is whatever this editor instance currently has
+      // open, identified by uri so it can be matched against the
+      // WorkspaceEdit's per-uri edit map.
+      activeUri: () => (this.currentPath ? pathToUri(this.currentPath) : null),
+      applyToActiveView: (edits) => {
+        const view = this.view;
+        if (!view) return;
+        view.dispatch({
+          changes: edits.map((e) => {
+            const { from, to } = lspRangeToCm(view.state.doc, e.range);
+            return { from, to, insert: e.newText };
+          }),
+        });
       },
     };
 

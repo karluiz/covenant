@@ -1,7 +1,7 @@
 // CM6 wiring for LSP navigation. All features no-op gracefully when
 // host.doc() is null (server still downloading/starting/unsupported).
 import type { Extension } from "@codemirror/state";
-import { EditorView, hoverTooltip, showPanel, type Panel } from "@codemirror/view";
+import { EditorView, hoverTooltip, keymap, showPanel, type Panel } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
 import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { type CompletionSource, type Completion } from "@codemirror/autocomplete";
@@ -9,10 +9,18 @@ import { type CompletionSource, type Completion } from "@codemirror/autocomplete
 import type { LspDoc } from "./manager";
 import { lspRangeToCm, lspToOffset, offsetToLsp, uriToPath } from "./positions";
 import type { LspCompletionItem, LspDiagnostic, LspLocation } from "./client";
+import { applyWorkspaceEdit, type LspEdit, type WorkspaceEdit } from "./edits";
 
 export interface LspHost {
   doc(): LspDoc | null;
   openFile(path: string, line: number): void;
+  /// uri of the file currently open in this editor instance, or null.
+  /// Used by rename/code-actions to route a WorkspaceEdit's per-uri
+  /// edits to the live CM6 view vs. disk.
+  activeUri(): string | null;
+  /// Dispatch `edits` (LSP-coordinate ranges) as CM6 changes against
+  /// the active view.
+  applyToActiveView(edits: LspEdit[]): void;
 }
 
 export function lspExtensions(host: LspHost): Extension {
@@ -22,6 +30,7 @@ export function lspExtensions(host: LspHost): Extension {
     referencesField,
     referencesPanelExt(host),
     lintGutter(),
+    renameKeymap(host),
   ];
 }
 
@@ -248,4 +257,149 @@ function referencesPanel(view: EditorView, host: LspHost, refs: LspLocation[]): 
   }
   dom.appendChild(list);
   return { dom };
+}
+
+// --- rename symbol (F2) -------------------------------------------------
+
+function renameKeymap(host: LspHost): Extension {
+  return keymap.of([
+    {
+      key: "F2",
+      preventDefault: true,
+      run: (view) => {
+        void startRename(view, host);
+        return true;
+      },
+    },
+  ]);
+}
+
+// Word (identifier) touching `pos` on its line — CM6's language-aware
+// word boundaries aren't available generically, so this is a plain
+// `\w` scan, matching the completion source's word regex.
+function wordRangeAt(view: EditorView, pos: number): { from: number; to: number; text: string } | null {
+  const line = view.state.doc.lineAt(pos);
+  const text = line.text;
+  const offset = pos - line.from;
+  let start = offset;
+  while (start > 0 && /\w/.test(text[start - 1])) start--;
+  let end = offset;
+  while (end < text.length && /\w/.test(text[end])) end++;
+  if (start === end) return null;
+  return { from: line.from + start, to: line.from + end, text: text.slice(start, end) };
+}
+
+async function startRename(view: EditorView, host: LspHost): Promise<void> {
+  const doc = host.doc();
+  if (!doc) return;
+  const word = wordRangeAt(view, view.state.selection.main.head);
+  if (!word) return;
+  const coords = view.coordsAtPos(word.from);
+  if (!coords) return;
+
+  const box = document.createElement("div");
+  box.className = "lsp-rename";
+  box.style.left = `${coords.left}px`;
+  box.style.top = `${coords.bottom + 4}px`;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "lsp-rename-input";
+  input.value = word.text;
+  box.appendChild(input);
+  document.body.appendChild(box);
+  input.focus();
+  input.select();
+
+  const cleanup = () => {
+    box.remove();
+    document.removeEventListener("mousedown", onOutsideClick, true);
+    view.focus();
+  };
+  const onOutsideClick = (e: MouseEvent) => {
+    if (!box.contains(e.target as Node)) cleanup();
+  };
+  document.addEventListener("mousedown", onOutsideClick, true);
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      cleanup();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      void commitRename(view, host, doc, word, input.value, box, cleanup);
+    }
+  });
+}
+
+async function commitRename(
+  view: EditorView,
+  host: LspHost,
+  doc: LspDoc,
+  word: { from: number; text: string },
+  newName: string,
+  box: HTMLDivElement,
+  cleanup: () => void,
+): Promise<void> {
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === word.text) {
+    cleanup();
+    return;
+  }
+  let edit: WorkspaceEdit | null = null;
+  try {
+    edit = await doc.client.rename(doc.uri, offsetToLsp(view.state.doc, word.from), trimmed);
+  } catch {
+    cleanup();
+    return; // timeout/error: silent, matches definition/hover/references
+  }
+  if (!edit) {
+    cleanup();
+    return;
+  }
+  // Narrow into a new const (rather than `edit!` in the closure below) —
+  // `edit`'s null-check above doesn't survive into the deferred arrow fn.
+  const resolvedEdit = edit;
+  const uris = new Set([
+    ...Object.keys(resolvedEdit.changes ?? {}),
+    ...(resolvedEdit.documentChanges ?? []).map((dc) => dc.textDocument.uri),
+  ]);
+  if (uris.size > 1) {
+    showRenameConfirm(
+      box,
+      uris.size,
+      () => applyWorkspaceEdit(resolvedEdit, host).finally(cleanup),
+      cleanup,
+    );
+    return;
+  }
+  await applyWorkspaceEdit(resolvedEdit, host);
+  cleanup();
+}
+
+function showRenameConfirm(
+  box: HTMLDivElement,
+  fileCount: number,
+  onApply: () => void,
+  onCancel: () => void,
+): void {
+  box.textContent = "";
+  const msg = document.createElement("div");
+  msg.className = "lsp-rename-confirm-msg";
+  msg.textContent = `Rename touches ${fileCount} files.`;
+  box.appendChild(msg);
+
+  const actions = document.createElement("div");
+  actions.className = "lsp-rename-confirm-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", onCancel);
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.textContent = "Apply";
+  apply.addEventListener("click", onApply);
+  actions.appendChild(cancel);
+  actions.appendChild(apply);
+  box.appendChild(actions);
 }

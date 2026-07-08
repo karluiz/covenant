@@ -2,6 +2,7 @@
 // needs. Deliberately not codemirror-languageserver — that package
 // lacks definition/references, so this is the spec's "fork" clause.
 import type { LspPosition } from "./positions";
+import type { WorkspaceEdit } from "./edits";
 
 export interface Transport {
   send(message: string): Promise<void>;
@@ -67,6 +68,7 @@ export class LspClient {
           references: {},
           synchronization: { didSave: true },
           completion: { completionItem: { snippetSupport: false } },
+          rename: { prepareSupport: false },
         },
       },
     });
@@ -130,6 +132,15 @@ export class LspClient {
       | { items?: LspCompletionItem[] } | LspCompletionItem[] | null;
     if (!r) return [];
     return Array.isArray(r) ? r : (r.items ?? []);
+  }
+
+  async rename(uri: string, pos: LspPosition, newName: string): Promise<WorkspaceEdit | null> {
+    const r = (await this.request("textDocument/rename", {
+      textDocument: { uri },
+      position: pos,
+      newName,
+    })) as WorkspaceEdit | null;
+    return r ?? null;
   }
 
   onDiagnostics(cb: (uri: string, diags: LspDiagnostic[]) => void): () => void {

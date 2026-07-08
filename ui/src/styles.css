@@ -8461,6 +8461,57 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .s
     background: transparent;
 }
 
+/* ── LSP rename (F2) inline input, positioned near the symbol ── */
+.lsp-rename {
+    position: fixed;
+    z-index: 1000;
+    min-width: 160px;
+    padding: 6px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    font-family: var(--ui-font);
+}
+.lsp-rename-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text-primary);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+}
+.lsp-rename-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.lsp-rename-confirm-msg {
+    padding: 2px 4px 6px;
+    font-size: 11px;
+    color: var(--text-primary);
+}
+.lsp-rename-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+}
+.lsp-rename-confirm-actions button {
+    appearance: none;
+    padding: 3px 10px;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 11px;
+    cursor: pointer;
+}
+.lsp-rename-confirm-actions button:hover {
+    background: rgba(var(--ink-rgb), 0.06);
+}
+
 /* Preview host — sibling of the CM6 host. Each viewer renders its
    own root inside this div. Padding/scroll live here so each Preview
    implementation can stay focused on its content. */
