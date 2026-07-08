@@ -585,9 +585,17 @@ pub async fn lsp_start(
             })?;
             let config_src = install::install_root(&state.data_dir, spec).join(config_subpath);
 
-            // Per-server writable dirs — never shared across server
-            // instances, unlike `install_root` which stays read-only.
-            let server_dir = state.data_dir.join("lsp").join("jdtls").join(id.to_string());
+            // Per-server writable dirs. These MUST live outside
+            // `lsp/jdtls/` (the install-name dir): `install_from_bytes`'s
+            // version-GC sweep deletes every sibling of `install_root`
+            // under `lsp/jdtls/`, which would nuke a running server's
+            // config/workspace on the next re-download. Use a separate
+            // parent, mirroring how the C# arm uses `lsp/logs/<id>`.
+            let server_dir = state
+                .data_dir
+                .join("lsp")
+                .join("jdtls-servers")
+                .join(id.to_string());
             let config_dst = server_dir.join("config");
             let workspace_dir = server_dir.join("data");
             copy_dir_all(&config_src, &config_dst).map_err(|e| {
