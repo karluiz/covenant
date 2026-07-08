@@ -342,16 +342,19 @@ class LspManager {
     }
   }
 
-  // `postInitSolutionUri` carries the Task-3-verified `solution/open`
-  // handshake (currently csharp/Roslyn only — see `LspClient.openSolution`).
-  // Sent right after `initialize` resolves and before this entry is
-  // published into `this.servers`/`this.creating` resolves, so it fires
-  // exactly ONCE per server regardless of how many docs/racers call
-  // `open()` for the same (language, root) — never per document.
+  // `postInitHandshake` carries the empirically verified post-initialize
+  // project-load handshake for csharp/Roslyn — `kind: "solution"` sends
+  // `solution/open` (Task 3, for a `.sln`/`.slnx`), `kind: "project"` sends
+  // `project/open` (Task 4, for a bare `.csproj` — `solution/open` loads
+  // nothing for a csproj-only root). Sent right after `initialize` resolves
+  // and before this entry is published into `this.servers`/`this.creating`
+  // resolves, so it fires exactly ONCE per server regardless of how many
+  // docs/racers call `open()` for the same (language, root) — never per
+  // document.
   private async createEntry(
     serverId: number,
     root: string,
-    postInitSolutionUri: string | null,
+    postInitHandshake: { kind: string; uri: string } | null,
   ): Promise<ServerEntry> {
     const transport = new TauriTransport(serverId);
     const client = new LspClient(transport);
@@ -366,7 +369,8 @@ class LspManager {
     const entry: ServerEntry = { serverId, client, openDocs: new Map(), unlisten: [unMsg, unExit] };
     try {
       await client.initialize(pathToUri(root));
-      if (postInitSolutionUri) client.openSolution(postInitSolutionUri);
+      if (postInitHandshake?.kind === "solution") client.openSolution(postInitHandshake.uri);
+      else if (postInitHandshake?.kind === "project") client.openProject(postInitHandshake.uri);
     } catch (e) {
       for (const un of entry.unlisten) un();
       client.dispose();
@@ -381,7 +385,7 @@ class LspManager {
   async open(path: string, text: string): Promise<LspDoc> {
     const language = lspLanguageId(path);
     if (!language) throw new Error(`no LSP language for ${path}`);
-    const { serverId, root, solutionPath } = await lspStart(language, path);
+    const { serverId, root, solutionPath, solutionKind } = await lspStart(language, path);
 
     let entry = this.servers.get(serverId);
     if (!entry) {
@@ -389,9 +393,11 @@ class LspManager {
       if (!creating) {
         // ponytail: gated to csharp — a general per-language post-init
         // hook table (like `lspLanguageId`) if more languages need one.
-        const postInitSolutionUri =
-          language === "csharp" && solutionPath ? pathToUri(solutionPath) : null;
-        creating = this.createEntry(serverId, root, postInitSolutionUri).finally(() =>
+        const postInitHandshake =
+          language === "csharp" && solutionPath && solutionKind
+            ? { kind: solutionKind, uri: pathToUri(solutionPath) }
+            : null;
+        creating = this.createEntry(serverId, root, postInitHandshake).finally(() =>
           this.creating.delete(serverId),
         );
         this.creating.set(serverId, creating);

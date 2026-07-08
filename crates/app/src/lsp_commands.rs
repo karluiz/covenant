@@ -68,10 +68,17 @@ pub struct LspStartResult {
     pub root: String,
     /// Absolute path to the `.sln`/`.slnx` (falling back to the first
     /// `.csproj`) found under `root` (see `find_solution_path`), for
-    /// servers that need the Task-3-verified post-initialize `solution/open`
-    /// handshake (currently csharp/Roslyn only — cross-file definitions
-    /// never resolve without it). `None` for every other language.
+    /// servers that need a post-initialize project-load handshake
+    /// (currently csharp/Roslyn only — cross-file definitions never resolve
+    /// without it). `None` for every other language.
     pub solution_path: Option<String>,
+    /// Which handshake `solution_path` needs: `"solution"` (empirically
+    /// verified `solution/open {"solution": "<uri>"}` — see task-3-report)
+    /// for a `.sln`/`.slnx`, `"project"` (empirically verified
+    /// `project/open {"projects": ["<uri>"]}` — see task-4-report) for a
+    /// bare `.csproj` with no solution file. `None` iff `solution_path` is
+    /// `None`.
+    pub solution_kind: Option<String>,
 }
 
 /// Directory names never worth descending into while searching for a
@@ -136,7 +143,7 @@ fn find_first_bounded(dir: &Path, suffix: &str, depth: u32) -> Option<PathBuf> {
 }
 
 /// A `.sln`/`.slnx` (else a `.csproj`), for languages whose server needs a
-/// post-initialize solution handshake (currently csharp/Roslyn only).
+/// post-initialize project-load handshake (currently csharp/Roslyn only).
 /// `root` is the outermost ancestor `detect_root` found containing one of
 /// `spec.root_markers` — for csharp that includes `global.json`, which is
 /// commonly the *only* thing at the repo root, with the actual
@@ -144,27 +151,36 @@ fn find_first_bounded(dir: &Path, suffix: &str, depth: u32) -> Option<PathBuf> {
 /// at `root`'s direct children: it prefers a `.sln` directly in `root`,
 /// then falls back to a bounded recursive descent (depth `MAX_DESCENT_DEPTH`,
 /// skipping `SKIP_DIRS`/hidden dirs) for the first `.sln`, then repeats the
-/// same direct/descent search for `.csproj`. Logs a warning (not silent)
-/// when nothing is found at all, since that means `solution/open` never
-/// fires and cross-file resolution silently degrades.
-fn find_solution_path(root: &Path, language: &str) -> Option<String> {
+/// same direct/descent search for `.csproj`. The returned kind string
+/// (`"solution"` / `"project"`) tells the caller which handshake to send —
+/// `solution/open` and `project/open` are NOT interchangeable: Roslyn's
+/// `solution/open` expects an actual `.sln`/`.slnx` and silently loads
+/// nothing for a bare `.csproj` (verified empirically — see
+/// task-4-report.md). Logs a warning (not silent) when nothing is found at
+/// all, since that means no handshake ever fires and cross-file resolution
+/// silently degrades.
+fn find_solution_path(root: &Path, language: &str) -> Option<(String, &'static str)> {
     if language != "csharp" {
         return None;
     }
-    let found = find_direct_child(root, ".sln")
+    let sln = find_direct_child(root, ".sln")
         .or_else(|| find_direct_child(root, ".slnx"))
         .or_else(|| find_first_bounded(root, ".sln", 1))
-        .or_else(|| find_first_bounded(root, ".slnx", 1))
-        .or_else(|| find_direct_child(root, ".csproj"))
-        .or_else(|| find_first_bounded(root, ".csproj", 1));
-
-    if found.is_none() {
-        tracing::warn!(
-            root = %root.to_string_lossy(),
-            "csharp: no .sln/.csproj found under root; solution/open will not fire, cross-file resolution degraded"
-        );
+        .or_else(|| find_first_bounded(root, ".slnx", 1));
+    if let Some(p) = sln {
+        return Some((p.to_string_lossy().to_string(), "solution"));
     }
-    found.map(|p| p.to_string_lossy().to_string())
+
+    let proj = find_direct_child(root, ".csproj").or_else(|| find_first_bounded(root, ".csproj", 1));
+    if let Some(p) = proj {
+        return Some((p.to_string_lossy().to_string(), "project"));
+    }
+
+    tracing::warn!(
+        root = %root.to_string_lossy(),
+        "csharp: no .sln/.csproj found under root; no project-load handshake will fire, cross-file resolution degraded"
+    );
+    None
 }
 
 #[cfg(test)]
@@ -185,12 +201,13 @@ mod find_solution_path_tests {
         let found = find_solution_path(t.path(), "csharp");
         assert_eq!(
             found,
-            Some(
+            Some((
                 t.path()
                     .join("src/App.csproj")
                     .to_string_lossy()
-                    .to_string()
-            )
+                    .to_string(),
+                "project"
+            ))
         );
     }
 
@@ -202,7 +219,10 @@ mod find_solution_path_tests {
         let found = find_solution_path(t.path(), "csharp");
         assert_eq!(
             found,
-            Some(t.path().join("Foo.sln").to_string_lossy().to_string())
+            Some((
+                t.path().join("Foo.sln").to_string_lossy().to_string(),
+                "solution"
+            ))
         );
     }
 
@@ -231,12 +251,13 @@ mod find_solution_path_tests {
         let found = find_solution_path(t.path(), "csharp");
         assert_eq!(
             found,
-            Some(
+            Some((
                 t.path()
                     .join("src/App.csproj")
                     .to_string_lossy()
-                    .to_string()
-            )
+                    .to_string(),
+                "project"
+            ))
         );
     }
 
@@ -417,7 +438,10 @@ pub async fn lsp_start(
 
     let root = root::detect_root(Path::new(&file_path), &spec.root_markers);
     let root_str = root.to_string_lossy().to_string();
-    let solution_path = find_solution_path(&root, &language);
+    let (solution_path, solution_kind) = match find_solution_path(&root, &language) {
+        Some((path, kind)) => (Some(path), Some(kind.to_string())),
+        None => (None, None),
+    };
     let key = (language.clone(), root_str.clone());
 
     // Step 1: fast path — an already-live server for this key.
@@ -429,6 +453,7 @@ pub async fn lsp_start(
                     server_id: id,
                     root: root_str,
                     solution_path,
+                    solution_kind,
                 });
             }
         }
@@ -542,6 +567,7 @@ pub async fn lsp_start(
                 server_id: winner_id,
                 root: root_str,
                 solution_path,
+                solution_kind,
             });
         }
     }
@@ -553,6 +579,7 @@ pub async fn lsp_start(
         server_id: id,
         root: root_str,
         solution_path,
+        solution_kind,
     })
 }
 

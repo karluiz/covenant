@@ -3079,9 +3079,15 @@ export interface LspStartResult {
   root: string;
   /// Absolute path to the workspace's `.sln` (falling back to its first
   /// `.csproj`), populated only for languages whose server needs a
-  /// post-initialize solution handshake (currently csharp/Roslyn). `null`
-  /// for every other language.
+  /// post-initialize project-load handshake (currently csharp/Roslyn).
+  /// `null` for every other language.
   solutionPath?: string | null;
+  /// Which handshake `solutionPath` needs: `"solution"` for a `.sln`/
+  /// `.slnx` (send `solution/open`), `"project"` for a bare `.csproj` with
+  /// no solution file (send `project/open` — `solution/open` silently
+  /// loads nothing for a csproj-only root, verified empirically). `null`
+  /// iff `solutionPath` is `null`.
+  solutionKind?: string | null;
 }
 
 export async function lspServerStatus(language: string): Promise<LspServerStatus> {
@@ -3110,11 +3116,18 @@ export async function lspDownloadServer(language: string): Promise<void> {
 }
 
 export async function lspStart(language: string, filePath: string): Promise<LspStartResult> {
-  const raw = await invoke<{ server_id: number; root: string; solution_path?: string | null }>(
-    "lsp_start",
-    { language, filePath },
-  );
-  return { serverId: raw.server_id, root: raw.root, solutionPath: raw.solution_path ?? null };
+  const raw = await invoke<{
+    server_id: number;
+    root: string;
+    solution_path?: string | null;
+    solution_kind?: string | null;
+  }>("lsp_start", { language, filePath });
+  return {
+    serverId: raw.server_id,
+    root: raw.root,
+    solutionPath: raw.solution_path ?? null,
+    solutionKind: raw.solution_kind ?? null,
+  };
 }
 
 export async function lspSend(serverId: number, message: string): Promise<void> {

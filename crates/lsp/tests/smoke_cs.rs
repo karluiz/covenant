@@ -202,6 +202,156 @@ async fn definition_end_to_end_csharp() {
     srv.kill().await;
 }
 
+// Same fixture shape as `definition_end_to_end_csharp` but WITHOUT a `.sln`
+// — a bare `dotnet new console` layout (single `.csproj`, no solution),
+// which is a common real-world layout. Roslyn's `solution/open` expects a
+// solution file; a csproj-only root must use `project/open` instead.
+// Empirically discovered param shape: a flat array of project URI STRINGS
+// (`{"projects": ["file://<abs .csproj>"]}`) — not objects wrapping a `uri`
+// field. Verified by hand: resolved cross-file definition in 2 polling
+// attempts (~2s), vs. never resolving without any handshake at all.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn definition_end_to_end_csharp_project_open_csproj_only() {
+    let data_dir = tempfile::tempdir().unwrap();
+    let fixture = tempfile::tempdir().unwrap();
+    let log_dir = tempfile::tempdir().unwrap();
+
+    let csproj_path = fixture.path().join("Program.csproj");
+    std::fs::write(
+        &csproj_path,
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable></PropertyGroup></Project>\n",
+    )
+    .unwrap();
+    std::fs::write(fixture.path().join("Lib.cs"), LIB_CS).unwrap();
+    let program_cs = fixture.path().join("Program.cs");
+    std::fs::write(&program_cs, PROGRAM_CS).unwrap();
+    // Deliberately NO .sln written — this is the csproj-only case.
+
+    let spec = registry::spec_for_language("csharp").expect("csharp in manifest");
+    install::download(spec, data_dir.path(), |_, _| {})
+        .await
+        .expect("download roslyn-language-server nupkg");
+    assert!(install::is_installed(data_dir.path(), spec));
+
+    let rt = spec
+        .runtime
+        .as_ref()
+        .expect("csharp entry has runtime spec");
+    runtime::detect(&rt.as_runtime_req()).expect(
+        "dotnet >=10 must be on the login-shell PATH for this smoke test \
+         (RuntimeMissing means the test environment lacks dotnet, not a code bug)",
+    );
+
+    let entry = install::entry_path(data_dir.path(), spec);
+    let args = vec![
+        "--logLevel".to_string(),
+        "Information".to_string(),
+        "--extensionLogDirectory".to_string(),
+        log_dir.path().to_string_lossy().to_string(),
+        "--stdio".to_string(),
+    ];
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let mut srv = LspServer::spawn(
+        &entry,
+        &args,
+        fixture.path(),
+        move |m| {
+            let _ = tx.send(m);
+        },
+        |_| {},
+    )
+    .await
+    .expect(
+        "spawn Microsoft.CodeAnalysis.LanguageServer apphost directly (no `dotnet` indirection)",
+    );
+
+    let root_uri = format!("file://{}", fixture.path().display());
+    let csproj_uri = format!("file://{}", csproj_path.display());
+    let file_uri = format!("file://{}", program_cs.display());
+
+    srv.send(
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "fixture" }],
+                "capabilities": {}
+            }
+        })
+        .to_string(),
+    )
+    .await;
+    wait_for(&rx, |v| v["id"] == 1);
+    srv.send(r#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#.to_string())
+        .await;
+
+    // THE handshake for csproj-only roots (no .sln): empirically verified
+    // (see comment above) `project/open` with a flat array of URI strings.
+    srv.send(
+        serde_json::json!({
+            "jsonrpc": "2.0", "method": "project/open",
+            "params": { "projects": [csproj_uri] }
+        })
+        .to_string(),
+    )
+    .await;
+
+    srv.send(
+        serde_json::json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": file_uri, "languageId": "csharp", "version": 1,
+                "text": PROGRAM_CS } }
+        })
+        .to_string(),
+    )
+    .await;
+
+    let call_character = (PROGRAM_CS.find("Lib.Helper()").unwrap() + "Lib.".len() + 1) as i64;
+    let mut result = None;
+    for attempt in 0..90 {
+        let id = 100 + attempt;
+        srv.send(
+            serde_json::json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/definition",
+                "params": { "textDocument": { "uri": file_uri },
+                    "position": { "line": 0, "character": call_character } }
+            })
+            .to_string(),
+        )
+        .await;
+        let resp = wait_for_logging(&rx, move |v| v["id"] == id);
+        if resp["result"].is_array() && !resp["result"].as_array().unwrap().is_empty() {
+            result = Some(resp);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+    }
+    let resp = result.expect(
+        "definition on Lib.Helper() never resolved after 90 attempts — \
+         project/open handshake did not load the project in time (or at all)",
+    );
+    let loc = &resp["result"][0];
+    let uri = loc["uri"].as_str().expect("location has a uri");
+    assert!(
+        uri.ends_with("Lib.cs"),
+        "definition should resolve into Lib.cs (cross-file — proves the \
+         project was actually loaded, not just the misc-files fallback), got {uri}"
+    );
+    let range = loc
+        .get("targetSelectionRange")
+        .or_else(|| loc.get("range"))
+        .expect("location has a range or targetSelectionRange");
+    assert_eq!(
+        range["start"]["line"], 0,
+        "Helper is defined on line 0 of Lib.cs"
+    );
+
+    srv.kill().await;
+}
+
 fn wait_for(
     rx: &mpsc::Receiver<String>,
     pred: impl Fn(&serde_json::Value) -> bool,
