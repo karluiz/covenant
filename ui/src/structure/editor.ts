@@ -1152,12 +1152,24 @@ export class StructureEditor {
           copy.addEventListener("click", () => {
             // hint.command is narrowed non-null by the `if` guard above;
             // the closure captures `hint`, not the narrowed local, so TS
-            // needs the assertion re-stated here.
-            void navigator.clipboard.writeText(hint.command as string).catch(() => {});
-            copy.textContent = "Copied";
-            setTimeout(() => {
-              copy.textContent = "Copy";
-            }, 1500);
+            // needs the assertion re-stated here. Gate the "Copied" label
+            // on the write actually resolving so a rejected clipboard
+            // (rare in-page, but possible) doesn't lie — the <code> has
+            // user-select:all as the manual fallback either way.
+            void navigator.clipboard.writeText(hint.command as string).then(
+              () => {
+                copy.textContent = "Copied";
+                setTimeout(() => {
+                  copy.textContent = "Copy";
+                }, 1500);
+              },
+              () => {
+                copy.textContent = "Select to copy";
+                setTimeout(() => {
+                  copy.textContent = "Copy";
+                }, 1500);
+              },
+            );
           });
           banner.append(guide, code, copy);
         }
