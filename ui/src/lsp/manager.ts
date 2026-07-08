@@ -27,7 +27,13 @@ const LSP_IDLE_MS = 10 * 60 * 1000;
 
 export type LspDocStatus =
   | { kind: "unsupported" }
-  | { kind: "needs-runtime"; name: string; min: string; found: string | null }
+  | {
+      kind: "needs-runtime";
+      name: string;
+      min: string;
+      found: string | null;
+      suggestion: import("../api").LspRuntimeSuggestion | null;
+    }
   | { kind: "consent-needed"; name: string; approxSizeMb: number }
   | { kind: "downloading"; percent: number | null }
   | { kind: "starting" }
@@ -296,6 +302,7 @@ class LspManager {
           name: st.runtimeMissing.name,
           min: st.runtimeMissing.min,
           found: st.runtimeMissing.found ?? null,
+          suggestion: st.runtimeMissing.suggestion ?? null,
         };
       }
       if (!(await consentState(language))) {
