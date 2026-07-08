@@ -184,6 +184,10 @@ pub struct PublishedSpec {
     pub goal: String,       // first non-empty paragraph after `## Goal`, ≤ 200 chars
     pub path: String,       // absolute path
     pub updated_at: String, // file mtime RFC3339
+    /// Branch label of the sibling worktree this spec lives in, when it is NOT
+    /// the current tab's worktree. `None` = current worktree (no badge).
+    #[serde(default)]
+    pub worktree_label: Option<String>,
 }
 
 /// Parse "# 3.10 — Mission Drafts" or "# 3.10 - Mission Drafts" into (id, title).
@@ -294,9 +298,15 @@ pub fn list_published_specs_sync(repo_root: &Path) -> Result<Vec<PublishedSpec>,
             goal,
             path: path.to_string_lossy().into_owned(),
             updated_at,
+            worktree_label: None,
         });
     }
-    // Sort by semantic ID descending (major, minor).
+    sort_specs_by_id_desc(&mut out);
+    Ok(out)
+}
+
+/// Sort by semantic ID descending (major, minor).
+fn sort_specs_by_id_desc(out: &mut [PublishedSpec]) {
     out.sort_by(|a, b| {
         let parse = |s: &str| -> (u32, u32) {
             let mut p = s.split('.');
@@ -306,7 +316,101 @@ pub fn list_published_specs_sync(repo_root: &Path) -> Result<Vec<PublishedSpec>,
         };
         parse(&b.id).cmp(&parse(&a.id))
     });
-    Ok(out)
+}
+
+fn canonical_or_self(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn git_output(cwd: &Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok()
+}
+
+/// Every non-bare worktree of the repo containing `cwd`, as
+/// `(root, branch_label, is_current)`. Empty when `cwd` isn't in a git repo.
+fn git_worktrees(cwd: &Path) -> Vec<(PathBuf, Option<String>, bool)> {
+    let Some(text) = git_output(cwd, &["worktree", "list", "--porcelain"]) else {
+        return Vec::new();
+    };
+    let current = git_output(cwd, &["rev-parse", "--show-toplevel"])
+        .map(|s| canonical_or_self(Path::new(s.trim())));
+    let mut out = Vec::new();
+    // Porcelain separates worktree records with a blank line.
+    for block in text.split("\n\n") {
+        let mut path: Option<PathBuf> = None;
+        let mut branch: Option<String> = None;
+        let mut bare = false;
+        for line in block.lines() {
+            if let Some(p) = line.strip_prefix("worktree ") {
+                path = Some(PathBuf::from(p));
+            } else if let Some(b) = line.strip_prefix("branch ") {
+                let b = b.trim();
+                branch = Some(b.strip_prefix("refs/heads/").unwrap_or(b).to_string());
+            } else if line == "bare" {
+                bare = true;
+            } else if line == "detached" {
+                branch = Some("detached".into());
+            }
+        }
+        if let Some(p) = path {
+            if !bare {
+                let cp = canonical_or_self(&p);
+                let is_current = current.as_ref() == Some(&cp);
+                out.push((cp, branch, is_current));
+            }
+        }
+    }
+    out
+}
+
+/// Merge per-worktree spec lists: dedupe by id (current worktree wins), tag
+/// cross-worktree specs with their branch label. Pure — git/FS lives in the
+/// caller so this stays unit-testable.
+fn merge_worktree_specs(
+    mut lists: Vec<(Vec<PublishedSpec>, Option<String>, bool)>,
+) -> Vec<PublishedSpec> {
+    // Current worktree first so its copy of a shared id survives the dedupe.
+    lists.sort_by_key(|(_, _, is_current)| !*is_current);
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (specs, label, is_current) in lists {
+        for mut s in specs {
+            if !seen.insert(s.id.clone()) {
+                continue;
+            }
+            s.worktree_label = if is_current { None } else { label.clone() };
+            out.push(s);
+        }
+    }
+    sort_specs_by_id_desc(&mut out);
+    out
+}
+
+/// Published specs across ALL worktrees of the repo `cwd` sits in — so a spec
+/// authored on a feature branch/worktree shows up without merging first. Falls
+/// back to the single `cwd/docs/specs` scan outside git.
+pub fn list_published_specs_all_sync(cwd: &Path) -> Result<Vec<PublishedSpec>, DraftError> {
+    let worktrees = git_worktrees(cwd);
+    if worktrees.is_empty() {
+        return list_published_specs_sync(cwd);
+    }
+    let lists = worktrees
+        .into_iter()
+        .map(|(root, label, is_current)| {
+            let specs = list_published_specs_sync(&root).unwrap_or_default();
+            (specs, label, is_current)
+        })
+        .collect();
+    Ok(merge_worktree_specs(lists))
 }
 
 fn drafts_dir(repo_root: &Path) -> PathBuf {
@@ -515,6 +619,35 @@ mod tests {
             updated_at: "2026-05-03T15:12:00Z".into(),
             llm_calls: 0,
         }
+    }
+
+    fn spec(id: &str) -> PublishedSpec {
+        PublishedSpec {
+            id: id.into(),
+            title: format!("Spec {id}"),
+            goal: String::new(),
+            path: format!("/wt/docs/specs/{id}.md"),
+            updated_at: String::new(),
+            worktree_label: None,
+        }
+    }
+
+    #[test]
+    fn merge_dedupes_current_wins_and_labels_others() {
+        // Current worktree has 3.10; a feature worktree has 3.10 (dup) + 3.11 (unique).
+        let current = (vec![spec("3.10")], Some("main".into()), true);
+        let feature = (vec![spec("3.10"), spec("3.11")], Some("feat-x".into()), false);
+        // Pass feature first to prove ordering doesn't decide the winner.
+        let out = merge_worktree_specs(vec![feature, current]);
+
+        // Sorted by id desc: 3.11 then 3.10.
+        assert_eq!(out.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["3.11", "3.10"]);
+        // 3.10 came from the CURRENT worktree → no label.
+        let s310 = out.iter().find(|s| s.id == "3.10").unwrap();
+        assert_eq!(s310.worktree_label, None);
+        // 3.11 only exists in the feature worktree → labelled.
+        let s311 = out.iter().find(|s| s.id == "3.11").unwrap();
+        assert_eq!(s311.worktree_label.as_deref(), Some("feat-x"));
     }
 
     #[test]
@@ -870,7 +1003,7 @@ mod cdlc_tests {
 #[tauri::command]
 pub async fn list_published_specs(repo_root: String) -> Result<Vec<PublishedSpec>, String> {
     let path = PathBuf::from(repo_root);
-    tokio::task::spawn_blocking(move || list_published_specs_sync(&path))
+    tokio::task::spawn_blocking(move || list_published_specs_all_sync(&path))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())

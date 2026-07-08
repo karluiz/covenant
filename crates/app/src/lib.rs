@@ -3131,7 +3131,7 @@ async fn spec_author_step(
     if draft.repo_root.is_none() {
         if let Some(ref c) = cwd_path {
             draft.repo_root = Some(
-                karl_agent::spec_author::resolve_repo_root(c)
+                karl_agent::spec_author::resolve_main_repo_root(c)
                     .display()
                     .to_string(),
             );
@@ -3332,7 +3332,7 @@ async fn spec_author_stream_step(
     // backfill legacy drafts on resume) so the drafts tab can scope per group.
     if draft.repo_root.is_none() {
         if let Some(ref c) = cwd_path {
-            draft.repo_root = Some(sa::resolve_repo_root(c).display().to_string());
+            draft.repo_root = Some(sa::resolve_main_repo_root(c).display().to_string());
         }
     }
     let (repo_root, system) = sa::compose_system(cwd_path.as_deref(), &base_dir);
@@ -3421,13 +3421,25 @@ async fn spec_author_list_drafts(
     let Some(filter) = repo_root.filter(|s| !s.is_empty()) else {
         return Ok(all);
     };
-    // Match on the resolved git root; legacy/unassigned drafts (None) show everywhere.
-    let resolved = sa::resolve_repo_root(std::path::Path::new(&filter))
+    // Match on the MAIN repo root so worktree-authored drafts surface from the
+    // main checkout (and vice-versa). Legacy/unassigned drafts (None) show
+    // everywhere; drafts stamped with an old worktree path are re-resolved to
+    // main when that worktree still exists.
+    let resolved = sa::resolve_main_repo_root(std::path::Path::new(&filter))
         .display()
         .to_string();
     Ok(all
         .into_iter()
-        .filter(|d| d.repo_root.is_none() || d.repo_root.as_deref() == Some(resolved.as_str()))
+        .filter(|d| match d.repo_root.as_deref() {
+            None => true,
+            Some(r) if r == resolved => true,
+            Some(r) => {
+                sa::resolve_main_repo_root(std::path::Path::new(r))
+                    .display()
+                    .to_string()
+                    == resolved
+            }
+        })
         .collect())
 }
 
