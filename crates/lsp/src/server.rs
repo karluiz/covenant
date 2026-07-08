@@ -80,6 +80,12 @@ impl LspServer {
         }
     }
 
+    /// A cloneable handle to enqueue outgoing messages without holding any
+    /// external lock across the send.
+    pub fn sender(&self) -> mpsc::Sender<String> {
+        self.outgoing.clone()
+    }
+
     pub async fn kill(&mut self) {
         let _ = self.child.kill().await;
     }

@@ -170,9 +170,16 @@ pub async fn lsp_start(
 
 #[tauri::command]
 pub async fn lsp_send(state: State<'_, LspState>, server_id: u64, message: String) -> Result<(), String> {
-    let reg = state.registry.lock().await;
-    let srv = reg.servers.get(&server_id).ok_or("unknown lsp server")?;
-    srv.send(message).await;
+    // Grab a cloned sender under the lock, then drop the guard before the
+    // (potentially slow) send — a stalled child stdin must never wedge the
+    // single global registry mutex for every other lsp_start/lsp_stop/lsp_send.
+    let sender = {
+        let reg = state.registry.lock().await;
+        reg.servers.get(&server_id).ok_or("unknown lsp server")?.sender()
+    }; // guard dropped here
+    if sender.send(message).await.is_err() {
+        tracing::warn!(server_id, "lsp send dropped: server channel closed");
+    }
     Ok(())
 }
 
