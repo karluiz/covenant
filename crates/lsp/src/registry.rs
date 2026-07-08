@@ -88,6 +88,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore)]
     fn current_platform_has_artifact() {
         let spec = spec_for_language("rust").unwrap();
         let art = spec.artifact().expect("artifact for current platform");

@@ -88,11 +88,16 @@ function lspHover(host: LspHost): Extension {
       create: () => {
         const dom = document.createElement("div");
         dom.className = "lsp-hover";
-        // marked is already a dependency (package.json) — reuse it.
-        void import("marked").then(({ marked }) => {
-          // ponytail: hover HTML from a local language server the user chose to run; sanitize if we ever surface remote/untrusted server content
-          dom.innerHTML = marked.parse(value, { async: false });
-        });
+        // ponytail: hover text comes from doc-comments in THIRD-PARTY crates the
+        // language server indexes, not just code the user wrote — rendering it as
+        // markdown/HTML (csp: null) is a drive-by XSS surface into a webview with
+        // full Tauri IPC. Render as plain text for P1; rich markdown returns in P2
+        // once it goes through proper sanitization (DOMPurify) or CSP re-enables.
+        const stripped = value
+          .split("\n")
+          .filter((line) => !/^\s*```\w*\s*$/.test(line))
+          .join("\n");
+        dom.textContent = stripped;
         return { dom };
       },
     };

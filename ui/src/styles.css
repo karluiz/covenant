@@ -8397,6 +8397,8 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .s
     padding: 6px 8px;
     font-size: 11px;
     line-height: 1.5;
+    white-space: pre-wrap;
+    font-family: var(--font-mono, ui-monospace, monospace);
 }
 .lsp-hover pre,
 .lsp-hover code {
