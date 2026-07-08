@@ -174,6 +174,22 @@ export function skillCard(opts: {
   return card;
 }
 
+/** Shimmer placeholder shown while the panel's first fetch is in flight — a
+ *  section label + a few card rows, so entering Canon isn't a blank flash. */
+function canonSkeleton(): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "canon-skeleton";
+  const label = document.createElement("div");
+  label.className = "canon-skeleton-label";
+  wrap.appendChild(label);
+  for (let i = 0; i < 3; i++) {
+    const row = document.createElement("div");
+    row.className = "canon-skeleton-row";
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+
 /** Compact square action button: an icon + a tooltip (no visible text), so
  *  rows stay legible in the narrow rail. The SVG string is trusted (from Icons). */
 export function iconButton(svg: string, label: string, onClick: () => void): HTMLButtonElement {
@@ -244,18 +260,13 @@ export class CanonPanel {
     title.textContent = `Canon — ${opts.groupLabel}`;
     head.appendChild(title);
 
-    // Head holds only chrome (title + expand + close). The org selector and
+    // Head holds only chrome (title + expand). Closing is handled by the rail
+    // toggle in the titlebar, so no redundant × here. The org selector and
     // Project action live in a toolbar at the top of the body — the narrow
     // rail head can't fit them without truncating the title.
     if (opts.onExpand) {
       head.appendChild(iconButton(Icons.maximize({ size: 14 }), "Open Canon full screen", () => opts.onExpand?.()));
     }
-
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "canon-close-btn";
-    closeBtn.textContent = "×";
-    closeBtn.addEventListener("click", () => this.close());
-    head.appendChild(closeBtn);
 
     // Toolbar: active-org selector + Project. Persistent (not wiped by
     // renderStatus, which only rewrites `body`), so it sits between head and body.
@@ -443,13 +454,10 @@ export class CanonPanel {
       this.body.replaceChildren(empty);
       return;
     }
-    // Loading notice — same treatment as Beacon, shown only on first fetch
-    // (empty body) so background refreshes don't blank existing content.
+    // Shimmer skeleton on the first fetch only (empty body) so entering Canon
+    // isn't a blank flash; background refreshes keep the existing content.
     if (this.body.childElementCount === 0) {
-      const loading = document.createElement("div");
-      loading.className = "rail-notice is-loading";
-      loading.textContent = "Loading…";
-      this.body.replaceChildren(loading);
+      this.body.replaceChildren(canonSkeleton());
     }
     try {
       const [status, orgs] = await Promise.all([

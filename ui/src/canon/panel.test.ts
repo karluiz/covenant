@@ -65,18 +65,19 @@ describe("CanonPanel", () => {
     expect(host.querySelector(".canon-panel")).not.toBeNull();
   });
 
-  it("calls onClose when close button is clicked", () => {
+  it("calls onClose when close() is invoked (rail teardown path)", () => {
+    // The panel has no in-head × — the rail toggle closes it by calling
+    // close() (see main.ts). Verify that path fires onClose.
     let closed = false;
     const host = document.createElement("div");
-    new CanonPanel({
+    const panel = new CanonPanel({
       groupId: "g5",
       groupLabel: "Test",
       groupColor: null,
       groupRootDir: "/repo",
       onClose: () => { closed = true; },
     }).mount(host);
-    const btn = host.querySelector(".canon-close-btn") as HTMLButtonElement;
-    btn.click();
+    panel.close();
     expect(closed).toBe(true);
   });
 
