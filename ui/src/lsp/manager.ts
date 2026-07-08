@@ -15,7 +15,15 @@ import {
   setSettings,
 } from "../api";
 import { LspClient, type LspContentChange, type LspDiagnostic, type Transport } from "./client";
+import { LruIdlePolicy } from "./lru";
 import { offsetToLsp, pathToUri } from "./positions";
+
+// Cap on simultaneously live LSP servers and how long an idle one (no
+// open docs) survives before being stopped. Frontend-driven per the
+// P2 design doc — the manager already tracks openDocs refcounts, so it
+// alone knows when a server truly goes idle.
+const LSP_SERVER_CAP = 4;
+const LSP_IDLE_MS = 10 * 60 * 1000;
 
 export type LspDocStatus =
   | { kind: "unsupported" }
@@ -225,6 +233,27 @@ class LspManager {
   // calls for the same server race onto ONE creation instead of each
   // building its own LspClient (see module docstring).
   private creating = new Map<number, Promise<ServerEntry>>();
+  private readonly policy = new LruIdlePolicy({
+    cap: LSP_SERVER_CAP,
+    idleMs: LSP_IDLE_MS,
+    stop: (id) => this.dropServer(id),
+  });
+  // ponytail: one interval for the whole manager, not one per server —
+  // started when the first server comes up, cleared once `servers` goes
+  // back to empty so it never leaks past the last live server.
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+  private ensureSweepTimer(): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(() => this.policy.sweep(Date.now()), 60_000);
+  }
+
+  private maybeClearSweepTimer(): void {
+    if (this.servers.size === 0 && this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
+  }
 
   async status(path: string): Promise<LspDocStatus> {
     const language = lspLanguageId(path);
@@ -285,6 +314,7 @@ class LspManager {
       throw e;
     }
     this.servers.set(serverId, entry);
+    this.ensureSweepTimer();
     return entry;
   }
 
@@ -293,8 +323,6 @@ class LspManager {
     if (!language) throw new Error(`no LSP language for ${path}`);
     const { serverId, root } = await lspStart(language, path);
 
-    // ponytail: idle shutdown + LRU cap land in P2 when multiple
-    // servers can be live simultaneously; P1 has exactly one language.
     let entry = this.servers.get(serverId);
     if (!entry) {
       let creating = this.creating.get(serverId);
@@ -309,6 +337,7 @@ class LspManager {
     const refs = entry.openDocs.get(uri) ?? 0;
     if (refs === 0) entry.client.didOpen(uri, language, text);
     entry.openDocs.set(uri, refs + 1);
+    this.policy.touch(serverId, Date.now());
 
     const fixed = entry;
     return new LspDoc(entry.client, uri, (u) => {
@@ -316,6 +345,8 @@ class LspManager {
       if (n <= 0) {
         fixed.openDocs.delete(u);
         fixed.client.didClose(u);
+        // Last open doc on this server just closed — it's now idle.
+        if (fixed.openDocs.size === 0) this.policy.release(serverId, Date.now());
       } else {
         fixed.openDocs.set(u, n);
       }
@@ -324,12 +355,14 @@ class LspManager {
 
   private dropServer(serverId: number): void {
     this.creating.delete(serverId); // defensive: no in-flight creation should outlive a drop
+    this.policy.remove(serverId);
     const entry = this.servers.get(serverId);
     if (!entry) return;
     this.servers.delete(serverId);
     for (const un of entry.unlisten) un();
     entry.client.dispose();
     void lspStop(serverId).catch(() => {});
+    this.maybeClearSweepTimer();
   }
 }
 
