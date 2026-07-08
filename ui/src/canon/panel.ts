@@ -3,11 +3,10 @@ import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
 import { renderMarkdown } from "../mission/preview";
-import type { CanonStatus, Org, PkgMeta, ScoreSummary, EvalSkillSummary, CanonEvalProgress } from "../api";
+import type { CanonStatus, Org, CanonEvalProgress } from "../api";
 import {
-  canonLocalStatus, canonMyOrgs, canonCreateOrg, canonSearch, canonPublish, canonInstallRegistry,
-  canonPreview, canonReadLocal, canonExport, scoreSummaryFiltered,
-  canonEvalSummary, canonRunEvals, onCanonEvalProgress,
+  canonLocalStatus, canonMyOrgs, canonCreateOrg, canonPublish,
+  canonReadLocal, canonExport, canonRunEvals, onCanonEvalProgress,
 } from "../api";
 
 /** Derive a valid org slug from a display name: lowercase, [a-z0-9-] only,
@@ -18,21 +17,18 @@ export function slugify(s: string): string {
     .replace(/^-+|-+$/g, "").slice(0, 40);
 }
 
-function loopSubhead(text: string): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "canon-subhead";
-  el.textContent = text;
-  return el;
-}
-function fmtTokens(n: number): string {
+/** Format a token count for the compact inference readout: 1500 → "1.5k",
+ *  2_400_000 → "2.4M". Shared with the cockpit's Loop section. */
+export function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
 }
 
 /** One labelled cell of the inference stat strip. `hero` tints the value with
- *  the group accent — the loop's standout number. */
-function statCell(value: string, label: string, hero = false): HTMLElement {
+ *  the group accent — the loop's standout number. Shared with the cockpit's
+ *  Loop section. */
+export function statCell(value: string, label: string, hero = false): HTMLElement {
   const cell = document.createElement("div");
   cell.className = hero ? "canon-stat is-hero" : "canon-stat";
   const v = document.createElement("span");
@@ -46,8 +42,9 @@ function statCell(value: string, label: string, hero = false): HTMLElement {
 }
 
 /** A labelled progress meter: name + value on top, a thin accent bar below.
- *  Used for adoption (installs, scaled to the busiest skill) and eval pass-rate. */
-function meterRow(name: string, value: string, pct: number, ok = false): HTMLElement {
+ *  Used for adoption (installs, scaled to the busiest skill) and eval
+ *  pass-rate. Shared with the cockpit's Loop section. */
+export function meterRow(name: string, value: string, pct: number, ok = false): HTMLElement {
   const row = document.createElement("div");
   row.className = "canon-meter";
   const top = document.createElement("div");
@@ -180,13 +177,6 @@ export function skillCard(opts: {
   return card;
 }
 
-function errorLine(text: string): HTMLElement {
-  const p = document.createElement("p");
-  p.className = "canon-error";
-  p.textContent = text;
-  return p;
-}
-
 /** Compact square action button: an icon + a tooltip (no visible text), so
  *  rows stay legible in the narrow rail. The SVG string is trusted (from Icons). */
 export function iconButton(svg: string, label: string, onClick: () => void): HTMLButtonElement {
@@ -205,7 +195,6 @@ export interface CanonPanelOpts {
   groupColor?: string | null;
   groupRootDir?: string | null;
   onClose?: () => void;
-  onNewContext?: () => void;
   /** Open a folder picker to set the group's project folder (empty state CTA). */
   onPickFolder?: () => void;
   /** Active Canon org slug for this group (from the tab manifest), or null. */
@@ -223,9 +212,6 @@ export class CanonPanel {
   private body: HTMLElement;
   private orgChip: HTMLElement;
   private orgs: Org[] = [];
-  private score: ScoreSummary | null = null;
-  private adoption = new Map<string, number>(); // package name → org-wide installs
-  private evalRates = new Map<string, { passed: number; total: number }>();
 
   /** The root element of the panel — used in tests and by callers that need
    *  to query the rendered content without going through a host element. */
@@ -452,34 +438,26 @@ export class CanonPanel {
       this.body.replaceChildren(loading);
     }
     try {
-      const [status, orgs, score, evalSummary] = await Promise.all([
+      const [status, orgs] = await Promise.all([
         canonLocalStatus(cwd),
         canonMyOrgs().catch(() => [] as Org[]),
-        scoreSummaryFiltered(this.opts.groupLabel ?? null).catch(() => null),
-        canonEvalSummary(cwd).catch(() => [] as EvalSkillSummary[]),
       ]);
       this.orgs = orgs;
       this.updateOrgChip();
-      this.score = score;
-      this.evalRates = new Map(evalSummary.map((s) => [s.skill, { passed: s.passed, total: s.total }]));
-      // Adoption: org-wide install counts for skills installed from the registry.
-      this.adoption = new Map();
-      const active = this.activeOrg();
-      if (active) {
-        const pkgs = await canonSearch(active.slug, null).catch(() => [] as PkgMeta[]);
-        for (const p of pkgs) this.adoption.set(p.name, p.installs);
-      }
       this.renderStatus(status);
     } catch (e) {
       this.body.textContent = `Failed to read Canon: ${String(e)}`;
     }
   }
 
+  /** Compact summary: an installed-skill count + a compact card list.
+   *  Registry search, adoption/inference/eval dashboards, and context-file
+   *  management now live in the full-screen cockpit (see cockpit/view.ts) —
+   *  open it via the expand button in the head for those. */
   renderStatus(s: CanonStatus): void {
     this.body.replaceChildren();
     const cwd = this.opts.groupRootDir ?? null;
 
-    // Skills section
     const skills = document.createElement("section");
     skills.className = "canon-skills";
     const sh = document.createElement("h3");
@@ -490,6 +468,10 @@ export class CanonPanel {
       p.textContent = "No skills installed.";
       skills.appendChild(p);
     } else {
+      const count = document.createElement("p");
+      count.className = "canon-skills-count";
+      count.textContent = `${s.installed.length} ${s.installed.length === 1 ? "skill" : "skills"} installed`;
+      skills.appendChild(count);
       for (const i of s.installed) {
         const actions: HTMLButtonElement[] = [];
         if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
@@ -508,121 +490,7 @@ export class CanonPanel {
       }
     }
 
-    const activeForSearch = this.activeOrg();
-    if (activeForSearch) {
-      const searchRow = document.createElement("div");
-      searchRow.className = "canon-search-row";
-      const input = document.createElement("input");
-      input.placeholder = `Search ${activeForSearch.slug} registry…`;
-      const go = document.createElement("button");
-      go.textContent = "Search";
-      const results = document.createElement("div");
-      results.className = "canon-search-results";
-      go.addEventListener("click", () => {
-        const org = this.activeOrg();
-        if (!org) return;
-        void canonSearch(org.slug, input.value || null).then((rows: PkgMeta[]) => {
-          results.replaceChildren();
-          if (rows.length === 0) {
-            results.replaceChildren();
-            const none = document.createElement("p");
-            none.className = "canon-empty";
-            none.textContent = "No packages found.";
-            results.appendChild(none);
-          }
-          const orgSlug = org.slug;
-          for (const r of rows) {
-            const inst = iconButton(Icons.download({ size: 15 }), "Install", () => void this.install(orgSlug, r.name, r.version));
-            const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
-            results.appendChild(skillCard({
-              name: r.name,
-              meta: `${r.version} · ${installs} · ${r.publisher_login}`,
-              description: r.description,
-              className: "canon-search-result",
-              fetchPreview: () => canonPreview(orgSlug, r.name, r.version).then((p) => p.skill_md),
-              actions: [inst],
-              stats: [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)],
-            }));
-          }
-        }).catch((e) => { results.replaceChildren(errorLine(String(e))); });
-      });
-      searchRow.append(input, go);
-      skills.append(searchRow, results);
-    }
-
-    // Context section
-    const ctx = document.createElement("section");
-    ctx.className = "canon-context";
-    const ch = document.createElement("h3");
-    ch.textContent = "Context";
-    ctx.appendChild(ch);
-
-    const newBtn = document.createElement("button");
-    newBtn.className = "canon-new-context-btn";
-    newBtn.textContent = "New context";
-    newBtn.addEventListener("click", () => {
-      this.opts.onNewContext?.();
-    });
-    ctx.appendChild(newBtn);
-
-    for (const f of s.contextFiles) {
-      const row = document.createElement("div");
-      row.className = "canon-context-row";
-      row.textContent = f;
-      ctx.appendChild(row);
-    }
-
-    // Loop section — Observe/Adapt: adoption + inference footprint.
-    const loop = document.createElement("section");
-    loop.className = "canon-loop";
-    const lh = document.createElement("h3");
-    lh.textContent = "Loop";
-    loop.appendChild(lh);
-
-    // Adoption — org-wide installs for skills installed from the registry.
-    const registrySkills = s.installed.filter((i) => i.source.startsWith("registry:"));
-    if (registrySkills.length > 0) {
-      loop.appendChild(loopSubhead("Adoption"));
-      const maxInstalls = Math.max(1, ...registrySkills.map((i) => this.adoption.get(i.name) ?? 0));
-      for (const i of registrySkills) {
-        const n = this.adoption.get(i.name);
-        const value = n === undefined ? "—" : `${n} ${n === 1 ? "install" : "installs"}`;
-        loop.appendChild(meterRow(i.name, value, ((n ?? 0) / maxInstalls) * 100));
-      }
-    }
-
-    // Inference — this group's footprint from the four Covenant primitives.
-    if (this.score) {
-      loop.appendChild(loopSubhead("Inference · this group"));
-      const sc = this.score;
-      const stats = document.createElement("div");
-      stats.className = "canon-stats";
-      stats.append(
-        statCell(fmtTokens(sc.total_tokens), "tokens", true),
-        statCell(sc.total_prompts.toLocaleString(), "prompts"),
-        statCell(String(sc.total_specs), "specs"),
-        statCell(String(sc.total_commits), "commits"),
-      );
-      loop.appendChild(stats);
-    }
-
-    // Eval — context-TDD pass-rate from the local runner.
-    const skillsWithEvals = s.installed.filter((i) => this.evalRates.has(i.name));
-    if (skillsWithEvals.length > 0) {
-      loop.appendChild(loopSubhead("Eval pass-rate"));
-      for (const i of skillsWithEvals) {
-        const r = this.evalRates.get(i.name)!;
-        const pct = r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
-        loop.appendChild(meterRow(i.name, `${r.passed}/${r.total} · ${pct}%`, pct, true));
-      }
-    } else {
-      const evalNote = document.createElement("p");
-      evalNote.className = "canon-loop-note";
-      evalNote.textContent = "Run evals on a skill to measure its context-TDD pass-rate.";
-      loop.appendChild(evalNote);
-    }
-
-    this.body.append(skills, ctx, loop);
+    this.body.replaceChildren(skills);
   }
 
   private async runEvals(skill: string, btn: HTMLButtonElement): Promise<void> {
@@ -688,18 +556,6 @@ export class CanonPanel {
       pushInfoToast({ message: `Published ${name} to ${org}` });
     } catch (e) {
       pushInfoToast({ message: `Publish failed: ${String(e)}` });
-    }
-  }
-
-  private async install(org: string, name: string, version: string): Promise<void> {
-    const cwd = this.opts.groupRootDir;
-    if (!cwd) return;
-    try {
-      await canonInstallRegistry(cwd, org, name, version, this.opts.groupLabel ?? null, null);
-      await this.refresh();
-      pushInfoToast({ message: `Installed ${name} ${version} · projected to executors` });
-    } catch (e) {
-      pushInfoToast({ message: `Install failed: ${String(e)}` });
     }
   }
 

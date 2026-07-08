@@ -8,7 +8,7 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { Org, Member, PkgMeta } from "../../api";
+import type { CanonStatus, Org, Member, PkgMeta } from "../../api";
 import {
   canonOrgMembers,
   canonAddMember,
@@ -21,8 +21,10 @@ import {
   canonSearch,
   canonPreview,
   canonInstallRegistry,
+  scoreSummaryFiltered,
+  canonEvalSummary,
 } from "../../api";
-import { slugify, skillCard, iconButton } from "../panel";
+import { slugify, skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 
@@ -35,6 +37,18 @@ export interface CanonCockpitOpts {
   orgs: Org[];
   getActiveOrg: () => string | null;
   setActiveOrg: (slug: string | null) => void;
+  /** Launch the repo-mining Context Miner for this group (same flow the
+   *  rail panel used to expose directly — now only reachable from here). */
+  onNewContext?: () => void;
+}
+
+/** A small uppercase subhead inside the Loop section (Adoption / Inference /
+ *  Eval pass-rate) — mirrors panel.ts's rail-only helper of the same name. */
+function loopSubhead(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "canon-subhead";
+  el.textContent = text;
+  return el;
 }
 
 const SECTIONS: { key: SectionKey; label: string }[] = [
@@ -123,13 +137,8 @@ export class CanonCockpitView {
       case "members": return this.renderMembersSection();
       case "skills": return this.renderSkillsSection();
       case "registry": return this.renderRegistrySection();
-      default: {
-        // Stub — real content lands in Task 8.
-        const el = document.createElement("div");
-        el.className = `canon-cockpit-section is-${key}`;
-        el.textContent = key;
-        return el;
-      }
+      case "context": return this.renderContextSection();
+      case "loop": return this.renderLoopSection();
     }
   }
 
@@ -537,6 +546,124 @@ export class CanonCockpitView {
 
     searchRow.append(input, go);
     el.append(searchRow, errorEl, results);
+    return el;
+  }
+
+  // ── Context section ──────────────────────────────────────────────────
+
+  private renderContextSection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-context";
+    const cwd = this.opts.groupRootDir;
+
+    const newBtn = document.createElement("button");
+    newBtn.type = "button";
+    newBtn.className = "canon-new-context-btn";
+    newBtn.textContent = "New context";
+    newBtn.addEventListener("click", () => this.opts.onNewContext?.());
+    el.appendChild(newBtn);
+
+    if (!cwd) {
+      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage context."));
+      return el;
+    }
+
+    const list = document.createElement("div");
+    list.className = "canon-cockpit-context-list";
+    list.appendChild(this.note("Loading…"));
+    el.appendChild(list);
+
+    void canonLocalStatus(cwd)
+      .then((status) => {
+        list.replaceChildren();
+        if (status.contextFiles.length === 0) {
+          list.appendChild(this.note("No context files yet."));
+          return;
+        }
+        for (const f of status.contextFiles) {
+          const row = document.createElement("div");
+          row.className = "canon-context-row";
+          row.textContent = f;
+          list.appendChild(row);
+        }
+      })
+      .catch((e) => {
+        list.replaceChildren();
+        list.appendChild(this.note(`Failed to load context files: ${this.friendlyError(e)}`));
+      });
+
+    return el;
+  }
+
+  // ── Loop section — Observe/Adapt: adoption + inference footprint ─────
+
+  private renderLoopSection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-loop canon-loop canon-cockpit-loop-body";
+    const cwd = this.opts.groupRootDir;
+    const active = this.activeOrg();
+
+    // Adoption — org-wide installs for this group's registry-sourced skills.
+    // Needs both a local skill list (to know what's registry-sourced) and an
+    // active org (to know install counts), so it's the one two-hop fetch here.
+    const adoptionBox = document.createElement("div");
+    el.appendChild(adoptionBox);
+    if (cwd && active) {
+      const orgSlug = active.slug;
+      void Promise.all([
+        canonLocalStatus(cwd).catch(() => ({ installed: [], contextFiles: [] }) as CanonStatus),
+        canonSearch(orgSlug, null).catch(() => [] as PkgMeta[]),
+      ]).then(([status, pkgs]) => {
+        const registrySkills = status.installed.filter((i) => i.source.startsWith("registry:"));
+        if (registrySkills.length === 0) return;
+        const adoption = new Map(pkgs.map((p) => [p.name, p.installs]));
+        adoptionBox.appendChild(loopSubhead("Adoption"));
+        const maxInstalls = Math.max(1, ...registrySkills.map((i) => adoption.get(i.name) ?? 0));
+        for (const i of registrySkills) {
+          const n = adoption.get(i.name);
+          const value = n === undefined ? "—" : `${n} ${n === 1 ? "install" : "installs"}`;
+          adoptionBox.appendChild(meterRow(i.name, value, ((n ?? 0) / maxInstalls) * 100));
+        }
+      });
+    }
+
+    // Inference — this group's footprint from the four Covenant primitives.
+    const inferenceBox = document.createElement("div");
+    el.appendChild(inferenceBox);
+    void scoreSummaryFiltered(this.opts.groupLabel ?? null)
+      .then((sc) => {
+        inferenceBox.appendChild(loopSubhead("Inference · this group"));
+        const stats = document.createElement("div");
+        stats.className = "canon-stats";
+        stats.append(
+          statCell(fmtTokens(sc.total_tokens), "tokens", true),
+          statCell(sc.total_prompts.toLocaleString(), "prompts"),
+          statCell(String(sc.total_specs), "specs"),
+          statCell(String(sc.total_commits), "commits"),
+        );
+        inferenceBox.appendChild(stats);
+      })
+      .catch(() => {});
+
+    // Eval — context-TDD pass-rate from the local runner.
+    const evalBox = document.createElement("div");
+    el.appendChild(evalBox);
+    if (cwd) {
+      void canonEvalSummary(cwd)
+        .then((evalSummary) => {
+          if (evalSummary.length === 0) {
+            evalBox.appendChild(this.note("Run evals on a skill to measure its context-TDD pass-rate."));
+            return;
+          }
+          evalBox.appendChild(loopSubhead("Eval pass-rate"));
+          for (const r of evalSummary) {
+            const pct = r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
+            evalBox.appendChild(meterRow(r.skill, `${r.passed}/${r.total} · ${pct}%`, pct, true));
+          }
+        })
+        .catch(() => {});
+    }
+
     return el;
   }
 }

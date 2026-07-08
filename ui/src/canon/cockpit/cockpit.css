@@ -281,6 +281,22 @@ body.canon-cockpit-open .canon-reader {
   z-index: 9700;
 }
 
+/* ── Context section ───────────────────────────────────────────────── */
+
+.canon-cockpit-context-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ── Loop section ──────────────────────────────────────────────────── */
+
+.canon-cockpit-loop-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 /* ── Close ──────────────────────────────────────────────────────────── */
 
 .canon-cockpit-close {

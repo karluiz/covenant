@@ -14,9 +14,11 @@ vi.mock("../../api", () => ({
   canonSearch: vi.fn().mockResolvedValue([]),
   canonPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
   canonInstallRegistry: vi.fn().mockResolvedValue(undefined),
+  scoreSummaryFiltered: vi.fn().mockResolvedValue({ total_tokens: 0, total_prompts: 0, total_specs: 0, total_commits: 0 }),
+  canonEvalSummary: vi.fn().mockResolvedValue([]),
 }));
 
-import { canonMyOrgs, canonSearch } from "../../api";
+import { canonMyOrgs, canonSearch, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus } from "../../api";
 
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
@@ -101,5 +103,38 @@ describe("CanonCockpitView Registry section", () => {
     input.value = "kyc"; go.click();
     await Promise.resolve(); await Promise.resolve();
     expect(v.element.textContent).toContain("kyc");
+  });
+});
+
+describe("CanonCockpitView Context section", () => {
+  it("lists context files and invokes onNewContext (moved from the rail — see panel.test.ts)", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({ installed: [], contextFiles: ["kyc-peru.md"] });
+    let called = false;
+    const v = new CanonCockpitView({ ...opts, onNewContext: () => { called = true; } });
+    v.open(); v.showSection("context");
+    await Promise.resolve(); await Promise.resolve();
+    expect(v.element.textContent).toContain("kyc-peru.md");
+    (v.element.querySelector(".canon-new-context-btn") as HTMLButtonElement).click();
+    expect(called).toBe(true);
+  });
+});
+
+describe("CanonCockpitView Loop section", () => {
+  it("renders inference stats in the Loop section", async () => {
+    vi.mocked(scoreSummaryFiltered).mockResolvedValueOnce({
+      total_tokens: 1500, total_prompts: 10, total_specs: 2, total_commits: 4,
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("loop");
+    await Promise.resolve(); await Promise.resolve();
+    expect(v.element.textContent).toContain("1.5k"); // fmtTokens
+  });
+
+  it("renders eval pass-rate in the Loop section (moved from the rail — see panel.test.ts)", async () => {
+    vi.mocked(canonEvalSummary).mockResolvedValueOnce([{ skill: "kyc-peru", passed: 4, total: 5 }]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("loop");
+    await Promise.resolve(); await Promise.resolve();
+    expect(v.element.textContent).toContain("4/5");
   });
 });

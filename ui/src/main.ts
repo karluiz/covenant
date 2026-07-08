@@ -1477,6 +1477,18 @@ async function boot(): Promise<void> {
     rail.open("canon");
   }
 
+  // Shared by the rail panel (historically) and the cockpit's Context
+  // section — launches the repo-mining Context Miner for a group, or toasts
+  // if the group has no project folder linked yet.
+  function launchContextMiner(groupId: string, groupLabel: string): void {
+    const root = manager.groupRootDirFor(groupId);
+    if (!root) {
+      pushInfoToast({ message: "Set a project folder for this group first" });
+      return;
+    }
+    new ContextMinerView({ repoRoot: root, groupName: groupLabel });
+  }
+
   function mountCanon(): void {
     let args = pendingCanonArgs;
     pendingCanonArgs = null;
@@ -1502,14 +1514,6 @@ async function boot(): Promise<void> {
         document.body.classList.remove("canon-open");
         rail.handleExternalClose("canon");
       },
-      onNewContext: () => {
-        const root = manager.groupRootDirFor(args.groupId);
-        if (!root) {
-          pushInfoToast({ message: "Set a project folder for this group first" });
-          return;
-        }
-        new ContextMinerView({ repoRoot: root, groupName: args.groupLabel });
-      },
       onPickFolder: () => {
         const a = args;
         void manager.pickGroupRootDir(a.groupId).then((picked) => {
@@ -1529,6 +1533,7 @@ async function boot(): Promise<void> {
             orgs,
             getActiveOrg: () => manager.groupCanonOrg(a.groupId),
             setActiveOrg: (slug) => manager.setGroupCanonOrg(a.groupId, slug),
+            onNewContext: () => launchContextMiner(a.groupId, a.groupLabel),
           }).open();
         });
       },

@@ -1,19 +1,16 @@
 import { describe, it, expect, vi, type Mock } from "vitest";
 import { CanonPanel, slugify } from "./panel";
 
-// Mock the api module so tests don't invoke Tauri IPC.
+// Mock the api module so tests don't invoke Tauri IPC. Only the calls
+// panel.ts's compact rail actually makes — registry search, install, and
+// the score/eval Loop dashboards moved to the cockpit (see cockpit tests).
 vi.mock("../api", () => ({
   canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], contextFiles: [] }),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
-  canonSearch: vi.fn().mockResolvedValue([]),
   canonPublish: vi.fn().mockResolvedValue({}),
-  canonInstallRegistry: vi.fn().mockResolvedValue({}),
-  canonPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
   canonReadLocal: vi.fn().mockResolvedValue(""),
   canonExport: vi.fn().mockResolvedValue(undefined),
-  scoreSummaryFiltered: vi.fn().mockResolvedValue({ total_prompts: 0, total_commits: 0, total_tokens: 0, total_specs: 0 }),
-  canonEvalSummary: vi.fn().mockResolvedValue([]),
   canonRunEvals: vi.fn().mockResolvedValue(undefined),
   onCanonEvalProgress: vi.fn().mockResolvedValue(() => {}),
 }));
@@ -23,7 +20,10 @@ vi.mock("../notifications/toast", () => ({
 }));
 
 describe("CanonPanel", () => {
-  it("renders installed skills and context files", () => {
+  // Compact rail summary: skill count + a compact card list. Context files
+  // and the registry/adoption/eval dashboards now render in the cockpit
+  // (see cockpit/view.test.ts's Context/Loop section suites).
+  it("renders installed skills with a compact count", () => {
     const host = document.createElement("div");
     const panel = new CanonPanel({
       groupId: "g1",
@@ -39,7 +39,7 @@ describe("CanonPanel", () => {
     });
     expect(host.textContent).toContain("kyc-peru");
     expect(host.textContent).toContain("2.1.0");
-    expect(host.textContent).toContain("kyc-peru.md");
+    expect(host.textContent).toContain("1 skill installed");
   });
 
   it("shows fallback when no skills installed", () => {
@@ -63,22 +63,6 @@ describe("CanonPanel", () => {
       groupRootDir: null,
     }).mount(host);
     expect(host.querySelector(".canon-panel")).not.toBeNull();
-  });
-
-  it("calls onNewContext when New context button is clicked", () => {
-    let called = false;
-    const host = document.createElement("div");
-    const panel = new CanonPanel({
-      groupId: "g4",
-      groupLabel: "Test",
-      groupColor: null,
-      groupRootDir: "/repo",
-      onNewContext: () => { called = true; },
-    }).mount(host);
-    panel.renderStatus({ installed: [], contextFiles: [] });
-    const btn = host.querySelector(".canon-new-context-btn") as HTMLButtonElement;
-    btn.click();
-    expect(called).toBe(true);
   });
 
   it("calls onClose when close button is clicked", () => {
@@ -123,21 +107,6 @@ describe("CanonPanel", () => {
     await panel.refresh();
     const btn = panel.element.querySelector('button[aria-label="Run evals"]');
     expect(btn).not.toBeNull();
-  });
-
-  it("renders eval pass-rate in the Loop when results exist", async () => {
-    const { canonLocalStatus, canonEvalSummary } = await import("../api");
-    (canonLocalStatus as Mock).mockResolvedValueOnce({
-      installed: [{ name: "kyc-peru", version: "1.0.0", source: "registry:payments", sha: "a", signer: null, installedAt: "t" }],
-      contextFiles: [],
-    });
-    (canonEvalSummary as Mock).mockResolvedValueOnce([
-      { skill: "kyc-peru", passed: 4, total: 5 },
-    ]);
-    const panel = new CanonPanel({ groupId: "g-eval-rate", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo" });
-    await panel.refresh();
-    expect(panel.element.textContent).toContain("4/5");
-    expect(panel.element.textContent).not.toContain("arrives in a later phase");
   });
 
   it("toasts a helpful message instead of 'finished' when a skill has no evals", async () => {
