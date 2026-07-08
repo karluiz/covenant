@@ -90,7 +90,10 @@ pub struct LspInstalledServer {
 }
 
 #[tauri::command]
-pub fn lsp_server_status(state: State<'_, LspState>, language: String) -> Result<LspServerStatus, String> {
+pub fn lsp_server_status(
+    state: State<'_, LspState>,
+    language: String,
+) -> Result<LspServerStatus, String> {
     let spec = registry::spec_for_language(&language).map_err(|e| e.to_string())?;
 
     let mut installed = install::is_installed(&state.data_dir, spec);
@@ -137,9 +140,10 @@ pub async fn lsp_download_server(
             .map_err(|e| e.to_string())?;
         }
         InstallKind::Npm => {
-            let rt = spec.runtime.as_ref().ok_or_else(|| {
-                format!("{} is an npm server but has no runtime spec", spec.name)
-            })?;
+            let rt = spec
+                .runtime
+                .as_ref()
+                .ok_or_else(|| format!("{} is an npm server but has no runtime spec", spec.name))?;
             let node = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
             // Node's PARENT DIR (not the binary itself) so npm_install's
             // resolve_npm_path fast path finds `npm` next to it instead of
@@ -205,7 +209,10 @@ pub async fn lsp_start(
         let reg = state.registry.lock().await;
         if let Some(&id) = reg.by_key.get(&key) {
             if reg.servers.contains_key(&id) {
-                return Ok(LspStartResult { server_id: id, root: root_str });
+                return Ok(LspStartResult {
+                    server_id: id,
+                    root: root_str,
+                });
             }
         }
         // guard dropped here: stale/absent entries are resolved after we
@@ -219,11 +226,15 @@ pub async fn lsp_start(
     // `node` binary with the JS entry point as its first argument, since
     // the "binary" here is a `.mjs`/`.js` file that can't execute itself.
     let (bin, spawn_args): (PathBuf, Vec<String>) = match spec.install_kind() {
-        InstallKind::Binary => (install::entry_path(&state.data_dir, spec), spec.args.clone()),
+        InstallKind::Binary => (
+            install::entry_path(&state.data_dir, spec),
+            spec.args.clone(),
+        ),
         InstallKind::Npm => {
-            let rt = spec.runtime.as_ref().ok_or_else(|| {
-                format!("{} is an npm server but has no runtime spec", spec.name)
-            })?;
+            let rt = spec
+                .runtime
+                .as_ref()
+                .ok_or_else(|| format!("{} is an npm server but has no runtime spec", spec.name))?;
             let node = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
             let entry = install::entry_path(&state.data_dir, spec);
             let mut args = vec![entry.to_string_lossy().to_string()];
@@ -257,7 +268,10 @@ pub async fn lsp_start(
                 let mut reg = state.registry.lock().await;
                 reg.servers.remove(&id);
                 reg.by_key.retain(|_, v| *v != id);
-                tracing::warn!(server_id = id, "lsp server exited; registry entry cleaned up");
+                tracing::warn!(
+                    server_id = id,
+                    "lsp server exited; registry entry cleaned up"
+                );
             });
         },
     )
@@ -278,24 +292,37 @@ pub async fn lsp_start(
                 root = %root_str,
                 "lsp_start race lost; killed duplicate spawn"
             );
-            return Ok(LspStartResult { server_id: winner_id, root: root_str });
+            return Ok(LspStartResult {
+                server_id: winner_id,
+                root: root_str,
+            });
         }
     }
 
     tracing::info!(server_id = id, language = %language, root = %root_str, "lsp server started");
     reg.servers.insert(id, srv);
     reg.by_key.insert(key, id);
-    Ok(LspStartResult { server_id: id, root: root_str })
+    Ok(LspStartResult {
+        server_id: id,
+        root: root_str,
+    })
 }
 
 #[tauri::command]
-pub async fn lsp_send(state: State<'_, LspState>, server_id: u64, message: String) -> Result<(), String> {
+pub async fn lsp_send(
+    state: State<'_, LspState>,
+    server_id: u64,
+    message: String,
+) -> Result<(), String> {
     // Grab a cloned sender under the lock, then drop the guard before the
     // (potentially slow) send — a stalled child stdin must never wedge the
     // single global registry mutex for every other lsp_start/lsp_stop/lsp_send.
     let sender = {
         let reg = state.registry.lock().await;
-        reg.servers.get(&server_id).ok_or("unknown lsp server")?.sender()
+        reg.servers
+            .get(&server_id)
+            .ok_or("unknown lsp server")?
+            .sender()
     }; // guard dropped here
     if sender.send(message).await.is_err() {
         tracing::warn!(server_id, "lsp send dropped: server channel closed");
