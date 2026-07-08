@@ -131,6 +131,7 @@ function renderServerList(host: HTMLElement, servers: LspInstalledServer[]): voi
 
 async function deleteServer(host: HTMLElement, language: string, trigger: HTMLButtonElement): Promise<void> {
   trigger.disabled = true;
+  trigger.textContent = "Delete"; // reset any "Delete failed" label from a prior attempt
   try {
     await lspDeleteServer(language);
     await loadServerList(host);

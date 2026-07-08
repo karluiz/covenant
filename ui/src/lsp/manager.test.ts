@@ -51,11 +51,19 @@ describe("consent (settings-store backed)", () => {
   // consent via `lsp.consent.<language>` in localStorage. The first
   // settings load must import it into the store and never look at
   // localStorage again.
+  //
+  // `fakeSettings.code_intelligence` is deliberately PRESENT here (with
+  // defaults) — that's the real wire format, since the backend field is
+  // a plain (non-Option) struct that's always serialized. A truly-absent
+  // key (like the other tests' `fakeSettings = {}`) never happens in
+  // production, so it must not be what the migration gates on.
   it("migrates a legacy localStorage grant into the settings store on first load", async () => {
+    fakeSettings = { code_intelligence: { enabled: true, consented_languages: [] } };
     localStorage.setItem("lsp.consent.rust", "granted");
     const { consentState } = await import("./manager");
     expect(await consentState("rust")).toBe(true);
     expect(fakeSettings.code_intelligence?.consented_languages).toContain("rust");
+    expect(localStorage.getItem("lsp.consent.migrated")).toBe("done");
   });
 
   it("ignores localStorage entries that were never granted", async () => {

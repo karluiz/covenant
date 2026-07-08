@@ -47,6 +47,14 @@ interface CodeIntelCache {
 let cache: CodeIntelCache = { enabled: true, consentedLanguages: new Set() };
 let loadPromise: Promise<void> | null = null;
 
+// Sentinel marking the one-time localStorage→settings migration as done.
+// Deliberately NOT gated on `settings.code_intelligence` being absent:
+// the backend field is a plain (non-Option) struct that is ALWAYS
+// serialized (populated with defaults for upgrading users), so an
+// absence check never fires in production. The sentinel is the only
+// signal that survives that.
+const MIGRATION_SENTINEL_KEY = "lsp.consent.migrated";
+
 // ponytail: one-time migration, not a sync engine. Reads the legacy
 // per-language localStorage keys, folds any "granted" ones into the
 // settings-store array, and never looks at localStorage again — the
@@ -66,13 +74,27 @@ function migrateLegacyLocalStorage(): string[] {
 async function ensureLoaded(): Promise<void> {
   if (!loadPromise) {
     loadPromise = (async () => {
-      const settings = await getSettings();
-      let ci = settings.code_intelligence;
-      if (!ci) {
-        ci = { enabled: true, consented_languages: migrateLegacyLocalStorage() };
-        await setSettings({ ...settings, code_intelligence: ci });
+      try {
+        const settings = await getSettings();
+        let ci = settings.code_intelligence ?? { enabled: true, consented_languages: [] };
+        if (localStorage.getItem(MIGRATION_SENTINEL_KEY) !== "done") {
+          const granted = migrateLegacyLocalStorage();
+          if (granted.length > 0) {
+            // Merge — never clobber consent already recorded in the store.
+            const merged = new Set([...ci.consented_languages, ...granted]);
+            ci = { enabled: ci.enabled, consented_languages: [...merged] };
+            await setSettings({ ...settings, code_intelligence: ci });
+          }
+          localStorage.setItem(MIGRATION_SENTINEL_KEY, "done");
+        }
+        cache = { enabled: ci.enabled, consentedLanguages: new Set(ci.consented_languages) };
+      } catch (e) {
+        // IPC hiccup — fall back to a safe default and let the NEXT call
+        // retry instead of memoizing this rejection forever.
+        cache = { enabled: true, consentedLanguages: new Set() };
+        loadPromise = null;
+        throw e;
       }
-      cache = { enabled: ci.enabled, consentedLanguages: new Set(ci.consented_languages) };
     })();
   }
   return loadPromise;
