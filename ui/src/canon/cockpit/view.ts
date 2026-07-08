@@ -155,8 +155,12 @@ export class CanonCockpitView {
       : key === "registry" ? this.renderRegistrySection()
       : key === "context" ? this.renderContextSection()
       : this.renderLoopSection();
-    body.prepend(this.sectionHead(SECTION_HEAD[key][0], SECTION_HEAD[key][1]));
-    return body;
+    // Full-bleed header (divider spans the whole pane) + a contained content
+    // column below it — the Capabilities layout.
+    const wrap = document.createElement("div");
+    wrap.className = "canon-cockpit-section-wrap";
+    wrap.append(this.sectionHead(SECTION_HEAD[key][0], SECTION_HEAD[key][1]), body);
+    return wrap;
   }
 
   /** A consistent section header: title + one-line description. Gives every

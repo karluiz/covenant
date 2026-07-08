@@ -86,19 +86,22 @@ body.tabbar-left .canon-cockpit {
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
-  padding: 20px;
+  padding: 0;
 }
 
-.canon-cockpit-section {
-  max-width: 720px;
+/* Full-width header strip + a contained content column below it. */
+.canon-cockpit-section-wrap {
   color: var(--fg);
   font-size: var(--fs-body, 12px);
 }
+.canon-cockpit-section {
+  max-width: 720px;
+  padding: 22px 24px;
+}
 
-/* ── Shared: section header (title + one-line description) ──────────────── */
+/* ── Shared: section header — full-bleed strip, divider reaches both edges ── */
 .canon-cockpit-sec-head {
-  margin: 0 0 20px;
-  padding-bottom: 14px;
+  padding: 20px 24px 15px;
   border-bottom: 1px solid var(--border);
 }
 .canon-cockpit-sec-title {
