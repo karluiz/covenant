@@ -8,14 +8,24 @@
 
 .canon-cockpit {
   position: fixed;
-  inset: 0;
-  z-index: 9600;
+  /* Sit INSIDE the app chrome — leave the titlebar (traffic lights, 38px),
+     the left sidebar (--tabbar-w, in tabbar-left mode), and the status bar
+     visible. z-index 80 matches the Tasker board: above terminal content,
+     below the chrome. NOT inset:0/z-index:9600 — that painted over everything. */
+  top: 38px;
+  right: 0;
+  bottom: calc(var(--statusbar-h, 26px) + 1px);
+  left: 0;
+  z-index: 80;
   display: grid;
   grid-template-columns: 200px 1fr;
   min-height: 0;
   background: var(--bg-overlay, #11141a);
   color: var(--text-primary, #f5f6f7);
   font-family: var(--ui-font);
+}
+body.tabbar-left .canon-cockpit {
+  left: var(--tabbar-w);
 }
 
 /* ── Left nav ───────────────────────────────────────────────────────── */
@@ -271,14 +281,20 @@ body.theme-true-dark.canon-cockpit-open {
 
 /* ── Rail SKILL.md reader, re-stacked for the full-screen cockpit ─────
    openMarkdownReader (panel.ts) builds a fixed-position `.canon-reader`
-   sized/offset for the narrow rail panel (top: 76px, z-index: 60) and
-   appends it to document.body as a sibling of `.canon-cockpit` (z-index:
-   9600) — reused here for Skills/Registry previews. Without this override
-   it would render fully hidden behind the cockpit overlay. */
+   sized/offset for the narrow rail panel and appends it to document.body
+   as a sibling of `.canon-cockpit`. Re-stack it to fill the cockpit's
+   content box (same chrome insets) and sit just above the cockpit — NOT
+   full-window, so it doesn't cover the titlebar/sidebar/status bar either. */
 body.canon-cockpit-open .canon-reader {
-  top: 0;
-  bottom: 0;
-  z-index: 9700;
+  top: 38px;
+  right: 0;
+  bottom: calc(var(--statusbar-h, 26px) + 1px);
+  left: 0;
+  width: auto;
+  z-index: 90;
+}
+body.tabbar-left.canon-cockpit-open .canon-reader {
+  left: var(--tabbar-w);
 }
 
 /* ── Context section ───────────────────────────────────────────────── */
