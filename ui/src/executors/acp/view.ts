@@ -191,7 +191,10 @@ export interface AcpNoticeItem {
   /// "divider": thin turn-end marker (from `prompt_done`).
   /// "dead": the ACP process died — the view renders a restart affordance.
   /// "info" / "error": free-form system notes (subscribe/send failures).
-  variant: "divider" | "dead" | "info" | "error";
+  /// "perception": an auto-answered permission prompt audit note (from
+  /// `perception_auto_answer`) — muted/secondary, distinct from a human
+  /// answer on a `perm` card.
+  variant: "divider" | "dead" | "info" | "error" | "perception";
 }
 
 export type AcpStreamItem = AcpUserItem | AcpProseItem | AcpToolItem | AcpPermItem | AcpNoticeItem;
@@ -453,7 +456,25 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
       });
       break;
     }
+    case "perception_auto_answer": {
+      // No `permission_pending` was ever forwarded for this request (see
+      // `crates/app/src/acp_commands.rs`) — this is the only trace of the
+      // prompt in the UI, so it always appends a fresh audit note rather
+      // than updating an existing `perm` card.
+      state.items.push({
+        kind: "notice",
+        text: perceptionAuditText(ev.optionId, ev.reason),
+        variant: "perception",
+      });
+      break;
+    }
   }
+}
+
+/// Formats the inline audit note for an auto-answered permission prompt.
+/// Exported for unit testing.
+export function perceptionAuditText(optionId: string, reason: string): string {
+  return `Perception ✓ auto-answered: ${optionId} — ${reason}`;
 }
 
 /// Records the user's answer on a pending permission item and drops it
@@ -1306,6 +1327,9 @@ export class AcpChatView {
         break;
       case "session_dead":
         this.setInFlight(false);
+        this.renderNoticeTail();
+        break;
+      case "perception_auto_answer":
         this.renderNoticeTail();
         break;
     }

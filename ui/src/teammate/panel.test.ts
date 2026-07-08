@@ -119,6 +119,7 @@ function makeOp(overrides: Partial<Operator> = {}): Operator {
     xp: 0,
     github_access: "Off",
     acp_enabled: false,
+    perception_enabled: false,
     ...overrides,
   };
 }

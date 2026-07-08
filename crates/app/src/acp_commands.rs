@@ -17,17 +17,19 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use karl_agent::acp::{
+    build_judge_prompt, parse_judge_reply, perception_decide,
     policy::resolve_headless,
     protocol::{
         AvailableCommand, ContentBlock, PermissionRequest, SessionNotification, SessionUpdate,
         ToolCallFields,
     },
-    AcpError, AcpSession, AcpSessionEvent, AcpSpawnOpts, PermissionDecision, PermissionResolver,
+    AcpError, AcpSession, AcpSessionEvent, AcpSpawnOpts, PerceptionDecision, PermissionDecision,
+    PermissionResolver,
 };
 use karl_session::{ExecutorPhase, SessionId};
 use serde::{Deserialize, Serialize};
@@ -35,6 +37,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
+use crate::settings::Settings;
 use crate::AppState;
 
 // ---------------------------------------------------------------------------
@@ -109,6 +112,87 @@ fn tool_call_target(f: &ToolCallFields) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Perception: auto-answer trivial + safe permission prompts
+// ---------------------------------------------------------------------------
+
+/// Max consecutive auto-answers before Perception hands back to the human —
+/// mirrors the cap in `agent::acp::perception::decide`. A human click or an
+/// escalation resets the streak.
+pub(crate) const PERCEPTION_CAP: u32 = 5;
+
+/// Result of running the Perception pipeline on one parked prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PerceptionOutcome {
+    /// Auto-answer the prompt with `option_id` (side effects are the
+    /// forwarder's job: `respond_permission` + audit emit).
+    Answered { option_id: String, reason: String },
+    /// Hand the prompt back to the human unchanged.
+    Escalated,
+}
+
+/// Orchestrate one prompt: build the judge prompt → call the injected async
+/// `judge` → parse → run the pure `perception_decide` core → map the result.
+/// No I/O beyond `judge`, so it unit-tests with a stub closure. The real
+/// judge (see `perception_judge`) returns `""` on ANY model error, which
+/// parses to `Uncertain` → escalate, so a broken model can never widen the
+/// safety envelope.
+pub(crate) async fn perception_decide_async<F, Fut>(
+    req: &PermissionRequest,
+    consecutive: u32,
+    cap: u32,
+    judge: F,
+) -> PerceptionOutcome
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = String>,
+{
+    let prompt = build_judge_prompt(req);
+    let raw = judge(prompt).await;
+    let verdict = parse_judge_reply(&raw, req);
+    match perception_decide(req, &verdict, consecutive, cap) {
+        PerceptionDecision::AutoAnswer { option_id, reason } => {
+            PerceptionOutcome::Answered { option_id, reason }
+        }
+        PerceptionDecision::Escalate => PerceptionOutcome::Escalated,
+    }
+}
+
+/// The real judge: one non-streaming Triage-route completion. Reuses the
+/// same provider-resolution path as the summarizer / operator triage
+/// (`resolve_route(Role::Triage)` → `provider::collect_oneshot`), so it
+/// tracks the user's configured triage model instead of hardcoding
+/// `DEFAULT_TRIAGE_MODEL`. Returns `String::new()` on NO route or ANY error
+/// — the empty string parses to `Uncertain`, so the prompt safely escalates.
+async fn perception_judge(settings: &Arc<Mutex<Settings>>, prompt: String) -> String {
+    let resolved = {
+        let s = settings.lock().await;
+        match crate::provider_resolve::resolve_route(&s, crate::settings::Role::Triage) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::debug!(?e, "perception: no triage route; escalating");
+                return String::new();
+            }
+        }
+    };
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: String::new(),
+        user_message: prompt,
+        max_tokens: 128,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    match karl_agent::provider::collect_oneshot(&*resolved.provider, req).await {
+        Ok(resp) => resp.text,
+        Err(e) => {
+            tracing::warn!(?e, "perception: judge call failed; escalating");
+            String::new()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -140,6 +224,13 @@ struct AcpTabSession {
     /// race `commands`/`models` dodge via pull, but replay frames have
     /// no pull path).
     ready_tx: tokio::sync::watch::Sender<bool>,
+    /// Consecutive Perception auto-answers with no intervening human click.
+    /// The forwarder increments it per auto-answer and resets it to 0 on
+    /// escalation; `acp_respond_permission` resets it when a human answers.
+    /// Guards against an unbounded auto-answer streak (see `PERCEPTION_CAP`).
+    /// Shared between the forwarder task and the command layer via the
+    /// registry's `Arc<AcpTabSession>`.
+    perception_consecutive: AtomicU32,
 }
 
 impl AcpTabSession {
@@ -238,15 +329,29 @@ impl AcpRegistry {
 pub enum AcpTabEvent {
     /// Raw `session/update` notification, typed end-to-end (see the
     /// `Serialize` derives added to `protocol.rs`).
-    Update { update: SessionNotification },
+    Update {
+        update: SessionNotification,
+    },
     #[serde(rename_all = "camelCase")]
     PermissionPending {
         request_key: String,
         request: PermissionRequest,
     },
     #[serde(rename_all = "camelCase")]
-    PromptDone { stop_reason: String },
+    PromptDone {
+        stop_reason: String,
+    },
     SessionDead,
+    /// Audit trail: Perception auto-answered a permission prompt on the
+    /// operator's behalf (the prompt is NOT also forwarded as
+    /// `PermissionPending`). The frontend renders this as a resolved,
+    /// non-interactive chip.
+    #[serde(rename_all = "camelCase")]
+    PerceptionAutoAnswer {
+        request_key: String,
+        option_id: String,
+        reason: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +433,11 @@ fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> 
         if let Ok(raw) = std::fs::read_to_string(home.join(".claude.json")) {
             if let Ok(full) = serde_json::from_str::<Value>(&raw) {
                 let mut mini = serde_json::Map::new();
-                for k in ["hasCompletedOnboarding", "lastOnboardingVersion", "oauthAccount"] {
+                for k in [
+                    "hasCompletedOnboarding",
+                    "lastOnboardingVersion",
+                    "oauthAccount",
+                ] {
                     if let Some(v) = full.get(k) {
                         mini.insert(k.to_string(), v.clone());
                     }
@@ -344,7 +453,12 @@ fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> 
     // Credentials: Keychain first (macOS), else the CLI's own file.
     let cred_path = dir.join(".credentials.json");
     let keychain = std::process::Command::new("security")
-        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .args([
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+            "-w",
+        ])
         .output();
     let cred = match keychain {
         Ok(out) if out.status.success() && !out.stdout.is_empty() => {
@@ -359,10 +473,8 @@ fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> 
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(
-                    &cred_path,
-                    std::fs::Permissions::from_mode(0o600),
-                );
+                let _ =
+                    std::fs::set_permissions(&cred_path, std::fs::Permissions::from_mode(0o600));
             }
         }
         None if cred_path.exists() => { /* keep last-good copy */ }
@@ -396,6 +508,7 @@ fn hybrid_resolver() -> PermissionResolver {
 pub async fn spawn_acp_session(
     app: AppHandle,
     state: State<'_, AppState>,
+    operator_registry: State<'_, Arc<crate::operator_registry::OperatorRegistry>>,
     opts: SpawnAcpOpts,
 ) -> Result<SpawnAcpResult, String> {
     let session_id = SessionId::new();
@@ -559,6 +672,7 @@ pub async fn spawn_acp_session(
         cwd: cwd.clone(),
         models: std::sync::Mutex::new(models),
         ready_tx,
+        perception_consecutive: AtomicU32::new(0),
     });
     let tab_for_task = tab_session.clone();
 
@@ -575,6 +689,13 @@ pub async fn spawn_acp_session(
     let app_for_task = app.clone();
     let notch_hub_task = notch_hub.clone();
     let registry_task = state.acp_sessions.clone();
+    // Perception judge needs settings; `State<'_, AppState>` isn't `'static`
+    // so capture the `Arc` before the `tokio::spawn`.
+    let settings_for_task = state.settings.clone();
+    // Perception activation is a live per-decision property of the session's
+    // EFFECTIVE operator (pin → Default), looked up each PermissionPending.
+    // Capture the registry `Arc` before the spawn (State isn't `'static`).
+    let registry_for_task = (*operator_registry).clone();
     let topic = format!("session://{session_id}/acp");
     let topic_for_task = topic.clone();
     tokio::spawn(async move {
@@ -610,11 +731,8 @@ pub async fn spawn_acp_session(
         // phases forever; events keep buffering in `rx` while we wait.
         let mut ready_rx = ready_rx;
         if !*ready_rx.borrow() {
-            let _ = tokio::time::timeout(
-                Duration::from_secs(5),
-                ready_rx.wait_for(|ready| *ready),
-            )
-            .await;
+            let _ = tokio::time::timeout(Duration::from_secs(5), ready_rx.wait_for(|ready| *ready))
+                .await;
         }
 
         loop {
@@ -655,10 +773,94 @@ pub async fn spawn_acp_session(
                 AcpSessionEvent::PermissionPending {
                     request_key,
                     request,
-                } => AcpTabEvent::PermissionPending {
-                    request_key,
-                    request,
-                },
+                } => {
+                    // Live gate: Perception is on iff the session's effective
+                    // operator (pin → Default) has it enabled. Re-read per
+                    // prompt so toggling the operator takes effect immediately;
+                    // independent of AOM.
+                    let perception_on = registry_for_task.perception_enabled_for(session_id);
+                    if perception_on {
+                        // Real judge: one Triage-route completion; ANY error
+                        // → "" → Uncertain → escalate (safe).
+                        let settings = settings_for_task.clone();
+                        let judge = |prompt: String| {
+                            let settings = settings.clone();
+                            async move { perception_judge(&settings, prompt).await }
+                        };
+                        let consec = tab_for_task.perception_consecutive.load(Ordering::Acquire);
+                        match perception_decide_async(&request, consec, PERCEPTION_CAP, judge).await
+                        {
+                            PerceptionOutcome::Answered { option_id, reason } => {
+                                // `respond_permission` takes references, so
+                                // request_key/request survive a failure and can
+                                // still be forwarded. Only a SUCCESSFUL answer
+                                // counts: on Err we uphold escalate-on-failure —
+                                // no counter bump, no false audit, and the prompt
+                                // falls through to the human (below), never lost.
+                                match tab_for_task
+                                    .session
+                                    .respond_permission(&request_key, &option_id)
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        tab_for_task
+                                            .perception_consecutive
+                                            .fetch_add(1, Ordering::AcqRel);
+                                        if let Err(e) = app_for_task.emit(
+                                            &topic_for_task,
+                                            &AcpTabEvent::PerceptionAutoAnswer {
+                                                request_key,
+                                                option_id,
+                                                reason,
+                                            },
+                                        ) {
+                                            tracing::warn!(
+                                                ?e,
+                                                topic = %topic_for_task,
+                                                "acp perception auto-answer emit failed"
+                                            );
+                                        }
+                                        // Handled headlessly — do NOT forward
+                                        // the prompt to the UI.
+                                        continue;
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            ?e,
+                                            "perception: respond_permission failed; \
+                                             escalating prompt to human"
+                                        );
+                                        // Escalate: hand back to the human and
+                                        // break the streak, exactly like the
+                                        // Escalated path.
+                                        tab_for_task
+                                            .perception_consecutive
+                                            .store(0, Ordering::Release);
+                                        AcpTabEvent::PermissionPending {
+                                            request_key,
+                                            request,
+                                        }
+                                    }
+                                }
+                            }
+                            PerceptionOutcome::Escalated => {
+                                // Handing back breaks the auto-answer streak.
+                                tab_for_task
+                                    .perception_consecutive
+                                    .store(0, Ordering::Release);
+                                AcpTabEvent::PermissionPending {
+                                    request_key,
+                                    request,
+                                }
+                            }
+                        }
+                    } else {
+                        AcpTabEvent::PermissionPending {
+                            request_key,
+                            request,
+                        }
+                    }
+                }
                 AcpSessionEvent::Closed => {
                     on_dead(
                         &app_for_task,
@@ -776,7 +978,10 @@ pub async fn acp_send_prompt(
     const IMAGE_B64_CAP: usize = 8 * 1024 * 1024;
     for (i, img) in images.unwrap_or_default().into_iter().enumerate() {
         if !img.mime_type.starts_with("image/") {
-            return Err(format!("image {i}: unsupported mime type {}", img.mime_type));
+            return Err(format!(
+                "image {i}: unsupported mime type {}",
+                img.mime_type
+            ));
         }
         if img.data.is_empty() {
             return Err(format!("image {i}: empty payload"));
@@ -843,6 +1048,8 @@ pub async fn acp_respond_permission(
     option_id: String,
 ) -> Result<(), String> {
     let (_, tab) = require(&state, &session_id).await?;
+    // A human click breaks the Perception auto-answer streak.
+    tab.perception_consecutive.store(0, Ordering::Release);
     tab.session
         .respond_permission(&request_key, &option_id)
         .await
@@ -853,10 +1060,7 @@ pub async fn acp_respond_permission(
 /// topic is registered — unblocks the forwarder's first emit (see the
 /// ready gate in `spawn_acp_session`). Idempotent.
 #[tauri::command]
-pub async fn acp_mark_ready(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<(), String> {
+pub async fn acp_mark_ready(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let (_, tab) = require(&state, &session_id).await?;
     let _ = tab.ready_tx.send(true);
     Ok(())
@@ -972,10 +1176,7 @@ pub async fn acp_list_sessions(
     let (_, tab) = require(&state, &session_id).await?;
     let res = tab
         .session
-        .request(
-            "session/list",
-            json!({ "cwd": tab.cwd.to_string_lossy() }),
-        )
+        .request("session/list", json!({ "cwd": tab.cwd.to_string_lossy() }))
         .await
         .map_err(|e| e.to_string())?;
     let sessions = res
@@ -990,7 +1191,10 @@ pub async fn acp_list_sessions(
                 session_id: s.get("sessionId")?.as_str()?.to_string(),
                 cwd: s.get("cwd").and_then(Value::as_str).map(str::to_string),
                 title: s.get("title").and_then(Value::as_str).map(str::to_string),
-                updated_at: s.get("updatedAt").and_then(Value::as_str).map(str::to_string),
+                updated_at: s
+                    .get("updatedAt")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             })
         })
         .collect())
@@ -1042,10 +1246,7 @@ pub async fn acp_load_session(
 pub async fn acp_cancel(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let (_, tab) = require(&state, &session_id).await?;
     tab.session
-        .notify(
-            "session/cancel",
-            json!({ "sessionId": tab.wire_id() }),
-        )
+        .notify("session/cancel", json!({ "sessionId": tab.wire_id() }))
         .await
         .map_err(|e| e.to_string())
 }
@@ -1157,9 +1358,8 @@ mod tests {
 
     #[test]
     fn unknown_update_kind_maps_to_none() {
-        let n = notification(
-            r#"{"sessionUpdate":"available_commands_update","availableCommands":[]}"#,
-        );
+        let n =
+            notification(r#"{"sessionUpdate":"available_commands_update","availableCommands":[]}"#);
         let ev = AcpSessionEvent::Update(n);
         assert_eq!(acp_event_to_phase(&ev), None);
     }
@@ -1228,6 +1428,80 @@ mod tests {
         assert_eq!(permission_value["type"], "permission_pending");
         assert_eq!(permission_value["requestKey"], "perm-0");
         assert_eq!(permission_value["request"]["sessionId"], "s1");
+    }
+
+    fn perm_req(kind: &str, cmd: Option<&str>, opts: &[(&str, &str)]) -> PermissionRequest {
+        let options: Vec<Value> = opts
+            .iter()
+            .map(|(id, k)| json!({ "optionId": id, "kind": k }))
+            .collect();
+        let mut tool_call = json!({ "toolCallId": "t1", "kind": kind });
+        if let Some(c) = cmd {
+            tool_call["rawInput"] = json!({ "command": c });
+        }
+        serde_json::from_value(json!({
+            "sessionId": "s1",
+            "toolCall": tool_call,
+            "options": options,
+        }))
+        .expect("permission fixture parses")
+    }
+
+    #[tokio::test]
+    async fn perception_step_auto_answers_trivial_safe() {
+        let req = perm_req(
+            "read",
+            None,
+            &[("allow_once", "allow_once"), ("reject_once", "reject_once")],
+        );
+        let judge =
+            |_p: String| async { r#"{"trivial":true,"option_id":"allow_once"}"#.to_string() };
+        let out = perception_decide_async(&req, 0, PERCEPTION_CAP, judge).await;
+        assert!(
+            matches!(out, PerceptionOutcome::Answered { option_id, .. } if option_id == "allow_once")
+        );
+    }
+
+    #[tokio::test]
+    async fn perception_step_escalates_when_judge_uncertain() {
+        let req = perm_req("read", None, &[("allow_once", "allow_once")]);
+        let judge = |_p: String| async { r#"{"trivial":false}"#.to_string() };
+        let out = perception_decide_async(&req, 0, PERCEPTION_CAP, judge).await;
+        assert!(matches!(out, PerceptionOutcome::Escalated));
+    }
+
+    #[tokio::test]
+    async fn perception_step_escalates_on_judge_error_empty_reply() {
+        // The real judge returns "" on ANY model error — must escalate, not
+        // auto-answer.
+        let req = perm_req("read", None, &[("allow_once", "allow_once")]);
+        let judge = |_p: String| async { String::new() };
+        let out = perception_decide_async(&req, 0, PERCEPTION_CAP, judge).await;
+        assert!(matches!(out, PerceptionOutcome::Escalated));
+    }
+
+    #[tokio::test]
+    async fn perception_step_escalates_at_cap_even_if_trivial() {
+        // Handback guard: at the cap, hand back regardless of the verdict.
+        let req = perm_req("read", None, &[("allow_once", "allow_once")]);
+        let judge =
+            |_p: String| async { r#"{"trivial":true,"option_id":"allow_once"}"#.to_string() };
+        let out = perception_decide_async(&req, PERCEPTION_CAP, PERCEPTION_CAP, judge).await;
+        assert!(matches!(out, PerceptionOutcome::Escalated));
+    }
+
+    #[test]
+    fn perception_auto_answer_wire_shape() {
+        let ev = AcpTabEvent::PerceptionAutoAnswer {
+            request_key: "perm-0".into(),
+            option_id: "allow_once".into(),
+            reason: "trivial + safe (read)".into(),
+        };
+        let v = serde_json::to_value(&ev).expect("serialize");
+        assert_eq!(v["type"], "perception_auto_answer");
+        assert_eq!(v["requestKey"], "perm-0");
+        assert_eq!(v["optionId"], "allow_once");
+        assert_eq!(v["reason"], "trivial + safe (read)");
     }
 
     /// `SessionUpdate` must survive Serialize → Deserialize with its

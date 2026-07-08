@@ -260,6 +260,7 @@ mod tests {
             soul_mtime_unix_ms: 0,
             github_access: crate::operator_registry::GithubAccess::Off,
             acp_enabled: false,
+            perception_enabled: false,
         }
     }
 

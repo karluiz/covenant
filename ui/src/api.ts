@@ -315,6 +315,9 @@ export interface Operator {
   /// Whether the operator may delegate subtasks to background Copilot
   /// sessions via dispatch_acp. Default off.
   acp_enabled: boolean;
+  /// Whether the operator auto-answers trivial, safe executor permission
+  /// prompts in ACP sessions it's assigned to. Default off.
+  perception_enabled: boolean;
   soul_path?: string | null;
 }
 
@@ -401,6 +404,13 @@ export async function operatorSetAcpEnabled(
   enabled: boolean,
 ): Promise<void> {
   return invoke<void>("operator_set_acp_enabled", { id, enabled });
+}
+
+export async function operatorSetPerceptionEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<void> {
+  return invoke<void>("operator_set_perception_enabled", { id, enabled });
 }
 
 export interface ArchetypeView {
@@ -2636,7 +2646,13 @@ export type AcpTabEvent =
   | { type: "update"; update: { sessionId: string; update: AcpSessionUpdate } }
   | { type: "permission_pending"; requestKey: string; request: AcpPermissionRequest }
   | { type: "prompt_done"; stopReason: string }
-  | { type: "session_dead" };
+  | { type: "session_dead" }
+  | {
+      type: "perception_auto_answer";
+      requestKey: string;
+      optionId: string;
+      reason: string;
+    };
 
 export interface SpawnAcpResult {
   sessionId: SessionId;

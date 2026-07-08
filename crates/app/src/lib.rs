@@ -4651,6 +4651,7 @@ pub fn run() {
             operator_registry::commands::operator_set_default,
             operator_registry::commands::operator_set_github_access,
             operator_registry::commands::operator_set_acp_enabled,
+            operator_registry::commands::operator_set_perception_enabled,
             operator_registry::commands::operator_list_archetypes,
             operator_registry::commands::operator_soul_read,
             operator_registry::commands::operator_soul_parse,

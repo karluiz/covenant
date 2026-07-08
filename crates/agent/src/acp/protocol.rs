@@ -206,6 +206,21 @@ impl PermissionToolCall {
     }
 }
 
+#[cfg(test)]
+impl PermissionToolCall {
+    /// Test-only constructor mirroring the real shape: `kind` set, and
+    /// `rawInput.command` populated when a command is given so
+    /// `command()` returns it.
+    pub fn for_test(kind: &str, command: Option<&str>) -> Self {
+        PermissionToolCall {
+            tool_call_id: "call_test".to_string(),
+            title: None,
+            kind: Some(kind.to_string()),
+            raw_input: command.map(|c| serde_json::json!({ "command": c })),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests — every fixture below is a verbatim line captured from
 // `copilot --acp` 1.0.68 (paths shortened to /w).

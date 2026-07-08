@@ -64,6 +64,10 @@ pub struct Operator {
     /// Registry-only (NOT SOUL frontmatter).
     #[serde(default)]
     pub acp_enabled: bool,
+    /// When true, the operator auto-answers trivial+safe interactive ACP
+    /// permission prompts (Perception). Off by default.
+    #[serde(default)]
+    pub perception_enabled: bool,
 }
 
 /// What the operator may do with the user's GitHub account. Gates which
@@ -276,6 +280,7 @@ impl OperatorRegistry {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         by_id.insert(op.id, op);
         std::sync::Arc::new(Self {
@@ -460,6 +465,7 @@ impl OperatorRegistry {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         crate::soul::hydrate_operator(&mut op, &soul);
         self.create(storage, op).await
@@ -608,6 +614,24 @@ impl OperatorRegistry {
         Ok(())
     }
 
+    pub async fn set_perception_enabled(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        enabled: bool,
+    ) -> Result<(), RegistryError> {
+        if !self.by_id.read().unwrap().contains_key(&id) {
+            return Err(RegistryError::NotFound(id));
+        }
+        storage
+            .operator_set_perception_enabled(id.to_string(), enabled)
+            .await?;
+        if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+            op.perception_enabled = enabled;
+        }
+        Ok(())
+    }
+
     pub fn pin_session(&self, session_id: SessionId, id: OperatorId) {
         self.pins.write().unwrap().insert(session_id, id);
     }
@@ -631,6 +655,23 @@ impl OperatorRegistry {
         }
         self.default()
             .expect("operator registry has no default — migration did not run")
+    }
+
+    /// Whether Perception (auto-answer trivial + safe ACP permission prompts)
+    /// is active for this session: a standalone property of the session's
+    /// EFFECTIVE operator (explicit pin, else Default). Independent of AOM —
+    /// an operator can have Perception on with AOM off, or vice versa.
+    ///
+    /// Runs on the ACP `PermissionPending` hot path (once per prompt, even
+    /// when Perception is off), so it must NEVER panic — deliberately avoids
+    /// `effective_for`'s `expect`-on-missing-default. Pin wins; else the
+    /// default if one exists; a registry with no resolvable operator → false.
+    pub fn perception_enabled_for(&self, session_id: SessionId) -> bool {
+        self.pinned(session_id)
+            .and_then(|oid| self.get(oid))
+            .or_else(|| self.default())
+            .map(|op| op.perception_enabled)
+            .unwrap_or(false)
     }
 
     /// 3.12: bump an operator's XP by `amount`. Returns the new total.
@@ -687,6 +728,7 @@ impl OperatorRegistry {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         let id = op.id;
         let name = op.name.clone();
@@ -909,6 +951,7 @@ pub mod commands {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         registry.create(&storage, op).await.map_err(map_err)
     }
@@ -943,6 +986,7 @@ pub mod commands {
             soul_mtime_unix_ms: existing.soul_mtime_unix_ms,
             github_access: existing.github_access,
             acp_enabled: existing.acp_enabled,
+            perception_enabled: existing.perception_enabled,
         };
         registry.update(&storage, updated).await.map_err(map_err)
     }
@@ -991,6 +1035,20 @@ pub mod commands {
         let id: OperatorId = id.parse().map_err(map_err)?;
         registry
             .set_acp_enabled(&storage, id, enabled)
+            .await
+            .map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_set_perception_enabled(
+        id: String,
+        enabled: bool,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<(), String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry
+            .set_perception_enabled(&storage, id, enabled)
             .await
             .map_err(map_err)
     }
@@ -1047,6 +1105,7 @@ mod voice_tests {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         assert!(matches!(op.voice, VoiceTone::Terse));
     }
@@ -1099,6 +1158,53 @@ mod github_access_tests {
 }
 
 #[cfg(test)]
+mod perception_activation_tests {
+    use super::*;
+
+    #[test]
+    fn perception_enabled_for_reflects_effective_operator() {
+        let reg = OperatorRegistry::for_tests("Default");
+        let sid = SessionId::new();
+
+        // Unpinned session → Default operator (perception off) → false.
+        assert!(!reg.perception_enabled_for(sid));
+
+        // Pin a perception-enabled operator to the session → true.
+        let mut op = reg.default().expect("default operator");
+        op.id = OperatorId(Ulid::new());
+        op.name = "Seer".into();
+        op.is_default = false;
+        op.perception_enabled = true;
+        let oid = op.id;
+        reg.by_id.write().unwrap().insert(oid, op);
+        reg.pin_session(sid, oid);
+        assert!(reg.perception_enabled_for(sid));
+
+        // A different, unpinned session still resolves to Default → false —
+        // activation is per-session, not global.
+        assert!(!reg.perception_enabled_for(SessionId::new()));
+    }
+
+    #[test]
+    fn perception_enabled_for_never_panics_without_a_default() {
+        // Hot-path safety: a registry with no operators at all (hence no
+        // default) must return false, NOT panic like effective_for's expect.
+        let reg = OperatorRegistry {
+            by_id: RwLock::new(HashMap::new()),
+            pins: RwLock::new(HashMap::new()),
+            souls_dir: std::env::temp_dir().join("covenant-test-souls-empty"),
+        };
+        assert!(!reg.perception_enabled_for(SessionId::new()));
+
+        // Also safe when a session is pinned to an operator id that no longer
+        // exists (removed) and there is no default to fall back to.
+        let sid = SessionId::new();
+        reg.pin_session(sid, OperatorId(Ulid::new()));
+        assert!(!reg.perception_enabled_for(sid));
+    }
+}
+
+#[cfg(test)]
 mod soul_io_tests {
     use super::*;
 
@@ -1135,6 +1241,7 @@ mod soul_io_tests {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.clone().expect("soul_path set");
@@ -1178,6 +1285,7 @@ mod soul_io_tests {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         storage.operator_insert(op.clone()).await.unwrap();
 
@@ -1223,6 +1331,7 @@ mod soul_io_tests {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         reg.create(&storage, existing_op.clone()).await.unwrap();
         let existing = reg.list();
@@ -1247,6 +1356,7 @@ mod soul_io_tests {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         let id = op.id;
 
@@ -1301,6 +1411,7 @@ mod soul_io_tests {
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
             acp_enabled: false,
+            perception_enabled: false,
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.unwrap();
@@ -1316,6 +1427,47 @@ mod soul_io_tests {
         let n = reg.refresh_changed_souls();
         assert_eq!(n, 1);
         assert_eq!(reg.get(created.id).unwrap().persona, "after");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn perception_flag_defaults_false_and_toggles() {
+        let tmp = std::env::temp_dir().join(format!("covenant-perception-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let souls = tmp.join("operators");
+        let storage = temp_storage(&tmp).await;
+        let reg = OperatorRegistry::load(&storage, souls).await.unwrap();
+
+        let op = Operator {
+            id: OperatorId(ulid::Ulid::new()),
+            name: "Perceiver".into(),
+            emoji: "🟣".into(),
+            color: "#a855f7".into(),
+            tags: vec![],
+            persona: "p".into(),
+            escalate_threshold: 0.5,
+            model: "m".into(),
+            hard_constraints: "".into(),
+            is_default: false,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::Terse,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
+            acp_enabled: false,
+            perception_enabled: false,
+        };
+        let created = reg.create(&storage, op).await.unwrap();
+        assert!(!created.perception_enabled);
+
+        reg.set_perception_enabled(&storage, created.id, true)
+            .await
+            .unwrap();
+        let got = reg.get(created.id).unwrap();
+        assert!(got.perception_enabled);
+
         std::fs::remove_dir_all(&tmp).ok();
     }
 }

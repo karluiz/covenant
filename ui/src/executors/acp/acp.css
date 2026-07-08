@@ -375,6 +375,11 @@
   background: color-mix(in srgb, var(--fail) 10%, transparent);
   color: var(--fail);
 }
+.acp-msg-system-perception {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
 
 .acp-restart-btn {
   padding: 3px 10px;

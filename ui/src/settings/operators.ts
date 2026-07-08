@@ -9,6 +9,7 @@ import {
   operatorSetDefault,
   operatorSetGithubAccess,
   operatorSetAcpEnabled,
+  operatorSetPerceptionEnabled,
   operatorUpdate,
   operatorListArchetypes,
   operatorSoulRead,
@@ -220,6 +221,15 @@ export class OperatorsPane {
             if (saved.id && handle.state.acpEnabled !== prevAcp) {
               try { await operatorSetAcpEnabled(saved.id, handle.state.acpEnabled); } catch (e) {
                 console.warn("operator_set_acp_enabled failed", e);
+              }
+            }
+            // Same registry-side pattern for the perception (auto-answer) gate.
+            const prevPerception = handle.state.mode === "edit"
+              ? (handle.state.existing?.perception_enabled ?? false)
+              : false;
+            if (saved.id && handle.state.perceptionEnabled !== prevPerception) {
+              try { await operatorSetPerceptionEnabled(saved.id, handle.state.perceptionEnabled); } catch (e) {
+                console.warn("operator_set_perception_enabled failed", e);
               }
             }
             closeCreator(handle.el);
@@ -771,6 +781,9 @@ export interface ModalState {
   /// dispatch_acp gate (background Copilot subtasks). Registry-side, same
   /// save pattern as githubAccess.
   acpEnabled: boolean;
+  /// Perception gate (auto-answer trivial, safe ACP permission prompts).
+  /// Registry-side, same save pattern as acpEnabled.
+  perceptionEnabled: boolean;
   /// Active section in the immersive shell UI.
   activeSection: SectionKey;
   /// Raw SOUL.md text bound to the split-editor textarea. Authoritative
@@ -795,6 +808,7 @@ export interface ModalHandle {
   setAsDefault(b: boolean): void;
   setGithubAccess(a: GithubAccess): void;
   setAcpEnabled(b: boolean): void;
+  setPerceptionEnabled(b: boolean): void;
   applyPreset(key: PresetKey): void;
   setSection(s: SectionKey): void;
 }
@@ -861,6 +875,7 @@ export function openOperatorModal(opts: {
     existing: opts.existing,
     githubAccess: opts.existing?.github_access ?? "Off",
     acpEnabled: opts.existing?.acp_enabled ?? false,
+    perceptionEnabled: opts.existing?.perception_enabled ?? false,
     activeSection: opts.mode === "create" ? "start" : "identity",
     // SOUL.md is the authoritative source for the new split editor.
     // Edit mode loads it asynchronously below; create starts blank
@@ -908,6 +923,7 @@ export function openOperatorModal(opts: {
     setAsDefault(b) { state.setAsDefault = b; },
     setGithubAccess(a) { state.githubAccess = a; render(); },
     setAcpEnabled(b) { state.acpEnabled = b; render(); },
+    setPerceptionEnabled(b) { state.perceptionEnabled = b; render(); },
     setSection(s) {
       if (state.activeSection === s) return;
       state.activeSection = s;
@@ -1566,6 +1582,32 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       "Lets this operator dispatch self-contained subtasks to background GitHub Copilot sessions. File edits stay inside the workspace; risky commands are denied by policy.";
     acpField.append(acpLbl, acpSeg, acpHint);
     behaviour.append(acpField);
+
+    // ── Perception (auto-answer trivial ACP prompts — registry-side) ──
+    const perceptionSeg = document.createElement("div");
+    perceptionSeg.className = "op-soul-seg";
+    for (const opt of [
+      { value: false, label: "Off" },
+      { value: true, label: "On" },
+    ]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "op-soul-seg-btn";
+      if (h.state.perceptionEnabled === opt.value) btn.classList.add("is-selected");
+      btn.textContent = opt.label;
+      btn.addEventListener("click", () => h.setPerceptionEnabled(opt.value));
+      perceptionSeg.append(btn);
+    }
+    const perceptionField = document.createElement("div");
+    perceptionField.className = "op-modal-field";
+    const perceptionLbl = document.createElement("span");
+    perceptionLbl.className = "op-modal-label";
+    perceptionLbl.textContent = "Perception";
+    const perceptionHint = document.createElement("small");
+    perceptionHint.className = "op-modal-hint";
+    perceptionHint.textContent = "Auto-answer trivial, safe executor prompts";
+    perceptionField.append(perceptionLbl, perceptionSeg, perceptionHint);
+    behaviour.append(perceptionField);
     controls.append(behaviour);
 
     // ── Hard constraints (safety — extra deny rules) ──────────────────

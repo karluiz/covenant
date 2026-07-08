@@ -9,6 +9,7 @@ const maya: Operator = {
   created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0, voice: 'Terse',
   github_access: 'Off',
   acp_enabled: false,
+  perception_enabled: false,
 };
 
 describe('renderOperatorChip', () => {

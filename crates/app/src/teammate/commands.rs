@@ -1156,6 +1156,7 @@ mod task_lifecycle_tests {
                 soul_mtime_unix_ms: 0,
                 github_access: crate::operator_registry::GithubAccess::Off,
                 acp_enabled: false,
+                perception_enabled: false,
             })
             .await
             .unwrap();
@@ -1351,6 +1352,7 @@ mod task_lifecycle_tests {
             soul_mtime_unix_ms: 0,
             github_access: crate::operator_registry::GithubAccess::Off,
             acp_enabled: false,
+            perception_enabled: false,
         };
         let zeta = mk("Zeta");
         let kiro = mk("Kiro");

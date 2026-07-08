@@ -11,16 +11,21 @@
 //! Spec: https://agentclientprotocol.com — but fixtures in tests were
 //! captured from copilot 1.0.68 and win over the spec on any conflict.
 
+pub mod perception;
+pub mod policy; // Task 3
 pub mod protocol;
-pub mod session;
-pub mod policy;    // Task 3
-pub mod run;       // Task 4
+pub mod run;
+pub mod session; // Task 4
 
+pub use perception::{
+    build_judge_prompt, decide as perception_decide, parse_judge_reply, JudgeVerdict,
+    PerceptionDecision,
+};
 pub use protocol::{
     AvailableCommand, ContentBlock, FrameKind, InboundFrame, PermissionOption, PermissionRequest,
     PermissionToolCall, RpcError, SessionNotification, SessionUpdate, ToolCallFields,
 };
+pub use run::{run_task, AcpRunOpts, AcpRunReport};
 pub use session::{
     AcpError, AcpSession, AcpSessionEvent, AcpSpawnOpts, PermissionDecision, PermissionResolver,
-};
-pub use run::{run_task, AcpRunOpts, AcpRunReport};                     // Task 4
+}; // Task 4

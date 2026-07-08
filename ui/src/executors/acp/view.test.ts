@@ -27,6 +27,7 @@ import {
   stripFences,
   markPermAnswered,
   mentionFragmentAt,
+  perceptionAuditText,
   reduceAcpEvent,
   titleFromPrompt,
   type AcpNoticeItem,
@@ -225,6 +226,30 @@ describe("reduceAcpEvent", () => {
     // The item stays in `items` (as an answered record), it's just no
     // longer "pending".
     expect(state.items).toHaveLength(1);
+  });
+
+  it("perception_auto_answer appends a muted audit notice (never a perm card)", () => {
+    const state = createAcpStreamState();
+    reduceAcpEvent(state, {
+      type: "perception_auto_answer",
+      requestKey: "req-1",
+      optionId: "allow_once",
+      reason: "read-only, low risk",
+    });
+
+    expect(state.items).toHaveLength(1);
+    const item = state.items[0] as AcpNoticeItem;
+    expect(item.kind).toBe("notice");
+    expect(item.variant).toBe("perception");
+    expect(item.text).toBe("Perception ✓ auto-answered: allow_once — read-only, low risk");
+    // Never registered as a pending permission — there's nothing to answer.
+    expect(state.pendingPerms.size).toBe(0);
+  });
+
+  it("perceptionAuditText formats option + reason into one line", () => {
+    expect(perceptionAuditText("reject_once", "matches hard constraint")).toBe(
+      "Perception ✓ auto-answered: reject_once — matches hard constraint",
+    );
   });
 
   it("prompt_done flips inFlight; end_turn is silent, informative stop reasons get a divider", () => {
