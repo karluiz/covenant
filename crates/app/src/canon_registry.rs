@@ -12,6 +12,14 @@ pub struct Org {
     pub slug: String,
     pub name: String,
     pub role: String,
+    #[serde(default)]
+    pub personal: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Member {
+    pub login: String,
+    pub role: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +75,73 @@ pub async fn list_orgs() -> Result<Vec<Org>, String> {
         .json()
         .await
         .map_err(|e| e.to_string())
+}
+
+pub async fn create_org(slug: &str, name: &str) -> Result<Value, String> {
+    let j = jwt()?;
+    let url = format!("{}/orgs", auth::backend_url());
+    client()
+        .post(&url)
+        .bearer_auth(&j)
+        .json(&serde_json::json!({ "slug": slug, "name": name }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn list_members(org: &str) -> Result<Vec<Member>, String> {
+    let j = jwt()?;
+    let url = format!("{}/orgs/{}/members", auth::backend_url(), urlencoding(org));
+    client()
+        .get(&url)
+        .bearer_auth(&j)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn add_member(org: &str, login: &str) -> Result<(), String> {
+    let j = jwt()?;
+    let url = format!("{}/orgs/{}/members", auth::backend_url(), urlencoding(org));
+    client()
+        .post(&url)
+        .bearer_auth(&j)
+        .json(&serde_json::json!({ "login": login }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn remove_member(org: &str, login: &str) -> Result<(), String> {
+    let j = jwt()?;
+    let url = format!(
+        "{}/orgs/{}/members/{}",
+        auth::backend_url(),
+        urlencoding(org),
+        urlencoding(login)
+    );
+    client()
+        .delete(&url)
+        .bearer_auth(&j)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub async fn search(org: &str, q: Option<&str>) -> Result<Vec<PkgMeta>, String> {

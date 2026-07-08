@@ -2379,6 +2379,26 @@ async fn canon_search(
     canon_registry::search(&org, query.as_deref()).await
 }
 
+#[tauri::command]
+async fn canon_create_org(slug: String, name: String) -> Result<serde_json::Value, String> {
+    canon_registry::create_org(&slug, &name).await
+}
+
+#[tauri::command]
+async fn canon_org_members(org: String) -> Result<Vec<canon_registry::Member>, String> {
+    canon_registry::list_members(&org).await
+}
+
+#[tauri::command]
+async fn canon_add_member(org: String, login: String) -> Result<(), String> {
+    canon_registry::add_member(&org, &login).await
+}
+
+#[tauri::command]
+async fn canon_remove_member(org: String, login: String) -> Result<(), String> {
+    canon_registry::remove_member(&org, &login).await
+}
+
 /// Resolve a registry package's full payload (description + SKILL.md) WITHOUT
 /// installing it — powers the pre-install preview.
 #[tauri::command]
@@ -4616,6 +4636,10 @@ pub fn run() {
             canon_install_local,
             canon_my_orgs,
             canon_search,
+            canon_create_org,
+            canon_org_members,
+            canon_add_member,
+            canon_remove_member,
             canon_preview,
             canon_read_local,
             canon_export,
