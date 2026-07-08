@@ -4,10 +4,11 @@ import type { Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, showPanel, type Panel } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
 import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
+import { type CompletionSource, type Completion } from "@codemirror/autocomplete";
 
 import type { LspDoc } from "./manager";
 import { lspRangeToCm, lspToOffset, offsetToLsp, uriToPath } from "./positions";
-import type { LspDiagnostic, LspLocation } from "./client";
+import type { LspCompletionItem, LspDiagnostic, LspLocation } from "./client";
 
 export interface LspHost {
   doc(): LspDoc | null;
@@ -22,6 +23,52 @@ export function lspExtensions(host: LspHost): Extension {
     referencesPanelExt(host),
     lintGutter(),
   ];
+}
+
+// --- semantic completion -----------------------------------------------
+
+// LSP CompletionItemKind → a short CM6 type label for the icon.
+const KIND_LABEL: Record<number, string> = {
+  2: "method",
+  3: "function",
+  5: "property",
+  6: "variable",
+  7: "class",
+  8: "interface",
+  9: "module",
+  14: "keyword",
+  21: "constant",
+};
+
+export function lspCompletionSource(host: LspHost): CompletionSource {
+  return async (ctx) => {
+    const doc = host.doc();
+    if (!doc) return null;
+    // Trigger on identifier chars or explicit invocation (Ctrl-Space).
+    const word = ctx.matchBefore(/[\w:]+/);
+    if (!ctx.explicit && !word) return null;
+    let items: LspCompletionItem[] = [];
+    try {
+      items = await doc.client.completion(doc.uri, offsetToLsp(ctx.state.doc, ctx.pos));
+    } catch {
+      return null; // timeout/error: silent per spec, matches definition/hover/references
+    }
+    if (!items.length) return null;
+    const options: Completion[] = items.slice(0, 200).map((it) => ({
+      label: it.label,
+      detail: it.detail,
+      type: it.kind ? KIND_LABEL[it.kind] : undefined,
+      apply: it.textEdit
+        ? (view: EditorView) => {
+            const range = it.textEdit!.range;
+            const from = lspToOffset(view.state.doc, range.start);
+            const to = lspToOffset(view.state.doc, range.end);
+            view.dispatch({ changes: { from, to, insert: it.textEdit!.newText } });
+          }
+        : (it.insertText ?? it.label),
+    }));
+    return { from: word ? word.from : ctx.pos, options };
+  };
 }
 
 // --- diagnostics (squiggles + gutter) ---------------------------------

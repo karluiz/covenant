@@ -87,7 +87,7 @@ import {
 import { editorHighlight, editorTheme, currentEditorMode } from "./theme";
 import { CustomSelect } from "../ui/select";
 import { ContextMenu } from "../menu/context-menu";
-import { applyLspDiagnostics, lspExtensions } from "../lsp/cm6";
+import { applyLspDiagnostics, lspCompletionSource, lspExtensions, type LspHost } from "../lsp/cm6";
 import { lspManager, lspLanguageId, type LspDoc, type LspDocStatus } from "../lsp/manager";
 
 export interface EditorCallbacks {
@@ -563,6 +563,17 @@ export class StructureEditor {
     const lang = languageForPath(path, text);
     const langExtension = lang ? [lang] : [];
 
+    // Shared with `lspExtensions` below — one host object per state so
+    // both navigation (definition/hover/references) and completion read
+    // the same live `this.lspDoc` getter (it's null until the server
+    // finishes starting; each call site re-reads it lazily).
+    const lspHost: LspHost = {
+      doc: () => this.lspDoc,
+      openFile: (p, line) => {
+        void this.open(p, { line });
+      },
+    };
+
     return EditorState.create({
       doc: text,
       extensions: [
@@ -594,10 +605,24 @@ export class StructureEditor {
         // CM6 language pack provides them (rust/ts/py/json/css/html/
         // sql/yaml/md), plus buffer-word fallback. No network calls.
         // Ctrl-Space opens the popup manually; Tab/Enter accepts.
+        // ponytail: CM6 permits exactly one autocompletion() instance per
+        // state — there's no "add a second source" API, only `override`
+        // which replaces the whole source list. `buildState` already
+        // rebuilds the entire state on every file open, so the simplest
+        // correct fix is to decide the source list once here, statically,
+        // from `path` (no Compartment/runtime reconfiguration needed):
+        // LSP-backed files (.rs, per `lspLanguageId`) get pure semantic
+        // completion from rust-analyzer; everything else keeps the
+        // language-pack + buffer-word defaults. This means LSP files lose
+        // the buffer-word fallback while the server is still starting
+        // (`lspCompletionSource` returns null until `host.doc()` is
+        // ready) — an acceptable gap since it self-heals in ~1-2s and P1
+        // already renders a status affordance for that window.
         autocompletion({
           activateOnTyping: true,
           closeOnBlur: true,
           maxRenderedOptions: 20,
+          override: lspLanguageId(path) ? [lspCompletionSource(lspHost)] : undefined,
         }),
         indentUnit.of("  "), // 2-space indent — matches the previous textarea behaviour.
         EditorView.lineWrapping,
@@ -641,12 +666,7 @@ export class StructureEditor {
         // so `.rs` files' ⌘click is consumed here first (this handler
         // returns `true` when it acts); it no-ops when `lspDoc` isn't
         // ready, letting the click fall through as normal.
-        lspExtensions({
-          doc: () => this.lspDoc,
-          openFile: (path, line) => {
-            void this.open(path, { line });
-          },
-        }),
+        lspExtensions(lspHost),
 
         // Cmd/Ctrl-click imported Astro component tags to jump to the
         // component file. This is intentionally local/static: no LSP,

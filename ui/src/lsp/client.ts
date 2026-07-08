@@ -21,6 +21,16 @@ export interface LspDiagnostic {
   source?: string;
 }
 
+export interface LspCompletionItem {
+  label: string;
+  kind?: number;
+  detail?: string;
+  documentation?: string | { value: string };
+  insertText?: string;
+  textEdit?: { range: { start: LspPosition; end: LspPosition }; newText: string };
+  sortText?: string;
+}
+
 interface Pending {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
@@ -51,6 +61,7 @@ export class LspClient {
           definition: { linkSupport: true },
           references: {},
           synchronization: { didSave: true },
+          completion: { completionItem: { snippetSupport: false } },
         },
       },
     });
@@ -104,6 +115,13 @@ export class LspClient {
       context: { includeDeclaration: true },
     });
     return normalizeLocations(r);
+  }
+
+  async completion(uri: string, pos: LspPosition): Promise<LspCompletionItem[]> {
+    const r = (await this.request("textDocument/completion", { textDocument: { uri }, position: pos })) as
+      | { items?: LspCompletionItem[] } | LspCompletionItem[] | null;
+    if (!r) return [];
+    return Array.isArray(r) ? r : (r.items ?? []);
   }
 
   onDiagnostics(cb: (uri: string, diags: LspDiagnostic[]) => void): () => void {

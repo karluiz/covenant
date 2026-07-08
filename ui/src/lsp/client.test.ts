@@ -86,4 +86,13 @@ describe("LspClient", () => {
     });
     await vi.waitFor(() => expect(seen).toEqual([{ uri: "file:///a.rs", n: 1 }]));
   });
+
+  it("completion normalizes CompletionList to items", async () => {
+    const { t, sent, reply } = mockTransport();
+    const c = new LspClient(t);
+    const p = c.completion("file:///a.rs", { line: 1, character: 4 });
+    await vi.waitFor(() => expect(sent.length).toBe(1));
+    reply({ jsonrpc: "2.0", id: sent[0].id, result: { isIncomplete: false, items: [{ label: "println!", kind: 3 }] } });
+    expect((await p).map((i) => i.label)).toEqual(["println!"]);
+  });
 });
