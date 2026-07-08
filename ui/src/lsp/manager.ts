@@ -35,9 +35,9 @@ export type LspDocStatus =
   | { kind: "error"; message: string };
 
 export function lspLanguageId(path: string): string | null {
-  // ponytail: Java extends this table in P5.
   if (/\.rs$/i.test(path)) return "rust";
   if (/\.cs$/i.test(path)) return "csharp";
+  if (/\.java$/i.test(path)) return "java";
   // typescript-language-server handles plain JS too (incl. JSX/module
   // variants), so every one of these maps to the "typescript" server.
   if (/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/i.test(path)) return "typescript";

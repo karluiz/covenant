@@ -34,6 +34,10 @@ describe("lspLanguageId", () => {
     expect(lspLanguageId("/repo/src/Program.cs")).toBe("csharp");
   });
 
+  it("maps .java to java", () => {
+    expect(lspLanguageId("/repo/src/main/java/App.java")).toBe("java");
+  });
+
   it("maps unsupported extensions to null", () => {
     expect(lspLanguageId("/repo/README.md")).toBeNull();
     expect(lspLanguageId("/repo/Makefile")).toBeNull();
