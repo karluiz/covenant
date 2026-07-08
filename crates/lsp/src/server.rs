@@ -88,12 +88,12 @@ impl LspServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
     use std::time::Duration;
+    use tokio::sync::mpsc as tokio_mpsc;
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn roundtrip_through_cat() {
-        let (tx, rx) = mpsc::channel::<String>();
+        let (tx, mut rx) = tokio_mpsc::unbounded_channel::<String>();
         let mut srv = LspServer::spawn(
             std::path::Path::new("/bin/cat"),
             &[],
@@ -105,14 +105,17 @@ mod tests {
         .expect("spawn cat");
 
         srv.send(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#.to_string()).await;
-        let echoed = rx.recv_timeout(Duration::from_secs(5)).expect("echo back");
+        let echoed = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("timed out waiting for echo")
+            .expect("echo back");
         assert_eq!(echoed, r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#);
         srv.kill().await;
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn exit_callback_fires_on_kill() {
-        let (tx, rx) = mpsc::channel::<Option<i32>>();
+        let (tx, mut rx) = tokio_mpsc::unbounded_channel::<Option<i32>>();
         let mut srv = LspServer::spawn(
             std::path::Path::new("/bin/cat"),
             &[],
@@ -123,6 +126,8 @@ mod tests {
         .await
         .expect("spawn cat");
         srv.kill().await;
-        rx.recv_timeout(Duration::from_secs(5)).expect("exit callback");
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("timed out waiting for exit callback");
     }
 }
