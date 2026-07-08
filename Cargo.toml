@@ -49,6 +49,7 @@ sha2 = "0.10"
 flate2 = "1"
 chrono = { version = "0.4", features = ["clock"] }
 karl-metrics = { path = "crates/metrics" }
+karl-lsp = { path = "crates/lsp" }
 
 # Tauri
 tauri = { version = "2", features = ["macos-private-api", "unstable"] }

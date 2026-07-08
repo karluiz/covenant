@@ -866,6 +866,7 @@ dependencies = [
  "karl-capabilities",
  "karl-cdlc",
  "karl-familiar",
+ "karl-lsp",
  "karl-metrics",
  "karl-pty",
  "karl-score",

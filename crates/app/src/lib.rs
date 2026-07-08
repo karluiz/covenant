@@ -37,6 +37,7 @@ mod fix_proposer;
 mod beacon;
 mod git_tools;
 mod history_import;
+mod lsp_commands;
 mod marketplace;
 mod memory;
 mod mission_pair;
@@ -4247,6 +4248,7 @@ pub fn run() {
 
             let tab_manifest_path = dir.join("tab_manifest.json");
             let data_dir = dir.clone();
+            app.manage(lsp_commands::LspState::new(dir.clone()));
 
             // Covenant Score — open store and install global recorder so
             // the agent crate's collect_oneshot can call
@@ -4802,6 +4804,11 @@ pub fn run() {
             marketplace::marketplace_publish,
             marketplace::marketplace_install_count,
             marketplace::marketplace_admin_url,
+            lsp_commands::lsp_server_status,
+            lsp_commands::lsp_download_server,
+            lsp_commands::lsp_start,
+            lsp_commands::lsp_send,
+            lsp_commands::lsp_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

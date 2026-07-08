@@ -65,6 +65,7 @@ karl-cdlc = { path = "../cdlc" }
 dirs = { workspace = true }
 sysinfo = { workspace = true }
 karl-metrics = { workspace = true }
+karl-lsp = { workspace = true }
 hostname = "0.4"
 
 [features]
