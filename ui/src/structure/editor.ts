@@ -25,6 +25,7 @@ import {
   drawSelection,
   rectangularSelection,
   crosshairCursor,
+  type ViewUpdate,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -682,7 +683,7 @@ export class StructureEditor {
         // Track dirty state. Cheaper than diffing the whole doc — the
         // listener fires only when the document actually changes.
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) this.onDocChanged();
+          if (u.docChanged) this.onDocChanged(u);
         }),
       ],
     });
@@ -722,7 +723,7 @@ export class StructureEditor {
     }
   }
 
-  private onDocChanged(): void {
+  private onDocChanged(update: ViewUpdate): void {
     if (!this.view) return;
     this.liveContent = this.view.state.doc.toString();
     const next = this.liveContent !== (this.originalContent ?? "");
@@ -730,7 +731,7 @@ export class StructureEditor {
       this.dirty = next;
       this.renderStatus();
     }
-    this.lspDoc?.change(this.liveContent);
+    this.lspDoc?.changeIncremental(update);
   }
 
   /// Save handler bound to ⌘S in the keymap. Returns `true` to stop
@@ -1319,7 +1320,7 @@ export class StructureEditor {
       // ponytail: flush a didChange instead of wiring a real didSave
       // notification — rust-analyzer treats them equivalently for
       // freshness purposes, and a dedicated didSave is P2 polish.
-      this.lspDoc?.client.didChange(this.lspDoc.uri, text);
+      this.lspDoc?.client.didChange(this.lspDoc.uri, [{ text }]);
       this.originalContent = text;
       this.liveContent = text;
       this.dirty = false;

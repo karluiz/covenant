@@ -3,10 +3,11 @@
 // (language, root)); each server gets exactly ONE LspClient so request
 // ids never collide across the two StructureEditor instances.
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { ViewUpdate } from "@codemirror/view";
 
 import { lspDownloadServer, lspSend, lspServerStatus, lspStart, lspStop } from "../api";
-import { LspClient, type LspDiagnostic, type Transport } from "./client";
-import { pathToUri } from "./positions";
+import { LspClient, type LspContentChange, type LspDiagnostic, type Transport } from "./client";
+import { offsetToLsp, pathToUri } from "./positions";
 
 export type LspDocStatus =
   | { kind: "unsupported" }
@@ -29,8 +30,6 @@ export function consentState(language: string): boolean {
 export function grantConsentFor(language: string): void {
   localStorage.setItem(`lsp.consent.${language}`, "granted");
 }
-
-const CHANGE_DEBOUNCE_MS = 200;
 
 interface ServerEntry {
   serverId: number;
@@ -61,8 +60,6 @@ class TauriTransport implements Transport {
 }
 
 export class LspDoc {
-  private pendingText: string | null = null;
-  private timer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
 
   constructor(
@@ -71,23 +68,42 @@ export class LspDoc {
     private readonly onClose: (uri: string) => void,
   ) {}
 
-  change(text: string): void {
+  // Maps a CM6 `ViewUpdate` to incremental LSP content changes and
+  // sends them immediately.
+  //
+  // `update.changes.iterChanges` yields non-overlapping edits in
+  // ascending document-offset order, all expressed in
+  // `update.startState.doc` (pre-transaction) coordinates. LSP applies
+  // `contentChanges` array entries SEQUENTIALLY — each one mutates the
+  // document before the next is applied — so sending our ranges in
+  // that same ascending order would be wrong: an earlier edit shifts
+  // every offset after it, invalidating later ranges that were
+  // computed against the ORIGINAL doc. Reversing to descending order
+  // fixes this: applying the rightmost edit first never touches
+  // anything to its left, so every remaining range's start-state
+  // coordinates are still valid when its turn comes.
+  changeIncremental(update: ViewUpdate): void {
     if (this.closed) return;
-    this.pendingText = text;
-    this.timer ??= setTimeout(() => {
-      this.timer = null;
-      if (this.pendingText !== null && !this.closed) {
-        this.client.didChange(this.uri, this.pendingText);
-        this.pendingText = null;
-      }
-    }, CHANGE_DEBOUNCE_MS);
+    const changes: LspContentChange[] = [];
+    update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      changes.push({
+        range: { start: offsetToLsp(update.startState.doc, fromA), end: offsetToLsp(update.startState.doc, toA) },
+        text: inserted.toString(),
+      });
+    });
+    if (changes.length === 0) return;
+    changes.reverse();
+    // ponytail: no debounce here — each CM6 transaction is sent as its
+    // own didChange immediately. The 200ms batching this replaced
+    // existed to amortize full-document re-sync cost; incremental
+    // ranged deltas are cheap enough that rust-analyzer (and LSP
+    // servers generally) handle per-keystroke didChange fine.
+    this.client.didChange(this.uri, changes);
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    if (this.timer) clearTimeout(this.timer);
-    if (this.pendingText !== null) this.client.didChange(this.uri, this.pendingText);
     this.onClose(this.uri);
   }
 

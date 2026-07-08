@@ -21,6 +21,11 @@ export interface LspDiagnostic {
   source?: string;
 }
 
+export interface LspContentChange {
+  range?: { start: LspPosition; end: LspPosition };
+  text: string;
+}
+
 export interface LspCompletionItem {
   label: string;
   kind?: number;
@@ -75,14 +80,17 @@ export class LspClient {
     });
   }
 
-  // ponytail: full-text sync; incremental didChange lands with P2's
-  // diagnostics work where change granularity starts to matter.
-  didChange(uri: string, text: string): void {
+  // ponytail: we forward `changes` verbatim, whatever granularity the
+  // caller built — a single `{text}` entry (no range) is a full-doc
+  // replace, ranged entries are incremental edits. `LspDoc` (manager.ts)
+  // owns that decision; the server advertised sync capability during
+  // `initialize`, and rust-analyzer accepts both.
+  didChange(uri: string, changes: LspContentChange[]): void {
     const version = (this.versions.get(uri) ?? 1) + 1;
     this.versions.set(uri, version);
     this.notify("textDocument/didChange", {
       textDocument: { uri, version },
-      contentChanges: [{ text }],
+      contentChanges: changes,
     });
   }
 

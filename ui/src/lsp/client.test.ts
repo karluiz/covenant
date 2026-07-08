@@ -60,17 +60,27 @@ describe("LspClient", () => {
     });
   });
 
-  it("didChange bumps version and sends full text", async () => {
+  it("didChange bumps version and sends full text (back-compat single {text} entry)", async () => {
     const { t, sent } = mockTransport();
     const c = new LspClient(t);
     c.didOpen("file:///a.rs", "rust", "v1");
-    c.didChange("file:///a.rs", "v2");
+    c.didChange("file:///a.rs", [{ text: "v2" }]);
     await vi.waitFor(() => expect(sent.length).toBe(2));
     expect(sent[0].method).toBe("textDocument/didOpen");
     const change = sent[1] as { method: string; params: { textDocument: { version: number }; contentChanges: Array<{ text: string }> } };
     expect(change.method).toBe("textDocument/didChange");
     expect(change.params.textDocument.version).toBe(2);
     expect(change.params.contentChanges).toEqual([{ text: "v2" }]);
+  });
+
+  it("didChange forwards incremental ranged changes", async () => {
+    const { t, sent } = mockTransport();
+    const c = new LspClient(t);
+    c.didOpen("file:///a.rs", "rust", "let x = 1;");
+    c.didChange("file:///a.rs", [{ range: { start: { line: 0, character: 8 }, end: { line: 0, character: 9 } }, text: "2" }]);
+    await vi.waitFor(() => expect(sent.length).toBe(2));
+    const change = sent[1] as { params: { contentChanges: unknown[] } };
+    expect(change.params.contentChanges).toEqual([{ range: { start: { line: 0, character: 8 }, end: { line: 0, character: 9 } }, text: "2" }]);
   });
 
   it("dispatches publishDiagnostics notifications to onDiagnostics subscribers", async () => {
