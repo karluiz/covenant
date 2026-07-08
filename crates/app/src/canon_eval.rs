@@ -58,16 +58,16 @@ fn denylist_settings() -> String {
     .to_string()
 }
 
-/// Create a temp dir, project the skill into `.claude/skills/cdlc-<skill>/`,
+/// Create a temp dir, project the skill into `.claude/skills/canon-<skill>/`,
 /// and write the deny-list `settings.json`. Errors if SKILL.md is missing.
 pub(crate) fn prepare_sandbox(repo_root: &Path, skill: &str) -> std::io::Result<tempfile::TempDir> {
-    let src = karl_cdlc::cdlc_dir(repo_root)
+    let src = karl_canon::canon_dir(repo_root)
         .join("skills")
         .join(skill)
         .join("SKILL.md");
     let body = std::fs::read_to_string(&src)?; // missing skill → Err
     let sbox = tempfile::Builder::new().prefix("eval-sbox-").tempdir()?;
-    let skill_dir = sbox.path().join(".claude/skills").join(format!("cdlc-{skill}"));
+    let skill_dir = sbox.path().join(".claude/skills").join(format!("canon-{skill}"));
     std::fs::create_dir_all(&skill_dir)?;
     std::fs::write(skill_dir.join("SKILL.md"), body)?;
     std::fs::write(sbox.path().join(".claude/settings.json"), denylist_settings())?;
@@ -263,7 +263,7 @@ pub async fn judge(
         if let Some(v) = parse_verdict(&resp.text) {
             return Ok(v);
         }
-        tracing::warn!(target: "cdlc", attempt, "judge produced no PASS/FAIL token, retrying");
+        tracing::warn!(target: "canon", attempt, "judge produced no PASS/FAIL token, retrying");
     }
     Err("judge did not return a PASS/FAIL verdict".into())
 }
@@ -280,7 +280,7 @@ pub struct EvalSkillSummary {
 
 fn emit_progress(app: &AppHandle, skill: &str, eval_id: &str, status: &str, reason: &str) {
     let _ = app.emit(
-        "cdlc-eval-progress",
+        "canon-eval-progress",
         serde_json::json!({
             "skill": skill,
             "eval_id": eval_id,
@@ -295,14 +295,14 @@ fn emit_progress(app: &AppHandle, skill: &str, eval_id: &str, status: &str, reas
 /// purpose). Aborts the whole run only if claude is not installed; a per-eval
 /// transient failure (non-zero exit, empty stdout) skips that eval and continues.
 #[tauri::command]
-pub async fn cdlc_run_evals(
+pub async fn canon_run_evals(
     app: AppHandle,
     state: State<'_, crate::AppState>,
     cwd: String,
     skill: String,
 ) -> Result<(), String> {
     let repo_root = std::path::PathBuf::from(&cwd);
-    let evals = karl_cdlc::read_evals(&repo_root, &skill);
+    let evals = karl_canon::read_evals(&repo_root, &skill);
     if evals.is_empty() {
         emit_progress(&app, &skill, "", "done", "no evals found");
         return Ok(());
@@ -334,15 +334,15 @@ pub async fn cdlc_run_evals(
         }
         match judge(&settings, &ev.scenario, &ev.rubric, &outcome.transcript).await {
             Ok(v) => {
-                let result = karl_cdlc::EvalResult {
+                let result = karl_canon::EvalResult {
                     eval_id: ev.id.clone(),
                     pass: v.pass,
                     reason: v.reason.clone(),
                     ran_at_ms: chrono::Utc::now().timestamp_millis(),
                     duration_ms: outcome.duration_ms,
                 };
-                if let Err(e) = karl_cdlc::write_result(&repo_root, &skill, &result) {
-                    tracing::warn!(target: "cdlc", error = %e, "write_result failed");
+                if let Err(e) = karl_canon::write_result(&repo_root, &skill, &result) {
+                    tracing::warn!(target: "canon", error = %e, "write_result failed");
                 }
                 emit_progress(&app, &skill, &ev.id, if v.pass { "pass" } else { "fail" }, &v.reason);
             }
@@ -355,9 +355,9 @@ pub async fn cdlc_run_evals(
 
 /// Per-skill `(passed,total)` for the Loop, read from eval-results.json.
 #[tauri::command]
-pub async fn cdlc_eval_summary(cwd: String) -> Result<Vec<EvalSkillSummary>, String> {
+pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalSkillSummary>, String> {
     let repo_root = std::path::PathBuf::from(&cwd);
-    let all = karl_cdlc::read_results(&repo_root);
+    let all = karl_canon::read_results(&repo_root);
     Ok(all
         .into_iter()
         .map(|(skill, inner)| {
@@ -400,12 +400,12 @@ mod tests {
     #[test]
     fn prepare_sandbox_projects_skill_and_denylist() {
         let repo = tempfile::tempdir().unwrap();
-        let skill_dir = repo.path().join(".covenant/cdlc/skills/kyc-peru");
+        let skill_dir = repo.path().join(".covenant/canon/skills/kyc-peru");
         fs::create_dir_all(&skill_dir).unwrap();
         fs::write(skill_dir.join("SKILL.md"), "# KYC Peru\nrefuse without KYC").unwrap();
 
         let sbox = prepare_sandbox(repo.path(), "kyc-peru").unwrap();
-        let projected = sbox.path().join(".claude/skills/cdlc-kyc-peru/SKILL.md");
+        let projected = sbox.path().join(".claude/skills/canon-kyc-peru/SKILL.md");
         assert!(projected.exists(), "skill projected into sandbox");
         assert!(
             fs::read_to_string(&projected).unwrap().contains("refuse without KYC"),

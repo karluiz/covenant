@@ -11,7 +11,7 @@ members = [
     "crates/capabilities",
     "crates/score",
     "crates/store",
-    "crates/cdlc",
+    "crates/canon",
     "crates/lsp",
 ]
 

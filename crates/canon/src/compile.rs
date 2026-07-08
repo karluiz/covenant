@@ -1,10 +1,10 @@
 //! Compile curated miner findings into a distributable skill package
-//! (SKILL.md + skill.toml) under `.covenant/cdlc/skills/<name>/`.
+//! (SKILL.md + skill.toml) under `.covenant/canon/skills/<name>/`.
 
 use crate::install::valid_pkg_name;
-use crate::manifest::cdlc_dir;
+use crate::manifest::canon_dir;
 use crate::types::SkillManifest;
-use crate::CdlcError;
+use crate::CanonError;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -57,18 +57,18 @@ pub fn write_skill_package(
     owner: Option<&str>,
     findings: &[CompiledFinding],
     overwrite: bool,
-) -> Result<PathBuf, CdlcError> {
+) -> Result<PathBuf, CanonError> {
     if findings.is_empty() {
-        return Err(CdlcError::InvalidPackage("no accepted findings to compile".into()));
+        return Err(CanonError::InvalidPackage("no accepted findings to compile".into()));
     }
     if !valid_pkg_name(name) {
-        return Err(CdlcError::InvalidPackage(format!(
+        return Err(CanonError::InvalidPackage(format!(
             "invalid skill name '{name}' (lowercase ascii/digits/dash/dot/underscore)"
         )));
     }
-    let dir = cdlc_dir(repo_root).join("skills").join(name);
+    let dir = canon_dir(repo_root).join("skills").join(name);
     if dir.exists() && !overwrite {
-        return Err(CdlcError::InvalidPackage(format!("skill '{name}' already exists")));
+        return Err(CanonError::InvalidPackage(format!("skill '{name}' already exists")));
     }
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("SKILL.md"), render_skill_md(name, findings))?;

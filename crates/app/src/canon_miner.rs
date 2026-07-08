@@ -1,10 +1,10 @@
-//! Tauri surface for the CDLC Context Miner: start/stop mining runs and
+//! Tauri surface for the Canon Context Miner: start/stop mining runs and
 //! compile accepted findings into a skill package.
 
 use karl_agent::context_miner::{
     run_miner, MinerDepth, MinerEvent, MinerOpts, MinerSink,
 };
-use karl_cdlc::compile::{write_skill_package, CompiledFinding};
+use karl_canon::compile::{write_skill_package, CompiledFinding};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 use ulid::Ulid;
 
-/// Registry of in-flight mining runs, keyed by run id, so a `cdlc_mine_stop`
+/// Registry of in-flight mining runs, keyed by run id, so a `canon_mine_stop`
 /// call can flip the cooperative-cancellation flag the spawned task polls.
 /// Cloning is cheap (shares the inner map) so the spawned run task can hold
 /// its own handle and remove its entry on completion.
@@ -81,7 +81,7 @@ fn build_miner_dispatcher(
 }
 
 #[tauri::command]
-pub async fn cdlc_mine_start(
+pub async fn canon_mine_start(
     app: AppHandle,
     state: State<'_, crate::AppState>,
     runs: State<'_, MinerRuns>,
@@ -106,7 +106,7 @@ pub async fn cdlc_mine_start(
     }
 
     let (run_id, cancel) = runs.insert();
-    let topic = format!("cdlc://miner/{run_id}");
+    let topic = format!("canon://miner/{run_id}");
     let sink = EmitSink {
         app: app.clone(),
         topic,
@@ -122,13 +122,13 @@ pub async fn cdlc_mine_start(
 }
 
 #[tauri::command]
-pub async fn cdlc_mine_stop(runs: State<'_, MinerRuns>, run_id: String) -> Result<(), String> {
+pub async fn canon_mine_stop(runs: State<'_, MinerRuns>, run_id: String) -> Result<(), String> {
     runs.stop(&run_id);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn cdlc_compile_skill(
+pub async fn canon_compile_skill(
     repo_root: String,
     skill_name: String,
     findings: Vec<CompiledFinding>,

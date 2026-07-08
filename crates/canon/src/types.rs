@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CdlcManifest {
+pub struct CanonManifest {
     #[serde(default)]
     pub version: u32,
     #[serde(default)]

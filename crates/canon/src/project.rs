@@ -1,10 +1,10 @@
-use crate::{cdlc_dir, read_manifest, CdlcError};
+use crate::{canon_dir, read_manifest, CanonError};
 use std::path::Path;
 
-const START: &str = "<!-- cdlc:start -->";
-const END: &str = "<!-- cdlc:end -->";
+const START: &str = "<!-- canon:start -->";
+const END: &str = "<!-- canon:end -->";
 
-/// Sync state of one executor's projected files versus the current CDLC sources.
+/// Sync state of one executor's projected files versus the current Canon sources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjState {
@@ -22,7 +22,7 @@ pub struct ExecutorStatus {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProjectionStatus {
     pub executors: Vec<ExecutorStatus>,
-    /// Newest mtime (unix secs) under `.covenant/cdlc/`, or `None` if no sources.
+    /// Newest mtime (unix secs) under `.covenant/canon/`, or `None` if no sources.
     pub source_edited_unix: Option<u64>,
 }
 
@@ -71,7 +71,7 @@ fn strip_covenant_block(md: &str) -> String {
 
 /// `(file_stem, contents)` for every `*.md` directly under `dir`, sorted by stem.
 /// Returns an empty Vec when `dir` does not exist.
-fn read_dir_md(dir: &Path) -> Result<Vec<(String, String)>, CdlcError> {
+fn read_dir_md(dir: &Path) -> Result<Vec<(String, String)>, CanonError> {
     let mut out: Vec<(String, String)> = Vec::new();
     if !dir.exists() {
         return Ok(out);
@@ -97,10 +97,10 @@ fn read_dir_md(dir: &Path) -> Result<Vec<(String, String)>, CdlcError> {
 const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent"];
 
 /// Executors that read multi-file SKILL dirs (the Superpowers `SKILL.md`
-/// convention). Skills and full context bodies land here as `cdlc-<name>/SKILL.md`.
+/// convention). Skills and full context bodies land here as `canon-<name>/SKILL.md`.
 const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills"];
 
-fn project_agents(repo_root: &Path, agents: &[(String, String)]) -> Result<(), CdlcError> {
+fn project_agents(repo_root: &Path, agents: &[(String, String)]) -> Result<(), CanonError> {
     if agents.is_empty() {
         return Ok(());
     }
@@ -114,11 +114,11 @@ fn project_agents(repo_root: &Path, agents: &[(String, String)]) -> Result<(), C
     Ok(())
 }
 
-/// Write `cdlc-<name>/SKILL.md` (with content already prepared) into every
+/// Write `canon-<name>/SKILL.md` (with content already prepared) into every
 /// executor SKILL dir.
-fn write_skill_dirs(repo_root: &Path, name: &str, content: &str) -> Result<(), CdlcError> {
+fn write_skill_dirs(repo_root: &Path, name: &str, content: &str) -> Result<(), CanonError> {
     for base in SKILL_DIRS {
-        let dir = repo_root.join(base).join(format!("cdlc-{name}"));
+        let dir = repo_root.join(base).join(format!("canon-{name}"));
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("SKILL.md"), content)?;
     }
@@ -131,7 +131,7 @@ fn write_skill_dirs(repo_root: &Path, name: &str, content: &str) -> Result<(), C
 fn project_context_skills(
     repo_root: &Path,
     contexts: &[(String, String)],
-) -> Result<(), CdlcError> {
+) -> Result<(), CanonError> {
     for (stem, raw) in contexts {
         let body = body_after_frontmatter(raw);
         write_skill_dirs(repo_root, stem, &ensure_frontmatter(stem, body))?;
@@ -191,11 +191,11 @@ fn ensure_frontmatter(pkg: &str, body: &str) -> String {
         .find(|l| l.trim_start().starts_with('#'))
         .map(|l| l.trim_start_matches('#').trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("CDLC context: {pkg}"));
-    format!("---\nname: cdlc-{pkg}\ndescription: {desc}\n---\n\n{body}")
+        .unwrap_or_else(|| format!("Canon context: {pkg}"));
+    format!("---\nname: canon-{pkg}\ndescription: {desc}\n---\n\n{body}")
 }
 
-/// Remove the `<!-- cdlc:start -->...<!-- cdlc:end -->` managed block (and trim
+/// Remove the `<!-- canon:start -->...<!-- canon:end -->` managed block (and trim
 /// surrounding blank lines). Returns the input unchanged if no block is present.
 fn strip_block(existing: &str) -> String {
     if let (Some(s), Some(e)) = (existing.find(START), existing.find(END)) {
@@ -251,7 +251,7 @@ fn managed_body(
         return None;
     }
     Some(format!(
-        "# CDLC context (auto-generated — do not edit inside this block)\n\n{}",
+        "# Canon context (auto-generated — do not edit inside this block)\n\n{}",
         sections.join("\n\n")
     ))
 }
@@ -307,7 +307,7 @@ fn aggregate(checks: &[Check]) -> ProjState {
     ProjState::Stale
 }
 
-/// Newest mtime (unix secs) of any file under `.covenant/cdlc/`.
+/// Newest mtime (unix secs) of any file under `.covenant/canon/`.
 fn newest_source_mtime(repo_root: &Path) -> Option<u64> {
     fn walk(dir: &Path, newest: &mut u64) {
         if let Ok(rd) = std::fs::read_dir(dir) {
@@ -325,7 +325,7 @@ fn newest_source_mtime(repo_root: &Path) -> Option<u64> {
             }
         }
     }
-    let dir = cdlc_dir(repo_root);
+    let dir = canon_dir(repo_root);
     if !dir.exists() {
         return None;
     }
@@ -337,13 +337,13 @@ fn newest_source_mtime(repo_root: &Path) -> Option<u64> {
 /// Read-only: compare each executor's projected files against what `project()`
 /// would currently write, without touching disk. Reuses the same content
 /// helpers as projection, so "synced" means byte-identical to a fresh project.
-pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CdlcError> {
+pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonError> {
     const TOOLS: [&str; 5] = ["claude", "opencode", "pi", "codex", "copilot"];
 
     let manifest = read_manifest(repo_root)?;
-    let skills_dir = cdlc_dir(repo_root).join("skills");
-    let agents = read_dir_md(&cdlc_dir(repo_root).join("agents"))?;
-    let contexts = read_dir_md(&cdlc_dir(repo_root).join("context"))?;
+    let skills_dir = canon_dir(repo_root).join("skills");
+    let agents = read_dir_md(&canon_dir(repo_root).join("agents"))?;
+    let contexts = read_dir_md(&canon_dir(repo_root).join("context"))?;
     let mut skills: Vec<(String, String, String)> = Vec::new();
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
@@ -370,13 +370,13 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CdlcError
     }
     for (name, _v, body) in &skills {
         let content = ensure_frontmatter(name, body);
-        files.push(("claude", repo_root.join(".claude/skills").join(format!("cdlc-{name}")).join("SKILL.md"), content.clone()));
-        files.push(("pi", repo_root.join(".pi/skills").join(format!("cdlc-{name}")).join("SKILL.md"), content));
+        files.push(("claude", repo_root.join(".claude/skills").join(format!("canon-{name}")).join("SKILL.md"), content.clone()));
+        files.push(("pi", repo_root.join(".pi/skills").join(format!("canon-{name}")).join("SKILL.md"), content));
     }
     for (stem, raw) in &contexts {
         let content = ensure_frontmatter(stem, body_after_frontmatter(raw));
-        files.push(("claude", repo_root.join(".claude/skills").join(format!("cdlc-{stem}")).join("SKILL.md"), content.clone()));
-        files.push(("pi", repo_root.join(".pi/skills").join(format!("cdlc-{stem}")).join("SKILL.md"), content));
+        files.push(("claude", repo_root.join(".claude/skills").join(format!("canon-{stem}")).join("SKILL.md"), content.clone()));
+        files.push(("pi", repo_root.join(".pi/skills").join(format!("canon-{stem}")).join("SKILL.md"), content));
     }
 
     let body = managed_body(None, &agents, &skills, &contexts);
@@ -405,20 +405,20 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CdlcError
     Ok(ProjectionStatus { executors, source_edited_unix: newest_source_mtime(repo_root) })
 }
 
-/// Generate every executor's native files from the repo's CDLC sources.
-pub fn project(repo_root: &Path) -> Result<(), CdlcError> {
+/// Generate every executor's native files from the repo's Canon sources.
+pub fn project(repo_root: &Path) -> Result<(), CanonError> {
     project_with_active(repo_root, None)
 }
 
 /// Like `project`, but also folds the currently-attached operator's persona into
 /// the managed-block executors (codex/copilot run one persona at a time).
-pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Result<(), CdlcError> {
+pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Result<(), CanonError> {
     let manifest = read_manifest(repo_root)?;
-    let skills_dir = cdlc_dir(repo_root).join("skills");
+    let skills_dir = canon_dir(repo_root).join("skills");
 
     // Sources.
-    let agents = read_dir_md(&cdlc_dir(repo_root).join("agents"))?;
-    let contexts = read_dir_md(&cdlc_dir(repo_root).join("context"))?;
+    let agents = read_dir_md(&canon_dir(repo_root).join("agents"))?;
+    let contexts = read_dir_md(&canon_dir(repo_root).join("context"))?;
     let mut skills: Vec<(String, String, String)> = Vec::new(); // (name, version, body)
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
@@ -463,7 +463,7 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     Ok(())
 }
 
-fn upsert_file(repo_root: &Path, rel: &str, body: &str) -> Result<(), CdlcError> {
+fn upsert_file(repo_root: &Path, rel: &str, body: &str) -> Result<(), CanonError> {
     let path = repo_root.join(rel);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -492,7 +492,7 @@ fn upsert_block(existing: &str, body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{write_manifest, CdlcManifest, InstalledRef};
+    use crate::{write_manifest, CanonManifest, InstalledRef};
 
     #[test]
     fn strip_covenant_removes_block_keeps_standard_keys() {
@@ -547,10 +547,10 @@ mod tests {
 
     #[test]
     fn project_agents_writes_stripped_claude_files() {
-        let base = std::env::temp_dir().join(format!("cdlc-agents-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-agents-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
-        let src = crate::cdlc_dir(&repo).join("agents");
+        let src = crate::canon_dir(&repo).join("agents");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
             src.join("kyc-reviewer.md"),
@@ -577,18 +577,18 @@ mod tests {
 
     #[test]
     fn project_writes_opencode_and_pi_targets() {
-        let base = std::env::temp_dir().join(format!("cdlc-multi-exec-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-multi-exec-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
 
-        let adir = crate::cdlc_dir(&repo).join("agents");
+        let adir = crate::canon_dir(&repo).join("agents");
         std::fs::create_dir_all(&adir).unwrap();
         std::fs::write(
             adir.join("kyc-reviewer.md"),
             "---\nname: kyc-reviewer\ncovenant:\n  voice: formal\n---\nReview KYC.\n",
         )
         .unwrap();
-        let cdir = crate::cdlc_dir(&repo).join("context");
+        let cdir = crate::canon_dir(&repo).join("context");
         std::fs::create_dir_all(&cdir).unwrap();
         std::fs::write(
             cdir.join("sbs-kyc.md"),
@@ -597,7 +597,7 @@ mod tests {
         .unwrap();
         crate::write_manifest(
             &repo,
-            &CdlcManifest {
+            &CanonManifest {
                 version: 1,
                 installed: vec![],
             },
@@ -614,27 +614,27 @@ mod tests {
             "stripped for opencode too"
         );
         // pi gets the context body as a skill
-        let pi = repo.join(".pi/skills/cdlc-sbs-kyc/SKILL.md");
+        let pi = repo.join(".pi/skills/canon-sbs-kyc/SKILL.md");
         assert!(pi.exists(), "pi skill file written from context");
         assert!(std::fs::read_to_string(&pi).unwrap().contains("full text"));
         // Claude targets unchanged (regression)
         assert!(repo.join(".claude/agents/kyc-reviewer.md").exists());
-        assert!(repo.join(".claude/skills/cdlc-sbs-kyc/SKILL.md").exists());
+        assert!(repo.join(".claude/skills/canon-sbs-kyc/SKILL.md").exists());
 
         let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
     fn project_mirrors_block_into_existing_hermes_md_only() {
-        let base = std::env::temp_dir().join(format!("cdlc-hermes-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-hermes-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
-        let cdir = crate::cdlc_dir(&repo).join("context");
+        let cdir = crate::canon_dir(&repo).join("context");
         std::fs::create_dir_all(&cdir).unwrap();
         std::fs::write(cdir.join("sbs.md"), "---\nsummary: Cite SBS.\n---\nbody\n").unwrap();
         crate::write_manifest(
             &repo,
-            &CdlcManifest {
+            &CanonManifest {
                 version: 1,
                 installed: vec![],
             },
@@ -658,8 +658,8 @@ mod tests {
         let h = std::fs::read_to_string(repo.join(".hermes.md")).unwrap();
         assert!(h.contains("# My Hermes rules"), "user content preserved");
         assert!(
-            h.contains("<!-- cdlc:start -->"),
-            "cdlc block mirrored into .hermes.md"
+            h.contains("<!-- canon:start -->"),
+            "canon block mirrored into .hermes.md"
         );
         assert!(h.contains("Cite SBS."), "context summary present");
 
@@ -668,10 +668,10 @@ mod tests {
 
     #[test]
     fn project_context_writes_claude_skill_from_body() {
-        let base = std::env::temp_dir().join(format!("cdlc-ctx-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-ctx-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
-        let src = crate::cdlc_dir(&repo).join("context");
+        let src = crate::canon_dir(&repo).join("context");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
             src.join("sbs-kyc.md"),
@@ -682,11 +682,11 @@ mod tests {
         let contexts = read_dir_md(&src).unwrap();
         project_context_skills(&repo, &contexts).unwrap();
 
-        let out = repo.join(".claude/skills/cdlc-sbs-kyc/SKILL.md");
+        let out = repo.join(".claude/skills/canon-sbs-kyc/SKILL.md");
         assert!(out.exists());
         let content = std::fs::read_to_string(&out).unwrap();
         assert!(
-            content.starts_with("---\nname: cdlc-"),
+            content.starts_with("---\nname: canon-"),
             "must have Claude frontmatter"
         );
         assert!(
@@ -706,7 +706,7 @@ mod tests {
         let once = upsert_block("", "BODY-A");
         let twice = upsert_block(&once, "BODY-A");
         assert_eq!(once, twice);
-        assert_eq!(twice.matches("<!-- cdlc:start -->").count(), 1);
+        assert_eq!(twice.matches("<!-- canon:start -->").count(), 1);
         // Replaces body, preserves surrounding text.
         let with_prefix = upsert_block("hand-written top\n", "BODY-B");
         assert!(with_prefix.starts_with("hand-written top"));
@@ -721,7 +721,7 @@ mod tests {
         let body = "# KYC Peru\nrules";
         let out = ensure_frontmatter("kyc-peru", body);
         assert!(
-            out.starts_with("---\nname: cdlc-"),
+            out.starts_with("---\nname: canon-"),
             "must start with frontmatter"
         );
         assert!(
@@ -737,23 +737,23 @@ mod tests {
     fn ensure_frontmatter_falls_back_to_default_when_no_heading() {
         let body = "Just some prose without a heading.";
         let out = ensure_frontmatter("my-pkg", body);
-        assert!(out.contains("description: CDLC context: my-pkg"));
+        assert!(out.contains("description: Canon context: my-pkg"));
     }
 
     // I3: project() writes SKILL.md with frontmatter for the claude executor.
     #[test]
     fn project_writes_claude_skill_with_frontmatter() {
-        let base = std::env::temp_dir().join(format!("cdlc-proj-fm-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-proj-fm-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
 
-        // Set up a minimal installed skill in .covenant/cdlc/skills/kyc-peru/SKILL.md
-        let skills_dir = crate::cdlc_dir(&repo).join("skills/kyc-peru");
+        // Set up a minimal installed skill in .covenant/canon/skills/kyc-peru/SKILL.md
+        let skills_dir = crate::canon_dir(&repo).join("skills/kyc-peru");
         std::fs::create_dir_all(&skills_dir).unwrap();
         std::fs::write(skills_dir.join("SKILL.md"), "# KYC Peru\nrules\n").unwrap();
 
         // Write a manifest referencing that skill.
-        let manifest = CdlcManifest {
+        let manifest = CanonManifest {
             version: 1,
             installed: vec![InstalledRef {
                 name: "kyc-peru".into(),
@@ -768,11 +768,11 @@ mod tests {
 
         project(&repo).unwrap();
 
-        let skill_md = repo.join(".claude/skills/cdlc-kyc-peru/SKILL.md");
+        let skill_md = repo.join(".claude/skills/canon-kyc-peru/SKILL.md");
         assert!(skill_md.exists());
         let content = std::fs::read_to_string(&skill_md).unwrap();
         assert!(
-            content.starts_with("---\nname: cdlc-"),
+            content.starts_with("---\nname: canon-"),
             "must have frontmatter"
         );
         assert!(
@@ -786,7 +786,7 @@ mod tests {
     // I2: project() strips the managed block from AGENTS.md when manifest is empty.
     #[test]
     fn project_strips_managed_block_when_empty_manifest() {
-        let base = std::env::temp_dir().join(format!("cdlc-proj-strip-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-proj-strip-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
         std::fs::create_dir_all(&repo).unwrap();
@@ -795,12 +795,12 @@ mod tests {
         let agents_path = repo.join("AGENTS.md");
         std::fs::write(
             &agents_path,
-            "hand-written\n\n<!-- cdlc:start -->\n# CDLC context\n<!-- cdlc:end -->\n",
+            "hand-written\n\n<!-- canon:start -->\n# Canon context\n<!-- canon:end -->\n",
         )
         .unwrap();
 
         // Write an empty manifest.
-        let manifest = CdlcManifest {
+        let manifest = CanonManifest {
             version: 1,
             installed: vec![],
         };
@@ -810,7 +810,7 @@ mod tests {
 
         let content = std::fs::read_to_string(&agents_path).unwrap();
         assert!(
-            !content.contains("<!-- cdlc:start -->"),
+            !content.contains("<!-- canon:start -->"),
             "managed block must be stripped when manifest is empty"
         );
         assert!(
@@ -824,9 +824,9 @@ mod tests {
     // strip_block unit tests.
     #[test]
     fn strip_block_removes_managed_span() {
-        let input = "top\n\n<!-- cdlc:start -->\ninner\n<!-- cdlc:end -->\nbottom\n";
+        let input = "top\n\n<!-- canon:start -->\ninner\n<!-- canon:end -->\nbottom\n";
         let out = strip_block(input);
-        assert!(!out.contains("<!-- cdlc:start -->"));
+        assert!(!out.contains("<!-- canon:start -->"));
         assert!(out.contains("top"));
         assert!(out.contains("bottom"));
     }
@@ -839,12 +839,12 @@ mod tests {
 
     #[test]
     fn managed_block_includes_active_agent_and_context_summary() {
-        let base = std::env::temp_dir().join(format!("cdlc-full-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-full-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
 
         // an agent
-        let adir = crate::cdlc_dir(&repo).join("agents");
+        let adir = crate::canon_dir(&repo).join("agents");
         std::fs::create_dir_all(&adir).unwrap();
         std::fs::write(
             adir.join("kyc-reviewer.md"),
@@ -853,7 +853,7 @@ mod tests {
         .unwrap();
 
         // a context doc with a summary
-        let cdir = crate::cdlc_dir(&repo).join("context");
+        let cdir = crate::canon_dir(&repo).join("context");
         std::fs::create_dir_all(&cdir).unwrap();
         std::fs::write(
             cdir.join("sbs-kyc.md"),
@@ -864,7 +864,7 @@ mod tests {
         // empty skills manifest
         crate::write_manifest(
             &repo,
-            &CdlcManifest {
+            &CanonManifest {
                 version: 1,
                 installed: vec![],
             },
@@ -890,25 +890,25 @@ mod tests {
             !agents_md.contains("full text"),
             "context FULL body must NOT be in managed block"
         );
-        assert_eq!(agents_md.matches("<!-- cdlc:start -->").count(), 1);
+        assert_eq!(agents_md.matches("<!-- canon:start -->").count(), 1);
 
         let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
     fn project_strips_block_when_everything_empty() {
-        let base = std::env::temp_dir().join(format!("cdlc-empty-all-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-empty-all-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
         std::fs::create_dir_all(&repo).unwrap();
         std::fs::write(
             repo.join("AGENTS.md"),
-            "hand-written\n\n<!-- cdlc:start -->\nold\n<!-- cdlc:end -->\n",
+            "hand-written\n\n<!-- canon:start -->\nold\n<!-- canon:end -->\n",
         )
         .unwrap();
         crate::write_manifest(
             &repo,
-            &CdlcManifest {
+            &CanonManifest {
                 version: 1,
                 installed: vec![],
             },
@@ -919,7 +919,7 @@ mod tests {
 
         let content = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();
         assert!(
-            !content.contains("<!-- cdlc:start -->"),
+            !content.contains("<!-- canon:start -->"),
             "block stripped when all sources empty"
         );
         assert!(
@@ -932,22 +932,22 @@ mod tests {
 
     #[test]
     fn projection_status_reports_synced_stale_and_not_projected() {
-        let base = std::env::temp_dir().join(format!("cdlc-status-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-status-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
 
         // One agent source + one context source, empty skills manifest.
-        let adir = crate::cdlc_dir(&repo).join("agents");
+        let adir = crate::canon_dir(&repo).join("agents");
         std::fs::create_dir_all(&adir).unwrap();
         std::fs::write(
             adir.join("kyc-reviewer.md"),
             "---\nname: kyc-reviewer\ncovenant:\n  voice: formal\n---\nReview KYC.\n",
         )
         .unwrap();
-        let cdir = crate::cdlc_dir(&repo).join("context");
+        let cdir = crate::canon_dir(&repo).join("context");
         std::fs::create_dir_all(&cdir).unwrap();
         std::fs::write(cdir.join("sbs.md"), "---\nsummary: Cite SBS.\n---\n# SBS\nfull\n").unwrap();
-        write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+        write_manifest(&repo, &CanonManifest { version: 1, installed: vec![] }).unwrap();
 
         // Before projecting: everything is not_projected.
         let st = projection_status(&repo).unwrap();
@@ -981,10 +981,10 @@ mod tests {
 
     #[test]
     fn projection_status_empty_repo_all_not_projected() {
-        let base = std::env::temp_dir().join(format!("cdlc-status-empty-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-status-empty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
-        write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+        write_manifest(&repo, &CanonManifest { version: 1, installed: vec![] }).unwrap();
 
         let st = projection_status(&repo).unwrap();
         assert!(st.executors.iter().all(|e| e.state == ProjState::NotProjected));

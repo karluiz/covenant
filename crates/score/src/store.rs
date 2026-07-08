@@ -257,7 +257,7 @@ impl ScoreStore {
         let kind_s = match kind {
             EventKind::Prompt => "prompt",
             EventKind::Commit => "commit",
-            EventKind::CdlcInstall => "cdlc_install",
+            EventKind::CanonInstall => "canon_install",
         };
         let c = self.conn.lock().unwrap();
         c.execute(
@@ -279,7 +279,7 @@ impl ScoreStore {
         let kind_s = match kind {
             EventKind::Prompt => "prompt",
             EventKind::Commit => "commit",
-            EventKind::CdlcInstall => "cdlc_install",
+            EventKind::CanonInstall => "canon_install",
         };
         let c = self.conn.lock().unwrap();
         // OR IGNORE: commits carry a unique (repo, executor) index so
@@ -348,7 +348,7 @@ impl ScoreStore {
             let kind = match kind.as_str() {
                 "prompt" => EventKind::Prompt,
                 "commit" => EventKind::Commit,
-                "cdlc_install" => EventKind::CdlcInstall,
+                "canon_install" => EventKind::CanonInstall,
                 _ => EventKind::Prompt, // fallback
             };
             Ok((

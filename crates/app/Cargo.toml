@@ -61,7 +61,7 @@ karl-agent = { path = "../agent" }
 karl-familiar = { path = "../familiar" }
 karl-capabilities = { path = "../capabilities" }
 karl-score = { path = "../score" }
-karl-cdlc = { path = "../cdlc" }
+karl-canon = { path = "../canon" }
 dirs = { workspace = true }
 sysinfo = { workspace = true }
 karl-metrics = { workspace = true }

@@ -26,7 +26,7 @@ export const INDICATORS: Indicator[] = [
   { id: "resources", label: "Resources", group: "Titlebar", selector: "#titlebar-resources" },
   { id: "beacon", label: "Beacon", group: "Titlebar", selector: "#titlebar-beacon" },
   { id: "somnus", label: "Somnus REST client", group: "Titlebar", selector: "#titlebar-somnus" },
-  { id: "cdlc", label: "CDLC", group: "Titlebar", selector: "#titlebar-cdlc" },
+  { id: "canon", label: "Canon", group: "Titlebar", selector: "#titlebar-canon" },
   { id: "browser", label: "Browser", group: "Titlebar", selector: "#titlebar-browser" },
 
   // Left titlebar widgets

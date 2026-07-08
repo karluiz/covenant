@@ -863,8 +863,8 @@ dependencies = [
  "ignore",
  "karl-agent",
  "karl-blocks",
+ "karl-canon",
  "karl-capabilities",
- "karl-cdlc",
  "karl-familiar",
  "karl-lsp",
  "karl-metrics",
@@ -3005,6 +3005,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "karl-canon"
+version = "0.8.142"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml 0.8.2",
+ "tracing",
+]
+
+[[package]]
 name = "karl-capabilities"
 version = "0.8.142"
 dependencies = [
@@ -3014,20 +3028,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "toml 0.8.2",
- "tracing",
-]
-
-[[package]]
-name = "karl-cdlc"
-version = "0.8.142"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
  "toml 0.8.2",
  "tracing",
 ]

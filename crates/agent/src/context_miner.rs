@@ -1,4 +1,4 @@
-//! One-shot repo-mining agent for the CDLC Context Miner. Reuses the
+//! One-shot repo-mining agent for the Canon Context Miner. Reuses the
 //! spec_author streaming dispatcher + read-only repo tools, adding a
 //! structured `emit_finding` tool streamed live to the UI.
 

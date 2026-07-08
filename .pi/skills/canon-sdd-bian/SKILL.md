@@ -9,8 +9,8 @@ description: >-
 
 # SDD · BIAN Process Specs (lineamientos Credicorp)
 
-> Skill gobernado por CDLC. Instalado vía `covenant cdlc install sdd-bian`.
-> Canónico en `.covenant/cdlc/skills/sdd-bian/`. Versionado y firmado.
+> Skill gobernado por Canon. Instalado vía `covenant canon install sdd-bian`.
+> Canónico en `.covenant/canon/skills/sdd-bian/`. Versionado y firmado.
 
 ## Principio (no negociable)
 
@@ -68,11 +68,11 @@ arquitecto** — no se inventa.
 - **Spectral** — lint del ruleset de Credicorp sobre cada OpenAPI.
 - **VACUUM** — validación de compliance/calidad de la OpenAPI.
 - Un gate que falla **no se silencia**: queda logueado como señal (fase Observe del
-  CDLC) y, si es de compliance, es un hallazgo — no un bug de productividad.
+  Canon) y, si es de compliance, es un hallazgo — no un bug de productividad.
 
 ## Context-TDD (evals/) — escenarios de aceptación
 
-Estos escenarios deben pasar para considerar la tarea cumplida. En la estructura CDLC
+Estos escenarios deben pasar para considerar la tarea cumplida. En la estructura Canon
 viven en `evals/`; acá van inline para la demo:
 
 1. **Schema válido contra BIAN** — el schema de cada API mapea a un service domain
@@ -104,4 +104,4 @@ y un cliente que ejecute los 5 escenarios de prueba contra los mock-servers.
 
 > **Nota de gobierno:** cada spec emitida y cada commit quedan capturados como
 > primitivas Covenant (Spec, Commit), y cada turno del agente como Prompt + LLM Call.
-> El panel CDLC muestra costo por spec, eval pass-rate y atribución tras la adopción.
+> El panel Canon muestra costo por spec, eval pass-rate y atribución tras la adopción.

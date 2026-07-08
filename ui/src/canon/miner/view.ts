@@ -1,4 +1,4 @@
-// CDLC Context Miner — immersive full-screen view. Setup bar → live mining
+// Canon Context Miner — immersive full-screen view. Setup bar → live mining
 // run → 3-zone curation (activity / cards / live preview) → write accepted
 // findings to a compiled skill package. The reducer in `./state` owns all
 // the logic; this module is DOM plumbing on top of it.
@@ -11,9 +11,9 @@ import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { pushInfoToast } from "../../notifications/toast";
 import {
-  cdlcCompileSkill,
-  cdlcMineStart,
-  cdlcMineStop,
+  canonCompileSkill,
+  canonMineStart,
+  canonMineStop,
   subscribeMinerEvents,
   type MinerEvent,
 } from "../../api";
@@ -82,13 +82,13 @@ export class ContextMinerView {
 
   constructor(private opts: ContextMinerOpts) {
     this.root = document.createElement("div");
-    this.root.className = "cdlc-miner";
+    this.root.className = "canon-miner";
 
     this.headEl = document.createElement("div");
-    this.headEl.className = "cdlc-miner-head";
+    this.headEl.className = "canon-miner-head";
 
     this.bodyEl = document.createElement("div");
-    this.bodyEl.className = "cdlc-miner-body";
+    this.bodyEl.className = "canon-miner-body";
 
     this.root.append(this.headEl, this.bodyEl);
     document.body.appendChild(this.root);
@@ -105,7 +105,7 @@ export class ContextMinerView {
       this.unlisten = null;
     }
     if (this.runId && !this.state.done) {
-      void cdlcMineStop(this.runId).catch(() => { /* best-effort on teardown */ });
+      void canonMineStop(this.runId).catch(() => { /* best-effort on teardown */ });
     }
     this.root.remove();
   }
@@ -154,34 +154,34 @@ export class ContextMinerView {
     this.headEl.innerHTML = "";
 
     const brand = document.createElement("div");
-    brand.className = "cdlc-miner-brand";
+    brand.className = "canon-miner-brand";
     brand.textContent = "Context Miner";
     this.headEl.appendChild(brand);
 
     if (this.runId) {
       const dot = document.createElement("span");
-      dot.className = "cdlc-miner-dot";
+      dot.className = "canon-miner-dot";
       if (this.state.done) dot.classList.add(this.state.stopped ? "is-stopped" : "is-done");
       const name = document.createElement("span");
-      name.className = "cdlc-miner-name";
+      name.className = "canon-miner-name";
       name.textContent = this.skillName;
       this.headEl.append(dot, name);
     }
 
     const spacer = document.createElement("div");
-    spacer.className = "cdlc-miner-spacer";
+    spacer.className = "canon-miner-spacer";
     this.headEl.appendChild(spacer);
 
     if (this.runId && !this.state.done) {
       const stopBtn = document.createElement("button");
-      stopBtn.className = "cdlc-miner-btn is-danger";
+      stopBtn.className = "canon-miner-btn is-danger";
       stopBtn.innerHTML = `${Icons.square({ size: 12 })}<span>Stop</span>`;
       stopBtn.addEventListener("click", () => void this.stop(stopBtn));
       this.headEl.appendChild(stopBtn);
     }
 
     const closeBtn = document.createElement("button");
-    closeBtn.className = "cdlc-miner-close";
+    closeBtn.className = "canon-miner-close";
     closeBtn.setAttribute("aria-label", "Close");
     closeBtn.innerHTML = Icons.x({ size: 15 });
     attachTooltip(closeBtn, "Close (Esc)");
@@ -196,7 +196,7 @@ export class ContextMinerView {
     input: HTMLInputElement;
   } {
     const wrap = document.createElement("div");
-    wrap.className = "cdlc-miner-field";
+    wrap.className = "canon-miner-field";
     const l = document.createElement("label");
     l.textContent = label;
     const input = document.createElement("input");
@@ -211,16 +211,16 @@ export class ContextMinerView {
     this.bodyEl.innerHTML = "";
 
     const setup = document.createElement("div");
-    setup.className = "cdlc-miner-setup";
+    setup.className = "canon-miner-setup";
     const card = document.createElement("div");
-    card.className = "cdlc-miner-setup-card";
+    card.className = "canon-miner-setup-card";
 
     const title = document.createElement("div");
-    title.className = "cdlc-miner-setup-title";
+    title.className = "canon-miner-setup-title";
     title.textContent = "Mine context";
 
     const sub = document.createElement("div");
-    sub.className = "cdlc-miner-setup-sub";
+    sub.className = "canon-miner-setup-sub";
     sub.textContent = this.opts.groupName
       ? `${this.opts.groupName} · ${this.opts.repoRoot}`
       : this.opts.repoRoot;
@@ -248,7 +248,7 @@ export class ContextMinerView {
     focusInput.addEventListener("input", () => { this.focus = focusInput.value; });
 
     const thoroughRow = document.createElement("label");
-    thoroughRow.className = "cdlc-miner-thorough";
+    thoroughRow.className = "canon-miner-thorough";
     const thoroughCb = document.createElement("input");
     thoroughCb.type = "checkbox";
     thoroughCb.checked = this.thorough;
@@ -256,10 +256,10 @@ export class ContextMinerView {
     thoroughRow.append(thoroughCb, document.createTextNode("Thorough (deeper crawl, more tool calls)"));
 
     const errorEl = document.createElement("div");
-    errorEl.className = "cdlc-miner-setup-error";
+    errorEl.className = "canon-miner-setup-error";
 
     const startBtn = document.createElement("button");
-    startBtn.className = "cdlc-miner-btn is-primary cdlc-miner-start-btn";
+    startBtn.className = "canon-miner-btn is-primary canon-miner-start-btn";
     startBtn.innerHTML = `${Icons.play({ size: 13 })}<span>Start mining</span>`;
     startBtn.addEventListener("click", () => {
       errorEl.textContent = "";
@@ -279,7 +279,7 @@ export class ContextMinerView {
   private async start(errorEl: HTMLElement, startBtn: HTMLButtonElement): Promise<void> {
     startBtn.disabled = true;
     try {
-      const runId = await cdlcMineStart(this.opts.repoRoot, this.skillName, this.focus, this.thorough);
+      const runId = await canonMineStart(this.opts.repoRoot, this.skillName, this.focus, this.thorough);
       this.runId = runId;
       this.showMining();
       this.refreshHead();
@@ -298,7 +298,7 @@ export class ContextMinerView {
     stopBtn.disabled = true;
     stopBtn.innerHTML = `${Icons.square({ size: 12 })}<span>Stopping…</span>`;
     try {
-      await cdlcMineStop(this.runId);
+      await canonMineStop(this.runId);
     } catch {
       // best-effort — run_done still resolves the UI even if this call
       // never reached the backend (e.g. the run already finished).
@@ -313,35 +313,35 @@ export class ContextMinerView {
     this.categoryEls.clear();
 
     const grid = document.createElement("div");
-    grid.className = "cdlc-miner-grid";
+    grid.className = "canon-miner-grid";
 
     this.activityEl = document.createElement("div");
-    this.activityEl.className = "cdlc-miner-activity";
+    this.activityEl.className = "canon-miner-activity";
     const actTitle = document.createElement("div");
-    actTitle.className = "cdlc-miner-zone-title";
+    actTitle.className = "canon-miner-zone-title";
     actTitle.textContent = "Activity";
     this.activityListEl = document.createElement("div");
     this.activityEl.append(actTitle, this.activityListEl);
 
     this.cardsEl = document.createElement("div");
-    this.cardsEl.className = "cdlc-miner-cards";
+    this.cardsEl.className = "canon-miner-cards";
     this.cardsEmptyEl = document.createElement("div");
-    this.cardsEmptyEl.className = "cdlc-miner-cards-empty";
+    this.cardsEmptyEl.className = "canon-miner-cards-empty";
     this.cardsEmptyEl.textContent = "Findings will appear here as the miner works…";
     this.cardsEl.appendChild(this.cardsEmptyEl);
 
     this.previewPre = document.createElement("pre");
     const previewEl = document.createElement("div");
-    previewEl.className = "cdlc-miner-preview";
+    previewEl.className = "canon-miner-preview";
     const prevTitle = document.createElement("div");
-    prevTitle.className = "cdlc-miner-zone-title";
+    prevTitle.className = "canon-miner-zone-title";
     prevTitle.textContent = "Preview";
     previewEl.append(prevTitle, this.previewPre);
 
     grid.append(this.activityEl, this.cardsEl, previewEl);
 
     this.footerEl = document.createElement("div");
-    this.footerEl.className = "cdlc-miner-footer";
+    this.footerEl.className = "canon-miner-footer";
 
     this.bodyEl.append(grid, this.footerEl);
 
@@ -392,15 +392,15 @@ export class ContextMinerView {
   private appendActivityRow(id: string, tool: string, arg: string): void {
     if (!this.activityEl || !this.activityListEl) return;
     const row = document.createElement("div");
-    row.className = "cdlc-miner-activity-row";
+    row.className = "canon-miner-activity-row";
     row.dataset.id = id;
     const line = document.createElement("div");
-    line.className = "cdlc-miner-activity-line";
+    line.className = "canon-miner-activity-line";
     const toolEl = document.createElement("span");
-    toolEl.className = "cdlc-miner-activity-tool";
+    toolEl.className = "canon-miner-activity-tool";
     toolEl.textContent = tool;
     const argEl = document.createElement("span");
-    argEl.className = "cdlc-miner-activity-arg";
+    argEl.className = "canon-miner-activity-arg";
     argEl.textContent = shortArg(arg);
     attachTooltip(argEl, arg);
     line.append(toolEl, argEl);
@@ -415,7 +415,7 @@ export class ContextMinerView {
     if (!(row instanceof HTMLElement)) return;
     if (!ok) row.classList.add("is-fail");
     const summaryEl = document.createElement("div");
-    summaryEl.className = "cdlc-miner-activity-summary";
+    summaryEl.className = "canon-miner-activity-summary";
     summaryEl.textContent = summary;
     row.appendChild(summaryEl);
     this.activityEl.scrollTop = this.activityEl.scrollHeight;
@@ -424,7 +424,7 @@ export class ContextMinerView {
   private appendErrorNote(message: string): void {
     if (!this.activityEl || !this.activityListEl) return;
     const row = document.createElement("div");
-    row.className = "cdlc-miner-activity-row is-fail";
+    row.className = "canon-miner-activity-row is-fail";
     row.textContent = `Error: ${message}`;
     this.activityListEl.appendChild(row);
     this.activityEl.scrollTop = this.activityEl.scrollHeight;
@@ -436,9 +436,9 @@ export class ContextMinerView {
     let el = this.categoryEls.get(category);
     if (el) return el;
     el = document.createElement("div");
-    el.className = "cdlc-miner-category";
+    el.className = "canon-miner-category";
     const head = document.createElement("div");
-    head.className = "cdlc-miner-category-head";
+    head.className = "canon-miner-category-head";
     head.textContent = CATEGORY_LABELS[category] ?? category;
     el.appendChild(head);
     this.categoryEls.set(category, el);
@@ -448,7 +448,7 @@ export class ContextMinerView {
     let before: HTMLElement | null = null;
     if (this.cardsEl) {
       for (const child of Array.from(this.cardsEl.children)) {
-        if (!(child instanceof HTMLElement) || !child.classList.contains("cdlc-miner-category")) continue;
+        if (!(child instanceof HTMLElement) || !child.classList.contains("canon-miner-category")) continue;
         const otherCat = [...this.categoryEls.entries()].find(([, v]) => v === child)?.[0];
         if (otherCat && (myIdx < 0 || CATEGORY_ORDER.indexOf(otherCat) > myIdx)) {
           before = child;
@@ -479,7 +479,7 @@ export class ContextMinerView {
     wrapper.onclick = null;
 
     if (card.status === "discarded") {
-      wrapper.className = "cdlc-miner-discarded";
+      wrapper.className = "canon-miner-discarded";
       wrapper.textContent = card.finding.title;
       wrapper.onclick = () => {
         // No "restore to pending" in the Task 4 reducer API — mutate the
@@ -492,20 +492,20 @@ export class ContextMinerView {
       return;
     }
 
-    wrapper.className = card.status === "accepted" ? "cdlc-miner-card is-accepted" : "cdlc-miner-card";
+    wrapper.className = card.status === "accepted" ? "canon-miner-card is-accepted" : "canon-miner-card";
 
     const top = document.createElement("div");
-    top.className = "cdlc-miner-card-top";
+    top.className = "canon-miner-card-top";
     const title = document.createElement("div");
-    title.className = "cdlc-miner-card-title";
+    title.className = "canon-miner-card-title";
     title.textContent = card.finding.title;
     const badge = document.createElement("span");
-    badge.className = `cdlc-miner-badge is-${card.finding.confidence}`;
+    badge.className = `canon-miner-badge is-${card.finding.confidence}`;
     badge.textContent = card.finding.confidence;
     top.append(title, badge);
 
     const body = document.createElement("div");
-    body.className = "cdlc-miner-card-body";
+    body.className = "canon-miner-card-body";
     body.textContent = card.editedBody ?? card.finding.bodyMd;
     body.addEventListener("click", () => {
       if (body.getAttribute("contenteditable") === "true") return;
@@ -525,18 +525,18 @@ export class ContextMinerView {
     });
 
     const evidence = document.createElement("div");
-    evidence.className = "cdlc-miner-evidence";
+    evidence.className = "canon-miner-evidence";
     for (const loc of card.finding.evidence) {
       const chip = document.createElement("span");
-      chip.className = "cdlc-miner-chip";
+      chip.className = "canon-miner-chip";
       chip.textContent = loc;
       evidence.appendChild(chip);
     }
 
     const actions = document.createElement("div");
-    actions.className = "cdlc-miner-card-actions";
+    actions.className = "canon-miner-card-actions";
     const acceptBtn = document.createElement("button");
-    acceptBtn.className = "cdlc-miner-btn is-primary";
+    acceptBtn.className = "canon-miner-btn is-primary";
     acceptBtn.innerHTML = `${Icons.check({ size: 12 })}<span>Accept</span>`;
     acceptBtn.disabled = card.status === "accepted";
     acceptBtn.addEventListener("click", () => {
@@ -546,7 +546,7 @@ export class ContextMinerView {
       this.renderPreview();
     });
     const discardBtn = document.createElement("button");
-    discardBtn.className = "cdlc-miner-btn is-danger";
+    discardBtn.className = "canon-miner-btn is-danger";
     discardBtn.innerHTML = `${Icons.trash({ size: 12 })}<span>Discard</span>`;
     discardBtn.addEventListener("click", () => {
       setFindingStatus(this.state, id, "discarded");
@@ -578,10 +578,10 @@ export class ContextMinerView {
     countEl.textContent = `${accepted} accepted · ${pending} pending`;
 
     const spacer = document.createElement("div");
-    spacer.className = "cdlc-miner-footer-spacer";
+    spacer.className = "canon-miner-footer-spacer";
 
     const writeBtn = document.createElement("button");
-    writeBtn.className = "cdlc-miner-btn is-primary";
+    writeBtn.className = "canon-miner-btn is-primary";
     writeBtn.innerHTML = `${Icons.download({ size: 12 })}<span>Write to repo</span>`;
     const canWrite = acceptedFindings(this.state).length > 0 && (this.state.done || this.state.stopped);
     writeBtn.disabled = !canWrite;
@@ -594,7 +594,7 @@ export class ContextMinerView {
     writeBtn.disabled = true;
     try {
       const findings = acceptedFindings(this.state);
-      const path = await cdlcCompileSkill(this.opts.repoRoot, this.skillName, findings, overwrite);
+      const path = await canonCompileSkill(this.opts.repoRoot, this.skillName, findings, overwrite);
       pushInfoToast({ message: `Skill written: ${path}` });
       this.destroy();
     } catch (e) {
@@ -611,14 +611,14 @@ export class ContextMinerView {
   private showOverwriteConfirm(writeBtn: HTMLButtonElement): void {
     if (!this.footerEl) return;
     const note = document.createElement("span");
-    note.className = "cdlc-miner-confirm";
+    note.className = "canon-miner-confirm";
     note.textContent = "Skill already exists —";
 
     const overwriteBtn = document.createElement("button");
-    overwriteBtn.className = "cdlc-miner-btn is-danger";
+    overwriteBtn.className = "canon-miner-btn is-danger";
     overwriteBtn.textContent = "Overwrite";
     const cancelBtn = document.createElement("button");
-    cancelBtn.className = "cdlc-miner-btn";
+    cancelBtn.className = "canon-miner-btn";
     cancelBtn.textContent = "Cancel";
 
     const cleanup = () => { note.remove(); overwriteBtn.remove(); cancelBtn.remove(); };
@@ -635,11 +635,11 @@ export class ContextMinerView {
   private showEmptyDone(): void {
     this.bodyEl.innerHTML = "";
     const wrap = document.createElement("div");
-    wrap.className = "cdlc-miner-empty-state";
+    wrap.className = "canon-miner-empty-state";
     const note = document.createElement("div");
     note.textContent = "Nothing mined — try a broader focus.";
     const restartBtn = document.createElement("button");
-    restartBtn.className = "cdlc-miner-btn is-primary";
+    restartBtn.className = "canon-miner-btn is-primary";
     restartBtn.innerHTML = `${Icons.refresh({ size: 13 })}<span>Restart</span>`;
     restartBtn.addEventListener("click", () => this.restart());
     wrap.append(note, restartBtn);

@@ -3,16 +3,16 @@ import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
 import { renderMarkdown } from "../mission/preview";
-import type { CdlcStatus, Org, PkgMeta, ScoreSummary, EvalSkillSummary, CdlcEvalProgress } from "../api";
+import type { CanonStatus, Org, PkgMeta, ScoreSummary, EvalSkillSummary, CanonEvalProgress } from "../api";
 import {
-  cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry,
-  cdlcPreview, cdlcReadLocal, cdlcExport, scoreSummaryFiltered,
-  cdlcEvalSummary, cdlcRunEvals, onCdlcEvalProgress,
+  canonLocalStatus, canonMyOrgs, canonSearch, canonPublish, canonInstallRegistry,
+  canonPreview, canonReadLocal, canonExport, scoreSummaryFiltered,
+  canonEvalSummary, canonRunEvals, onCanonEvalProgress,
 } from "../api";
 
 function loopSubhead(text: string): HTMLElement {
   const el = document.createElement("div");
-  el.className = "cdlc-subhead";
+  el.className = "canon-subhead";
   el.textContent = text;
   return el;
 }
@@ -26,12 +26,12 @@ function fmtTokens(n: number): string {
  *  the group accent — the loop's standout number. */
 function statCell(value: string, label: string, hero = false): HTMLElement {
   const cell = document.createElement("div");
-  cell.className = hero ? "cdlc-stat is-hero" : "cdlc-stat";
+  cell.className = hero ? "canon-stat is-hero" : "canon-stat";
   const v = document.createElement("span");
-  v.className = "cdlc-stat-val";
+  v.className = "canon-stat-val";
   v.textContent = value;
   const l = document.createElement("span");
-  l.className = "cdlc-stat-lbl";
+  l.className = "canon-stat-lbl";
   l.textContent = label;
   cell.append(v, l);
   return cell;
@@ -41,20 +41,20 @@ function statCell(value: string, label: string, hero = false): HTMLElement {
  *  Used for adoption (installs, scaled to the busiest skill) and eval pass-rate. */
 function meterRow(name: string, value: string, pct: number, ok = false): HTMLElement {
   const row = document.createElement("div");
-  row.className = "cdlc-meter";
+  row.className = "canon-meter";
   const top = document.createElement("div");
-  top.className = "cdlc-meter-top";
+  top.className = "canon-meter-top";
   const n = document.createElement("span");
-  n.className = "cdlc-name";
+  n.className = "canon-name";
   n.textContent = name;
   const v = document.createElement("span");
-  v.className = "cdlc-meta";
+  v.className = "canon-meta";
   v.textContent = value;
   top.append(n, v);
   const track = document.createElement("div");
-  track.className = "cdlc-bar";
+  track.className = "canon-bar";
   const fill = document.createElement("div");
-  fill.className = ok ? "cdlc-bar-fill is-ok" : "cdlc-bar-fill";
+  fill.className = ok ? "canon-bar-fill is-ok" : "canon-bar-fill";
   fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
   track.appendChild(fill);
   row.append(top, track);
@@ -76,28 +76,28 @@ function openMarkdownReader(
   stats?: string[],
 ): void {
   const overlay = document.createElement("div");
-  overlay.className = "cdlc-reader";
+  overlay.className = "canon-reader";
   overlay.innerHTML = `
-    <header class="cdlc-reader-head">
-      <div class="cdlc-reader-headings">
-        <span class="cdlc-reader-title"></span>
-        <span class="cdlc-reader-stats"></span>
+    <header class="canon-reader-head">
+      <div class="canon-reader-headings">
+        <span class="canon-reader-title"></span>
+        <span class="canon-reader-stats"></span>
       </div>
-      <button type="button" class="cdlc-reader-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
+      <button type="button" class="canon-reader-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
     </header>
-    <article class="cdlc-reader-body mission-page-preview-body">Loading…</article>`;
-  (overlay.querySelector(".cdlc-reader-title") as HTMLElement).textContent = title;
-  const statsEl = overlay.querySelector(".cdlc-reader-stats") as HTMLElement;
+    <article class="canon-reader-body mission-page-preview-body">Loading…</article>`;
+  (overlay.querySelector(".canon-reader-title") as HTMLElement).textContent = title;
+  const statsEl = overlay.querySelector(".canon-reader-stats") as HTMLElement;
   if (stats && stats.length) statsEl.textContent = stats.join("  ·  ");
   else statsEl.remove();
-  const body = overlay.querySelector(".cdlc-reader-body") as HTMLElement;
+  const body = overlay.querySelector(".canon-reader-body") as HTMLElement;
 
   const close = (): void => {
     overlay.remove();
     document.removeEventListener("keydown", onKey);
   };
   const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") close(); };
-  overlay.querySelector(".cdlc-reader-close")?.addEventListener("click", close);
+  overlay.querySelector(".canon-reader-close")?.addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   document.addEventListener("keydown", onKey);
 
@@ -109,7 +109,7 @@ function openMarkdownReader(
 
 function errorLine(text: string): HTMLElement {
   const p = document.createElement("p");
-  p.className = "cdlc-error";
+  p.className = "canon-error";
   p.textContent = text;
   return p;
 }
@@ -118,7 +118,7 @@ function errorLine(text: string): HTMLElement {
  *  rows stay legible in the narrow rail. The SVG string is trusted (from Icons). */
 function iconButton(svg: string, label: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement("button");
-  b.className = "cdlc-icon-btn";
+  b.className = "canon-icon-btn";
   b.innerHTML = svg;
   b.setAttribute("aria-label", label);
   attachTooltip(b, label);
@@ -126,7 +126,7 @@ function iconButton(svg: string, label: string, onClick: () => void): HTMLButton
   return b;
 }
 
-export interface CdlcPanelOpts {
+export interface CanonPanelOpts {
   groupId: string;
   groupLabel: string;
   groupColor?: string | null;
@@ -137,7 +137,7 @@ export interface CdlcPanelOpts {
   onPickFolder?: () => void;
 }
 
-export class CdlcPanel {
+export class CanonPanel {
   private root: HTMLElement;
   private body: HTMLElement;
   private orgs: Org[] = [];
@@ -149,39 +149,39 @@ export class CdlcPanel {
    *  to query the rendered content without going through a host element. */
   get element(): HTMLElement { return this.root; }
 
-  constructor(private opts: CdlcPanelOpts) {
+  constructor(private opts: CanonPanelOpts) {
     this.root = document.createElement("div");
-    this.root.className = "cdlc-panel";
+    this.root.className = "canon-panel";
 
     const head = document.createElement("div");
-    head.className = "cdlc-head";
-    if (opts.groupColor) head.style.setProperty("--cdlc-accent", opts.groupColor);
+    head.className = "canon-head";
+    if (opts.groupColor) head.style.setProperty("--canon-accent", opts.groupColor);
     const mark = document.createElement("span");
-    mark.className = "cdlc-mark";
+    mark.className = "canon-mark";
     head.appendChild(mark);
     const title = document.createElement("span");
-    title.className = "cdlc-title";
-    title.textContent = `CDLC — ${opts.groupLabel}`;
+    title.className = "canon-title";
+    title.textContent = `Canon — ${opts.groupLabel}`;
     head.appendChild(title);
 
-    // Project every CDLC source (agents/skills/context) to executor-native files.
+    // Project every Canon source (agents/skills/context) to executor-native files.
     if (opts.groupRootDir) {
       const exportBtn = document.createElement("button");
-      exportBtn.className = "cdlc-project-btn";
+      exportBtn.className = "canon-project-btn";
       exportBtn.innerHTML = Icons.boxes({ size: 14 }) + "<span>Project</span>";
-      attachTooltip(exportBtn, "Project CDLC to executors (.claude, AGENTS.md, copilot)");
+      attachTooltip(exportBtn, "Project Canon to executors (.claude, AGENTS.md, copilot)");
       exportBtn.addEventListener("click", () => void this.exportNow(exportBtn));
       head.appendChild(exportBtn);
     }
 
     const closeBtn = document.createElement("button");
-    closeBtn.className = "cdlc-close-btn";
+    closeBtn.className = "canon-close-btn";
     closeBtn.textContent = "×";
     closeBtn.addEventListener("click", () => this.close());
     head.appendChild(closeBtn);
 
     this.body = document.createElement("div");
-    this.body.className = "cdlc-body";
+    this.body.className = "canon-body";
 
     this.root.append(head, this.body);
   }
@@ -208,7 +208,7 @@ export class CdlcPanel {
       empty.className = "rail-empty";
       empty.innerHTML = Icons.folderPlus({ size: 28 })
         + `<div class="rail-empty-title">No project folder</div>`
-        + `<div class="rail-empty-hint">CDLC reads skills, agents and context from the group’s repo. Point this group at a folder to get started.</div>`;
+        + `<div class="rail-empty-hint">Canon reads skills, agents and context from the group’s repo. Point this group at a folder to get started.</div>`;
       if (this.opts.onPickFolder) {
         const actions = document.createElement("div");
         actions.className = "rail-empty-actions";
@@ -232,10 +232,10 @@ export class CdlcPanel {
     }
     try {
       const [status, orgs, score, evalSummary] = await Promise.all([
-        cdlcLocalStatus(cwd),
-        cdlcMyOrgs().catch(() => [] as Org[]),
+        canonLocalStatus(cwd),
+        canonMyOrgs().catch(() => [] as Org[]),
         scoreSummaryFiltered(this.opts.groupLabel ?? null).catch(() => null),
-        cdlcEvalSummary(cwd).catch(() => [] as EvalSkillSummary[]),
+        canonEvalSummary(cwd).catch(() => [] as EvalSkillSummary[]),
       ]);
       this.orgs = orgs;
       this.score = score;
@@ -243,22 +243,22 @@ export class CdlcPanel {
       // Adoption: org-wide install counts for skills installed from the registry.
       this.adoption = new Map();
       if (orgs.length > 0) {
-        const pkgs = await cdlcSearch(orgs[0].slug, null).catch(() => [] as PkgMeta[]);
+        const pkgs = await canonSearch(orgs[0].slug, null).catch(() => [] as PkgMeta[]);
         for (const p of pkgs) this.adoption.set(p.name, p.installs);
       }
       this.renderStatus(status);
     } catch (e) {
-      this.body.textContent = `Failed to read CDLC: ${String(e)}`;
+      this.body.textContent = `Failed to read Canon: ${String(e)}`;
     }
   }
 
-  renderStatus(s: CdlcStatus): void {
+  renderStatus(s: CanonStatus): void {
     this.body.replaceChildren();
     const cwd = this.opts.groupRootDir ?? null;
 
     // Skills section
     const skills = document.createElement("section");
-    skills.className = "cdlc-skills";
+    skills.className = "canon-skills";
     const sh = document.createElement("h3");
     sh.textContent = "Skills";
     skills.appendChild(sh);
@@ -277,8 +277,8 @@ export class CdlcPanel {
         skills.appendChild(this.skillCard({
           name: i.name,
           meta: `${i.version} · ${i.source}`,
-          className: "cdlc-skill-row",
-          fetchPreview: () => (cwd ? cdlcReadLocal(cwd, i.name) : Promise.resolve("(no project folder)")),
+          className: "canon-skill-row",
+          fetchPreview: () => (cwd ? canonReadLocal(cwd, i.name) : Promise.resolve("(no project folder)")),
           actions,
           stats: [`v${i.version}`, i.source],
         }));
@@ -287,20 +287,20 @@ export class CdlcPanel {
 
     if (this.orgs.length > 0) {
       const searchRow = document.createElement("div");
-      searchRow.className = "cdlc-search-row";
+      searchRow.className = "canon-search-row";
       const input = document.createElement("input");
       input.placeholder = `Search ${this.orgs[0].slug} registry…`;
       const go = document.createElement("button");
       go.textContent = "Search";
       const results = document.createElement("div");
-      results.className = "cdlc-search-results";
+      results.className = "canon-search-results";
       go.addEventListener("click", () => {
-        void cdlcSearch(this.orgs[0].slug, input.value || null).then((rows: PkgMeta[]) => {
+        void canonSearch(this.orgs[0].slug, input.value || null).then((rows: PkgMeta[]) => {
           results.replaceChildren();
           if (rows.length === 0) {
             results.replaceChildren();
             const none = document.createElement("p");
-            none.className = "cdlc-empty";
+            none.className = "canon-empty";
             none.textContent = "No packages found.";
             results.appendChild(none);
           }
@@ -312,8 +312,8 @@ export class CdlcPanel {
               name: r.name,
               meta: `${r.version} · ${installs} · ${r.publisher_login}`,
               description: r.description,
-              className: "cdlc-search-result",
-              fetchPreview: () => cdlcPreview(org, r.name, r.version).then((p) => p.skill_md),
+              className: "canon-search-result",
+              fetchPreview: () => canonPreview(org, r.name, r.version).then((p) => p.skill_md),
               actions: [inst],
               stats: [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)],
             }));
@@ -326,13 +326,13 @@ export class CdlcPanel {
 
     // Context section
     const ctx = document.createElement("section");
-    ctx.className = "cdlc-context";
+    ctx.className = "canon-context";
     const ch = document.createElement("h3");
     ch.textContent = "Context";
     ctx.appendChild(ch);
 
     const newBtn = document.createElement("button");
-    newBtn.className = "cdlc-new-context-btn";
+    newBtn.className = "canon-new-context-btn";
     newBtn.textContent = "New context";
     newBtn.addEventListener("click", () => {
       this.opts.onNewContext?.();
@@ -341,14 +341,14 @@ export class CdlcPanel {
 
     for (const f of s.contextFiles) {
       const row = document.createElement("div");
-      row.className = "cdlc-context-row";
+      row.className = "canon-context-row";
       row.textContent = f;
       ctx.appendChild(row);
     }
 
     // Loop section — Observe/Adapt: adoption + inference footprint.
     const loop = document.createElement("section");
-    loop.className = "cdlc-loop";
+    loop.className = "canon-loop";
     const lh = document.createElement("h3");
     lh.textContent = "Loop";
     loop.appendChild(lh);
@@ -370,7 +370,7 @@ export class CdlcPanel {
       loop.appendChild(loopSubhead("Inference · this group"));
       const sc = this.score;
       const stats = document.createElement("div");
-      stats.className = "cdlc-stats";
+      stats.className = "canon-stats";
       stats.append(
         statCell(fmtTokens(sc.total_tokens), "tokens", true),
         statCell(sc.total_prompts.toLocaleString(), "prompts"),
@@ -391,7 +391,7 @@ export class CdlcPanel {
       }
     } else {
       const evalNote = document.createElement("p");
-      evalNote.className = "cdlc-loop-note";
+      evalNote.className = "canon-loop-note";
       evalNote.textContent = "Run evals on a skill to measure its context-TDD pass-rate.";
       loop.appendChild(evalNote);
     }
@@ -409,7 +409,7 @@ export class CdlcPanel {
     let unlisten: (() => void) | undefined;
     let doneReason = "";
     try {
-      unlisten = await onCdlcEvalProgress((e: CdlcEvalProgress) => {
+      unlisten = await onCanonEvalProgress((e: CanonEvalProgress) => {
         if (e.skill !== skill) return;
         if (e.status === "running") pushInfoToast({ message: `Eval ${e.eval_id}: running…` });
         else if (e.status === "pass") pushInfoToast({ message: `Eval ${e.eval_id}: PASS` });
@@ -418,13 +418,13 @@ export class CdlcPanel {
         else if (e.status === "error") pushInfoToast({ message: `Eval ${e.eval_id}: error — ${e.reason}` });
         else if (e.status === "done") doneReason = e.reason;
       });
-      await cdlcRunEvals(cwd, skill);
+      await canonRunEvals(cwd, skill);
       // The backend signals an empty run via the done note — don't claim
       // "finished" when nothing actually ran.
       pushInfoToast({
         message:
           doneReason === "no evals found"
-            ? `No evals for ${skill} — add .toml files under .covenant/cdlc/skills/${skill}/evals/`
+            ? `No evals for ${skill} — add .toml files under .covenant/canon/skills/${skill}/evals/`
             : `Evals finished for ${skill}`,
       });
       await this.refresh();
@@ -441,11 +441,11 @@ export class CdlcPanel {
     if (!cwd) return;
     btn.disabled = true;
     try {
-      await cdlcExport(cwd);
+      await canonExport(cwd);
       await this.refresh();
-      pushInfoToast({ message: `CDLC exported to .claude · AGENTS.md · copilot (${this.opts.groupLabel})` });
+      pushInfoToast({ message: `Canon exported to .claude · AGENTS.md · copilot (${this.opts.groupLabel})` });
     } catch (e) {
-      pushInfoToast({ message: `CDLC export failed: ${String(e)}` });
+      pushInfoToast({ message: `Canon export failed: ${String(e)}` });
     } finally {
       btn.disabled = false;
     }
@@ -456,7 +456,7 @@ export class CdlcPanel {
     if (!cwd || this.orgs.length === 0) return;
     const org = this.orgs[0].slug; // v1: publish to the caller's first org
     try {
-      await cdlcPublish(cwd, org, name);
+      await canonPublish(cwd, org, name);
       await this.refresh();
       pushInfoToast({ message: `Published ${name} to ${org}` });
     } catch (e) {
@@ -468,7 +468,7 @@ export class CdlcPanel {
     const cwd = this.opts.groupRootDir;
     if (!cwd) return;
     try {
-      await cdlcInstallRegistry(cwd, org, name, version, this.opts.groupLabel ?? null, null);
+      await canonInstallRegistry(cwd, org, name, version, this.opts.groupLabel ?? null, null);
       await this.refresh();
       pushInfoToast({ message: `Installed ${name} ${version} · projected to executors` });
     } catch (e) {
@@ -492,21 +492,21 @@ export class CdlcPanel {
     card.className = opts.className;
 
     const head = document.createElement("div");
-    head.className = "cdlc-card-head";
+    head.className = "canon-card-head";
     const name = document.createElement("span");
-    name.className = "cdlc-name";
+    name.className = "canon-name";
     name.textContent = opts.name;
     const meta = document.createElement("span");
-    meta.className = "cdlc-meta";
+    meta.className = "canon-meta";
     meta.textContent = opts.meta;
     head.append(name, meta);
 
     const pre = document.createElement("pre");
-    pre.className = "cdlc-preview";
+    pre.className = "canon-preview";
     pre.hidden = true;
     let loaded = false;
     const prev = document.createElement("button");
-    prev.className = "cdlc-preview-btn cdlc-icon-btn";
+    prev.className = "canon-preview-btn canon-icon-btn";
     prev.innerHTML = Icons.eye({ size: 15 });
     prev.setAttribute("aria-label", "Preview");
     attachTooltip(prev, "Preview SKILL.md");
@@ -532,7 +532,7 @@ export class CdlcPanel {
 
     if (opts.description?.trim()) {
       const desc = document.createElement("p");
-      desc.className = "cdlc-result-desc";
+      desc.className = "canon-result-desc";
       desc.textContent = opts.description;
       card.appendChild(desc);
     }

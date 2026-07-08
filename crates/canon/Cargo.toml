@@ -1,11 +1,11 @@
 [package]
-name = "karl-cdlc"
+name = "karl-canon"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "CDLC artifact, local install, and executor projection for Covenant"
+description = "Canon artifact, local install, and executor projection for Covenant"
 
 [dependencies]
 thiserror = { workspace = true }

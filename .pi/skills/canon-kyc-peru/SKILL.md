@@ -1,5 +1,5 @@
 ---
-name: cdlc-kyc-peru
+name: canon-kyc-peru
 description: KYC — Perú (SBS)
 ---
 
