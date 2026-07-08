@@ -139,16 +139,22 @@ function defaultCompletion(): Extension {
   return autocompletion({ ...COMPLETION_OPTS });
 }
 
-/// LSP-active completion config. `override` is CM6's only way to add a
-/// source alongside the LSP one — there's no "compose with defaults"
-/// API — so we deliberately keep `completeAnyWord` in the override list
-/// as a fallback: `lspCompletionSource` returns null on timeout/error/no
-/// results, and this way the popup still shows word matches instead of
-/// going empty.
+/// LSP-active completion config. `override` doesn't mean "try these in
+/// order, fall back on empty" — CM6 queries and MERGES every source in
+/// `override` on every keystroke, so listing `completeAnyWord` alongside
+/// `lspCompletionSource` here would permanently duplicate results (e.g.
+/// rust-analyzer's `foo` entry AND a near-identical buffer-word `foo`
+/// entry, every time). The fallback-when-inactive behavior instead comes
+/// from the `completionCompartment` swap in `startLsp`/`teardownLsp`:
+/// when LSP isn't ready (master off, no consent, not installed, crash,
+/// still starting), the compartment holds `defaultCompletion()` — no
+/// `override`, so `completeAnyWord` + language-pack sources apply. Once
+/// LSP is ready, the compartment swaps to this config: pure LSP
+/// completion, no word-completion noise.
 function lspCompletion(host: LspHost): Extension {
   return autocompletion({
     ...COMPLETION_OPTS,
-    override: [lspCompletionSource(host), completeAnyWord],
+    override: [lspCompletionSource(host)],
   });
 }
 
@@ -208,6 +214,12 @@ export class StructureEditor {
   /// without rebuilding it. Rebuilt on every file open alongside the
   /// rest of the state; null only before the first `buildState` call.
   private lspHost: LspHost | null = null;
+  /// Unsubscribe for the `onCodeIntelChange` listener (module-level
+  /// `Set` in `lsp/manager.ts` — it lives for the whole app session).
+  /// Non-null while a file is open; (re-)armed by `subscribeCodeIntel`
+  /// on `open()`, released in `close()`. See `subscribeCodeIntel` for
+  /// why and its caveat on tab-destroy paths that never call `close()`.
+  private codeIntelUnsub: (() => void) | null = null;
   private readonly lspChipEl: HTMLElement;
   private readonly lspBannerEl: HTMLElement;
   /// Latest known content irrespective of viewer. In source mode it
@@ -476,14 +488,32 @@ export class StructureEditor {
     // section flips the master toggle / per-language consent, then calls
     // `refreshCodeIntelSettings()` — which only affects NEW `setupLsp`
     // calls (i.e. new file opens) unless we also re-run it for whatever
-    // is open right now. Re-running `setupLsp` re-resolves `status()`
-    // against the fresh cache; when it comes back non-ready, `setupLsp`
-    // tears down the active doc + diagnostics + LSP completion itself.
-    // This subscription lives for the editor instance's whole lifetime
-    // (one editor per tab, never explicitly disposed today) — same
-    // lifetime as `this.contextMenu` and friends, so that's consistent
-    // with the rest of the class, not a new leak pattern.
-    onCodeIntelChange(() => {
+    // is open right now. See `subscribeCodeIntel` for the subscribe /
+    // unsubscribe lifecycle — it's re-armed on `open()` and released on
+    // `close()` so a long-lived, reused editor instance (one per tab in
+    // `tabs/manager.ts`) doesn't hold a permanent listener while its
+    // drawer is closed and there's no `currentPath` to refresh anyway.
+    this.subscribeCodeIntel();
+  }
+
+  /// (Re-)register the `onCodeIntelChange` listener. `onCodeIntelChange`
+  /// adds to a module-level `Set` in `lsp/manager.ts` that lives for the
+  /// whole app session, so holding an active subscription forever would
+  /// pin this instance in memory via the closure's `this` capture. We
+  /// only need the listener while a file is actually open (it no-ops via
+  /// the `currentPath` guard otherwise), so `open()` re-subscribes and
+  /// `close()` unsubscribes — see the comment there. `close()` is the
+  /// only teardown hook this class exposes; it's per-file semantics in
+  /// most callers (drawer close, file trash) but `executors/pi/view.ts
+  /// #destroy()` calls it right before dropping its own `editor`
+  /// reference, so that path is fully covered. `tabs/manager.ts`'s
+  /// `finalizeCloseTab` currently drops its `tab.editor` reference on
+  /// tab close WITHOUT calling `close()` first — if the drawer happens
+  /// to be open at that moment, this subscription isn't released; a
+  /// separate, pre-existing gap (tracked, not fixed here).
+  private subscribeCodeIntel(): void {
+    if (this.codeIntelUnsub) return;
+    this.codeIntelUnsub = onCodeIntelChange(() => {
       if (this.currentPath) void this.setupLsp(this.currentPath);
     });
   }
@@ -699,8 +729,9 @@ export class StructureEditor {
         // itself in a Compartment (`completionCompartment`), defaulting
         // to `defaultCompletion()` (no override — language-pack + word).
         // `startLsp`/`teardownLsp` reconfigure it to `lspCompletion(host)`
-        // (LSP + word fallback) only while a live `lspDoc` exists, and
-        // back to the default the moment it goes away for any reason.
+        // (pure LSP, no word-completion dupes — see that function) only
+        // while a live `lspDoc` exists, and back to the default the
+        // moment it goes away for any reason.
         this.completionCompartment.of(defaultCompletion()),
         // Buffer-word fallback source, language-agnostic (see comment
         // above) — merges into `languageDataAt("autocomplete", …)`
@@ -914,6 +945,7 @@ export class StructureEditor {
   }
 
   async open(path: string, opts?: { line?: number }): Promise<void> {
+    this.subscribeCodeIntel();
     this.currentPath = path;
     this.pathLabelEl.textContent = shortenPath(path);
     this.pathLabelEl.title = path;
@@ -1003,8 +1035,8 @@ export class StructureEditor {
   /// consent/error/unsupported state or start the server. Kicked off
   /// (not awaited) from `open()` so file loads never block on LSP; also
   /// re-run for the CURRENTLY open file whenever code-intelligence
-  /// settings change (see the `onCodeIntelChange` subscription in the
-  /// constructor) — that's what makes a live "disable" take effect
+  /// settings change (see `subscribeCodeIntel`'s `onCodeIntelChange`
+  /// listener) — that's what makes a live "disable" take effect
   /// immediately instead of on the next file open.
   private async setupLsp(path: string): Promise<void> {
     if (!lspLanguageId(path)) {
@@ -1037,8 +1069,8 @@ export class StructureEditor {
       this.lspDiagUnsub = doc.onDiagnostics((diags) => {
         if (this.view && this.lspDoc === doc) applyLspDiagnostics(this.view, diags);
       });
-      // Upgrade completion to LSP + word-fallback now that the doc is
-      // live (see `lspCompletion` / `completionCompartment`).
+      // Upgrade completion to pure LSP now that the doc is live (see
+      // `lspCompletion` / `completionCompartment`).
       if (this.view && this.lspHost) {
         this.view.dispatch({ effects: this.completionCompartment.reconfigure(lspCompletion(this.lspHost)) });
       }
@@ -1477,6 +1509,8 @@ export class StructureEditor {
     this.dirty = false;
     this.previewKind = null;
     this.teardownLsp();
+    this.codeIntelUnsub?.();
+    this.codeIntelUnsub = null;
     this.renderLspState({ kind: "unsupported" });
     if (this.view) {
       this.view.destroy();
