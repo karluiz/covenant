@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.140 — LSP Phase 4: C# support (Roslyn)
+
+### Added
+
+- **C# code intelligence**: the Structure editor now offers diagnostics,
+  completion, hover, go-to-definition, rename, and code actions for `.cs`
+  files, powered by the Roslyn `Microsoft.CodeAnalysis.LanguageServer`
+  (pinned `5.4.0-2.26179.14`). Same on-demand, consent-gated download
+  model as Rust/TypeScript — nothing bundled
+  (`crates/lsp/servers.json`, `ui/src/lsp/manager.ts`).
+- **NuGet (.nupkg) install + .NET runtime detection**: the Roslyn server
+  downloads as a NuGet package (a zip, with the server nested inside and
+  a zip-slip-guarded extraction), and its .NET 10 runtime dependency is
+  detected from the user's toolchain (a "needs .NET" banner appears when
+  it's missing). The apphost is spawned directly with Roslyn's required
+  `--logLevel`/`--extensionLogDirectory`/`--stdio` args
+  (`crates/lsp/src/{registry,install}.rs`, `crates/app/src/lsp_commands.rs`).
+- **C# project loading**: after initialize, Covenant sends Roslyn the
+  right project-load handshake for the workspace — `solution/open` when a
+  `.sln`/`.slnx` is found (bounded recursive search, so a `global.json` at
+  the repo root with projects under `src/` still resolves), or
+  `project/open` for a bare `.csproj` (a `dotnet new console` layout).
+  Both handshakes are validated end-to-end by ignored smoke tests that do
+  a real NuGet download, apphost spawn, MSBuild project load, and
+  cross-file definition resolution (`crates/lsp/tests/smoke_cs.rs`).
+
 ## v0.8.139 — LSP Phase 3: TypeScript / JavaScript support
 
 ### Added
