@@ -3059,10 +3059,15 @@ export async function cloudSyncWipe(): Promise<void> {
 /// dependency (node) is missing or too old. `found` is `null` when the
 /// runtime binary wasn't found at all, a version string when it was found
 /// but failed the minimum-version check.
+export type LspRuntimeSuggestion =
+  | { kind: "on_disk_not_on_path"; version: string; dir: string }
+  | { kind: "install"; hint: string };
+
 export interface LspRuntimeMissing {
   name: string;
   min: string;
-  found?: string | null;
+  found: string | null;
+  suggestion: LspRuntimeSuggestion | null;
 }
 
 export interface LspServerStatus {
@@ -3097,7 +3102,12 @@ export async function lspServerStatus(language: string): Promise<LspServerStatus
     version: string;
     installed: boolean;
     approx_size_mb: number;
-    runtime_missing?: { name: string; min: string; found?: string | null } | null;
+    runtime_missing?: {
+      name: string;
+      min: string;
+      found?: string | null;
+      suggestion?: LspRuntimeSuggestion | null;
+    } | null;
   }>("lsp_server_status", { language });
   return {
     language: raw.language,
@@ -3106,7 +3116,12 @@ export async function lspServerStatus(language: string): Promise<LspServerStatus
     installed: raw.installed,
     approxSizeMb: raw.approx_size_mb,
     runtimeMissing: raw.runtime_missing
-      ? { name: raw.runtime_missing.name, min: raw.runtime_missing.min, found: raw.runtime_missing.found }
+      ? {
+          name: raw.runtime_missing.name,
+          min: raw.runtime_missing.min,
+          found: raw.runtime_missing.found ?? null,
+          suggestion: raw.runtime_missing.suggestion ?? null,
+        }
       : null,
   };
 }

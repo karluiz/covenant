@@ -45,6 +45,29 @@ pub struct RuntimeMissingInfo {
     pub name: String,
     pub min: String,
     pub found: Option<String>,
+    pub suggestion: Option<RuntimeSuggestionDto>,
+}
+
+/// Actionable fix suggestion for a missing/mismatched runtime, mirrors
+/// `karl_lsp::runtime::RuntimeSuggestion` across the Tauri IPC boundary.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RuntimeSuggestionDto {
+    OnDiskNotOnPath { version: String, dir: String },
+    Install { hint: String },
+}
+
+impl From<karl_lsp::runtime::RuntimeSuggestion> for RuntimeSuggestionDto {
+    fn from(s: karl_lsp::runtime::RuntimeSuggestion) -> Self {
+        match s {
+            karl_lsp::runtime::RuntimeSuggestion::OnDiskNotOnPath { version, dir } => {
+                RuntimeSuggestionDto::OnDiskNotOnPath { version, dir }
+            }
+            karl_lsp::runtime::RuntimeSuggestion::Install { hint } => {
+                RuntimeSuggestionDto::Install { hint }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -314,7 +337,13 @@ pub fn lsp_server_status(
         if let Err(e) = runtime::detect(&rt.as_runtime_req()) {
             match e {
                 LspError::RuntimeMissing { name, min, found } => {
-                    runtime_missing = Some(RuntimeMissingInfo { name, min, found });
+                    let suggestion = Some(runtime::suggest_fix(&rt.as_runtime_req()).into());
+                    runtime_missing = Some(RuntimeMissingInfo {
+                        name,
+                        min,
+                        found,
+                        suggestion,
+                    });
                     installed = false;
                 }
                 other => return Err(other.to_string()),
