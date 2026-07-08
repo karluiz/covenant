@@ -6,6 +6,49 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.142 — LSP runtime-fix banner + CDLC context provenance
+
+### Added
+
+- **CDLC shared-context provenance in the reader**: opening a registry
+  package full-screen now shows a stats strip under the title — `shared by
+  <publisher> · v<version> · N installs · <sha7>` — instead of just the raw
+  SKILL.md. Installed skills show `v<version> · <source>`. No new backend;
+  it threads the `PkgMeta` already fetched by the registry search into
+  `openMarkdownReader` (`ui/src/cdlc/panel.ts`, `ui/src/cdlc/styles.css`).
+  The reader's markdown renderer also gained GFM table and ordered-list
+  support with proper table styling — tables previously rendered as literal
+  pipe text (`ui/src/mission/preview.ts`, `ui/src/styles.css`).
+- **Actionable "needs runtime" LSP banner**: when a language server can't
+  start because its runtime is off `PATH`, the banner now scans curated
+  install locations, picks the newest satisfying version, and offers a
+  copyable fix command instead of a dead-end message. A `RuntimeSuggestion`
+  is threaded through `lsp_server_status` end-to-end
+  (`crates/lsp/src/{registry,install,runtime}.rs`, `ui/src/lsp/manager.ts`,
+  `ui/src/api.ts`).
+- **Archetype souls as delegation-of-self**: the 6 operator persona
+  templates were rewritten from permission tables into 4-layer souls
+  (Mandate / Disposition / Reflexes / Voice), each opening "You are the
+  version of me…" so an archetype seeds a delegation rather than a config
+  (see `AGENTS.md` § "The Ontology").
+- **Spec picker surfaces in-progress drafts**: the "Set spec" modal now
+  reads the Spec Creator's in-progress/ready drafts (`~/.covenant/spec-drafts`)
+  in a new "In progress" section — clicking one resumes it. Groups are
+  foldable with persisted collapsed state, the top spec auto-selects on
+  open, and the chrome was flattened (accent spine on the selected row).
+
+### Fixed
+
+- **Operator SOUL editor corrupted regex backslashes**: the modal SOUL body
+  editor was swapped from Milkdown WYSIWYG to a plain textarea — Milkdown
+  was escaping regex backslashes in hard-constraints, silently corrupting
+  saved souls (`fix(operators)`).
+- **LSP banner "Copy" lied on clipboard reject**: the fix-command Copy label
+  flipped to "Copied" even when the clipboard write was rejected; it now
+  gates on write success (`fix(lsp)`).
+- **CDLC panel mark homologated to a circle**: the CDLC panel header mark now
+  matches the circle used by every other right-rail panel (`fix(cdlc)`).
+
 ## v0.8.141 — LSP Phase 5: Java support (Eclipse JDT.LS)
 
 ### Added
