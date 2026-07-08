@@ -23,6 +23,9 @@
   background: var(--bg-overlay, #11141a);
   color: var(--text-primary, #f5f6f7);
   font-family: var(--ui-font);
+  /* Divider from the titlebar — without it the opaque cockpit fuses into
+     the title bar (same dark fill). Matches the rail panel's top border. */
+  border-top: 1px solid var(--border);
 }
 body.tabbar-left .canon-cockpit {
   left: var(--tabbar-w);

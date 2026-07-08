@@ -190,6 +190,37 @@ export function iconButton(svg: string, label: string, onClick: () => void): HTM
   return b;
 }
 
+/** A downward chevron for the org chip — trusted static markup. */
+const CANON_CHEVRON =
+  '<svg viewBox="0 0 12 12" width="10" height="10" fill="none" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+/** Two-letter identity initials for an org (first letters of the first two
+ *  words, else the first two characters). */
+function orgInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return (name.trim().slice(0, 2) || "??").toUpperCase();
+}
+
+/** Deterministic hue (0–359) from a slug so each org keeps a stable identity
+ *  color across the chip and the menu. */
+function orgHue(slug: string): number {
+  let h = 0;
+  for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) % 360;
+  return h;
+}
+
+/** The signature device: a sharp initials tile carrying the org's identity
+ *  color, reused in the chip and every menu row. Color lives in CSS via the
+ *  --mono-h custom property so light/dark can tune tone. */
+function orgMonogram(org: Org): HTMLElement {
+  const m = document.createElement("span");
+  m.className = "canon-mono";
+  m.textContent = orgInitials(org.name);
+  m.style.setProperty("--mono-h", String(orgHue(org.slug)));
+  return m;
+}
+
 export interface CanonPanelOpts {
   groupId: string;
   groupLabel: string;
@@ -233,19 +264,9 @@ export class CanonPanel {
     title.textContent = `Canon — ${opts.groupLabel}`;
     head.appendChild(title);
 
-    this.orgChip = this.renderOrgChip();
-    head.appendChild(this.orgChip);
-
-    // Project every Canon source (agents/skills/context) to executor-native files.
-    if (opts.groupRootDir) {
-      const exportBtn = document.createElement("button");
-      exportBtn.className = "canon-project-btn";
-      exportBtn.innerHTML = Icons.boxes({ size: 14 }) + "<span>Project</span>";
-      attachTooltip(exportBtn, "Project Canon to executors (.claude, AGENTS.md, copilot)");
-      exportBtn.addEventListener("click", () => void this.exportNow(exportBtn));
-      head.appendChild(exportBtn);
-    }
-
+    // Head holds only chrome (title + expand + close). The org selector and
+    // Project action live in a toolbar at the top of the body — the narrow
+    // rail head can't fit them without truncating the title.
     if (opts.onExpand) {
       head.appendChild(iconButton(Icons.maximize({ size: 14 }), "Open Canon full screen", () => opts.onExpand?.()));
     }
@@ -256,10 +277,27 @@ export class CanonPanel {
     closeBtn.addEventListener("click", () => this.close());
     head.appendChild(closeBtn);
 
+    // Toolbar: active-org selector + Project. Persistent (not wiped by
+    // renderStatus, which only rewrites `body`), so it sits between head and body.
+    const toolbar = document.createElement("div");
+    toolbar.className = "canon-toolbar";
+    this.orgChip = this.renderOrgChip();
+    toolbar.appendChild(this.orgChip);
+
+    // Project every Canon source (agents/skills/context) to executor-native files.
+    if (opts.groupRootDir) {
+      const exportBtn = document.createElement("button");
+      exportBtn.className = "canon-project-btn";
+      exportBtn.innerHTML = Icons.boxes({ size: 14 }) + "<span>Project</span>";
+      attachTooltip(exportBtn, "Project Canon to executors (.claude, AGENTS.md, copilot)");
+      exportBtn.addEventListener("click", () => void this.exportNow(exportBtn));
+      toolbar.appendChild(exportBtn);
+    }
+
     this.body = document.createElement("div");
     this.body.className = "canon-body";
 
-    this.root.append(head, this.body);
+    this.root.append(head, toolbar, this.body);
   }
 
   setOrgs(orgs: Org[]): void {
@@ -274,18 +312,44 @@ export class CanonPanel {
   }
 
   private updateOrgChip(): void {
-    const active = this.activeOrg();
-    this.orgChip.textContent = active ? active.name : "No org";
-    this.orgChip.classList.toggle("is-empty", !active);
+    this.fillChip(this.orgChip);
   }
 
   private renderOrgChip(): HTMLElement {
     const chip = document.createElement("button");
     chip.className = "canon-org-chip";
-    chip.textContent = "No org";
-    attachTooltip(chip, "Active organization");
+    attachTooltip(chip, "Switch organization");
     chip.addEventListener("click", () => this.openOrgMenu(chip));
+    this.fillChip(chip);
     return chip;
+  }
+
+  /** (Re)build the chip's contents: monogram + name + role + chevron, or a
+   *  quiet empty state when the caller belongs to no org. */
+  private fillChip(chip: HTMLElement): void {
+    const active = this.activeOrg();
+    chip.replaceChildren();
+    chip.classList.toggle("is-empty", !active);
+    const caret = document.createElement("span");
+    caret.className = "canon-org-chip-caret";
+    caret.innerHTML = CANON_CHEVRON;
+    if (!active) {
+      const name = document.createElement("span");
+      name.className = "canon-org-chip-name";
+      name.textContent = "No organization";
+      chip.append(name, caret);
+      return;
+    }
+    const text = document.createElement("span");
+    text.className = "canon-org-chip-text";
+    const name = document.createElement("span");
+    name.className = "canon-org-chip-name";
+    name.textContent = active.name;
+    const role = document.createElement("span");
+    role.className = "canon-org-chip-role";
+    role.textContent = active.role;
+    text.append(name, role);
+    chip.append(orgMonogram(active), text, caret);
   }
 
   /** A lightweight absolutely-positioned menu listing every org the caller
@@ -312,8 +376,15 @@ export class CanonPanel {
     for (const org of this.orgs) {
       const row = document.createElement("button");
       row.className = "canon-org-menu-row";
-      if (active && org.slug === active.slug) row.classList.add("is-active");
-      row.textContent = org.name;
+      const isActive = !!active && org.slug === active.slug;
+      if (isActive) row.classList.add("is-active");
+      const name = document.createElement("span");
+      name.className = "canon-org-menu-name";
+      name.textContent = org.name;
+      const role = document.createElement("span");
+      role.className = "canon-org-menu-role";
+      role.textContent = isActive ? "current" : org.role;
+      row.append(orgMonogram(org), name, role);
       row.addEventListener("click", () => {
         this.opts.setActiveOrg?.(org.slug);
         close();
@@ -324,21 +395,35 @@ export class CanonPanel {
 
     const createRow = document.createElement("button");
     createRow.className = "canon-org-menu-row canon-org-menu-create";
-    createRow.textContent = "＋ Create organization…";
+    const tile = document.createElement("span");
+    tile.className = "canon-org-create-tile";
+    tile.textContent = "+";
+    const lbl = document.createElement("span");
+    lbl.className = "canon-org-menu-name";
+    lbl.textContent = "Create organization";
+    createRow.append(tile, lbl);
     createRow.addEventListener("click", () => {
       close();
       this.openCreateOrgModal();
     });
     menu.appendChild(createRow);
 
+    // Left-align the menu under the chip and match its width. (Right-aligning
+    // made a wide chip's menu extend left, bleeding past the rail edge.)
     const rect = anchor.getBoundingClientRect();
     menu.style.top = `${rect.bottom + 4}px`;
-    menu.style.right = `${Math.max(0, window.innerWidth - rect.right)}px`;
+    menu.style.left = `${rect.left}px`;
+    menu.style.minWidth = `${Math.round(rect.width)}px`;
 
     document.addEventListener("mousedown", onOutside, true);
     document.addEventListener("keydown", onKey);
 
     document.body.appendChild(menu);
+    // Clamp if it would overflow the right viewport edge.
+    const mr = menu.getBoundingClientRect();
+    if (mr.right > window.innerWidth - 8) {
+      menu.style.left = `${Math.max(8, window.innerWidth - 8 - mr.width)}px`;
+    }
   }
 
   private openCreateOrgModal(): void {
