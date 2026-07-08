@@ -13,7 +13,6 @@ import {
   canonOrgMembers,
   canonAddMember,
   canonRemoveMember,
-  canonCreateOrg,
   canonMyOrgs,
   canonLocalStatus,
   canonReadLocal,
@@ -24,8 +23,9 @@ import {
   scoreSummaryFiltered,
   canonEvalSummary,
 } from "../../api";
-import { slugify, skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
+import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg } from "../org";
+import { openCreateOrgExperience } from "../create-org/view";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 
@@ -219,54 +219,24 @@ export class CanonCockpitView {
   private renderCreateOrgRow(): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "canon-cockpit-org-create";
-
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.placeholder = "Organization name";
-    const slugInput = document.createElement("input");
-    slugInput.type = "text";
-    slugInput.placeholder = "slug";
-    let slugEdited = false;
-    slugInput.addEventListener("input", () => { slugEdited = true; });
-    nameInput.addEventListener("input", () => {
-      if (!slugEdited) slugInput.value = slugify(nameInput.value);
-    });
-
-    const errorEl = document.createElement("p");
-    errorEl.className = "canon-cockpit-error";
-    errorEl.hidden = true;
-
     const createBtn = document.createElement("button");
     createBtn.type = "button";
+    createBtn.className = "canon-cockpit-create-btn";
     createBtn.textContent = "Create organization";
     createBtn.addEventListener("click", () => {
-      const name = nameInput.value.trim();
-      const slug = slugInput.value.trim();
-      if (!name || !slug) {
-        errorEl.hidden = false;
-        errorEl.textContent = "Name and slug required.";
-        return;
-      }
-      errorEl.hidden = true;
-      createBtn.disabled = true;
-      void canonCreateOrg(slug, name)
-        .then(() => canonMyOrgs())
-        .then((fresh) => {
-          // Refresh the snapshot before switching — opts.orgs is stale
-          // until now, so activeOrg() would otherwise fail to find the
-          // just-created slug and silently fall back to a different org.
-          this.opts.orgs = fresh;
-          this.opts.setActiveOrg(slug);
-          this.showSection("org");
-        })
-        .catch((e) => {
-          errorEl.hidden = false;
-          errorEl.textContent = this.friendlyError(e);
-        })
-        .finally(() => { createBtn.disabled = false; });
+      openCreateOrgExperience({
+        onCreated: (slug) => {
+          // Refetch so the just-created org is in the snapshot before switching
+          // (activeOrg() resolves against opts.orgs).
+          void canonMyOrgs().then((fresh) => {
+            this.opts.orgs = fresh;
+            this.opts.setActiveOrg(slug);
+            this.showSection("org");
+          });
+        },
+      });
     });
-
-    wrap.append(nameInput, slugInput, createBtn, errorEl);
+    wrap.appendChild(createBtn);
     return wrap;
   }
 

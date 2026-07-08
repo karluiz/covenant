@@ -1,0 +1,202 @@
+/* Immersive Create-organization surface. Scoped under .canon-createorg.
+   Entrance language mirrors the Spec Creator (scrim + ambient field +
+   staggered rise). --mono-h (set from TS) tints the field + monogram toward
+   the org's identity as the name is typed. Sharp corners; neutral chrome;
+   alpha composed from --ink-rgb per the design hard-rules. */
+
+.canon-createorg {
+  --mono-h: 220;
+  position: fixed;
+  top: 38px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10100;
+  display: grid;
+  place-items: center;
+  font-family: var(--ui-font);
+}
+
+/* Blurred scrim over the app. */
+.canon-createorg-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--ink-rgb, 0 0 0) / 0.72);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+:root[data-theme="light"] .canon-createorg-scrim,
+body.theme-light .canon-createorg-scrim {
+  background: rgb(255 255 255 / 0.72);
+}
+
+/* Ambient identity field — two soft glows tinted by the org hue, drifting. */
+.canon-createorg-field {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.9s ease 0.1s, background 0.6s ease;
+  background:
+    radial-gradient(60% 55% at 50% 34%, hsl(var(--mono-h) 55% 55% / 0.16), transparent 70%),
+    radial-gradient(45% 50% at 78% 82%, hsl(calc(var(--mono-h) + 40) 55% 50% / 0.10), transparent 72%);
+  pointer-events: none;
+}
+.canon-createorg.open .canon-createorg-scrim { opacity: 1; }
+.canon-createorg.open .canon-createorg-field { opacity: 1; }
+
+.canon-createorg.closing { pointer-events: none; }
+.canon-createorg.closing .canon-createorg-scrim,
+.canon-createorg.closing .canon-createorg-field { opacity: 0; transition: opacity 0.26s ease; }
+
+/* Centered composition. */
+.canon-createorg-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: min(440px, calc(100vw - 64px));
+  text-align: center;
+}
+
+/* Staggered rise, reverses on close. */
+.canon-createorg-rise {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 0.45s ease var(--rise-delay, 0ms),
+    transform 0.5s cubic-bezier(0.18, 0.7, 0.27, 1) var(--rise-delay, 0ms);
+}
+.canon-createorg.open .canon-createorg-rise { opacity: 1; transform: none; }
+.canon-createorg.closing .canon-createorg-rise {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.canon-createorg-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fg-dim, #8b929b);
+}
+
+/* The hero: a large identity monogram that forms as you type. */
+.canon-createorg-mono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 92px;
+  height: 92px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 38px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: hsl(var(--mono-h) 62% 92%);
+  background: hsl(var(--mono-h) 40% 40%);
+  box-shadow: 0 0 0 1px rgb(var(--ink-rgb, 255 255 255) / 0.08),
+              0 18px 48px -20px hsl(var(--mono-h) 55% 45% / 0.65);
+  transition: background 0.35s ease, color 0.35s ease, transform 0.35s cubic-bezier(0.18, 0.7, 0.27, 1);
+}
+.canon-createorg-mono.is-empty {
+  background: transparent;
+  box-shadow: none;
+  border: 1px dashed rgb(var(--ink-rgb, 255 255 255) / 0.22);
+  color: transparent;
+}
+.canon-createorg.creating .canon-createorg-mono {
+  transform: scale(1.06);
+}
+
+/* Large, borderless name field. */
+.canon-createorg-name {
+  width: 100%;
+  padding: 2px 0;
+  font-family: inherit;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--text-primary, #f5f6f7);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.14);
+  border-radius: 0;
+  appearance: none;
+  outline: none;
+  caret-color: var(--accent, #7aa2f7);
+  transition: border-color 0.2s ease;
+}
+.canon-createorg-name::placeholder { color: var(--fg-dim, #8b929b); font-weight: 500; }
+.canon-createorg-name:focus { border-bottom-color: hsl(var(--mono-h) 55% 60%); }
+
+.canon-createorg-slug {
+  display: inline-flex;
+  gap: 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+.canon-createorg-slug-prefix { color: var(--fg-dim, #8b929b); }
+.canon-createorg-slug-val { color: hsl(var(--mono-h) 55% 72%); font-weight: 600; }
+.canon-createorg-slug.is-empty .canon-createorg-slug-val { color: var(--fg-dim, #8b929b); font-weight: 400; }
+
+.canon-createorg-err {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fail, #e5484d);
+}
+
+.canon-createorg-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.canon-createorg-cancel,
+.canon-createorg-create {
+  padding: 9px 20px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 0;
+  appearance: none;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+.canon-createorg-cancel {
+  color: var(--fg-dim, #8b929b);
+  background: transparent;
+  border: 1px solid transparent;
+}
+.canon-createorg-cancel:hover { color: var(--text-primary, #f5f6f7); }
+.canon-createorg-create {
+  color: hsl(var(--mono-h) 60% 94%);
+  background: hsl(var(--mono-h) 45% 42%);
+  border: 1px solid hsl(var(--mono-h) 45% 52%);
+}
+.canon-createorg-create:hover:not(:disabled) { background: hsl(var(--mono-h) 48% 47%); }
+.canon-createorg-create:disabled { opacity: 0.4; cursor: default; }
+.canon-createorg-create.is-busy { opacity: 0.7; cursor: progress; }
+
+.canon-createorg-hint {
+  font-size: 11px;
+  color: var(--fg-dim, #8b929b);
+}
+.canon-createorg-hint kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  color: var(--text-primary, #f5f6f7);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.08);
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canon-createorg-scrim,
+  .canon-createorg-field,
+  .canon-createorg-rise,
+  .canon-createorg-mono { transition: none; }
+}

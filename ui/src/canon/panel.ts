@@ -5,18 +5,14 @@ import { pushInfoToast } from "../notifications/toast";
 import { renderMarkdown } from "../mission/preview";
 import type { CanonStatus, Org, CanonEvalProgress } from "../api";
 import {
-  canonLocalStatus, canonMyOrgs, canonCreateOrg, canonPublish,
+  canonLocalStatus, canonMyOrgs, canonPublish,
   canonReadLocal, canonExport, canonRunEvals, onCanonEvalProgress,
 } from "../api";
-import { resolveActiveOrg } from "./org";
-
-/** Derive a valid org slug from a display name: lowercase, [a-z0-9-] only,
- *  collapse runs of dashes, trim leading/trailing dashes, cap at 40. Mirrors
- *  the server's `valid_slug`. */
-export function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "").slice(0, 40);
-}
+import { resolveActiveOrg, orgInitials, orgHue } from "./org";
+import { openCreateOrgExperience } from "./create-org/view";
+// Re-exported so existing consumers (cockpit, tests) keep importing from
+// "../panel"; the definitions live in ./org to avoid a panel↔create-org cycle.
+export { slugify, orgInitials, orgHue } from "./org";
 
 /** Format a token count for the compact inference readout: 1500 → "1.5k",
  *  2_400_000 → "2.4M". Shared with the cockpit's Loop section. */
@@ -193,22 +189,6 @@ export function iconButton(svg: string, label: string, onClick: () => void): HTM
 /** A downward chevron for the org chip — trusted static markup. */
 const CANON_CHEVRON =
   '<svg viewBox="0 0 12 12" width="10" height="10" fill="none" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-
-/** Two-letter identity initials for an org (first letters of the first two
- *  words, else the first two characters). */
-function orgInitials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-  return (name.trim().slice(0, 2) || "??").toUpperCase();
-}
-
-/** Deterministic hue (0–359) from a slug so each org keeps a stable identity
- *  color across the chip and the menu. */
-function orgHue(slug: string): number {
-  let h = 0;
-  for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) % 360;
-  return h;
-}
 
 /** The signature device: a sharp initials tile carrying the org's identity
  *  color, reused in the chip and every menu row. Color lives in CSS via the
@@ -404,7 +384,12 @@ export class CanonPanel {
     createRow.append(tile, lbl);
     createRow.addEventListener("click", () => {
       close();
-      this.openCreateOrgModal();
+      openCreateOrgExperience({
+        onCreated: (slug) => {
+          this.opts.setActiveOrg?.(slug);
+          void this.refresh();
+        },
+      });
     });
     menu.appendChild(createRow);
 
@@ -424,57 +409,6 @@ export class CanonPanel {
     if (mr.right > window.innerWidth - 8) {
       menu.style.left = `${Math.max(8, window.innerWidth - 8 - mr.width)}px`;
     }
-  }
-
-  private openCreateOrgModal(): void {
-    const overlay = document.createElement("div");
-    overlay.className = "canon-modal";
-    overlay.innerHTML = `
-      <div class="canon-modal-card">
-        <h3>Create organization</h3>
-        <label>Name<input class="canon-modal-name" placeholder="Cleverit" /></label>
-        <label>Slug<input class="canon-modal-slug" placeholder="cleverit" /></label>
-        <p class="canon-modal-err" hidden></p>
-        <div class="canon-modal-actions">
-          <button class="canon-modal-cancel">Cancel</button>
-          <button class="canon-modal-create">Create</button>
-        </div>
-      </div>`;
-    const nameEl = overlay.querySelector(".canon-modal-name") as HTMLInputElement;
-    const slugEl = overlay.querySelector(".canon-modal-slug") as HTMLInputElement;
-    const err = overlay.querySelector(".canon-modal-err") as HTMLElement;
-    let slugEdited = false;
-    slugEl.addEventListener("input", () => { slugEdited = true; });
-    nameEl.addEventListener("input", () => {
-      if (!slugEdited) slugEl.value = slugify(nameEl.value);
-    });
-    const close = (): void => {
-      overlay.remove();
-      document.removeEventListener("keydown", onKey);
-    };
-    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") close(); };
-    document.addEventListener("keydown", onKey);
-    overlay.querySelector(".canon-modal-cancel")?.addEventListener("click", close);
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-    overlay.querySelector(".canon-modal-create")?.addEventListener("click", () => {
-      void (async () => {
-        const slug = slugEl.value.trim();
-        const name = nameEl.value.trim();
-        if (!name || !slug) { err.hidden = false; err.textContent = "Name and slug required."; return; }
-        try {
-          await canonCreateOrg(slug, name);
-          this.opts.setActiveOrg?.(slug);
-          close();
-          await this.refresh();
-          pushInfoToast({ message: `Created organization ${name}` });
-        } catch (e) {
-          err.hidden = false;
-          err.textContent = String(e);
-        }
-      })();
-    });
-    document.body.appendChild(overlay);
-    nameEl.focus();
   }
 
   /** The group this panel is scoped to — used to re-scope on group switch. */

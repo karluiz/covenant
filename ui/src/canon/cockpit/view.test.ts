@@ -18,7 +18,12 @@ vi.mock("../../api", () => ({
   canonEvalSummary: vi.fn().mockResolvedValue([]),
 }));
 
+// The cockpit's "Create organization" button opens the immersive create
+// surface; mock it so we can capture and drive its onCreated callback.
+vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
+
 import { canonMyOrgs, canonSearch, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus } from "../../api";
+import { openCreateOrgExperience } from "../create-org/view";
 
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
@@ -54,7 +59,8 @@ describe("CanonCockpitView Members section", () => {
 });
 
 describe("CanonCockpitView create-org flow", () => {
-  it("refreshes the org list after create so the new org becomes active", async () => {
+  it("opens the create surface, then refreshes the org list so the new org becomes active", async () => {
+    vi.mocked(openCreateOrgExperience).mockClear();
     vi.mocked(canonMyOrgs).mockResolvedValue([
       { id: 1, slug: "karluiz", name: "karluiz", role: "owner", personal: true },
       { id: 2, slug: "neworg", name: "New Org", role: "owner", personal: false },
@@ -71,17 +77,14 @@ describe("CanonCockpitView create-org flow", () => {
     v.open();
 
     const wrap = v.element.querySelector(".canon-cockpit-org-create") as HTMLElement;
-    const nameInput = wrap.querySelector('input[placeholder="Organization name"]') as HTMLInputElement;
-    const slugInput = wrap.querySelector('input[placeholder="slug"]') as HTMLInputElement;
-    const createBtn = wrap.querySelector("button") as HTMLButtonElement;
-    nameInput.value = "New Org";
-    nameInput.dispatchEvent(new Event("input"));
-    slugInput.value = "neworg";
-    slugInput.dispatchEvent(new Event("input"));
-    createBtn.click();
+    (wrap.querySelector("button") as HTMLButtonElement).click();
 
-    // Flush the create -> refetch -> switch promise chain.
-    await Promise.resolve();
+    // The button opens the immersive create surface (not an inline form).
+    expect(openCreateOrgExperience).toHaveBeenCalledTimes(1);
+    const onCreated = vi.mocked(openCreateOrgExperience).mock.calls[0][0].onCreated;
+
+    // Simulate a successful create — the cockpit refetches, switches active.
+    onCreated("neworg");
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
