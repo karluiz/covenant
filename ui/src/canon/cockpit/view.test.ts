@@ -7,7 +7,10 @@ vi.mock("../../api", () => ({
   canonAddMember: vi.fn().mockResolvedValue(undefined),
   canonRemoveMember: vi.fn().mockResolvedValue(undefined),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
+  canonMyOrgs: vi.fn().mockResolvedValue([]),
 }));
+
+import { canonMyOrgs } from "../../api";
 
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
@@ -39,5 +42,43 @@ describe("CanonCockpitView Members section", () => {
     const ownerV = new CanonCockpitView(opts); // opts active org is owner
     ownerV.open(); ownerV.showSection("members");
     expect(ownerV.element.querySelector(".canon-cockpit-add-member")).toBeTruthy();
+  });
+});
+
+describe("CanonCockpitView create-org flow", () => {
+  it("refreshes the org list after create so the new org becomes active", async () => {
+    vi.mocked(canonMyOrgs).mockResolvedValue([
+      { id: 1, slug: "karluiz", name: "karluiz", role: "owner", personal: true },
+      { id: 2, slug: "neworg", name: "New Org", role: "owner", personal: false },
+    ]);
+    const setActiveOrg = vi.fn();
+    let active: string | null = "karluiz";
+    const createOpts = {
+      groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
+      orgs: [{ id: 1, slug: "karluiz", name: "karluiz", role: "owner", personal: true }],
+      getActiveOrg: () => active,
+      setActiveOrg: (slug: string | null) => { active = slug; setActiveOrg(slug); },
+    };
+    const v = new CanonCockpitView(createOpts);
+    v.open();
+
+    const wrap = v.element.querySelector(".canon-cockpit-org-create") as HTMLElement;
+    const nameInput = wrap.querySelector('input[placeholder="Organization name"]') as HTMLInputElement;
+    const slugInput = wrap.querySelector('input[placeholder="slug"]') as HTMLInputElement;
+    const createBtn = wrap.querySelector("button") as HTMLButtonElement;
+    nameInput.value = "New Org";
+    nameInput.dispatchEvent(new Event("input"));
+    slugInput.value = "neworg";
+    slugInput.dispatchEvent(new Event("input"));
+    createBtn.click();
+
+    // Flush the create -> refetch -> switch promise chain.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(setActiveOrg).toHaveBeenCalledWith("neworg");
+    expect(v.element.textContent).toContain("neworg");
   });
 });

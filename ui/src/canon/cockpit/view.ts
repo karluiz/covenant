@@ -9,7 +9,13 @@
 
 import "./cockpit.css";
 import type { Org, Member } from "../../api";
-import { canonOrgMembers, canonAddMember, canonRemoveMember, canonCreateOrg } from "../../api";
+import {
+  canonOrgMembers,
+  canonAddMember,
+  canonRemoveMember,
+  canonCreateOrg,
+  canonMyOrgs,
+} from "../../api";
 import { slugify } from "../panel";
 import { attachTooltip } from "../../tooltip/tooltip";
 
@@ -222,7 +228,12 @@ export class CanonCockpitView {
       errorEl.hidden = true;
       createBtn.disabled = true;
       void canonCreateOrg(slug, name)
-        .then(() => {
+        .then(() => canonMyOrgs())
+        .then((fresh) => {
+          // Refresh the snapshot before switching — opts.orgs is stale
+          // until now, so activeOrg() would otherwise fail to find the
+          // just-created slug and silently fall back to a different org.
+          this.opts.orgs = fresh;
           this.opts.setActiveOrg(slug);
           this.showSection("org");
         })
