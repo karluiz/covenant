@@ -90,8 +90,28 @@ body.tabbar-left .canon-cockpit {
 }
 
 .canon-cockpit-section {
+  max-width: 720px;
   color: var(--fg);
   font-size: var(--fs-body, 12px);
+}
+
+/* ── Shared: section header (title + one-line description) ──────────────── */
+.canon-cockpit-sec-head {
+  margin: 0 0 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.canon-cockpit-sec-title {
+  margin: 0 0 3px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #f5f6f7);
+}
+.canon-cockpit-sec-desc {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--fg-dim);
 }
 
 /* ── Shared: notes / errors ─────────────────────────────────────────── */
@@ -139,46 +159,131 @@ body.tabbar-left .canon-cockpit {
   cursor: default;
 }
 
-/* ── Org section ────────────────────────────────────────────────────── */
+/* ── Shared primitives (Capabilities-grade layout language) ───────────── */
 
-.canon-cockpit-org-active {
-  margin-bottom: 16px;
-}
-.canon-cockpit-org-name {
-  margin: 0 0 4px;
-  font-size: var(--fs-title, 15px);
-  font-weight: 600;
-  color: var(--text-primary, #f5f6f7);
-}
-.canon-cockpit-org-meta {
+/* Group label above a list. */
+.canon-cockpit-grouplabel {
+  margin: 22px 0 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
   color: var(--fg-dim);
-  font-size: var(--fs-body, 12px);
 }
 
-.canon-cockpit-org-switcher {
+/* Role/status badge. */
+.canon-cockpit-badge {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+}
+.canon-cockpit-badge.is-owner {
+  color: var(--canon-accent, var(--accent, #7aa2f7));
+  border-color: color-mix(in srgb, var(--canon-accent, var(--accent, #7aa2f7)) 45%, var(--border));
+}
+
+/* Bordered list of rows (org switcher, and reusable elsewhere). */
+.canon-cockpit-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-bottom: 16px;
+  border: 1px solid var(--border);
 }
-.canon-cockpit-org-row {
+.canon-cockpit-section .canon-cockpit-listitem {
+  --mono-size: 26px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: auto;
+  width: 100%;
+  padding: 10px 12px;
   text-align: left;
-  border-color: transparent;
-}
-.canon-cockpit-org-row.is-active {
-  border-color: var(--border);
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.canon-cockpit-list .canon-cockpit-listitem:last-child { border-bottom: 0; }
+.canon-cockpit-section .canon-cockpit-listitem:hover {
+  background: rgb(var(--ink-rgb, 245 246 247) / 0.05);
+  color: var(--text-primary);
+}
+.canon-cockpit-section .canon-cockpit-listitem.is-active {
+  background: rgb(var(--ink-rgb, 245 246 247) / 0.08);
+  border-left-color: var(--canon-accent, var(--accent, #7aa2f7));
+}
+.canon-cockpit-listitem-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+.canon-cockpit-listitem.is-active .canon-cockpit-listitem-name { font-weight: 600; }
+.canon-cockpit-listitem-meta {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.canon-cockpit-listitem.is-active .canon-cockpit-listitem-meta {
+  color: var(--canon-accent, var(--accent, #7aa2f7));
+}
+
+/* ── Org section ────────────────────────────────────────────────────── */
+
+/* Identity card — the active org as a subject: big monogram + name + slug. */
+.canon-cockpit-idcard {
+  --mono-size: 48px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  background: rgb(var(--ink-rgb, 245 246 247) / 0.03);
+}
+.canon-cockpit-idcard-text { min-width: 0; }
+.canon-cockpit-idcard-name {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #f5f6f7);
+}
+.canon-cockpit-idcard-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 5px;
+}
+.canon-cockpit-idcard-slug {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--fg-dim);
 }
 
 .canon-cockpit-org-create {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+  margin-top: 22px;
 }
-.canon-cockpit-org-create .canon-cockpit-error {
-  flex-basis: 100%;
+.canon-cockpit-section .canon-cockpit-create-btn {
+  height: 32px;
+  padding: 0 16px;
+  color: var(--text-primary);
+  background: rgb(var(--ink-rgb, 245 246 247) / 0.05);
+  border: 1px solid var(--border);
+}
+.canon-cockpit-section .canon-cockpit-create-btn:hover {
+  background: rgb(var(--ink-rgb, 245 246 247) / 0.1);
+  border-color: rgb(var(--ink-rgb, 245 246 247) / 0.25);
 }
 
 /* ── Members section ────────────────────────────────────────────────── */

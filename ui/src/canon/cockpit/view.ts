@@ -24,7 +24,7 @@ import {
   canonEvalSummary,
 } from "../../api";
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
-import { resolveActiveOrg } from "../org";
+import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
@@ -64,6 +64,16 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "context", label: "Context" },
   { key: "loop", label: "Loop" },
 ];
+
+/** Title + one-line description for each section's header. */
+const SECTION_HEAD: Record<SectionKey, [string, string]> = {
+  org: ["Organization", "The registry this group publishes to and installs from."],
+  members: ["Members", "People with access to this organization's Canon."],
+  skills: ["Skills", "Skills installed in this group, projected to your executors."],
+  registry: ["Registry", "Browse and install skills shared across the organization."],
+  context: ["Context", "Repo-mined context this group carries into every session."],
+  loop: ["Loop", "Adoption, inference footprint, and eval pass-rate for this group."],
+};
 
 export class CanonCockpitView {
   private root: HTMLElement;
@@ -138,14 +148,30 @@ export class CanonCockpitView {
   }
 
   private renderSection(key: SectionKey): HTMLElement {
-    switch (key) {
-      case "org": return this.renderOrgSection();
-      case "members": return this.renderMembersSection();
-      case "skills": return this.renderSkillsSection();
-      case "registry": return this.renderRegistrySection();
-      case "context": return this.renderContextSection();
-      case "loop": return this.renderLoopSection();
-    }
+    const body =
+      key === "org" ? this.renderOrgSection()
+      : key === "members" ? this.renderMembersSection()
+      : key === "skills" ? this.renderSkillsSection()
+      : key === "registry" ? this.renderRegistrySection()
+      : key === "context" ? this.renderContextSection()
+      : this.renderLoopSection();
+    body.prepend(this.sectionHead(SECTION_HEAD[key][0], SECTION_HEAD[key][1]));
+    return body;
+  }
+
+  /** A consistent section header: title + one-line description. Gives every
+   *  section the same top structure instead of dropping straight into content. */
+  private sectionHead(title: string, desc: string): HTMLElement {
+    const head = document.createElement("header");
+    head.className = "canon-cockpit-sec-head";
+    const h = document.createElement("h2");
+    h.className = "canon-cockpit-sec-title";
+    h.textContent = title;
+    const p = document.createElement("p");
+    p.className = "canon-cockpit-sec-desc";
+    p.textContent = desc;
+    head.append(h, p);
+    return head;
   }
 
   /** The org this cockpit is scoped to. Delegates to the shared resolver in
@@ -161,6 +187,14 @@ export class CanonCockpitView {
     return p;
   }
 
+  /** An uppercase section-group label (e.g. "Switch organization"). */
+  private groupLabel(text: string): HTMLElement {
+    const l = document.createElement("div");
+    l.className = "canon-cockpit-grouplabel";
+    l.textContent = text;
+    return l;
+  }
+
   /** Map raw API errors to a readable line. The server returns plain-text
    *  bodies via invoke's rejection — sniff for the common cases the brief
    *  calls out, fall back to the raw message otherwise. */
@@ -173,43 +207,73 @@ export class CanonCockpitView {
 
   // ── Org section ──────────────────────────────────────────────────────
 
+  /** A sharp identity monogram tile (shares the .canon-mono styling with the
+   *  rail chip/menu). `size` in px drives --mono-size. */
+  private monogram(org: Org, size: number): HTMLElement {
+    const m = document.createElement("span");
+    m.className = "canon-mono";
+    m.textContent = orgInitials(org.name);
+    m.style.setProperty("--mono-h", String(orgHue(org.slug)));
+    m.style.setProperty("--mono-size", `${size}px`);
+    return m;
+  }
+
   private renderOrgSection(): HTMLElement {
     const el = document.createElement("div");
     el.className = "canon-cockpit-section is-org";
     const active = this.activeOrg();
 
-    const head = document.createElement("div");
-    head.className = "canon-cockpit-org-active";
+    // Identity card — the active org as a proper subject, not a bare title.
     if (active) {
-      const name = document.createElement("h2");
-      name.className = "canon-cockpit-org-name";
+      const card = document.createElement("div");
+      card.className = "canon-cockpit-idcard";
+      const text = document.createElement("div");
+      text.className = "canon-cockpit-idcard-text";
+      const name = document.createElement("div");
+      name.className = "canon-cockpit-idcard-name";
       name.textContent = active.name;
       const meta = document.createElement("div");
-      meta.className = "canon-cockpit-org-meta";
-      meta.textContent = `${active.slug} · ${active.role}`;
-      head.append(name, meta);
+      meta.className = "canon-cockpit-idcard-meta";
+      const slug = document.createElement("span");
+      slug.className = "canon-cockpit-idcard-slug";
+      slug.textContent = `registry / ${active.slug}`;
+      const badge = document.createElement("span");
+      badge.className = "canon-cockpit-badge";
+      badge.classList.toggle("is-owner", active.role === "owner");
+      badge.textContent = active.role;
+      meta.append(slug, badge);
+      text.append(name, meta);
+      card.append(this.monogram(active, 48), text);
+      el.appendChild(card);
     } else {
-      head.appendChild(this.note("No organization selected."));
+      el.appendChild(this.note("No organization selected."));
     }
-    el.appendChild(head);
 
+    // Switch organization — a labeled list of every org the caller belongs to.
     if (this.opts.orgs.length > 0) {
-      const switcher = document.createElement("div");
-      switcher.className = "canon-cockpit-org-switcher";
+      el.appendChild(this.groupLabel("Switch organization"));
+      const list = document.createElement("div");
+      list.className = "canon-cockpit-list";
       for (const org of this.opts.orgs) {
         const row = document.createElement("button");
         row.type = "button";
-        row.className = "canon-cockpit-org-row";
-        if (active && org.slug === active.slug) row.classList.add("is-active");
-        row.textContent = org.name;
-        attachTooltip(row, `${org.slug} · ${org.role}`);
+        row.className = "canon-cockpit-listitem";
+        const isActive = !!active && org.slug === active.slug;
+        if (isActive) row.classList.add("is-active");
+        const name = document.createElement("span");
+        name.className = "canon-cockpit-listitem-name";
+        name.textContent = org.name;
+        const role = document.createElement("span");
+        role.className = "canon-cockpit-listitem-meta";
+        role.textContent = isActive ? "current" : org.role;
+        row.append(this.monogram(org, 26), name, role);
         row.addEventListener("click", () => {
           this.opts.setActiveOrg(org.slug);
           this.showSection("org");
         });
-        switcher.appendChild(row);
+        list.appendChild(row);
       }
-      el.appendChild(switcher);
+      el.appendChild(list);
     }
 
     el.appendChild(this.renderCreateOrgRow());
