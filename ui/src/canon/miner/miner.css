@@ -6,7 +6,12 @@
 
 .canon-miner {
   position: fixed;
-  inset: 0;
+  /* Respect the titlebar (traffic lights, 38px) — was inset:0, which painted
+     over the window controls. */
+  top: 38px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 9500;
   display: flex;
   flex-direction: column;
@@ -70,7 +75,7 @@
   gap: 6px;
   height: 26px;
   padding: 0 10px;
-  border-radius: var(--rail-radius, 6px);
+  border-radius: 0;
   border: 1px solid var(--border);
   background: rgba(var(--ink-rgb), 0.04);
   color: var(--fg);
@@ -100,7 +105,7 @@
   justify-content: center;
   width: 26px;
   height: 26px;
-  border-radius: var(--rail-radius, 6px);
+  border-radius: 0;
   border: 0;
   background: none;
   color: var(--fg-dim);
@@ -123,29 +128,39 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px;
+  /* Ambient field so the setup isn't a flat void (the card's --bg-elevated
+     equals the surface on light theme). Subtle accent atmosphere. */
+  background:
+    radial-gradient(68% 58% at 50% 36%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%),
+    radial-gradient(48% 44% at 82% 86%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 72%);
 }
 
 .canon-miner-setup-card {
-  width: min(560px, calc(100vw - 64px));
+  width: min(540px, calc(100vw - 64px));
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 28px;
-  border-radius: 10px;
+  gap: 16px;
+  padding: 30px 32px;
+  border-radius: 0;
   border: 1px solid var(--border);
+  /* Accent top-edge marks this as the primary action surface. */
+  border-top: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
   background: var(--bg-elevated);
 }
 
 .canon-miner-setup-title {
-  font-size: 15px;
+  font-size: 19px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 
 .canon-miner-setup-sub {
   font-size: var(--fs-body, 12px);
   color: var(--fg-dim);
-  margin-top: -8px;
+  margin-top: -10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .canon-miner-field { display: flex; flex-direction: column; gap: 5px; }
@@ -156,18 +171,20 @@
   letter-spacing: 0.05em;
 }
 .canon-miner-field input[type="text"] {
-  height: 32px;
-  padding: 0 10px;
-  border-radius: var(--rail-radius, 6px);
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: rgba(var(--ink-rgb), 0.04);
   color: var(--fg);
-  font-size: var(--fs-body, 12px);
+  font-size: 13px;
   font-family: inherit;
+  transition: border-color 120ms, background 120ms;
 }
 .canon-miner-field input[type="text"]:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  background: rgba(var(--ink-rgb), 0.06);
 }
 .canon-miner-field input::placeholder { color: var(--fg-dim); }
 
@@ -277,7 +294,7 @@
   gap: 8px;
   padding: 12px 14px;
   margin-bottom: 10px;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
 }
@@ -301,7 +318,7 @@
 .canon-miner-badge {
   font-size: var(--fs-micro, 10px);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   background: rgba(var(--ink-rgb), 0.07);
@@ -317,7 +334,7 @@
   line-height: 1.5;
   color: var(--fg);
   white-space: pre-wrap;
-  border-radius: 4px;
+  border-radius: 0;
   padding: 2px 4px;
   margin: -2px -4px;
   cursor: text;
@@ -339,7 +356,7 @@
   font-size: var(--fs-micro, 10px);
   color: var(--fg-dim);
   background: rgba(var(--ink-rgb), 0.06);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 2px 6px;
 }
 
@@ -359,7 +376,7 @@
   color: var(--fg-dim);
   text-decoration: line-through;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 0;
 }
 .canon-miner-discarded:hover { background: rgba(var(--ink-rgb), 0.04); }
 
