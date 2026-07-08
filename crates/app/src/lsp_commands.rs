@@ -66,34 +66,189 @@ pub struct LspServerStatus {
 pub struct LspStartResult {
     pub server_id: u64,
     pub root: String,
-    /// Absolute path to the `.sln` (falling back to the first `.csproj`)
-    /// found directly under `root`, for servers that need the Task-3-verified
-    /// post-initialize `solution/open` handshake (currently csharp/Roslyn
-    /// only — cross-file definitions never resolve without it). `None` for
-    /// every other language.
-    #[serde(default)]
+    /// Absolute path to the `.sln`/`.slnx` (falling back to the first
+    /// `.csproj`) found under `root` (see `find_solution_path`), for
+    /// servers that need the Task-3-verified post-initialize `solution/open`
+    /// handshake (currently csharp/Roslyn only — cross-file definitions
+    /// never resolve without it). `None` for every other language.
     pub solution_path: Option<String>,
 }
 
-/// `root`'s `.sln` (else its first `.csproj`), for languages whose server
-/// needs a post-initialize solution handshake. Non-recursive: `root` is
-/// already the outermost ancestor directory `detect_root` found containing
-/// one of these markers (see `root::marker_matches`), so the file is a
-/// direct child, never nested deeper.
+/// Directory names never worth descending into while searching for a
+/// solution/project file: build output, dependency caches, and VCS/hidden
+/// dirs. Checked by exact name; hidden dirs (leading `.`) are skipped
+/// separately in `find_first_bounded`.
+const SKIP_DIRS: &[&str] = &["bin", "obj", "node_modules", ".git"];
+
+/// Depth bound for the recursive descent below. `root` itself is depth 0;
+/// `root/src/App.csproj` is found at depth 1. Kept small since this walks
+/// on every `lsp_start` call — a repo with a `.sln`/`.csproj` more than a
+/// few directories below `root` is not a layout we need to support.
+const MAX_DESCENT_DEPTH: u32 = 3;
+
+/// First `root` entry (direct children only, sorted by name for a
+/// deterministic result) whose filename ends with `suffix`.
+fn find_direct_child(root: &Path, suffix: &str) -> Option<PathBuf> {
+    let mut entries: Vec<_> = std::fs::read_dir(root).ok()?.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+    entries.into_iter().find_map(|entry| {
+        let name = entry.file_name();
+        let name = name.to_str()?;
+        name.ends_with(suffix).then(|| root.join(name))
+    })
+}
+
+/// Bounded, depth-first search under (but not including) `dir` for the
+/// first file whose name ends with `suffix`. Directory entries are sorted
+/// so the result is stable across filesystems/platforms rather than
+/// dependent on readdir order. Skips `SKIP_DIRS` and hidden directories;
+/// stops descending past `MAX_DESCENT_DEPTH`.
+fn find_first_bounded(dir: &Path, suffix: &str, depth: u32) -> Option<PathBuf> {
+    if depth > MAX_DESCENT_DEPTH {
+        return None;
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(dir).ok()?.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+
+    // Files at this level first, so a shallower match always wins over one
+    // found by descending into an earlier sibling directory.
+    for entry in &entries {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if entry.path().is_file() && name.ends_with(suffix) {
+            return Some(entry.path());
+        }
+    }
+    for entry in &entries {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !entry.path().is_dir() {
+            continue;
+        }
+        if name.starts_with('.') || SKIP_DIRS.contains(&name) {
+            continue;
+        }
+        if let Some(found) = find_first_bounded(&entry.path(), suffix, depth + 1) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// A `.sln`/`.slnx` (else a `.csproj`), for languages whose server needs a
+/// post-initialize solution handshake (currently csharp/Roslyn only).
+/// `root` is the outermost ancestor `detect_root` found containing one of
+/// `spec.root_markers` — for csharp that includes `global.json`, which is
+/// commonly the *only* thing at the repo root, with the actual
+/// `.sln`/`.csproj` nested under `src/` or similar. So this does not stop
+/// at `root`'s direct children: it prefers a `.sln` directly in `root`,
+/// then falls back to a bounded recursive descent (depth `MAX_DESCENT_DEPTH`,
+/// skipping `SKIP_DIRS`/hidden dirs) for the first `.sln`, then repeats the
+/// same direct/descent search for `.csproj`. Logs a warning (not silent)
+/// when nothing is found at all, since that means `solution/open` never
+/// fires and cross-file resolution silently degrades.
 fn find_solution_path(root: &Path, language: &str) -> Option<String> {
     if language != "csharp" {
         return None;
     }
-    let find_ext = |suffix: &str| -> Option<PathBuf> {
-        std::fs::read_dir(root).ok()?.flatten().find_map(|entry| {
-            let name = entry.file_name();
-            let name = name.to_str()?;
-            name.ends_with(suffix).then(|| root.join(name))
-        })
-    };
-    find_ext(".sln")
-        .or_else(|| find_ext(".csproj"))
-        .map(|p| p.to_string_lossy().to_string())
+    let found = find_direct_child(root, ".sln")
+        .or_else(|| find_direct_child(root, ".slnx"))
+        .or_else(|| find_first_bounded(root, ".sln", 1))
+        .or_else(|| find_first_bounded(root, ".slnx", 1))
+        .or_else(|| find_direct_child(root, ".csproj"))
+        .or_else(|| find_first_bounded(root, ".csproj", 1));
+
+    if found.is_none() {
+        tracing::warn!(
+            root = %root.to_string_lossy(),
+            "csharp: no .sln/.csproj found under root; solution/open will not fire, cross-file resolution degraded"
+        );
+    }
+    found.map(|p| p.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod find_solution_path_tests {
+    use super::*;
+    use std::fs;
+
+    fn touch(p: &Path) {
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, "").unwrap();
+    }
+
+    #[test]
+    fn global_json_at_root_finds_nested_csproj() {
+        let t = tempfile::tempdir().unwrap();
+        touch(&t.path().join("global.json"));
+        touch(&t.path().join("src/App.csproj"));
+        let found = find_solution_path(t.path(), "csharp");
+        assert_eq!(
+            found,
+            Some(
+                t.path()
+                    .join("src/App.csproj")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn prefers_sln_directly_in_root() {
+        let t = tempfile::tempdir().unwrap();
+        touch(&t.path().join("Foo.sln"));
+        touch(&t.path().join("src/App.csproj"));
+        let found = find_solution_path(t.path(), "csharp");
+        assert_eq!(
+            found,
+            Some(t.path().join("Foo.sln").to_string_lossy().to_string())
+        );
+    }
+
+    #[test]
+    fn empty_dir_returns_none() {
+        let t = tempfile::tempdir().unwrap();
+        assert_eq!(find_solution_path(t.path(), "csharp"), None);
+    }
+
+    #[test]
+    fn non_csharp_short_circuits_without_touching_disk() {
+        // A nonexistent path would fail any read_dir call; confirms the
+        // language check returns None before ever inspecting `root`.
+        let bogus = Path::new("/does/not/exist/at/all");
+        assert_eq!(find_solution_path(bogus, "rust"), None);
+    }
+
+    #[test]
+    fn skips_bin_obj_and_hidden_dirs() {
+        let t = tempfile::tempdir().unwrap();
+        touch(&t.path().join("global.json"));
+        touch(&t.path().join("bin/Decoy.csproj"));
+        touch(&t.path().join("obj/Decoy2.csproj"));
+        touch(&t.path().join(".hidden/Decoy3.csproj"));
+        touch(&t.path().join("src/App.csproj"));
+        let found = find_solution_path(t.path(), "csharp");
+        assert_eq!(
+            found,
+            Some(
+                t.path()
+                    .join("src/App.csproj")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn descent_beyond_max_depth_is_not_found() {
+        let t = tempfile::tempdir().unwrap();
+        touch(&t.path().join("global.json"));
+        // depth: a/b/c/d/Too.csproj is 4 levels below root — beyond
+        // MAX_DESCENT_DEPTH (3) — so it must not be found.
+        touch(&t.path().join("a/b/c/d/Too.csproj"));
+        assert_eq!(find_solution_path(t.path(), "csharp"), None);
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
