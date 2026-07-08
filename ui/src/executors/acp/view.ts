@@ -549,6 +549,11 @@ export class AcpChatView {
   private readonly onTitle?: (title: string) => void;
   /// One title per view — first real user prompt wins.
   private titleSent = false;
+  /// Set once an LLM-generated title actually lands. Until then the tab
+  /// shows the truncated-prompt fallback, and `prompt_done` retries the
+  /// titler with the full transcript (mirrors the PTY screen titler, which
+  /// names the tab from the agent's output rather than the bare prompt).
+  private llmTitled = false;
   /// Images pasted into the composer, sent as ACP `image` blocks with
   /// the next prompt and cleared. Rendered as removable chips.
   private pendingImages: AcpImageAttachment[] = [];
@@ -1294,6 +1299,10 @@ export class AcpChatView {
       case "prompt_done":
         this.setInFlight(false);
         this.renderNoticeTail();
+        // Retry the titler now that the agent has responded — the bare
+        // first prompt often isn't enough to name the tab.
+        if (this.titleSent && !this.llmTitled && this.onTitle)
+          this.runTitler(this.transcriptForTitle());
         break;
       case "session_dead":
         this.setInFlight(false);
@@ -1341,13 +1350,38 @@ export class AcpChatView {
     // Instant fallback (first prompt line) while the real titler runs —
     // same 2-word LLM label PTY tabs get from the screen summarizer.
     this.onTitle(title);
-    void acpSuggestTitle(this.sessionId, text)
+    this.runTitler(text);
+  }
+
+  /// Ask the LLM for a 2-word title from `transcript`. Applies the result
+  /// only on success; leaves `llmTitled` false on null/empty so the next
+  /// `prompt_done` retries with a richer transcript.
+  private runTitler(transcript: string): void {
+    void acpSuggestTitle(this.sessionId, transcript)
       .then((t) => {
-        if (t && t.trim().length > 0) this.onTitle?.(t.trim());
+        if (t && t.trim().length > 0) {
+          this.llmTitled = true;
+          this.onTitle?.(t.trim());
+        }
       })
       .catch(() => {
         /* fallback title already set */
       });
+  }
+
+  /// Build a compact "you: … / assistant: …" transcript from the first
+  /// user prompt and agent prose — enough for the titler to name the topic
+  /// when the bare prompt was too vague. Capped so we never ship a wall of
+  /// text to the LLM.
+  private transcriptForTitle(): string {
+    const lines: string[] = [];
+    for (const it of this.state.items) {
+      if (it.kind === "user") lines.push(`you: ${it.text.trim()}`);
+      else if (it.kind === "prose" && it.role !== "thought")
+        lines.push(`assistant: ${it.text.trim()}`);
+      if (lines.length >= 4) break;
+    }
+    return lines.join("\n\n").slice(0, 2000);
   }
 
   private renderProseTail(): void {

@@ -15,6 +15,7 @@ export class ChangesSurface {
   private diffEl: HTMLElement | null = null;
   private msgEl: HTMLTextAreaElement | null = null;
   private commitBtn: HTMLButtonElement | null = null;
+  private pushBtn: HTMLButtonElement | null = null;
   private summarizeBtn: HTMLButtonElement | null = null;
   private statusEl: HTMLElement | null = null;
   private selectedPath: string | null = null;
@@ -114,9 +115,12 @@ export class ChangesSurface {
     msg.placeholder = "Commit message…";
     msg.spellcheck = false;
     msg.addEventListener("input", () => this.syncCommitBar());
-    // ⌘/Ctrl+Enter commits.
+    // ⌘/Ctrl+Enter commits, ⌘/Ctrl+Shift+Enter commits & pushes.
     msg.addEventListener("keydown", (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void this.commit(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        void this.commit(e.shiftKey);
+      }
     });
     this.msgEl = msg;
 
@@ -126,10 +130,10 @@ export class ChangesSurface {
 
     const row = document.createElement("div");
     row.className = "cd-commit-actions";
+
     const summarize = document.createElement("button");
     summarize.type = "button";
     summarize.className = "cd-summarize";
-    // ponytail: inline SVG (no emoji); inherits currentColor for hover/disabled.
     summarize.innerHTML =
       `<svg class="cd-summarize-icon" viewBox="0 0 24 24" width="14" height="14" ` +
       `fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ` +
@@ -138,13 +142,22 @@ export class ChangesSurface {
       `M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg><span>Summarize</span>`;
     summarize.addEventListener("click", () => void this.summarize());
     this.summarizeBtn = summarize;
+
     const commit = document.createElement("button");
     commit.type = "button";
     commit.className = "cd-commit-btn";
-    commit.textContent = "Commit & Push";
-    commit.addEventListener("click", () => void this.commit());
+    commit.innerHTML = `<span>Commit</span><kbd class="cd-kbd">&#8984;&#9166;</kbd>`;
+    commit.addEventListener("click", () => void this.commit(false));
     this.commitBtn = commit;
-    row.append(summarize, commit);
+
+    const push = document.createElement("button");
+    push.type = "button";
+    push.className = "cd-push-btn";
+    push.innerHTML = `<span>Commit &amp; Push</span><kbd class="cd-kbd">&#8984;&#8679;&#9166;</kbd>`;
+    push.addEventListener("click", () => void this.commit(true));
+    this.pushBtn = push;
+
+    row.append(summarize, commit, push);
 
     bar.append(msg, status, row);
     return bar;
@@ -157,6 +170,7 @@ export class ChangesSurface {
     const hasMsg = !!this.msgEl?.value.trim();
     if (this.summarizeBtn) this.summarizeBtn.disabled = !hasChanges;
     if (this.commitBtn) this.commitBtn.disabled = !hasChanges || !hasMsg;
+    if (this.pushBtn) this.pushBtn.disabled = !hasChanges || !hasMsg;
   }
 
   private statusTimer: number | null = null;
@@ -164,15 +178,41 @@ export class ChangesSurface {
   private setStatus(text: string, err = false, fade = false): void {
     if (!this.statusEl) return;
     if (this.statusTimer !== null) { clearTimeout(this.statusTimer); this.statusTimer = null; }
-    this.statusEl.textContent = text;
     this.statusEl.classList.toggle("cd-commit-status--err", err);
+    this.statusEl.classList.toggle("cd-commit-status--ok", fade && !err);
     this.statusEl.classList.remove("cd-commit-status--fade");
-    if (!fade || !text) return;
-    // Hold briefly, then fade out (CSS transition) and clear.
+
+    if (!text) {
+      this.statusEl.innerHTML = "";
+      return;
+    }
+
+    if (err) {
+      // Structured error banner with dismiss.
+      const icon = `<svg class="cd-status-icon" viewBox="0 0 16 16" width="13" height="13" ` +
+        `fill="currentColor" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1ZM7 ` +
+        `4.75a1 1 0 1 1 2 0v3.5a1 1 0 1 1-2 0V4.75Zm1 7.75a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>`;
+      const dismiss = `<button type="button" class="cd-status-dismiss" aria-label="Dismiss">&times;</button>`;
+      this.statusEl.innerHTML = `${icon}<span class="cd-status-text">${escHtml(text)}</span>${dismiss}`;
+      this.statusEl.querySelector(".cd-status-dismiss")?.addEventListener("click", () => this.setStatus(""));
+    } else if (fade) {
+      // Success: checkmark + message.
+      const icon = `<svg class="cd-status-icon" viewBox="0 0 16 16" width="13" height="13" ` +
+        `fill="currentColor" aria-hidden="true"><path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm` +
+        `3.78-9.72a.75.75 0 0 0-1.06-1.06L7 8.94 5.28 7.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a` +
+        `.75.75 0 0 0 1.06 0l4.25-4.25Z"/></svg>`;
+      this.statusEl.innerHTML = `${icon}<span class="cd-status-text">${escHtml(text)}</span>`;
+    } else {
+      // In-progress: spinner + message.
+      const spinner = `<span class="cd-status-spinner"></span>`;
+      this.statusEl.innerHTML = `${spinner}<span class="cd-status-text">${escHtml(text)}</span>`;
+    }
+
+    if (!fade) return;
     this.statusTimer = window.setTimeout(() => {
       this.statusEl?.classList.add("cd-commit-status--fade");
       this.statusTimer = window.setTimeout(() => this.setStatus(""), 600);
-    }, 1800);
+    }, 2400);
   }
 
   private async summarize(): Promise<void> {
@@ -193,20 +233,23 @@ export class ChangesSurface {
     }
   }
 
-  private async commit(): Promise<void> {
+  private async commit(push = false): Promise<void> {
     if (!this.msgEl) return;
     const message = this.msgEl.value.trim();
     const hasChanges = this.changes.staged.length > 0 || this.changes.unstaged.length > 0;
     if (!message || !hasChanges) return;
     if (this.commitBtn) this.commitBtn.disabled = true;
-    this.setStatus("Committing & pushing…");
+    if (this.pushBtn) this.pushBtn.disabled = true;
+    const verb = push ? "Committing & pushing" : "Committing";
+    this.setStatus(`${verb}…`);
     try {
-      this.changes = await gitCommit(this.repoRoot, message, true);
+      this.changes = await gitCommit(this.repoRoot, message, push);
       this.msgEl.value = "";
       this.selectedPath = null;
       this.renderEmptyDiff();
       this.renderRailInto();
-      this.setStatus("Committed & pushed", false, true);
+      const done = push ? "Committed & pushed" : "Committed";
+      this.setStatus(done, false, true);
     } catch (e) {
       this.setStatus(String(e), true);
     } finally {
@@ -285,4 +328,8 @@ function repoBasename(root: string): string {
   const trimmed = root.replace(/\/+$/, "");
   const i = trimmed.lastIndexOf("/");
   return i === -1 ? trimmed : trimmed.slice(i + 1);
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
