@@ -27,6 +27,7 @@ const LSP_IDLE_MS = 10 * 60 * 1000;
 
 export type LspDocStatus =
   | { kind: "unsupported" }
+  | { kind: "needs-runtime"; name: string; min: string; found: string | null }
   | { kind: "consent-needed"; name: string; approxSizeMb: number }
   | { kind: "downloading"; percent: number | null }
   | { kind: "starting" }
@@ -34,8 +35,12 @@ export type LspDocStatus =
   | { kind: "error"; message: string };
 
 export function lspLanguageId(path: string): string | null {
-  // ponytail: P1 = rust only; TS/C#/Java extend this table in P3-P5.
-  return /\.rs$/i.test(path) ? "rust" : null;
+  // ponytail: C#/Java extend this table in P4-P5.
+  if (/\.rs$/i.test(path)) return "rust";
+  // typescript-language-server handles plain JS too (incl. JSX/module
+  // variants), so every one of these maps to the "typescript" server.
+  if (/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/i.test(path)) return "typescript";
+  return null;
 }
 
 // ---- Consent store ----------------------------------------------------
@@ -281,6 +286,17 @@ class LspManager {
     try {
       const st = await lspServerStatus(language);
       if (st.installed) return { kind: "ready" };
+      // Runtime (e.g. Node for npm-installed servers) missing entirely —
+      // no point walking the consent/download flow if we can't even run
+      // the server once it's downloaded.
+      if (st.runtimeMissing) {
+        return {
+          kind: "needs-runtime",
+          name: st.runtimeMissing.name,
+          min: st.runtimeMissing.min,
+          found: st.runtimeMissing.found ?? null,
+        };
+      }
       if (!(await consentState(language))) {
         return { kind: "consent-needed", name: st.name, approxSizeMb: st.approxSizeMb };
       }
@@ -297,11 +313,25 @@ class LspManager {
   }
 
   async download(language: string, onProgress: (percent: number | null) => void): Promise<void> {
-    const un = await listen<{ received: number; total: number | null }>(
+    // Two payload shapes share this event, depending on which install
+    // path the backend takes: binary downloads (rust-analyzer) emit
+    // byte progress `{ received, total }`; npm installs (typescript,
+    // via `npm install`) are indeterminate and emit `{ message }`
+    // instead. Discriminate on the `received` field's presence rather
+    // than a language check — keeps this listener agnostic of which
+    // languages use which install path.
+    const un = await listen<{ received: number; total: number | null } | { message: string }>(
       `lsp://download/${language}`,
       (e) => {
-        const { received, total } = e.payload;
-        onProgress(total ? Math.round((received / total) * 100) : null);
+        const payload = e.payload;
+        if ("received" in payload) {
+          const { received, total } = payload;
+          onProgress(total ? Math.round((received / total) * 100) : null);
+        } else {
+          // npm install progress has no meaningful percent — render as
+          // indeterminate (matches the `total === null` binary case).
+          onProgress(null);
+        }
       },
     );
     try {

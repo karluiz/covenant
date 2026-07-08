@@ -1122,6 +1122,29 @@ export class StructureEditor {
       case "unsupported":
         chip.hidden = true;
         break;
+      case "needs-runtime": {
+        chip.hidden = true;
+        banner.hidden = false;
+        banner.replaceChildren();
+        const label = document.createElement("span");
+        // status.name is the runtime binary name (e.g. "node") — capitalize
+        // for display. Phrasing stays generic (not hardcoded to
+        // TypeScript/Node) since future npm-installed servers (C#/Java, P4-P5)
+        // reuse this same banner with a different runtime.
+        const runtimeName = status.name.charAt(0).toUpperCase() + status.name.slice(1);
+        label.textContent =
+          `Code intelligence needs ${runtimeName} ≥ ${status.min}` +
+          (status.found ? ` (found ${status.found})` : " — not found in your shell PATH");
+        const recheck = document.createElement("button");
+        recheck.type = "button";
+        recheck.textContent = "Recheck";
+        recheck.addEventListener("click", () => {
+          const path = this.currentPath;
+          if (path) void this.setupLsp(path);
+        });
+        banner.append(label, recheck);
+        break;
+      }
       case "consent-needed": {
         chip.hidden = true;
         banner.hidden = false;

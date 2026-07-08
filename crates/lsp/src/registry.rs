@@ -18,6 +18,46 @@ pub enum ArchiveKind {
     Gzip,
 }
 
+/// A runtime (e.g. Node.js) a server needs on the user's machine. Mirrors
+/// `runtime::RuntimeReq`'s fields so the manifest can describe the
+/// requirement without this crate's registry module depending on how the
+/// runtime is actually resolved.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RuntimeSpec {
+    pub name: String,
+    pub min_version: String,
+    pub version_arg: String,
+}
+
+impl RuntimeSpec {
+    pub fn as_runtime_req(&self) -> crate::runtime::RuntimeReq {
+        crate::runtime::RuntimeReq {
+            name: self.name.clone(),
+            min_version: self.min_version.clone(),
+            version_arg: self.version_arg.clone(),
+        }
+    }
+}
+
+/// How to fetch a server that installs via `npm install` rather than a
+/// downloaded binary artifact.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NpmSpec {
+    pub packages: Vec<String>,
+    /// JS entry point relative to the install dir, e.g.
+    /// "node_modules/typescript-language-server/lib/cli.mjs".
+    pub bin_entry: String,
+}
+
+/// How a server's files are obtained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallKind {
+    /// A single sha256-verified gzipped binary (rust-analyzer today).
+    Binary,
+    /// `npm install` into the version dir; launched via the user's node.
+    Npm,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerSpec {
     pub language: String,
@@ -28,7 +68,12 @@ pub struct ServerSpec {
     pub args: Vec<String>,
     pub root_markers: Vec<String>,
     pub approx_size_mb: u32,
+    #[serde(default)]
     pub artifacts: HashMap<String, Artifact>,
+    #[serde(default)]
+    pub runtime: Option<RuntimeSpec>,
+    #[serde(default)]
+    pub npm: Option<NpmSpec>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +120,16 @@ impl ServerSpec {
             .get(key)
             .ok_or_else(|| LspError::NoArtifact(key.to_string()))
     }
+
+    /// Npm iff the manifest entry declares an `npm` install method;
+    /// otherwise the server ships as a downloaded binary artifact.
+    pub fn install_kind(&self) -> InstallKind {
+        if self.npm.is_some() {
+            InstallKind::Npm
+        } else {
+            InstallKind::Binary
+        }
+    }
 }
 
 #[cfg(test)]
@@ -100,5 +155,37 @@ mod tests {
         let art = spec.artifact().expect("artifact for current platform");
         assert!(art.url.starts_with("https://"));
         assert_eq!(art.sha256.len(), 64);
+    }
+
+    #[test]
+    fn rust_entry_is_binary_install_kind() {
+        let spec = spec_for_language("rust").unwrap();
+        assert_eq!(spec.install_kind(), InstallKind::Binary);
+        assert!(spec.npm.is_none());
+        assert!(spec.runtime.is_none());
+    }
+
+    #[test]
+    fn typescript_entry_has_npm_and_runtime() {
+        let spec = spec_for_language("typescript").expect("typescript in manifest");
+        assert_eq!(spec.name, "typescript-language-server");
+        assert_eq!(spec.install_kind(), InstallKind::Npm);
+
+        let npm = spec.npm.as_ref().expect("typescript entry has npm spec");
+        assert!(!npm.packages.is_empty());
+        assert!(npm
+            .packages
+            .iter()
+            .any(|p| p.starts_with("typescript-language-server@")));
+        assert_eq!(
+            npm.bin_entry,
+            "node_modules/typescript-language-server/lib/cli.mjs"
+        );
+
+        let runtime = spec
+            .runtime
+            .as_ref()
+            .expect("typescript entry has runtime spec");
+        assert_eq!(runtime.name, "node");
     }
 }

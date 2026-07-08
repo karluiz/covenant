@@ -10,8 +10,16 @@ pub fn install_root(data_dir: &Path, spec: &ServerSpec) -> PathBuf {
     data_dir.join("lsp").join(&spec.name).join(&spec.version)
 }
 
+/// Path to the runnable entry inside the install dir. For a `Binary`
+/// server this is the downloaded executable (`spec.cmd`); for an `Npm`
+/// server this is the JS entry point (`npm.bin_entry`) that gets launched
+/// with the user's node (resolved separately, see `runtime`).
 pub fn entry_path(data_dir: &Path, spec: &ServerSpec) -> PathBuf {
-    install_root(data_dir, spec).join(&spec.cmd)
+    let root = install_root(data_dir, spec);
+    match &spec.npm {
+        Some(npm) => root.join(&npm.bin_entry),
+        None => root.join(&spec.cmd),
+    }
 }
 
 pub fn is_installed(data_dir: &Path, spec: &ServerSpec) -> bool {
@@ -132,6 +140,103 @@ pub async fn download(
     install_from_bytes(&bytes, spec, data_dir)
 }
 
+/// Locate the `npm` executable to invoke directly (never shelled through
+/// `sh -lc` with interpolated arguments — package names/versions come from
+/// the baked-in registry, but avoiding string interpolation into a shell
+/// entirely is simply cleaner and cheaper to reason about).
+///
+/// npm ships alongside `node` in the same bin dir for every mainstream
+/// Node distribution (nvm, volta, fnm, Homebrew, the official installer),
+/// so try that first. Fall back to asking the login shell only to resolve
+/// the *path* — no untrusted data is interpolated into that command.
+fn resolve_npm_path(node_dir: &Path) -> Result<PathBuf, LspError> {
+    let candidate = node_dir.join(if cfg!(windows) { "npm.cmd" } else { "npm" });
+    if candidate.is_file() {
+        return Ok(candidate);
+    }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let out = std::process::Command::new(&shell)
+        .args(["-lc", "command -v npm"])
+        .output()
+        .map_err(|e| LspError::Spawn(format!("login shell: {e}")))?;
+    let path_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || path_str.is_empty() {
+        return Err(LspError::Spawn("npm not found on PATH".into()));
+    }
+    Ok(PathBuf::from(path_str))
+}
+
+/// Install an npm-method server (e.g. typescript-language-server) into
+/// `<data_dir>/lsp/<name>/<version>/` via `npm install --prefix`.
+///
+/// `node_dir` is the directory containing the user's resolved `node`
+/// binary (see `runtime::detect`); it's used both to locate `npm` and to
+/// put on the child's `PATH` so npm's own `node` shebang resolves.
+///
+/// Package names/versions are passed as separate `Command` args, never
+/// interpolated into a shell string, so nothing here is shell-injectable.
+/// `progress` fires immediately and then periodically while npm runs —
+/// npm install has no meaningful byte-stream progress, unlike the binary
+/// download path.
+///
+/// ponytail: npm handles integrity via package-lock; we trust the user's registry
+pub async fn npm_install(
+    spec: &ServerSpec,
+    data_dir: &Path,
+    node_dir: &Path,
+    progress: impl Fn(&str),
+) -> Result<PathBuf, LspError> {
+    let npm_spec = spec
+        .npm
+        .as_ref()
+        .ok_or_else(|| LspError::Spawn(format!("{} has no npm install method", spec.name)))?;
+
+    let root = install_root(data_dir, spec);
+    std::fs::create_dir_all(&root)?;
+
+    let npm_path = resolve_npm_path(node_dir)?;
+
+    let mut cmd = tokio::process::Command::new(&npm_path);
+    cmd.arg("install").arg("--prefix").arg(&root);
+    cmd.args(&npm_spec.packages);
+
+    let mut paths = vec![node_dir.to_path_buf()];
+    if let Some(existing) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&existing));
+    }
+    let joined_path =
+        std::env::join_paths(paths).map_err(|e| LspError::Spawn(format!("PATH: {e}")))?;
+    cmd.env("PATH", joined_path);
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let child = cmd
+        .spawn()
+        .map_err(|e| LspError::Spawn(format!("npm install: {e}")))?;
+
+    progress("installing…");
+    let fut = child.wait_with_output();
+    tokio::pin!(fut);
+    let mut ticker = tokio::time::interval(std::time::Duration::from_millis(500));
+    ticker.tick().await; // first tick fires immediately; already reported once above
+    let output = loop {
+        tokio::select! {
+            _ = ticker.tick() => progress("installing…"),
+            res = &mut fut => break res.map_err(|e| LspError::Spawn(format!("npm install: {e}")))?,
+        }
+    };
+
+    if !output.status.success() {
+        return Err(LspError::Spawn(format!(
+            "npm install failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+
+    Ok(entry_path(data_dir, spec))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +276,30 @@ mod tests {
             root_markers: vec!["Cargo.toml".into()],
             approx_size_mb: 1,
             artifacts,
+            runtime: None,
+            npm: None,
+        }
+    }
+
+    fn npm_spec_with_version(version: &str) -> ServerSpec {
+        ServerSpec {
+            language: "typescript".into(),
+            name: "fake-ts-ls".into(),
+            version: version.into(),
+            cmd: "fake-ts-ls".into(),
+            args: vec![],
+            root_markers: vec!["package.json".into()],
+            approx_size_mb: 1,
+            artifacts: HashMap::new(),
+            runtime: Some(crate::registry::RuntimeSpec {
+                name: "node".into(),
+                min_version: "18".into(),
+                version_arg: "--version".into(),
+            }),
+            npm: Some(crate::registry::NpmSpec {
+                packages: vec!["fake-ts-ls@1.2.3".into()],
+                bin_entry: "node_modules/fake-ts-ls/lib/cli.mjs".into(),
+            }),
         }
     }
 
@@ -286,5 +415,52 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let spec = spec_with_sha(&"0".repeat(64));
         assert!(remove(dir.path(), &spec).is_ok());
+    }
+
+    #[test]
+    fn npm_spec_entry_path_resolves_to_bin_entry_under_install_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = npm_spec_with_version("1.2.3");
+
+        let expected = dir
+            .path()
+            .join("lsp/fake-ts-ls/1.2.3/node_modules/fake-ts-ls/lib/cli.mjs");
+        assert_eq!(entry_path(dir.path(), &spec), expected);
+        assert_eq!(
+            install_root(dir.path(), &spec),
+            dir.path().join("lsp/fake-ts-ls/1.2.3")
+        );
+    }
+
+    #[test]
+    fn npm_spec_is_installed_false_until_bin_entry_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = npm_spec_with_version("1.2.3");
+
+        assert!(!is_installed(dir.path(), &spec));
+
+        let entry = entry_path(dir.path(), &spec);
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(&entry, b"#!/usr/bin/env node\n").unwrap();
+
+        assert!(is_installed(dir.path(), &spec));
+        assert_eq!(
+            installed_size(dir.path(), &spec),
+            entry.metadata().unwrap().len()
+        );
+    }
+
+    #[test]
+    fn npm_spec_remove_deletes_version_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = npm_spec_with_version("1.2.3");
+        let entry = entry_path(dir.path(), &spec);
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(&entry, b"noop").unwrap();
+        assert!(is_installed(dir.path(), &spec));
+
+        remove(dir.path(), &spec).unwrap();
+        assert!(!is_installed(dir.path(), &spec));
+        assert!(!install_root(dir.path(), &spec).exists());
     }
 }

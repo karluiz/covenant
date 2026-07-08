@@ -2,6 +2,7 @@ pub mod framing;
 pub mod install;
 pub mod registry;
 pub mod root;
+pub mod runtime;
 pub mod server;
 
 use thiserror::Error;
@@ -20,4 +21,10 @@ pub enum LspError {
     Io(#[from] std::io::Error),
     #[error("server spawn failed: {0}")]
     Spawn(String),
+    #[error("runtime {name} not found or too old (need >= {min}, found {found:?})")]
+    RuntimeMissing {
+        name: String,
+        min: String,
+        found: Option<String>,
+    },
 }
