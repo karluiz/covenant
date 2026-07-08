@@ -90,6 +90,7 @@ function lspHover(host: LspHost): Extension {
         dom.className = "lsp-hover";
         // marked is already a dependency (package.json) — reuse it.
         void import("marked").then(({ marked }) => {
+          // ponytail: hover HTML from a local language server the user chose to run; sanitize if we ever surface remote/untrusted server content
           dom.innerHTML = marked.parse(value, { async: false });
         });
         return { dom };

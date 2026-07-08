@@ -932,11 +932,11 @@ export class StructureEditor {
     this.renderLspState({ kind: "downloading", percent: 0 });
     try {
       await lspManager.download(language, (percent) => {
-        this.renderLspState({ kind: "downloading", percent });
+        if (this.currentPath === path) this.renderLspState({ kind: "downloading", percent });
       });
       if (this.currentPath === path) await this.startLsp(path);
     } catch (e) {
-      this.renderLspState({ kind: "error", message: String(e) });
+      if (this.currentPath === path) this.renderLspState({ kind: "error", message: String(e) });
     }
   }
 
