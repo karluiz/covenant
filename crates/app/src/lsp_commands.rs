@@ -35,10 +35,11 @@ impl LspState {
     }
 }
 
-/// Populated on `LspServerStatus` when an npm-method server needs a runtime
-/// (e.g. node) that isn't present, or is present but too old. `found` is
-/// `None` when the runtime binary wasn't found at all, `Some(version)` when
-/// it was found but failed the minimum-version check.
+/// Populated on `LspServerStatus` when a server that declares a `runtime`
+/// requirement (e.g. node for npm-method servers, or dotnet for a
+/// binary-with-runtime server like Roslyn/csharp) needs it and it isn't
+/// present. `found` is `None` when the runtime binary wasn't found at all,
+/// `Some(version)` when it was found but failed the minimum-version check.
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeMissingInfo {
     pub name: String,
@@ -53,9 +54,11 @@ pub struct LspServerStatus {
     pub version: String,
     pub installed: bool,
     pub approx_size_mb: u32,
-    /// `Some` only for npm-method servers whose runtime dependency (node)
-    /// is missing or too old. Binary servers (rust-analyzer) always report
-    /// `None` here.
+    /// `Some` only for servers that declare a `runtime` requirement in the
+    /// manifest (npm-method servers like typescript, or a binary-with-runtime
+    /// server like Roslyn/csharp) whose runtime dependency is missing or too
+    /// old. Plain binary servers with no runtime (rust-analyzer) always
+    /// report `None` here.
     pub runtime_missing: Option<RuntimeMissingInfo>,
 }
 
@@ -99,16 +102,18 @@ pub fn lsp_server_status(
     let mut installed = install::is_installed(&state.data_dir, spec);
     let mut runtime_missing = None;
 
-    if spec.install_kind() == InstallKind::Npm {
-        if let Some(rt) = &spec.runtime {
-            if let Err(e) = runtime::detect(&rt.as_runtime_req()) {
-                match e {
-                    LspError::RuntimeMissing { name, min, found } => {
-                        runtime_missing = Some(RuntimeMissingInfo { name, min, found });
-                        installed = false;
-                    }
-                    other => return Err(other.to_string()),
+    // Runtime gate is orthogonal to install_kind: an npm-method server
+    // (typescript) and a binary-with-runtime server (csharp/Roslyn, whose
+    // zip download is unrelated to `dotnet`) both declare `spec.runtime`
+    // and must be gated the same way.
+    if let Some(rt) = &spec.runtime {
+        if let Err(e) = runtime::detect(&rt.as_runtime_req()) {
+            match e {
+                LspError::RuntimeMissing { name, min, found } => {
+                    runtime_missing = Some(RuntimeMissingInfo { name, min, found });
+                    installed = false;
                 }
+                other => return Err(other.to_string()),
             }
         }
     }
@@ -131,6 +136,33 @@ pub async fn lsp_download_server(
 ) -> Result<(), String> {
     let spec = registry::spec_for_language(&language).map_err(|e| e.to_string())?;
     let topic = format!("lsp://download/{language}");
+
+    // Runtime gate is orthogonal to install_kind: csharp (Binary — a zip
+    // download of the Roslyn nupkg, not `npm install`) still declares
+    // `spec.runtime` (dotnet) and must be gated the same as an npm-method
+    // server. Resolve up front so both branches can fail fast on a missing
+    // runtime instead of downloading first.
+    let node_dir = if let Some(rt) = &spec.runtime {
+        let resolved = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
+        // Node's PARENT DIR (not the binary itself) so npm_install's
+        // resolve_npm_path fast path finds `npm` next to it instead of
+        // falling back to a login-shell lookup. Unused for the Binary
+        // branch below (csharp/dotnet) — only npm_install needs it.
+        let dir = resolved
+            .path
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| {
+                format!(
+                    "cannot resolve parent directory of {}",
+                    resolved.path.display()
+                )
+            })?;
+        Some(dir)
+    } else {
+        None
+    };
+
     match spec.install_kind() {
         InstallKind::Binary => {
             install::download(spec, &state.data_dir, |received, total| {
@@ -140,18 +172,9 @@ pub async fn lsp_download_server(
             .map_err(|e| e.to_string())?;
         }
         InstallKind::Npm => {
-            let rt = spec
-                .runtime
-                .as_ref()
+            let node_dir = node_dir
                 .ok_or_else(|| format!("{} is an npm server but has no runtime spec", spec.name))?;
-            let node = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
-            // Node's PARENT DIR (not the binary itself) so npm_install's
-            // resolve_npm_path fast path finds `npm` next to it instead of
-            // falling back to a login-shell lookup.
-            let node_dir = node.path.parent().ok_or_else(|| {
-                format!("cannot resolve parent directory of {}", node.path.display())
-            })?;
-            install::npm_install(spec, &state.data_dir, node_dir, |message| {
+            install::npm_install(spec, &state.data_dir, &node_dir, |message| {
                 let _ = app.emit(
                     &topic,
                     NpmInstallProgress {
@@ -200,6 +223,15 @@ pub async fn lsp_start(
     if !install::is_installed(&state.data_dir, spec) {
         return Err(format!("{} is not installed", spec.name));
     }
+
+    // Runtime gate: any spec with a runtime requirement (npm-method AND
+    // binary-with-runtime like Roslyn/csharp) must have it present before
+    // spawn, even though the entry itself is already installed and — for
+    // csharp — is spawned directly rather than via `dotnet <entry>`.
+    if let Some(rt) = &spec.runtime {
+        runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
+    }
+
     let root = root::detect_root(Path::new(&file_path), &spec.root_markers);
     let root_str = root.to_string_lossy().to_string();
     let key = (language.clone(), root_str.clone());
@@ -219,17 +251,26 @@ pub async fn lsp_start(
         // (re)spawn below, never held across the spawn await.
     }
 
+    // `id` is allocated before spawn args are built because the Roslyn
+    // (binary-with-runtime) branch needs it for the per-server log dir
+    // name. A simple atomic increment — reordering it earlier has no
+    // bearing on the race-loser cleanup below (a lost race just leaves an
+    // orphaned, harmless log dir under that id).
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+
     // Step 2: spawn with no lock held — this can be slow (process launch,
     // handshake) and must never block lsp_send/lsp_stop for other servers.
-    // Binary servers (rust-analyzer) spawn `entry_path` directly — the
-    // downloaded binary IS the command. Npm servers spawn the resolved
-    // `node` binary with the JS entry point as its first argument, since
-    // the "binary" here is a `.mjs`/`.js` file that can't execute itself.
+    // Three cases:
+    //   - Npm servers spawn the resolved `node` binary with the JS entry
+    //     point as its first argument, since the "binary" here is a
+    //     `.mjs`/`.js` file that can't execute itself.
+    //   - Binary-with-runtime (csharp/Roslyn) spawns `entry_path` DIRECTLY
+    //     — the apphost self-resolves the dotnet runtime, we never launch
+    //     via `dotnet <entry>` — but requires Roslyn's mandatory CLI args
+    //     plus a writable per-server log dir.
+    //   - Plain Binary with no runtime (rust-analyzer) spawns `entry_path`
+    //     directly with `spec.args` — unchanged from before this task.
     let (bin, spawn_args): (PathBuf, Vec<String>) = match spec.install_kind() {
-        InstallKind::Binary => (
-            install::entry_path(&state.data_dir, spec),
-            spec.args.clone(),
-        ),
         InstallKind::Npm => {
             let rt = spec
                 .runtime
@@ -241,9 +282,29 @@ pub async fn lsp_start(
             args.extend(spec.args.iter().cloned());
             (node.path, args)
         }
+        InstallKind::Binary if spec.runtime.is_some() => {
+            let entry = install::entry_path(&state.data_dir, spec);
+            let log_dir = state.data_dir.join("lsp").join("logs").join(id.to_string());
+            std::fs::create_dir_all(&log_dir)
+                .map_err(|e| format!("creating lsp log dir {}: {e}", log_dir.display()))?;
+            // Required by the Roslyn CLI: it errors out without
+            // --logLevel/--extensionLogDirectory/--stdio.
+            let mut args = vec![
+                "--logLevel".to_string(),
+                "Information".to_string(),
+                "--extensionLogDirectory".to_string(),
+                log_dir.to_string_lossy().to_string(),
+                "--stdio".to_string(),
+            ];
+            args.extend(spec.args.iter().cloned());
+            (entry, args)
+        }
+        InstallKind::Binary => (
+            install::entry_path(&state.data_dir, spec),
+            spec.args.clone(),
+        ),
     };
 
-    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     let msg_topic = format!("lsp://{id}/message");
     let exit_topic = format!("lsp://{id}/exit");
     let app_msg = app.clone();
