@@ -36,7 +36,8 @@ use std::time::Duration;
 
 use karl_lsp::{install, registry, runtime, server::LspServer};
 
-const LIB_JAVA: &str = "public class Lib {\n    public static int helper() {\n        return 1;\n    }\n}\n";
+const LIB_JAVA: &str =
+    "public class Lib {\n    public static int helper() {\n        return 1;\n    }\n}\n";
 const APP_JAVA: &str = "public class App {\n    public static void main(String[] args) {\n        int x = Lib.helper();\n        System.out.println(x);\n    }\n}\n";
 const POM_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -214,11 +215,9 @@ async fn definition_end_to_end_java() {
     // warm ~/.m2 cache in the research pass, but a cold cache or first-run
     // plugin resolution can take much longer) — this is NOT a fixed sleep,
     // it watches the actual notification stream. Budget generously (120s).
-    wait_for(
-        &rx,
-        "waiting for language/status ServiceReady",
-        |v| v["method"] == "language/status" && v["params"]["type"] == "ServiceReady",
-    );
+    wait_for(&rx, "waiting for language/status ServiceReady", |v| {
+        v["method"] == "language/status" && v["params"]["type"] == "ServiceReady"
+    });
     let service_ready_elapsed = spawn_started.elapsed();
     eprintln!(
         "[smoke_java] ServiceReady reached at t+{:.2}s",
@@ -240,7 +239,10 @@ async fn definition_end_to_end_java() {
     // this distinction (whole-file offset == line offset when there's only
     // one line); APP_JAVA is multi-line, so it must be computed properly.
     let call_offset = APP_JAVA.find("Lib.helper()").unwrap() + "Lib.".len() + 1;
-    let call_line_start = APP_JAVA[..call_offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let call_line_start = APP_JAVA[..call_offset]
+        .rfind('\n')
+        .map(|i| i + 1)
+        .unwrap_or(0);
     let call_character = (call_offset - call_line_start) as i64;
     let call_line = APP_JAVA[..call_offset].matches('\n').count() as i64;
     let mut result = None;
@@ -255,7 +257,9 @@ async fn definition_end_to_end_java() {
             .to_string(),
         )
         .await;
-        let resp = wait_for(&rx, "polling textDocument/definition", move |v| v["id"] == id);
+        let resp = wait_for(&rx, "polling textDocument/definition", move |v| {
+            v["id"] == id
+        });
         if resp["result"].is_array() && !resp["result"].as_array().unwrap().is_empty() {
             result = Some(resp);
             break;
