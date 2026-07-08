@@ -105,4 +105,39 @@ describe("LspClient", () => {
     reply({ jsonrpc: "2.0", id: sent[0].id, result: { isIncomplete: false, items: [{ label: "println!", kind: 3 }] } });
     expect((await p).map((i) => i.label)).toEqual(["println!"]);
   });
+
+  it("codeAction normalizes a mix of CodeAction (with edit) and bare Command", async () => {
+    const { t, sent, reply } = mockTransport();
+    const c = new LspClient(t);
+    const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } };
+    const p = c.codeAction("file:///a.rs", range, [{ range, message: "unused import" }]);
+    await vi.waitFor(() => expect(sent.length).toBe(1));
+    expect(sent[0].method).toBe("textDocument/codeAction");
+    reply({
+      jsonrpc: "2.0", id: sent[0].id,
+      result: [
+        {
+          title: "Remove unused import",
+          kind: "quickfix",
+          edit: { changes: { "file:///a.rs": [{ range, newText: "" }] } },
+        },
+        { title: "Run cargo fix", command: "rust-analyzer.runFlycheck", arguments: [1] },
+      ],
+    });
+    expect(await p).toEqual([
+      { title: "Remove unused import", edit: { changes: { "file:///a.rs": [{ range, newText: "" }] } } },
+      { title: "Run cargo fix", command: { command: "rust-analyzer.runFlycheck", arguments: [1] } },
+    ]);
+  });
+
+  it("executeCommand sends workspace/executeCommand with command + arguments", async () => {
+    const { t, sent, reply } = mockTransport();
+    const c = new LspClient(t);
+    const p = c.executeCommand("rust-analyzer.runFlycheck", [1]);
+    await vi.waitFor(() => expect(sent.length).toBe(1));
+    expect(sent[0].method).toBe("workspace/executeCommand");
+    expect(sent[0].params).toEqual({ command: "rust-analyzer.runFlycheck", arguments: [1] });
+    reply({ jsonrpc: "2.0", id: sent[0].id, result: null });
+    await p;
+  });
 });

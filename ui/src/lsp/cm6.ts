@@ -1,14 +1,15 @@
 // CM6 wiring for LSP navigation. All features no-op gracefully when
 // host.doc() is null (server still downloading/starting/unsupported).
 import type { Extension } from "@codemirror/state";
-import { EditorView, hoverTooltip, keymap, showPanel, type Panel } from "@codemirror/view";
+import { EditorView, GutterMarker, gutter, hoverTooltip, keymap, showPanel, type Panel } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
 import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { type CompletionSource, type Completion } from "@codemirror/autocomplete";
 
+import { ContextMenu, type MenuItem } from "../menu/context-menu";
 import type { LspDoc } from "./manager";
 import { lspRangeToCm, lspToOffset, offsetToLsp, uriToPath } from "./positions";
-import type { LspCompletionItem, LspDiagnostic, LspLocation } from "./client";
+import type { LspCodeAction, LspDiagnostic, LspCompletionItem, LspLocation } from "./client";
 import { applyWorkspaceEdit, countFiles, type LspEdit, type WorkspaceEdit } from "./edits";
 
 export interface LspHost {
@@ -31,6 +32,8 @@ export function lspExtensions(host: LspHost): Extension {
     referencesPanelExt(host),
     lintGutter(),
     renameKeymap(host),
+    lspDiagnosticsField,
+    codeActionGutter(host),
   ];
 }
 
@@ -91,7 +94,12 @@ const SEVERITY_MAP: Record<number, CmDiagnostic["severity"]> = {
 
 // Host method that lets the editor push freshly-arrived diagnostics into
 // the view. `setDiagnostics` installs/updates the lint state; the gutter
-// markers render via `lintGutter()` in `lspExtensions`.
+// markers render via `lintGutter()` in `lspExtensions`. We also stash the
+// RAW LspDiagnostic[] (original LSP ranges/severity/source, pre-CmDiagnostic
+// conversion) in `lspDiagnosticsField` — the code-action gutter needs the
+// original shape to build a `textDocument/codeAction` request `context`,
+// which `@codemirror/lint`'s own state (string severities, message already
+// prefixed with source) can't reconstruct.
 export function applyLspDiagnostics(view: EditorView, diags: LspDiagnostic[]): void {
   const doc = view.state.doc;
   const cm: CmDiagnostic[] = diags.map((d) => {
@@ -105,7 +113,102 @@ export function applyLspDiagnostics(view: EditorView, diags: LspDiagnostic[]): v
       message: d.source ? `${d.source}: ${d.message}` : d.message,
     };
   });
-  view.dispatch(setDiagnostics(view.state, cm));
+  view.dispatch(setDiagnostics(view.state, cm), { effects: setLspDiagnostics.of(diags) });
+}
+
+// --- code actions (quick fixes) ----------------------------------------
+
+const setLspDiagnostics = StateEffect.define<LspDiagnostic[]>();
+
+// Raw LSP diagnostics for the current document, keyed by nothing but
+// "latest publishDiagnostics for this uri" — `applyLspDiagnostics` is only
+// ever called with diagnostics already filtered to the active doc's uri
+// (see `LspDoc.onDiagnostics` in manager.ts), so one flat list is enough.
+const lspDiagnosticsField = StateField.define<LspDiagnostic[]>({
+  create: () => [],
+  update: (value, tr) => {
+    for (const e of tr.effects) if (e.is(setLspDiagnostics)) return e.value;
+    return value;
+  },
+});
+
+class LightbulbMarker extends GutterMarker {
+  eq(): boolean {
+    return true; // one flyweight marker type — identical wherever it appears
+  }
+  toDOM(): Node {
+    const el = document.createElement("div");
+    el.className = "lsp-codeaction-lightbulb";
+    el.innerHTML =
+      '<svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 1a5 5 0 0 0-3 9v2h6v-2a5 5 0 0 0-3-9z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 14h4M6.5 15.5h3" stroke="currentColor" stroke-width="1.3"/></svg>';
+    return el;
+  }
+}
+const lightbulbMarker = new LightbulbMarker();
+
+/// Diagnostics from `lspDiagnosticsField` whose range overlaps `line`
+/// (a CM6 `BlockInfo`, i.e. one visual line's [from, to) offsets).
+function diagnosticsOnLine(view: EditorView, from: number, to: number): LspDiagnostic[] {
+  const diags = view.state.field(lspDiagnosticsField, false) ?? [];
+  const doc = view.state.doc;
+  return diags.filter((d) => {
+    const r = lspRangeToCm(doc, d.range);
+    return r.from <= to && r.to >= from;
+  });
+}
+
+// Gutter lightbulb: rendered on any line that currently has an LSP
+// diagnostic. Click fetches `textDocument/codeAction` for that line's
+// range + diagnostics and shows a menu of the returned titles.
+function codeActionGutter(host: LspHost): Extension {
+  return gutter({
+    class: "lsp-codeaction-gutter",
+    lineMarker: (view, line) => (diagnosticsOnLine(view, line.from, line.to).length ? lightbulbMarker : null),
+    lineMarkerChange: (update) =>
+      update.state.field(lspDiagnosticsField) !== update.startState.field(lspDiagnosticsField),
+    domEventHandlers: {
+      click: (view, line, event) => {
+        const diags = diagnosticsOnLine(view, line.from, line.to);
+        if (!diags.length) return false;
+        void showCodeActions(view, host, line.from, line.to, diags, event as MouseEvent);
+        return true;
+      },
+    },
+  });
+}
+
+async function showCodeActions(
+  view: EditorView,
+  host: LspHost,
+  lineFrom: number,
+  lineTo: number,
+  diags: LspDiagnostic[],
+  event: MouseEvent,
+): Promise<void> {
+  const doc = host.doc();
+  if (!doc) return;
+  const range = { start: offsetToLsp(view.state.doc, lineFrom), end: offsetToLsp(view.state.doc, lineTo) };
+  let actions: LspCodeAction[] = [];
+  try {
+    actions = await doc.client.codeAction(doc.uri, range, diags);
+  } catch {
+    return; // timeout/error: silent per spec, matches definition/hover/references
+  }
+  if (!actions.length) return;
+  const items: MenuItem[] = actions.map((action) => ({
+    label: action.title,
+    onClick: () => void applyCodeAction(doc, host, action),
+  }));
+  new ContextMenu(document.body).show(event.clientX, event.clientY, items);
+}
+
+async function applyCodeAction(doc: LspDoc, host: LspHost, action: LspCodeAction): Promise<void> {
+  try {
+    if (action.edit) await applyWorkspaceEdit(action.edit, host);
+    if (action.command) await doc.client.executeCommand(action.command.command, action.command.arguments);
+  } catch (e) {
+    console.warn("[lsp] code action failed", e);
+  }
 }
 
 // --- go to definition / references (mouse) ---------------------------

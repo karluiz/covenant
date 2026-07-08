@@ -27,6 +27,17 @@ export interface LspContentChange {
   text: string;
 }
 
+export interface LspCommand {
+  command: string;
+  arguments?: unknown[];
+}
+
+export interface LspCodeAction {
+  title: string;
+  edit?: WorkspaceEdit;
+  command?: LspCommand;
+}
+
 export interface LspCompletionItem {
   label: string;
   kind?: number;
@@ -69,6 +80,7 @@ export class LspClient {
           synchronization: { didSave: true },
           completion: { completionItem: { snippetSupport: false } },
           rename: { prepareSupport: false },
+          codeAction: {},
         },
       },
     });
@@ -141,6 +153,23 @@ export class LspClient {
       newName,
     })) as WorkspaceEdit | null;
     return r ?? null;
+  }
+
+  async codeAction(
+    uri: string,
+    range: { start: LspPosition; end: LspPosition },
+    diagnostics: LspDiagnostic[],
+  ): Promise<LspCodeAction[]> {
+    const r = await this.request("textDocument/codeAction", {
+      textDocument: { uri },
+      range,
+      context: { diagnostics },
+    });
+    return normalizeCodeActions(r);
+  }
+
+  async executeCommand(command: string, args?: unknown[]): Promise<void> {
+    await this.request("workspace/executeCommand", { command, arguments: args });
   }
 
   onDiagnostics(cb: (uri: string, diags: LspDiagnostic[]) => void): () => void {
@@ -228,6 +257,30 @@ function normalizeLocations(r: unknown): LspLocation[] {
     const loc = item as { uri?: string; range?: LspLocation["range"] };
     if (loc.uri && loc.range) return [{ uri: loc.uri, range: loc.range }];
     return [];
+  });
+}
+
+// `(Command | CodeAction)[]`. Spec discriminator: on a bare Command,
+// `.command` is the command-id STRING itself; on a CodeAction, `.command`
+// (if present, as a post-edit followup) is a nested `{command, arguments}`
+// object. That's the only reliable tag — both share a `.title`, and a
+// CodeAction may also carry `.command` alongside `.edit`.
+function normalizeCodeActions(r: unknown): LspCodeAction[] {
+  if (!Array.isArray(r)) return [];
+  return r.flatMap((item): LspCodeAction[] => {
+    const it = item as {
+      title?: string;
+      edit?: WorkspaceEdit;
+      command?: string | LspCommand;
+      arguments?: unknown[];
+    };
+    if (typeof it.title !== "string") return [];
+    if (typeof it.command === "string") {
+      // Bare Command.
+      return [{ title: it.title, command: { command: it.command, arguments: it.arguments } }];
+    }
+    // CodeAction.
+    return [{ title: it.title, edit: it.edit, command: it.command }];
   });
 }
 
