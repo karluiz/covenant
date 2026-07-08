@@ -1,0 +1,17 @@
+{
+  "servers": [
+    {
+      "language": "rust",
+      "name": "rust-analyzer",
+      "version": "2026-07-06",
+      "cmd": "rust-analyzer",
+      "args": [],
+      "root_markers": ["Cargo.toml"],
+      "approx_size_mb": 12,
+      "artifacts": {
+        "macos-aarch64": { "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-07-06/rust-analyzer-aarch64-apple-darwin.gz", "sha256": "0fb2229496105666460d22d062a55e154c862bb8004c464a38c6ffaff6fd68fe", "kind": "gzip" },
+        "macos-x86_64": { "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-07-06/rust-analyzer-x86_64-apple-darwin.gz", "sha256": "3a6bc5b42c27d3f8d308dacb25fdbe9bba0577be2970500cdb936e53c21c3496", "kind": "gzip" }
+      }
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 pub mod framing;
+pub mod registry;
 
 use thiserror::Error;
 
