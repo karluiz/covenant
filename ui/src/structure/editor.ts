@@ -15,7 +15,7 @@
 // route through CM6's reconfiguration / dispatch APIs instead of the
 // previous textarea+gutter DOM.
 
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import {
   EditorView,
   keymap,
@@ -52,6 +52,7 @@ import {
 } from "@codemirror/search";
 import {
   autocompletion,
+  completeAnyWord,
   completionKeymap,
   closeBrackets,
   closeBracketsKeymap,
@@ -89,7 +90,7 @@ import { editorHighlight, editorTheme, currentEditorMode } from "./theme";
 import { CustomSelect } from "../ui/select";
 import { ContextMenu } from "../menu/context-menu";
 import { applyLspDiagnostics, lspCompletionSource, lspExtensions, type LspHost } from "../lsp/cm6";
-import { lspManager, lspLanguageId, type LspDoc, type LspDocStatus } from "../lsp/manager";
+import { lspManager, lspLanguageId, onCodeIntelChange, type LspDoc, type LspDocStatus } from "../lsp/manager";
 import { lspRangeToCm, pathToUri } from "../lsp/positions";
 
 export interface EditorCallbacks {
@@ -116,6 +117,40 @@ export function isSpecPath(path: string | null | undefined): boolean {
 }
 
 const SIZE_THRESHOLD_BYTES = 1024 * 1024; // 1 MiB per spec.
+
+// Shared autocompletion() knobs — identical whether or not LSP is in the
+// source list, so both config builders below spread this instead of
+// repeating it.
+const COMPLETION_OPTS = {
+  activateOnTyping: true,
+  closeOnBlur: true,
+  maxRenderedOptions: 20,
+} as const;
+
+/// Default completion config: no `override`, so CM6 gathers whatever the
+/// active language registers via `languageDataAt("autocomplete", …)`
+/// (e.g. lang-javascript/python's local + keyword sources) PLUS
+/// `completeAnyWord`, which `buildState` registers unconditionally via a
+/// language-agnostic `EditorState.languageData` provider (see below) so
+/// every file — including `.rs`, whose CM6 language pack registers no
+/// autocomplete source at all — gets at least buffer-word completion.
+/// This is the config used whenever LSP is inactive for any reason.
+function defaultCompletion(): Extension {
+  return autocompletion({ ...COMPLETION_OPTS });
+}
+
+/// LSP-active completion config. `override` is CM6's only way to add a
+/// source alongside the LSP one — there's no "compose with defaults"
+/// API — so we deliberately keep `completeAnyWord` in the override list
+/// as a fallback: `lspCompletionSource` returns null on timeout/error/no
+/// results, and this way the popup still shows word matches instead of
+/// going empty.
+function lspCompletion(host: LspHost): Extension {
+  return autocompletion({
+    ...COMPLETION_OPTS,
+    override: [lspCompletionSource(host), completeAnyWord],
+  });
+}
 
 /// Which mode the editor body is currently in. "source" = CodeMirror,
 /// "preview" = read-only renderer keyed off the file extension. The
@@ -168,6 +203,11 @@ export class StructureEditor {
   /// Unsubscribe for the current `lspDoc`'s diagnostics stream. Torn
   /// down whenever the doc is released (new file open, or close()).
   private lspDiagUnsub: (() => void) | null = null;
+  /// The `LspHost` built by the most recent `buildState` call, stashed
+  /// so `startLsp`/`teardownLsp` can reconfigure `completionCompartment`
+  /// without rebuilding it. Rebuilt on every file open alongside the
+  /// rest of the state; null only before the first `buildState` call.
+  private lspHost: LspHost | null = null;
   private readonly lspChipEl: HTMLElement;
   private readonly lspBannerEl: HTMLElement;
   /// Latest known content irrespective of viewer. In source mode it
@@ -183,6 +223,11 @@ export class StructureEditor {
   /// rarely useful for the kind of files this editor handles.
   private view: EditorView | null = null;
   private readonly languageCompartment = new Compartment();
+  /// Reconfigured between `defaultCompletion()` and `lspCompletion(host)`
+  /// as the current file's LSP doc comes up / goes away (see `startLsp`
+  /// and `teardownLsp`), so completion degrades gracefully instead of
+  /// going empty — see the fix-1 note on `defaultCompletion` above.
+  private readonly completionCompartment = new Compartment();
 
   /// Right-click editing menu (Cut/Copy/Paste, Select All, etc.).
   /// Reuses the shared floating ContextMenu used by tabs/blocks.
@@ -426,6 +471,21 @@ export class StructureEditor {
     });
 
     this.host.appendChild(this.root);
+
+    // Fix 2 (live teardown): the Settings panel's Code intelligence
+    // section flips the master toggle / per-language consent, then calls
+    // `refreshCodeIntelSettings()` — which only affects NEW `setupLsp`
+    // calls (i.e. new file opens) unless we also re-run it for whatever
+    // is open right now. Re-running `setupLsp` re-resolves `status()`
+    // against the fresh cache; when it comes back non-ready, `setupLsp`
+    // tears down the active doc + diagnostics + LSP completion itself.
+    // This subscription lives for the editor instance's whole lifetime
+    // (one editor per tab, never explicitly disposed today) — same
+    // lifetime as `this.contextMenu` and friends, so that's consistent
+    // with the rest of the class, not a new leak pattern.
+    onCodeIntelChange(() => {
+      if (this.currentPath) void this.setupLsp(this.currentPath);
+    });
   }
 
   // ─── Find-in-preview ───────────────────────────────────
@@ -590,6 +650,7 @@ export class StructureEditor {
         });
       },
     };
+    this.lspHost = lspHost;
 
     return EditorState.create({
       doc: text,
@@ -618,29 +679,35 @@ export class StructureEditor {
         bracketMatching(),
         closeBrackets(),
         indentOnInput(),
-        // Local autocomplete: language-aware completions where the
-        // CM6 language pack provides them (rust/ts/py/json/css/html/
-        // sql/yaml/md), plus buffer-word fallback. No network calls.
+        // Local autocomplete: language-aware completions where the CM6
+        // language pack provides them (ts/py/json/css/html/sql/yaml/md),
+        // plus buffer-word fallback via `completeAnyWord`, registered
+        // language-agnostically below so it applies even to languages
+        // whose CM6 pack ships no autocomplete source at all (`.rs` —
+        // `@codemirror/lang-rust` registers none). No network calls.
         // Ctrl-Space opens the popup manually; Tab/Enter accepts.
+        //
         // ponytail: CM6 permits exactly one autocompletion() instance per
         // state — there's no "add a second source" API, only `override`
-        // which replaces the whole source list. `buildState` already
-        // rebuilds the entire state on every file open, so the simplest
-        // correct fix is to decide the source list once here, statically,
-        // from `path` (no Compartment/runtime reconfiguration needed):
-        // LSP-backed files (.rs, per `lspLanguageId`) get pure semantic
-        // completion from rust-analyzer; everything else keeps the
-        // language-pack + buffer-word defaults. This means LSP files lose
-        // the buffer-word fallback while the server is still starting
-        // (`lspCompletionSource` returns null until `host.doc()` is
-        // ready) — an acceptable gap since it self-heals in ~1-2s and P1
-        // already renders a status affordance for that window.
-        autocompletion({
-          activateOnTyping: true,
-          closeOnBlur: true,
-          maxRenderedOptions: 20,
-          override: lspLanguageId(path) ? [lspCompletionSource(lspHost)] : undefined,
-        }),
+        // which replaces the whole source list. That ruled out just
+        // statically picking LSP-vs-default at build time (the P1
+        // approach): `override` REPLACES all sources, and
+        // `lspCompletionSource` returns null whenever `host.doc()` isn't
+        // ready — which for a disabled/uninstalled/crashed language
+        // server is PERMANENT, not just a startup window, leaving `.rs`
+        // with zero completion of any kind. Fix: put `autocompletion()`
+        // itself in a Compartment (`completionCompartment`), defaulting
+        // to `defaultCompletion()` (no override — language-pack + word).
+        // `startLsp`/`teardownLsp` reconfigure it to `lspCompletion(host)`
+        // (LSP + word fallback) only while a live `lspDoc` exists, and
+        // back to the default the moment it goes away for any reason.
+        this.completionCompartment.of(defaultCompletion()),
+        // Buffer-word fallback source, language-agnostic (see comment
+        // above) — merges into `languageDataAt("autocomplete", …)`
+        // alongside whatever the active `Language` itself registers, so
+        // `defaultCompletion()`'s un-overridden `autocompletion()` picks
+        // it up automatically.
+        EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
         indentUnit.of("  "), // 2-space indent — matches the previous textarea behaviour.
         EditorView.lineWrapping,
 
@@ -856,10 +923,7 @@ export class StructureEditor {
 
     // Release the previous file's LSP doc and kick off acquisition for
     // the new one. Non-blocking — file open must NEVER wait on LSP.
-    this.lspDoc?.close();
-    this.lspDoc = null;
-    this.lspDiagUnsub?.();
-    this.lspDiagUnsub = null;
+    this.teardownLsp();
     void this.setupLsp(path);
 
     this.show();
@@ -937,20 +1001,27 @@ export class StructureEditor {
 
   /// Resolve the LSP status for `path` and either render the
   /// consent/error/unsupported state or start the server. Kicked off
-  /// (not awaited) from `open()` so file loads never block on LSP.
+  /// (not awaited) from `open()` so file loads never block on LSP; also
+  /// re-run for the CURRENTLY open file whenever code-intelligence
+  /// settings change (see the `onCodeIntelChange` subscription in the
+  /// constructor) — that's what makes a live "disable" take effect
+  /// immediately instead of on the next file open.
   private async setupLsp(path: string): Promise<void> {
     if (!lspLanguageId(path)) {
+      this.teardownLsp();
       this.renderLspState({ kind: "unsupported" });
       return;
     }
     const status = await lspManager.status(path);
     if (this.currentPath !== path) return; // user moved on
-    if (status.kind === "consent-needed") {
-      this.renderLspState(status);
-      return;
+    if (status.kind === "ready") {
+      if (!this.lspDoc) await this.startLsp(path);
+      return; // already active for this path — settings change was a no-op here
     }
-    if (status.kind === "ready") await this.startLsp(path);
-    else this.renderLspState(status);
+    // Any non-ready status (unsupported/consent-needed/error) means LSP
+    // must NOT be active for this file — tear down whatever's live.
+    this.teardownLsp();
+    this.renderLspState(status);
   }
 
   private async startLsp(path: string): Promise<void> {
@@ -966,9 +1037,33 @@ export class StructureEditor {
       this.lspDiagUnsub = doc.onDiagnostics((diags) => {
         if (this.view && this.lspDoc === doc) applyLspDiagnostics(this.view, diags);
       });
+      // Upgrade completion to LSP + word-fallback now that the doc is
+      // live (see `lspCompletion` / `completionCompartment`).
+      if (this.view && this.lspHost) {
+        this.view.dispatch({ effects: this.completionCompartment.reconfigure(lspCompletion(this.lspHost)) });
+      }
       this.renderLspState({ kind: "ready" });
     } catch (e) {
       this.renderLspState({ kind: "error", message: String(e) });
+    }
+  }
+
+  /// Release the active `lspDoc` (if any) and drop the editor back to
+  /// default (non-LSP) completion + clear any squiggles it left behind.
+  /// Idempotent — safe to call whether or not LSP was actually active.
+  /// Called from `open()`/`close()` (new file / editor teardown) and
+  /// from `setupLsp()` whenever a fresh status resolves to non-ready
+  /// (Fix 2: disabling code intelligence tears down the OPEN editor
+  /// immediately, not just future file opens).
+  private teardownLsp(): void {
+    if (!this.lspDoc && !this.lspDiagUnsub) return;
+    this.lspDoc?.close();
+    this.lspDoc = null;
+    this.lspDiagUnsub?.();
+    this.lspDiagUnsub = null;
+    if (this.view) {
+      applyLspDiagnostics(this.view, []);
+      this.view.dispatch({ effects: this.completionCompartment.reconfigure(defaultCompletion()) });
     }
   }
 
@@ -1381,10 +1476,7 @@ export class StructureEditor {
     this.liveContent = "";
     this.dirty = false;
     this.previewKind = null;
-    this.lspDoc?.close();
-    this.lspDoc = null;
-    this.lspDiagUnsub?.();
-    this.lspDiagUnsub = null;
+    this.teardownLsp();
     this.renderLspState({ kind: "unsupported" });
     if (this.view) {
       this.view.destroy();

@@ -108,12 +108,30 @@ async function ensureLoaded(): Promise<void> {
   return loadPromise;
 }
 
+// ---- Live settings-change notification --------------------------------
+// `refreshCodeIntelSettings` alone only affects the NEXT `setupLsp` call
+// (i.e. the next file open) — an editor tab that already has an `LspDoc`
+// open keeps it live until reopened. `onCodeIntelChange` lets an editor
+// subscribe and immediately re-run `setupLsp` for whatever it currently
+// has open, so disabling code intelligence (master toggle, or revoking a
+// language's consent) tears down an in-progress session right away.
+type CodeIntelListener = () => void;
+const codeIntelListeners = new Set<CodeIntelListener>();
+
+/// Subscribe to code-intelligence settings changes. Returns an
+/// unsubscribe function. Fired at the end of `refreshCodeIntelSettings`.
+export function onCodeIntelChange(cb: CodeIntelListener): () => void {
+  codeIntelListeners.add(cb);
+  return () => codeIntelListeners.delete(cb);
+}
+
 /// Re-reads the settings store into the cache. Called after the Settings
 /// panel's Code intelligence section saves a change, so an already-open
 /// editor tab picks up the new master/per-language toggle immediately.
 export async function refreshCodeIntelSettings(): Promise<void> {
   loadPromise = null;
   await ensureLoaded();
+  for (const cb of codeIntelListeners) cb();
 }
 
 async function persistConsent(): Promise<void> {
