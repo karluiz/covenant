@@ -3043,7 +3043,13 @@ export async function lspServerStatus(language: string): Promise<LspServerStatus
   const raw = await invoke<{
     language: string; name: string; version: string; installed: boolean; approx_size_mb: number;
   }>("lsp_server_status", { language });
-  return { ...raw, approxSizeMb: raw.approx_size_mb };
+  return {
+    language: raw.language,
+    name: raw.name,
+    version: raw.version,
+    installed: raw.installed,
+    approxSizeMb: raw.approx_size_mb,
+  };
 }
 
 export async function lspDownloadServer(language: string): Promise<void> {
