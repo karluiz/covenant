@@ -3,10 +3,11 @@
 import type { Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, showPanel, type Panel } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
+import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 
 import type { LspDoc } from "./manager";
-import { lspToOffset, offsetToLsp, uriToPath } from "./positions";
-import type { LspLocation } from "./client";
+import { lspRangeToCm, lspToOffset, offsetToLsp, uriToPath } from "./positions";
+import type { LspDiagnostic, LspLocation } from "./client";
 
 export interface LspHost {
   doc(): LspDoc | null;
@@ -19,7 +20,36 @@ export function lspExtensions(host: LspHost): Extension {
     lspHover(host),
     referencesField,
     referencesPanelExt(host),
+    lintGutter(),
   ];
+}
+
+// --- diagnostics (squiggles + gutter) ---------------------------------
+
+const SEVERITY_MAP: Record<number, CmDiagnostic["severity"]> = {
+  1: "error",
+  2: "warning",
+  3: "info",
+  4: "info",
+};
+
+// Host method that lets the editor push freshly-arrived diagnostics into
+// the view. `setDiagnostics` installs/updates the lint state; the gutter
+// markers render via `lintGutter()` in `lspExtensions`.
+export function applyLspDiagnostics(view: EditorView, diags: LspDiagnostic[]): void {
+  const doc = view.state.doc;
+  const cm: CmDiagnostic[] = diags.map((d) => {
+    const { from, to } = lspRangeToCm(doc, d.range);
+    return {
+      from,
+      // Widen zero-length ranges by one char so the squiggle is visible;
+      // clamp to doc.length so an EOF diagnostic never overruns the doc.
+      to: Math.min(to > from ? to : from + 1, doc.length),
+      severity: SEVERITY_MAP[d.severity ?? 1] ?? "error",
+      message: d.source ? `${d.source}: ${d.message}` : d.message,
+    };
+  });
+  view.dispatch(setDiagnostics(view.state, cm));
 }
 
 // --- go to definition / references (mouse) ---------------------------

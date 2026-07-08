@@ -5,7 +5,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { lspDownloadServer, lspSend, lspServerStatus, lspStart, lspStop } from "../api";
-import { LspClient, type Transport } from "./client";
+import { LspClient, type LspDiagnostic, type Transport } from "./client";
 import { pathToUri } from "./positions";
 
 export type LspDocStatus =
@@ -89,6 +89,14 @@ export class LspDoc {
     if (this.timer) clearTimeout(this.timer);
     if (this.pendingText !== null) this.client.didChange(this.uri, this.pendingText);
     this.onClose(this.uri);
+  }
+
+  // ponytail: thin filter over the shared client's broadcast stream —
+  // verified via cm6 + manual, no dedicated unit test.
+  onDiagnostics(cb: (diags: LspDiagnostic[]) => void): () => void {
+    return this.client.onDiagnostics((uri, diags) => {
+      if (uri === this.uri) cb(diags);
+    });
   }
 }
 

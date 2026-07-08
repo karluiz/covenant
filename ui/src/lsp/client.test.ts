@@ -72,4 +72,18 @@ describe("LspClient", () => {
     expect(change.params.textDocument.version).toBe(2);
     expect(change.params.contentChanges).toEqual([{ text: "v2" }]);
   });
+
+  it("dispatches publishDiagnostics notifications to onDiagnostics subscribers", async () => {
+    const { t, reply } = mockTransport();
+    const c = new LspClient(t);
+    const seen: Array<{ uri: string; n: number }> = [];
+    c.onDiagnostics((uri, diags) => seen.push({ uri, n: diags.length }));
+    reply({
+      jsonrpc: "2.0", method: "textDocument/publishDiagnostics",
+      params: { uri: "file:///a.rs", diagnostics: [
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } }, severity: 1, message: "mismatched types" },
+      ] },
+    });
+    await vi.waitFor(() => expect(seen).toEqual([{ uri: "file:///a.rs", n: 1 }]));
+  });
 });

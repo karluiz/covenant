@@ -20,6 +20,13 @@ export function lspToOffset(doc: Text, pos: LspPosition): number {
   return Math.min(line.from + Math.max(0, pos.character), line.to);
 }
 
+export function lspRangeToCm(
+  doc: Text,
+  range: { start: LspPosition; end: LspPosition },
+): { from: number; to: number } {
+  return { from: lspToOffset(doc, range.start), to: lspToOffset(doc, range.end) };
+}
+
 export function pathToUri(path: string): string {
   return "file://" + path.split("/").map(encodeURIComponent).join("/");
 }

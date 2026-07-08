@@ -14,6 +14,13 @@ export interface LspLocation {
   range: { start: LspPosition; end: LspPosition };
 }
 
+export interface LspDiagnostic {
+  range: { start: LspPosition; end: LspPosition };
+  severity?: 1 | 2 | 3 | 4;
+  message: string;
+  source?: string;
+}
+
 interface Pending {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
@@ -27,6 +34,7 @@ export class LspClient {
   private pending = new Map<number, Pending>();
   private versions = new Map<string, number>();
   private disposed = false;
+  private diagnosticsSubs = new Set<(uri: string, diags: LspDiagnostic[]) => void>();
 
   constructor(private readonly transport: Transport) {
     transport.onMessage((raw) => this.handleMessage(raw));
@@ -98,6 +106,11 @@ export class LspClient {
     return normalizeLocations(r);
   }
 
+  onDiagnostics(cb: (uri: string, diags: LspDiagnostic[]) => void): () => void {
+    this.diagnosticsSubs.add(cb);
+    return () => this.diagnosticsSubs.delete(cb);
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const p of this.pending.values()) {
@@ -127,7 +140,13 @@ export class LspClient {
 
   private handleMessage(raw: string): void {
     if (this.disposed) return;
-    let msg: { id?: number; method?: string; result?: unknown; error?: { message?: string } };
+    let msg: {
+      id?: number;
+      method?: string;
+      params?: unknown;
+      result?: unknown;
+      error?: { message?: string };
+    };
     try {
       msg = JSON.parse(raw) as typeof msg;
     } catch {
@@ -148,8 +167,16 @@ export class LspClient {
         jsonrpc: "2.0", id: msg.id,
         error: { code: -32601, message: `method not supported: ${msg.method}` },
       }));
+    } else if (msg.method !== undefined) {
+      // Server notification.
+      if (msg.method === "textDocument/publishDiagnostics") {
+        const p = msg.params as { uri?: string; diagnostics?: LspDiagnostic[] } | undefined;
+        if (p?.uri && Array.isArray(p.diagnostics)) {
+          for (const cb of this.diagnosticsSubs) cb(p.uri, p.diagnostics);
+        }
+      }
+      // other notifications ignored
     }
-    // Server notifications (publishDiagnostics etc.) — ignored until P2.
   }
 }
 

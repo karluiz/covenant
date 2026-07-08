@@ -87,7 +87,7 @@ import {
 import { editorHighlight, editorTheme, currentEditorMode } from "./theme";
 import { CustomSelect } from "../ui/select";
 import { ContextMenu } from "../menu/context-menu";
-import { lspExtensions } from "../lsp/cm6";
+import { applyLspDiagnostics, lspExtensions } from "../lsp/cm6";
 import { lspManager, lspLanguageId, type LspDoc, type LspDocStatus } from "../lsp/manager";
 
 export interface EditorCallbacks {
@@ -163,6 +163,9 @@ export class StructureEditor {
   /// LSP-backed doc for the currently open file. Null until `setupLsp`
   /// resolves (unsupported language / consent pending / still starting).
   private lspDoc: LspDoc | null = null;
+  /// Unsubscribe for the current `lspDoc`'s diagnostics stream. Torn
+  /// down whenever the doc is released (new file open, or close()).
+  private lspDiagUnsub: (() => void) | null = null;
   private readonly lspChipEl: HTMLElement;
   private readonly lspBannerEl: HTMLElement;
   /// Latest known content irrespective of viewer. In source mode it
@@ -818,6 +821,8 @@ export class StructureEditor {
     // the new one. Non-blocking — file open must NEVER wait on LSP.
     this.lspDoc?.close();
     this.lspDoc = null;
+    this.lspDiagUnsub?.();
+    this.lspDiagUnsub = null;
     void this.setupLsp(path);
 
     this.show();
@@ -920,6 +925,10 @@ export class StructureEditor {
         return;
       }
       this.lspDoc = doc;
+      this.lspDiagUnsub?.();
+      this.lspDiagUnsub = doc.onDiagnostics((diags) => {
+        if (this.view && this.lspDoc === doc) applyLspDiagnostics(this.view, diags);
+      });
       this.renderLspState({ kind: "ready" });
     } catch (e) {
       this.renderLspState({ kind: "error", message: String(e) });
@@ -1337,6 +1346,8 @@ export class StructureEditor {
     this.previewKind = null;
     this.lspDoc?.close();
     this.lspDoc = null;
+    this.lspDiagUnsub?.();
+    this.lspDiagUnsub = null;
     this.renderLspState({ kind: "unsupported" });
     if (this.view) {
       this.view.destroy();
