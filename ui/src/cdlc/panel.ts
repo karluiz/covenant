@@ -69,14 +69,14 @@ function stripFrontmatter(md: string): string {
 
 /** Full-screen rendered-markdown reader for a SKILL.md — same vibe as the
  *  spec preview. renderMarkdown HTML-escapes every segment, so the untrusted
- *  registry content is safe to innerHTML here. Esc / backdrop / × closes. */
+ *  registry content is safe to innerHTML here. Esc / backdrop / esc button closes. */
 function openMarkdownReader(title: string, fetchMd: () => Promise<string>): void {
   const overlay = document.createElement("div");
   overlay.className = "cdlc-reader";
   overlay.innerHTML = `
     <header class="cdlc-reader-head">
       <span class="cdlc-reader-title"></span>
-      <button type="button" class="cdlc-reader-close" aria-label="Close">×</button>
+      <button type="button" class="cdlc-reader-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
     </header>
     <article class="cdlc-reader-body mission-page-preview-body">Loading…</article>`;
   (overlay.querySelector(".cdlc-reader-title") as HTMLElement).textContent = title;

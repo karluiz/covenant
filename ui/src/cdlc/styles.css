@@ -453,20 +453,20 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   font-size: 14px;
   color: var(--text-primary, #f5f6f7);
 }
+/* Bare button; the visible pill is the inner .settings-esc (shared esc affordance). */
 .cdlc-reader-close {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
   background: transparent;
   border: 0;
-  color: var(--muted, #6c7280);
-  font-size: 20px;
-  line-height: 1;
-  padding: 2px 8px;
-  border-radius: 0;
+  padding: 0;
   cursor: pointer;
 }
-.cdlc-reader-close:hover {
-  color: var(--text-primary, #f5f6f7);
-  background: var(--cdlc-lift-1);
+.cdlc-reader-close:hover .settings-esc {
+  color: #fff;
+  background: rgba(var(--ink-rgb), 0.08);
+  border-color: rgba(var(--ink-rgb), 0.16);
 }
 body.tabbar-left .cdlc-reader { top: 38px; }
 
