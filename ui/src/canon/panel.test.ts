@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, type Mock } from "vitest";
-import { CanonPanel } from "./panel";
+import { CanonPanel, slugify } from "./panel";
 
 // Mock the api module so tests don't invoke Tauri IPC.
 vi.mock("../api", () => ({
   canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], contextFiles: [] }),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
+  canonCreateOrg: vi.fn().mockResolvedValue({}),
   canonSearch: vi.fn().mockResolvedValue([]),
   canonPublish: vi.fn().mockResolvedValue({}),
   canonInstallRegistry: vi.fn().mockResolvedValue({}),
@@ -162,5 +163,26 @@ describe("CanonPanel", () => {
       expect(msgs.some((m) => m.startsWith("No evals for kyc-peru"))).toBe(true);
       expect(msgs.some((m) => m.includes("finished"))).toBe(false);
     });
+  });
+
+  it("resolves active org from the group callback, else the personal org", () => {
+    const orgs = [
+      { id: 1, slug: "cleverit", name: "Cleverit", role: "member", personal: false },
+      { id: 2, slug: "karluiz", name: "karluiz", role: "owner", personal: true },
+    ];
+    const p = new CanonPanel({ groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
+      getActiveOrg: () => null, setActiveOrg: () => {} });
+    p.setOrgs(orgs);
+    expect(p.activeOrg()?.slug).toBe("karluiz"); // personal wins when group unset
+    const p2 = new CanonPanel({ groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
+      getActiveOrg: () => "cleverit", setActiveOrg: () => {} });
+    p2.setOrgs(orgs);
+    expect(p2.activeOrg()?.slug).toBe("cleverit"); // group choice wins
+  });
+
+  it("slugifies a display name to a valid slug", () => {
+    expect(slugify("Cleverit SpA")).toBe("cleverit-spa");
+    expect(slugify("  Banco de Chile ")).toBe("banco-de-chile");
+    expect(slugify("--weird__name--")).toBe("weird-name");
   });
 });

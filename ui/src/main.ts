@@ -1493,6 +1493,8 @@ async function boot(): Promise<void> {
       groupLabel: args.groupLabel,
       groupColor: args.groupColor,
       groupRootDir: manager.groupRootDirFor(args.groupId),
+      getActiveOrg: () => manager.groupCanonOrg(args.groupId),
+      setActiveOrg: (slug) => manager.setGroupCanonOrg(args.groupId, slug),
       onClose: () => {
         activeCanonPanel = null;
         document.body.classList.remove("canon-open");

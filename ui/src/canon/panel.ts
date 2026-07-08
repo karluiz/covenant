@@ -5,10 +5,18 @@ import { pushInfoToast } from "../notifications/toast";
 import { renderMarkdown } from "../mission/preview";
 import type { CanonStatus, Org, PkgMeta, ScoreSummary, EvalSkillSummary, CanonEvalProgress } from "../api";
 import {
-  canonLocalStatus, canonMyOrgs, canonSearch, canonPublish, canonInstallRegistry,
+  canonLocalStatus, canonMyOrgs, canonCreateOrg, canonSearch, canonPublish, canonInstallRegistry,
   canonPreview, canonReadLocal, canonExport, scoreSummaryFiltered,
   canonEvalSummary, canonRunEvals, onCanonEvalProgress,
 } from "../api";
+
+/** Derive a valid org slug from a display name: lowercase, [a-z0-9-] only,
+ *  collapse runs of dashes, trim leading/trailing dashes, cap at 40. Mirrors
+ *  the server's `valid_slug`. */
+export function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "").slice(0, 40);
+}
 
 function loopSubhead(text: string): HTMLElement {
   const el = document.createElement("div");
@@ -135,11 +143,16 @@ export interface CanonPanelOpts {
   onNewContext?: () => void;
   /** Open a folder picker to set the group's project folder (empty state CTA). */
   onPickFolder?: () => void;
+  /** Active Canon org slug for this group (from the tab manifest), or null. */
+  getActiveOrg?: () => string | null;
+  /** Persist the chosen org slug on the group. */
+  setActiveOrg?: (slug: string | null) => void;
 }
 
 export class CanonPanel {
   private root: HTMLElement;
   private body: HTMLElement;
+  private orgChip: HTMLElement;
   private orgs: Org[] = [];
   private score: ScoreSummary | null = null;
   private adoption = new Map<string, number>(); // package name → org-wide installs
@@ -163,6 +176,9 @@ export class CanonPanel {
     title.className = "canon-title";
     title.textContent = `Canon — ${opts.groupLabel}`;
     head.appendChild(title);
+
+    this.orgChip = this.renderOrgChip();
+    head.appendChild(this.orgChip);
 
     // Project every Canon source (agents/skills/context) to executor-native files.
     if (opts.groupRootDir) {
@@ -188,6 +204,138 @@ export class CanonPanel {
 
   setOrgs(orgs: Org[]): void {
     this.orgs = orgs;
+    this.updateOrgChip();
+  }
+
+  /** The org whose registry this group works against: the group's saved
+   *  choice, else the personal org, else the first org, else null. */
+  activeOrg(): Org | null {
+    if (this.orgs.length === 0) return null;
+    const saved = this.opts.getActiveOrg?.() ?? null;
+    if (saved) {
+      const hit = this.orgs.find((o) => o.slug === saved);
+      if (hit) return hit;
+    }
+    return this.orgs.find((o) => o.personal) ?? this.orgs[0];
+  }
+
+  private updateOrgChip(): void {
+    const active = this.activeOrg();
+    this.orgChip.textContent = active ? active.name : "No org";
+    this.orgChip.classList.toggle("is-empty", !active);
+  }
+
+  private renderOrgChip(): HTMLElement {
+    const chip = document.createElement("button");
+    chip.className = "canon-org-chip";
+    chip.textContent = "No org";
+    attachTooltip(chip, "Active organization");
+    chip.addEventListener("click", () => this.openOrgMenu(chip));
+    return chip;
+  }
+
+  /** A lightweight absolutely-positioned menu listing every org the caller
+   *  belongs to (checkmark on the active one) plus a "Create organization…"
+   *  row. Dismissed on outside-click or Esc. */
+  private openOrgMenu(anchor: HTMLElement): void {
+    const existing = document.querySelector(".canon-org-menu");
+    if (existing) { existing.remove(); return; }
+
+    const menu = document.createElement("div");
+    menu.className = "canon-org-menu";
+    const active = this.activeOrg();
+
+    const close = (): void => {
+      menu.remove();
+      document.removeEventListener("mousedown", onOutside, true);
+      document.removeEventListener("keydown", onKey);
+    };
+    const onOutside = (e: MouseEvent): void => {
+      if (!menu.contains(e.target as Node) && e.target !== anchor) close();
+    };
+    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") close(); };
+
+    for (const org of this.orgs) {
+      const row = document.createElement("button");
+      row.className = "canon-org-menu-row";
+      if (active && org.slug === active.slug) row.classList.add("is-active");
+      row.textContent = org.name;
+      row.addEventListener("click", () => {
+        this.opts.setActiveOrg?.(org.slug);
+        close();
+        void this.refresh();
+      });
+      menu.appendChild(row);
+    }
+
+    const createRow = document.createElement("button");
+    createRow.className = "canon-org-menu-row canon-org-menu-create";
+    createRow.textContent = "＋ Create organization…";
+    createRow.addEventListener("click", () => {
+      close();
+      this.openCreateOrgModal();
+    });
+    menu.appendChild(createRow);
+
+    const rect = anchor.getBoundingClientRect();
+    menu.style.top = `${rect.bottom + 4}px`;
+    menu.style.right = `${Math.max(0, window.innerWidth - rect.right)}px`;
+
+    document.addEventListener("mousedown", onOutside, true);
+    document.addEventListener("keydown", onKey);
+
+    document.body.appendChild(menu);
+  }
+
+  private openCreateOrgModal(): void {
+    const overlay = document.createElement("div");
+    overlay.className = "canon-modal";
+    overlay.innerHTML = `
+      <div class="canon-modal-card">
+        <h3>Create organization</h3>
+        <label>Name<input class="canon-modal-name" placeholder="Cleverit" /></label>
+        <label>Slug<input class="canon-modal-slug" placeholder="cleverit" /></label>
+        <p class="canon-modal-err" hidden></p>
+        <div class="canon-modal-actions">
+          <button class="canon-modal-cancel">Cancel</button>
+          <button class="canon-modal-create">Create</button>
+        </div>
+      </div>`;
+    const nameEl = overlay.querySelector(".canon-modal-name") as HTMLInputElement;
+    const slugEl = overlay.querySelector(".canon-modal-slug") as HTMLInputElement;
+    const err = overlay.querySelector(".canon-modal-err") as HTMLElement;
+    let slugEdited = false;
+    slugEl.addEventListener("input", () => { slugEdited = true; });
+    nameEl.addEventListener("input", () => {
+      if (!slugEdited) slugEl.value = slugify(nameEl.value);
+    });
+    const close = (): void => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    overlay.querySelector(".canon-modal-cancel")?.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector(".canon-modal-create")?.addEventListener("click", () => {
+      void (async () => {
+        const slug = slugEl.value.trim();
+        const name = nameEl.value.trim();
+        if (!name || !slug) { err.hidden = false; err.textContent = "Name and slug required."; return; }
+        try {
+          await canonCreateOrg(slug, name);
+          this.opts.setActiveOrg?.(slug);
+          close();
+          await this.refresh();
+          pushInfoToast({ message: `Created organization ${name}` });
+        } catch (e) {
+          err.hidden = false;
+          err.textContent = String(e);
+        }
+      })();
+    });
+    document.body.appendChild(overlay);
+    nameEl.focus();
   }
 
   /** The group this panel is scoped to — used to re-scope on group switch. */
@@ -238,12 +386,14 @@ export class CanonPanel {
         canonEvalSummary(cwd).catch(() => [] as EvalSkillSummary[]),
       ]);
       this.orgs = orgs;
+      this.updateOrgChip();
       this.score = score;
       this.evalRates = new Map(evalSummary.map((s) => [s.skill, { passed: s.passed, total: s.total }]));
       // Adoption: org-wide install counts for skills installed from the registry.
       this.adoption = new Map();
-      if (orgs.length > 0) {
-        const pkgs = await canonSearch(orgs[0].slug, null).catch(() => [] as PkgMeta[]);
+      const active = this.activeOrg();
+      if (active) {
+        const pkgs = await canonSearch(active.slug, null).catch(() => [] as PkgMeta[]);
         for (const p of pkgs) this.adoption.set(p.name, p.installs);
       }
       this.renderStatus(status);
@@ -285,17 +435,20 @@ export class CanonPanel {
       }
     }
 
-    if (this.orgs.length > 0) {
+    const activeForSearch = this.activeOrg();
+    if (activeForSearch) {
       const searchRow = document.createElement("div");
       searchRow.className = "canon-search-row";
       const input = document.createElement("input");
-      input.placeholder = `Search ${this.orgs[0].slug} registry…`;
+      input.placeholder = `Search ${activeForSearch.slug} registry…`;
       const go = document.createElement("button");
       go.textContent = "Search";
       const results = document.createElement("div");
       results.className = "canon-search-results";
       go.addEventListener("click", () => {
-        void canonSearch(this.orgs[0].slug, input.value || null).then((rows: PkgMeta[]) => {
+        const org = this.activeOrg();
+        if (!org) return;
+        void canonSearch(org.slug, input.value || null).then((rows: PkgMeta[]) => {
           results.replaceChildren();
           if (rows.length === 0) {
             results.replaceChildren();
@@ -304,16 +457,16 @@ export class CanonPanel {
             none.textContent = "No packages found.";
             results.appendChild(none);
           }
-          const org = this.orgs[0].slug;
+          const orgSlug = org.slug;
           for (const r of rows) {
-            const inst = iconButton(Icons.download({ size: 15 }), "Install", () => void this.install(org, r.name, r.version));
+            const inst = iconButton(Icons.download({ size: 15 }), "Install", () => void this.install(orgSlug, r.name, r.version));
             const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
             results.appendChild(this.skillCard({
               name: r.name,
               meta: `${r.version} · ${installs} · ${r.publisher_login}`,
               description: r.description,
               className: "canon-search-result",
-              fetchPreview: () => canonPreview(org, r.name, r.version).then((p) => p.skill_md),
+              fetchPreview: () => canonPreview(orgSlug, r.name, r.version).then((p) => p.skill_md),
               actions: [inst],
               stats: [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)],
             }));
@@ -453,8 +606,9 @@ export class CanonPanel {
 
   private async publish(name: string): Promise<void> {
     const cwd = this.opts.groupRootDir;
-    if (!cwd || this.orgs.length === 0) return;
-    const org = this.orgs[0].slug; // v1: publish to the caller's first org
+    const active = this.activeOrg();
+    if (!cwd || !active) return;
+    const org = active.slug;
     try {
       await canonPublish(cwd, org, name);
       await this.refresh();
