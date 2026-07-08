@@ -1,0 +1,105 @@
+/* Canon Cockpit — full-screen overlay shell with left-nav section routing.
+   Opaque by design: #layout hosts a translucent NSVisualEffectView and
+   anything fixed above it bleeds the desktop wallpaper through unless it
+   paints a solid background (see reference_vibrancy_bleed_layout_panels).
+   Theme-aware via the shared --bg-overlay/--border/--fg tokens defined in
+   styles.css (prefers-color-scheme + :root[data-theme] already branch
+   there — this file only consumes the resulting custom properties). */
+
+.canon-cockpit {
+  position: fixed;
+  inset: 0;
+  z-index: 9600;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  min-height: 0;
+  background: var(--bg-overlay, #11141a);
+  color: var(--text-primary, #f5f6f7);
+  font-family: var(--ui-font);
+}
+
+/* ── Left nav ───────────────────────────────────────────────────────── */
+
+.canon-cockpit-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  padding: var(--rail-pad-x, 12px) 8px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.canon-cockpit-nav-title {
+  font-size: var(--fs-title, 11.5px);
+  font-weight: 600;
+  letter-spacing: var(--ls-title, 0.09em);
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  padding: 0 10px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.canon-cockpit-nav-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  appearance: none;
+  color: var(--fg-dim);
+  font-size: var(--fs-body, 12px);
+  font-family: inherit;
+  cursor: pointer;
+}
+.canon-cockpit-nav-btn:hover {
+  background: rgba(var(--ink-rgb), 0.06);
+  color: var(--fg);
+}
+.canon-cockpit-nav-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ── Content ────────────────────────────────────────────────────────── */
+
+.canon-cockpit-content {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.canon-cockpit-section {
+  color: var(--fg);
+  font-size: var(--fs-body, 12px);
+}
+
+/* ── Close ──────────────────────────────────────────────────────────── */
+
+.canon-cockpit-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  background: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+.canon-cockpit-close:hover {
+  color: var(--fg);
+  background: rgba(var(--ink-rgb), 0.06);
+}

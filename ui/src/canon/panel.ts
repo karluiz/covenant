@@ -147,6 +147,10 @@ export interface CanonPanelOpts {
   getActiveOrg?: () => string | null;
   /** Persist the chosen org slug on the group. */
   setActiveOrg?: (slug: string | null) => void;
+  /** Open the full-screen Canon cockpit for this group. Construction (and
+   *  any manager access it needs) stays in main.ts — the panel never
+   *  imports manager internals. */
+  onExpand?: () => void;
 }
 
 export class CanonPanel {
@@ -188,6 +192,10 @@ export class CanonPanel {
       attachTooltip(exportBtn, "Project Canon to executors (.claude, AGENTS.md, copilot)");
       exportBtn.addEventListener("click", () => void this.exportNow(exportBtn));
       head.appendChild(exportBtn);
+    }
+
+    if (opts.onExpand) {
+      head.appendChild(iconButton(Icons.maximize({ size: 14 }), "Open Canon full screen", () => opts.onExpand?.()));
     }
 
     const closeBtn = document.createElement("button");

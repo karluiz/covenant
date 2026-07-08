@@ -89,6 +89,8 @@ import { ProjectNotesPanel } from "./project-notes/panel";
 import { CanonPanel } from "./canon/panel";
 import "./canon/miner/miner.css";
 import { ContextMinerView } from "./canon/miner/view";
+import { CanonCockpitView } from "./canon/cockpit/view";
+import { canonMyOrgs } from "./api";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor } from "./spawns/shortcuts";
@@ -1515,6 +1517,19 @@ async function boot(): Promise<void> {
           // Remount so the head picks up the Project button too.
           pendingCanonArgs = a;
           mountCanon();
+        });
+      },
+      onExpand: () => {
+        const a = args;
+        void canonMyOrgs().catch(() => []).then((orgs) => {
+          new CanonCockpitView({
+            groupId: a.groupId,
+            groupLabel: a.groupLabel,
+            groupRootDir: manager.groupRootDirFor(a.groupId),
+            orgs,
+            getActiveOrg: () => manager.groupCanonOrg(a.groupId),
+            setActiveOrg: (slug) => manager.setGroupCanonOrg(a.groupId, slug),
+          }).open();
         });
       },
     }).mount(document.body);
