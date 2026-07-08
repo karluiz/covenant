@@ -12692,6 +12692,20 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
 .mission-page-spec.is-new .mission-page-id {
   color: var(--accent, #7aa2f7);
 }
+/* Trailing badge cluster — keeps multiple chips inside the row's last column. */
+.mission-page-badges { display: flex; align-items: center; gap: 4px; }
+/* Spec living in a sibling worktree/branch — mono branch chip. */
+.mission-page-badge-wt {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 9.5px;
+  color: var(--text-tertiary, var(--muted));
+  border-color: rgb(var(--ink-rgb, 255 255 255) / 0.14);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Selected row: 2px accent spine — the house selection cue. */
 .mission-page-spec.selected { box-shadow: inset 2px 0 0 var(--accent, #7aa2f7); }
 

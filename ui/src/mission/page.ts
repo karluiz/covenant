@@ -415,8 +415,11 @@ export class MissionPage {
             <span class="mission-page-spec-title">${escapeHtml(spec.title)}</span>
             <span class="mission-page-spec-goal">${escapeHtml(spec.goal)}</span>
           </span>
-          ${isCurrent ? `<span class="mission-page-badge">current</span>` : ""}
-          ${!isCurrent && isNew ? `<span class="mission-page-badge mission-page-badge-new">new</span>` : ""}
+          <span class="mission-page-badges">
+            ${spec.worktree_label ? `<span class="mission-page-badge mission-page-badge-wt">${escapeHtml(spec.worktree_label)}</span>` : ""}
+            ${isCurrent ? `<span class="mission-page-badge">current</span>` : ""}
+            ${!isCurrent && isNew ? `<span class="mission-page-badge mission-page-badge-new">new</span>` : ""}
+          </span>
         </button>
       `;
     }).join("");

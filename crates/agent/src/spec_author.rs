@@ -410,6 +410,41 @@ pub fn resolve_repo_root(cwd: &Path) -> PathBuf {
     }
 }
 
+/// Resolve `cwd` to the **main** repository root, collapsing linked worktrees
+/// onto the checkout they share. Uses `git --git-common-dir` (which returns the
+/// main `.git` even from inside a worktree); its parent is the main worktree
+/// root. Falls back to [`resolve_repo_root`] outside git or on old git.
+///
+/// This is the identity drafts are scoped by, so a spec authored in an
+/// (ephemeral) worktree still surfaces from the main checkout.
+pub fn resolve_main_repo_root(cwd: &Path) -> PathBuf {
+    if let Some(root) = git_common_root(cwd) {
+        return root;
+    }
+    resolve_repo_root(cwd)
+}
+
+fn git_common_root(cwd: &Path) -> Option<PathBuf> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    let common = Path::new(text.trim());
+    // `<main>/.git` → main worktree root is its parent.
+    let root = if common.file_name().map(|n| n == ".git").unwrap_or(false) {
+        common.parent()?.to_path_buf()
+    } else {
+        common.to_path_buf()
+    };
+    Some(std::fs::canonicalize(&root).unwrap_or(root))
+}
+
 /// Honest fallback context for when no usable cwd reached the backend.
 /// Without this the model invents a stack out of thin air (it once claimed a
 /// Java repo was "a Python data-consolidation project").

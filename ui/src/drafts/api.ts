@@ -49,6 +49,8 @@ export interface PublishedSpec {
   goal: string;
   path: string;
   updated_at: string;
+  /** Branch of the sibling worktree this spec lives in; absent = current worktree. */
+  worktree_label?: string | null;
 }
 
 export interface SpecBody {
