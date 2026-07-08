@@ -4810,6 +4810,8 @@ pub fn run() {
             lsp_commands::lsp_start,
             lsp_commands::lsp_send,
             lsp_commands::lsp_stop,
+            lsp_commands::lsp_list_installed,
+            lsp_commands::lsp_delete_server,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

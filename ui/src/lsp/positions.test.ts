@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Text } from "@codemirror/state";
-import { lspToOffset, offsetToLsp, pathToUri, uriToPath } from "./positions";
+import { lspRangeToCm, lspToOffset, offsetToLsp, pathToUri, uriToPath } from "./positions";
 
 describe("positions", () => {
   const doc = Text.of(["fn main() {", "  let s = \"🦀 ok\";", "}"]);
@@ -30,5 +30,10 @@ describe("positions", () => {
     expect(uriToPath(pathToUri(p))).toBe(p);
     expect(pathToUri(p)).toMatch(/^file:\/\//);
     expect(pathToUri(p)).not.toContain(" ");
+  });
+
+  it("maps an LSP range to a CM from/to", () => {
+    const d = Text.of(["fn main() {}"]);
+    expect(lspRangeToCm(d, { start: { line: 0, character: 3 }, end: { line: 0, character: 7 } })).toEqual({ from: 3, to: 7 });
   });
 });

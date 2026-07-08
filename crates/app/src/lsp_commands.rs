@@ -55,6 +55,15 @@ struct DownloadProgress {
     total: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct LspInstalledServer {
+    pub language: String,
+    pub name: String,
+    pub version: String,
+    pub size_bytes: u64,
+    pub installed: bool,
+}
+
 #[tauri::command]
 pub fn lsp_server_status(state: State<'_, LspState>, language: String) -> Result<LspServerStatus, String> {
     let spec = registry::spec_for_language(&language).map_err(|e| e.to_string())?;
@@ -80,6 +89,29 @@ pub async fn lsp_download_server(
     })
     .await
     .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn lsp_list_installed(state: State<'_, LspState>) -> Result<Vec<LspInstalledServer>, String> {
+    let servers = registry::all_specs()
+        .iter()
+        .map(|spec| LspInstalledServer {
+            language: spec.language.clone(),
+            name: spec.name.clone(),
+            version: spec.version.clone(),
+            size_bytes: install::installed_size(&state.data_dir, spec),
+            installed: install::is_installed(&state.data_dir, spec),
+        })
+        .collect();
+    Ok(servers)
+}
+
+#[tauri::command]
+pub fn lsp_delete_server(state: State<'_, LspState>, language: String) -> Result<(), String> {
+    let spec = registry::spec_for_language(&language).map_err(|e| e.to_string())?;
+    install::remove(&state.data_dir, spec).map_err(|e| e.to_string())?;
+    tracing::info!(language = %language, "lsp server deleted");
     Ok(())
 }
 

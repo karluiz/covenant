@@ -2,6 +2,7 @@
 // needs. Deliberately not codemirror-languageserver — that package
 // lacks definition/references, so this is the spec's "fork" clause.
 import type { LspPosition } from "./positions";
+import type { WorkspaceEdit } from "./edits";
 
 export interface Transport {
   send(message: string): Promise<void>;
@@ -12,6 +13,39 @@ export interface Transport {
 export interface LspLocation {
   uri: string;
   range: { start: LspPosition; end: LspPosition };
+}
+
+export interface LspDiagnostic {
+  range: { start: LspPosition; end: LspPosition };
+  severity?: 1 | 2 | 3 | 4;
+  message: string;
+  source?: string;
+}
+
+export interface LspContentChange {
+  range?: { start: LspPosition; end: LspPosition };
+  text: string;
+}
+
+export interface LspCommand {
+  command: string;
+  arguments?: unknown[];
+}
+
+export interface LspCodeAction {
+  title: string;
+  edit?: WorkspaceEdit;
+  command?: LspCommand;
+}
+
+export interface LspCompletionItem {
+  label: string;
+  kind?: number;
+  detail?: string;
+  documentation?: string | { value: string };
+  insertText?: string;
+  textEdit?: { range: { start: LspPosition; end: LspPosition }; newText: string };
+  sortText?: string;
 }
 
 interface Pending {
@@ -27,6 +61,7 @@ export class LspClient {
   private pending = new Map<number, Pending>();
   private versions = new Map<string, number>();
   private disposed = false;
+  private diagnosticsSubs = new Set<(uri: string, diags: LspDiagnostic[]) => void>();
 
   constructor(private readonly transport: Transport) {
     transport.onMessage((raw) => this.handleMessage(raw));
@@ -43,6 +78,9 @@ export class LspClient {
           definition: { linkSupport: true },
           references: {},
           synchronization: { didSave: true },
+          completion: { completionItem: { snippetSupport: false } },
+          rename: { prepareSupport: false },
+          codeAction: {},
         },
       },
     });
@@ -56,14 +94,17 @@ export class LspClient {
     });
   }
 
-  // ponytail: full-text sync; incremental didChange lands with P2's
-  // diagnostics work where change granularity starts to matter.
-  didChange(uri: string, text: string): void {
+  // ponytail: we forward `changes` verbatim, whatever granularity the
+  // caller built — a single `{text}` entry (no range) is a full-doc
+  // replace, ranged entries are incremental edits. `LspDoc` (manager.ts)
+  // owns that decision; the server advertised sync capability during
+  // `initialize`, and rust-analyzer accepts both.
+  didChange(uri: string, changes: LspContentChange[]): void {
     const version = (this.versions.get(uri) ?? 1) + 1;
     this.versions.set(uri, version);
     this.notify("textDocument/didChange", {
       textDocument: { uri, version },
-      contentChanges: [{ text }],
+      contentChanges: changes,
     });
   }
 
@@ -98,6 +139,44 @@ export class LspClient {
     return normalizeLocations(r);
   }
 
+  async completion(uri: string, pos: LspPosition): Promise<LspCompletionItem[]> {
+    const r = (await this.request("textDocument/completion", { textDocument: { uri }, position: pos })) as
+      | { items?: LspCompletionItem[] } | LspCompletionItem[] | null;
+    if (!r) return [];
+    return Array.isArray(r) ? r : (r.items ?? []);
+  }
+
+  async rename(uri: string, pos: LspPosition, newName: string): Promise<WorkspaceEdit | null> {
+    const r = (await this.request("textDocument/rename", {
+      textDocument: { uri },
+      position: pos,
+      newName,
+    })) as WorkspaceEdit | null;
+    return r ?? null;
+  }
+
+  async codeAction(
+    uri: string,
+    range: { start: LspPosition; end: LspPosition },
+    diagnostics: LspDiagnostic[],
+  ): Promise<LspCodeAction[]> {
+    const r = await this.request("textDocument/codeAction", {
+      textDocument: { uri },
+      range,
+      context: { diagnostics },
+    });
+    return normalizeCodeActions(r);
+  }
+
+  async executeCommand(command: string, args?: unknown[]): Promise<void> {
+    await this.request("workspace/executeCommand", { command, arguments: args });
+  }
+
+  onDiagnostics(cb: (uri: string, diags: LspDiagnostic[]) => void): () => void {
+    this.diagnosticsSubs.add(cb);
+    return () => this.diagnosticsSubs.delete(cb);
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const p of this.pending.values()) {
@@ -127,7 +206,13 @@ export class LspClient {
 
   private handleMessage(raw: string): void {
     if (this.disposed) return;
-    let msg: { id?: number; method?: string; result?: unknown; error?: { message?: string } };
+    let msg: {
+      id?: number;
+      method?: string;
+      params?: unknown;
+      result?: unknown;
+      error?: { message?: string };
+    };
     try {
       msg = JSON.parse(raw) as typeof msg;
     } catch {
@@ -148,8 +233,16 @@ export class LspClient {
         jsonrpc: "2.0", id: msg.id,
         error: { code: -32601, message: `method not supported: ${msg.method}` },
       }));
+    } else if (msg.method !== undefined) {
+      // Server notification.
+      if (msg.method === "textDocument/publishDiagnostics") {
+        const p = msg.params as { uri?: string; diagnostics?: LspDiagnostic[] } | undefined;
+        if (p?.uri && Array.isArray(p.diagnostics)) {
+          for (const cb of this.diagnosticsSubs) cb(p.uri, p.diagnostics);
+        }
+      }
+      // other notifications ignored
     }
-    // Server notifications (publishDiagnostics etc.) — ignored until P2.
   }
 }
 
@@ -164,6 +257,30 @@ function normalizeLocations(r: unknown): LspLocation[] {
     const loc = item as { uri?: string; range?: LspLocation["range"] };
     if (loc.uri && loc.range) return [{ uri: loc.uri, range: loc.range }];
     return [];
+  });
+}
+
+// `(Command | CodeAction)[]`. Spec discriminator: on a bare Command,
+// `.command` is the command-id STRING itself; on a CodeAction, `.command`
+// (if present, as a post-edit followup) is a nested `{command, arguments}`
+// object. That's the only reliable tag — both share a `.title`, and a
+// CodeAction may also carry `.command` alongside `.edit`.
+function normalizeCodeActions(r: unknown): LspCodeAction[] {
+  if (!Array.isArray(r)) return [];
+  return r.flatMap((item): LspCodeAction[] => {
+    const it = item as {
+      title?: string;
+      edit?: WorkspaceEdit;
+      command?: string | LspCommand;
+      arguments?: unknown[];
+    };
+    if (typeof it.title !== "string") return [];
+    if (typeof it.command === "string") {
+      // Bare Command.
+      return [{ title: it.title, command: { command: it.command, arguments: it.arguments } }];
+    }
+    // CodeAction.
+    return [{ title: it.title, edit: it.edit, command: it.command }];
   });
 }
 

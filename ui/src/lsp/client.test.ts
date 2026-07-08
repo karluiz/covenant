@@ -60,16 +60,84 @@ describe("LspClient", () => {
     });
   });
 
-  it("didChange bumps version and sends full text", async () => {
+  it("didChange bumps version and sends full text (back-compat single {text} entry)", async () => {
     const { t, sent } = mockTransport();
     const c = new LspClient(t);
     c.didOpen("file:///a.rs", "rust", "v1");
-    c.didChange("file:///a.rs", "v2");
+    c.didChange("file:///a.rs", [{ text: "v2" }]);
     await vi.waitFor(() => expect(sent.length).toBe(2));
     expect(sent[0].method).toBe("textDocument/didOpen");
     const change = sent[1] as { method: string; params: { textDocument: { version: number }; contentChanges: Array<{ text: string }> } };
     expect(change.method).toBe("textDocument/didChange");
     expect(change.params.textDocument.version).toBe(2);
     expect(change.params.contentChanges).toEqual([{ text: "v2" }]);
+  });
+
+  it("didChange forwards incremental ranged changes", async () => {
+    const { t, sent } = mockTransport();
+    const c = new LspClient(t);
+    c.didOpen("file:///a.rs", "rust", "let x = 1;");
+    c.didChange("file:///a.rs", [{ range: { start: { line: 0, character: 8 }, end: { line: 0, character: 9 } }, text: "2" }]);
+    await vi.waitFor(() => expect(sent.length).toBe(2));
+    const change = sent[1] as { params: { contentChanges: unknown[] } };
+    expect(change.params.contentChanges).toEqual([{ range: { start: { line: 0, character: 8 }, end: { line: 0, character: 9 } }, text: "2" }]);
+  });
+
+  it("dispatches publishDiagnostics notifications to onDiagnostics subscribers", async () => {
+    const { t, reply } = mockTransport();
+    const c = new LspClient(t);
+    const seen: Array<{ uri: string; n: number }> = [];
+    c.onDiagnostics((uri, diags) => seen.push({ uri, n: diags.length }));
+    reply({
+      jsonrpc: "2.0", method: "textDocument/publishDiagnostics",
+      params: { uri: "file:///a.rs", diagnostics: [
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } }, severity: 1, message: "mismatched types" },
+      ] },
+    });
+    await vi.waitFor(() => expect(seen).toEqual([{ uri: "file:///a.rs", n: 1 }]));
+  });
+
+  it("completion normalizes CompletionList to items", async () => {
+    const { t, sent, reply } = mockTransport();
+    const c = new LspClient(t);
+    const p = c.completion("file:///a.rs", { line: 1, character: 4 });
+    await vi.waitFor(() => expect(sent.length).toBe(1));
+    reply({ jsonrpc: "2.0", id: sent[0].id, result: { isIncomplete: false, items: [{ label: "println!", kind: 3 }] } });
+    expect((await p).map((i) => i.label)).toEqual(["println!"]);
+  });
+
+  it("codeAction normalizes a mix of CodeAction (with edit) and bare Command", async () => {
+    const { t, sent, reply } = mockTransport();
+    const c = new LspClient(t);
+    const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } };
+    const p = c.codeAction("file:///a.rs", range, [{ range, message: "unused import" }]);
+    await vi.waitFor(() => expect(sent.length).toBe(1));
+    expect(sent[0].method).toBe("textDocument/codeAction");
+    reply({
+      jsonrpc: "2.0", id: sent[0].id,
+      result: [
+        {
+          title: "Remove unused import",
+          kind: "quickfix",
+          edit: { changes: { "file:///a.rs": [{ range, newText: "" }] } },
+        },
+        { title: "Run cargo fix", command: "rust-analyzer.runFlycheck", arguments: [1] },
+      ],
+    });
+    expect(await p).toEqual([
+      { title: "Remove unused import", edit: { changes: { "file:///a.rs": [{ range, newText: "" }] } } },
+      { title: "Run cargo fix", command: { command: "rust-analyzer.runFlycheck", arguments: [1] } },
+    ]);
+  });
+
+  it("executeCommand sends workspace/executeCommand with command + arguments", async () => {
+    const { t, sent, reply } = mockTransport();
+    const c = new LspClient(t);
+    const p = c.executeCommand("rust-analyzer.runFlycheck", [1]);
+    await vi.waitFor(() => expect(sent.length).toBe(1));
+    expect(sent[0].method).toBe("workspace/executeCommand");
+    expect(sent[0].params).toEqual({ command: "rust-analyzer.runFlycheck", arguments: [1] });
+    reply({ jsonrpc: "2.0", id: sent[0].id, result: null });
+    await p;
   });
 });

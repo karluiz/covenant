@@ -3,10 +3,27 @@
 // (language, root)); each server gets exactly ONE LspClient so request
 // ids never collide across the two StructureEditor instances.
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { ViewUpdate } from "@codemirror/view";
 
-import { lspDownloadServer, lspSend, lspServerStatus, lspStart, lspStop } from "../api";
-import { LspClient, type Transport } from "./client";
-import { pathToUri } from "./positions";
+import {
+  getSettings,
+  lspDownloadServer,
+  lspSend,
+  lspServerStatus,
+  lspStart,
+  lspStop,
+  setSettings,
+} from "../api";
+import { LspClient, type LspContentChange, type LspDiagnostic, type Transport } from "./client";
+import { LruIdlePolicy } from "./lru";
+import { offsetToLsp, pathToUri } from "./positions";
+
+// Cap on simultaneously live LSP servers and how long an idle one (no
+// open docs) survives before being stopped. Frontend-driven per the
+// P2 design doc — the manager already tracks openDocs refcounts, so it
+// alone knows when a server truly goes idle.
+const LSP_SERVER_CAP = 4;
+const LSP_IDLE_MS = 10 * 60 * 1000;
 
 export type LspDocStatus =
   | { kind: "unsupported" }
@@ -21,16 +38,124 @@ export function lspLanguageId(path: string): string | null {
   return /\.rs$/i.test(path) ? "rust" : null;
 }
 
-export function consentState(language: string): boolean {
-  // ponytail: localStorage until the P2 Settings section lands.
-  return localStorage.getItem(`lsp.consent.${language}`) === "granted";
+// ---- Consent store ----------------------------------------------------
+// P1 shipped consent as localStorage keys (`lsp.consent.<language>`).
+// P2 moves it into the settings store (`settings.code_intelligence`) so
+// it lives alongside the master + per-language toggles in the Settings
+// UI. `consentState`/`grantConsentFor` are the only two entry points
+// callers use; both are now async because settings access is IPC, but
+// every call site was already inside an async function so this is a
+// same-shape signature change, not a structural refactor.
+
+interface CodeIntelCache {
+  enabled: boolean;
+  consentedLanguages: Set<string>;
 }
 
-export function grantConsentFor(language: string): void {
-  localStorage.setItem(`lsp.consent.${language}`, "granted");
+let cache: CodeIntelCache = { enabled: true, consentedLanguages: new Set() };
+let loadPromise: Promise<void> | null = null;
+
+// Sentinel marking the one-time localStorage→settings migration as done.
+// Deliberately NOT gated on `settings.code_intelligence` being absent:
+// the backend field is a plain (non-Option) struct that is ALWAYS
+// serialized (populated with defaults for upgrading users), so an
+// absence check never fires in production. The sentinel is the only
+// signal that survives that.
+const MIGRATION_SENTINEL_KEY = "lsp.consent.migrated";
+
+// ponytail: one-time migration, not a sync engine. Reads the legacy
+// per-language localStorage keys, folds any "granted" ones into the
+// settings-store array, and never looks at localStorage again — the
+// settings store is the sole source of truth from here on.
+function migrateLegacyLocalStorage(): string[] {
+  const granted: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith("lsp.consent.")) continue;
+    if (localStorage.getItem(key) === "granted") {
+      granted.push(key.slice("lsp.consent.".length));
+    }
+  }
+  return granted;
 }
 
-const CHANGE_DEBOUNCE_MS = 200;
+async function ensureLoaded(): Promise<void> {
+  if (!loadPromise) {
+    loadPromise = (async () => {
+      try {
+        const settings = await getSettings();
+        let ci = settings.code_intelligence ?? { enabled: true, consented_languages: [] };
+        if (localStorage.getItem(MIGRATION_SENTINEL_KEY) !== "done") {
+          const granted = migrateLegacyLocalStorage();
+          if (granted.length > 0) {
+            // Merge — never clobber consent already recorded in the store.
+            const merged = new Set([...ci.consented_languages, ...granted]);
+            ci = { enabled: ci.enabled, consented_languages: [...merged] };
+            await setSettings({ ...settings, code_intelligence: ci });
+          }
+          localStorage.setItem(MIGRATION_SENTINEL_KEY, "done");
+        }
+        cache = { enabled: ci.enabled, consentedLanguages: new Set(ci.consented_languages) };
+      } catch (e) {
+        // IPC hiccup — fall back to a safe default and let the NEXT call
+        // retry instead of memoizing this rejection forever.
+        cache = { enabled: true, consentedLanguages: new Set() };
+        loadPromise = null;
+        throw e;
+      }
+    })();
+  }
+  return loadPromise;
+}
+
+// ---- Live settings-change notification --------------------------------
+// `refreshCodeIntelSettings` alone only affects the NEXT `setupLsp` call
+// (i.e. the next file open) — an editor tab that already has an `LspDoc`
+// open keeps it live until reopened. `onCodeIntelChange` lets an editor
+// subscribe and immediately re-run `setupLsp` for whatever it currently
+// has open, so disabling code intelligence (master toggle, or revoking a
+// language's consent) tears down an in-progress session right away.
+type CodeIntelListener = () => void;
+const codeIntelListeners = new Set<CodeIntelListener>();
+
+/// Subscribe to code-intelligence settings changes. Returns an
+/// unsubscribe function. Fired at the end of `refreshCodeIntelSettings`.
+export function onCodeIntelChange(cb: CodeIntelListener): () => void {
+  codeIntelListeners.add(cb);
+  return () => codeIntelListeners.delete(cb);
+}
+
+/// Re-reads the settings store into the cache. Called after the Settings
+/// panel's Code intelligence section saves a change, so an already-open
+/// editor tab picks up the new master/per-language toggle immediately.
+export async function refreshCodeIntelSettings(): Promise<void> {
+  loadPromise = null;
+  await ensureLoaded();
+  for (const cb of codeIntelListeners) cb();
+}
+
+async function persistConsent(): Promise<void> {
+  const settings = await getSettings();
+  await setSettings({
+    ...settings,
+    code_intelligence: {
+      enabled: cache.enabled,
+      consented_languages: [...cache.consentedLanguages],
+    },
+  });
+}
+
+export async function consentState(language: string): Promise<boolean> {
+  await ensureLoaded();
+  return cache.enabled && cache.consentedLanguages.has(language);
+}
+
+export async function grantConsentFor(language: string): Promise<void> {
+  await ensureLoaded();
+  if (cache.consentedLanguages.has(language)) return;
+  cache.consentedLanguages.add(language);
+  await persistConsent();
+}
 
 interface ServerEntry {
   serverId: number;
@@ -61,8 +186,6 @@ class TauriTransport implements Transport {
 }
 
 export class LspDoc {
-  private pendingText: string | null = null;
-  private timer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
 
   constructor(
@@ -71,24 +194,51 @@ export class LspDoc {
     private readonly onClose: (uri: string) => void,
   ) {}
 
-  change(text: string): void {
+  // Maps a CM6 `ViewUpdate` to incremental LSP content changes and
+  // sends them immediately.
+  //
+  // `update.changes.iterChanges` yields non-overlapping edits in
+  // ascending document-offset order, all expressed in
+  // `update.startState.doc` (pre-transaction) coordinates. LSP applies
+  // `contentChanges` array entries SEQUENTIALLY — each one mutates the
+  // document before the next is applied — so sending our ranges in
+  // that same ascending order would be wrong: an earlier edit shifts
+  // every offset after it, invalidating later ranges that were
+  // computed against the ORIGINAL doc. Reversing to descending order
+  // fixes this: applying the rightmost edit first never touches
+  // anything to its left, so every remaining range's start-state
+  // coordinates are still valid when its turn comes.
+  changeIncremental(update: ViewUpdate): void {
     if (this.closed) return;
-    this.pendingText = text;
-    this.timer ??= setTimeout(() => {
-      this.timer = null;
-      if (this.pendingText !== null && !this.closed) {
-        this.client.didChange(this.uri, this.pendingText);
-        this.pendingText = null;
-      }
-    }, CHANGE_DEBOUNCE_MS);
+    const changes: LspContentChange[] = [];
+    update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      changes.push({
+        range: { start: offsetToLsp(update.startState.doc, fromA), end: offsetToLsp(update.startState.doc, toA) },
+        text: inserted.toString(),
+      });
+    });
+    if (changes.length === 0) return;
+    changes.reverse();
+    // ponytail: no debounce here — each CM6 transaction is sent as its
+    // own didChange immediately. The 200ms batching this replaced
+    // existed to amortize full-document re-sync cost; incremental
+    // ranged deltas are cheap enough that rust-analyzer (and LSP
+    // servers generally) handle per-keystroke didChange fine.
+    this.client.didChange(this.uri, changes);
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    if (this.timer) clearTimeout(this.timer);
-    if (this.pendingText !== null) this.client.didChange(this.uri, this.pendingText);
     this.onClose(this.uri);
+  }
+
+  // ponytail: thin filter over the shared client's broadcast stream —
+  // verified via cm6 + manual, no dedicated unit test.
+  onDiagnostics(cb: (diags: LspDiagnostic[]) => void): () => void {
+    return this.client.onDiagnostics((uri, diags) => {
+      if (uri === this.uri) cb(diags);
+    });
   }
 }
 
@@ -101,14 +251,37 @@ class LspManager {
   // calls for the same server race onto ONE creation instead of each
   // building its own LspClient (see module docstring).
   private creating = new Map<number, Promise<ServerEntry>>();
+  private readonly policy = new LruIdlePolicy({
+    cap: LSP_SERVER_CAP,
+    idleMs: LSP_IDLE_MS,
+    stop: (id) => this.dropServer(id),
+  });
+  // ponytail: one interval for the whole manager, not one per server —
+  // started when the first server comes up, cleared once `servers` goes
+  // back to empty so it never leaks past the last live server.
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+  private ensureSweepTimer(): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(() => this.policy.sweep(Date.now()), 60_000);
+  }
+
+  private maybeClearSweepTimer(): void {
+    if (this.servers.size === 0 && this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
+  }
 
   async status(path: string): Promise<LspDocStatus> {
     const language = lspLanguageId(path);
     if (!language) return { kind: "unsupported" };
+    await ensureLoaded();
+    if (!cache.enabled) return { kind: "unsupported" }; // master toggle off in Settings
     try {
       const st = await lspServerStatus(language);
       if (st.installed) return { kind: "ready" };
-      if (!consentState(language)) {
+      if (!(await consentState(language))) {
         return { kind: "consent-needed", name: st.name, approxSizeMb: st.approxSizeMb };
       }
       // Granted but not installed yet — still needs the download flow.
@@ -119,8 +292,8 @@ class LspManager {
     }
   }
 
-  grantConsent(language: string): void {
-    grantConsentFor(language);
+  async grantConsent(language: string): Promise<void> {
+    await grantConsentFor(language);
   }
 
   async download(language: string, onProgress: (percent: number | null) => void): Promise<void> {
@@ -159,6 +332,7 @@ class LspManager {
       throw e;
     }
     this.servers.set(serverId, entry);
+    this.ensureSweepTimer();
     return entry;
   }
 
@@ -167,8 +341,6 @@ class LspManager {
     if (!language) throw new Error(`no LSP language for ${path}`);
     const { serverId, root } = await lspStart(language, path);
 
-    // ponytail: idle shutdown + LRU cap land in P2 when multiple
-    // servers can be live simultaneously; P1 has exactly one language.
     let entry = this.servers.get(serverId);
     if (!entry) {
       let creating = this.creating.get(serverId);
@@ -183,6 +355,7 @@ class LspManager {
     const refs = entry.openDocs.get(uri) ?? 0;
     if (refs === 0) entry.client.didOpen(uri, language, text);
     entry.openDocs.set(uri, refs + 1);
+    this.policy.touch(serverId, Date.now());
 
     const fixed = entry;
     return new LspDoc(entry.client, uri, (u) => {
@@ -190,6 +363,8 @@ class LspManager {
       if (n <= 0) {
         fixed.openDocs.delete(u);
         fixed.client.didClose(u);
+        // Last open doc on this server just closed — it's now idle.
+        if (fixed.openDocs.size === 0) this.policy.release(serverId, Date.now());
       } else {
         fixed.openDocs.set(u, n);
       }
@@ -198,12 +373,14 @@ class LspManager {
 
   private dropServer(serverId: number): void {
     this.creating.delete(serverId); // defensive: no in-flight creation should outlive a drop
+    this.policy.remove(serverId);
     const entry = this.servers.get(serverId);
     if (!entry) return;
     this.servers.delete(serverId);
     for (const un of entry.unlisten) un();
     entry.client.dispose();
     void lspStop(serverId).catch(() => {});
+    this.maybeClearSweepTimer();
   }
 }
 

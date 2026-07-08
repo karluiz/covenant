@@ -1243,10 +1243,23 @@ export interface Settings {
   /// have an older version stamped.
   onboarding_completed?: boolean;
   onboarding_version?: number;
+  /// LSP ("Code intelligence") master toggle + per-language download
+  /// consent. `undefined` on settings written before this field existed —
+  /// treat as the default (enabled, nothing consented).
+  code_intelligence?: CodeIntelligenceConfig;
+}
+
+export interface CodeIntelligenceConfig {
+  enabled: boolean;
+  consented_languages: string[];
 }
 
 export async function validateSendGridKey(apiKey: string): Promise<boolean> {
   return invoke<boolean>('validate_sendgrid_key', { apiKey });
+}
+
+export async function setSettings(settings: Settings): Promise<void> {
+  return invoke<void>("set_settings", { settings });
 }
 
 export type TabbarPosition = "top" | "left";
@@ -3083,4 +3096,29 @@ export async function lspSend(serverId: number, message: string): Promise<void> 
 
 export async function lspStop(serverId: number): Promise<void> {
   await invoke<void>("lsp_stop", { serverId });
+}
+
+export interface LspInstalledServer {
+  language: string;
+  name: string;
+  version: string;
+  sizeBytes: number;
+  installed: boolean;
+}
+
+export async function lspListInstalled(): Promise<LspInstalledServer[]> {
+  const raw = await invoke<Array<{
+    language: string; name: string; version: string; size_bytes: number; installed: boolean;
+  }>>("lsp_list_installed");
+  return raw.map((s) => ({
+    language: s.language,
+    name: s.name,
+    version: s.version,
+    sizeBytes: s.size_bytes,
+    installed: s.installed,
+  }));
+}
+
+export async function lspDeleteServer(language: string): Promise<void> {
+  await invoke<void>("lsp_delete_server", { language });
 }

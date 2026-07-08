@@ -52,6 +52,12 @@ pub fn spec_for_language(lang: &str) -> Result<&'static ServerSpec, LspError> {
         .ok_or_else(|| LspError::UnknownLanguage(lang.to_string()))
 }
 
+/// All server specs baked into the manifest, for management UIs that need
+/// to enumerate every language rather than look one up.
+pub fn all_specs() -> &'static [ServerSpec] {
+    &manifest().servers
+}
+
 pub fn platform_key() -> &'static str {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("macos", "aarch64") => "macos-aarch64",

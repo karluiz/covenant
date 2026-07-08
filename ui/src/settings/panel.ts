@@ -18,6 +18,7 @@ import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
 import { OperatorsPane } from "./operators";
 import { renderTelegramSection, type TelegramSettings } from "./telegram";
+import { renderCodeIntelligenceSection, type CodeIntelligenceSettings } from "./code_intelligence";
 import { renderProvidersTab } from "./providers";
 import { renderModelsTab } from "./model_routes";
 import { renderSpawnsTab } from "./spawns";
@@ -174,6 +175,7 @@ interface Settings {
   providers?: Record<string, ProviderEntry>;
   model_routes?: Record<string, RouteEntry>;
   experimental?: ExperimentalConfig;
+  code_intelligence?: CodeIntelligenceSettings;
 }
 
 type TabbarPosition = "top" | "left";
@@ -956,6 +958,7 @@ export class SettingsPanel {
             </small>
           </label>
         </section>
+        <section class="settings-section" id="sec-code-intel"></section>
         <section class="settings-section" id="sec-operators">
           <h3 class="settings-section-title">Operators</h3>
           <p class="settings-section-desc">
@@ -1665,6 +1668,21 @@ export class SettingsPanel {
       );
     }
 
+    const ciHost = form.querySelector<HTMLElement>("#sec-code-intel");
+    if (ciHost && this.current) {
+      renderCodeIntelligenceSection(
+        ciHost,
+        { code_intelligence: this.current.code_intelligence },
+        async (patch) => {
+          if (!this.current) return;
+          this.current.code_intelligence = patch.code_intelligence;
+          await setSettings(this.current);
+          scheduleCloudPush();
+          if (this.onSaved) this.onSaved(this.current);
+        },
+      );
+    }
+
     form
       .querySelectorAll<HTMLButtonElement>(".settings-toggle")
       .forEach((toggleBtn) => {
@@ -1904,6 +1922,7 @@ export class SettingsPanel {
       "sec-models": "model routing default fallback",
       "sec-appearance": "theme dark light color font opacity accent sidebar folded rail collapsed",
       "sec-terminal": "shell font cursor scrollback keybindings shortcut hotkey",
+      "sec-code-intel": "lsp language server rust-analyzer code intelligence diagnostics autocomplete hover",
       "sec-operators": "operator agent soul persona achievements skills",
       "sec-spawns": "spawn preset launch quick action",
       "sec-updates": "update version release auto-update channel",
