@@ -8,15 +8,22 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { Org, Member } from "../../api";
+import type { Org, Member, PkgMeta } from "../../api";
 import {
   canonOrgMembers,
   canonAddMember,
   canonRemoveMember,
   canonCreateOrg,
   canonMyOrgs,
+  canonLocalStatus,
+  canonReadLocal,
+  canonPublish,
+  canonSearch,
+  canonPreview,
+  canonInstallRegistry,
 } from "../../api";
-import { slugify } from "../panel";
+import { slugify, skillCard, iconButton } from "../panel";
+import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 
 export type SectionKey = "org" | "members" | "skills" | "registry" | "context" | "loop";
@@ -88,12 +95,17 @@ export class CanonCockpitView {
 
   open(): void {
     document.body.appendChild(this.root);
+    // Lets cockpit.css re-stack the rail's SKILL.md reader (openMarkdownReader,
+    // z-index 60, positioned for the narrow rail panel) above the full-screen
+    // cockpit overlay (z-index 9600) instead of rendering behind it.
+    document.body.classList.add("canon-cockpit-open");
     document.addEventListener("keydown", this.onKey);
     this.showSection(this.current);
   }
 
   close(): void {
     this.root.remove();
+    document.body.classList.remove("canon-cockpit-open");
     document.removeEventListener("keydown", this.onKey);
   }
 
@@ -109,8 +121,10 @@ export class CanonCockpitView {
     switch (key) {
       case "org": return this.renderOrgSection();
       case "members": return this.renderMembersSection();
+      case "skills": return this.renderSkillsSection();
+      case "registry": return this.renderRegistrySection();
       default: {
-        // Stub — real content lands in Tasks 7-8.
+        // Stub — real content lands in Task 8.
         const el = document.createElement("div");
         el.className = `canon-cockpit-section is-${key}`;
         el.textContent = key;
@@ -368,5 +382,161 @@ export class CanonCockpitView {
 
     row.append(input, add);
     return row;
+  }
+
+  // ── Skills section ────────────────────────────────────────────────────
+
+  private renderSkillsSection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-skills";
+    const cwd = this.opts.groupRootDir;
+    if (!cwd) {
+      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage skills."));
+      return el;
+    }
+
+    const errorEl = document.createElement("p");
+    errorEl.className = "canon-cockpit-error";
+    errorEl.hidden = true;
+
+    const list = document.createElement("div");
+    list.className = "canon-cockpit-skills-list";
+    list.appendChild(this.note("Loading…"));
+
+    const load = (): void => {
+      void canonLocalStatus(cwd)
+        .then((status) => {
+          list.replaceChildren();
+          if (status.installed.length === 0) {
+            list.appendChild(this.note("No skills installed."));
+            return;
+          }
+          const active = this.activeOrg();
+          for (const i of status.installed) {
+            const actions: HTMLButtonElement[] = [];
+            if (active && !i.source.startsWith("registry:")) {
+              const pub = iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => {
+                errorEl.hidden = true;
+                pub.disabled = true;
+                void canonPublish(cwd, active.slug, i.name)
+                  .then(load)
+                  .catch((e) => {
+                    errorEl.hidden = false;
+                    errorEl.textContent = this.friendlyError(e);
+                    pub.disabled = false;
+                  });
+              });
+              actions.push(pub);
+            }
+            list.appendChild(skillCard({
+              name: i.name,
+              meta: `${i.version} · ${i.source}`,
+              className: "canon-skill-row",
+              fetchPreview: () => canonReadLocal(cwd, i.name),
+              actions,
+              stats: [`v${i.version}`, i.source],
+            }));
+          }
+        })
+        .catch((e) => {
+          list.replaceChildren();
+          list.appendChild(this.note(`Failed to load skills: ${this.friendlyError(e)}`));
+        });
+    };
+
+    el.append(list, errorEl);
+    load();
+    return el;
+  }
+
+  // ── Registry section ─────────────────────────────────────────────────
+
+  private renderRegistrySection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-registry";
+    const initialActive = this.activeOrg();
+    const cwd = this.opts.groupRootDir;
+
+    if (!initialActive) {
+      el.appendChild(this.note("No organization selected — pick or create one in the Org section to browse its registry."));
+      return el;
+    }
+    if (!cwd) {
+      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to install packages."));
+      return el;
+    }
+
+    const searchRow = document.createElement("div");
+    searchRow.className = "canon-cockpit-search-row";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "canon-cockpit-search-input";
+    input.placeholder = `Search ${initialActive.slug} registry…`;
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "canon-cockpit-search-go";
+    go.textContent = "Search";
+
+    const errorEl = document.createElement("p");
+    errorEl.className = "canon-cockpit-error";
+    errorEl.hidden = true;
+
+    const results = document.createElement("div");
+    results.className = "canon-cockpit-search-results";
+
+    const runSearch = (): void => {
+      const active = this.activeOrg();
+      if (!active) {
+        errorEl.hidden = false;
+        errorEl.textContent = "No organization selected.";
+        return;
+      }
+      errorEl.hidden = true;
+      results.replaceChildren(this.note("Searching…"));
+      void canonSearch(active.slug, input.value.trim() || null)
+        .then((rows: PkgMeta[]) => {
+          results.replaceChildren();
+          if (rows.length === 0) {
+            results.appendChild(this.note("No packages found."));
+            return;
+          }
+          for (const r of rows) {
+            const inst = iconButton(Icons.download({ size: 15 }), "Install", () => {
+              const org = this.activeOrg();
+              if (!org) return;
+              errorEl.hidden = true;
+              inst.disabled = true;
+              void canonInstallRegistry(cwd, org.slug, r.name, r.version, this.opts.groupLabel, null)
+                .then(() => { inst.innerHTML = Icons.check({ size: 15 }); })
+                .catch((e) => {
+                  errorEl.hidden = false;
+                  errorEl.textContent = this.friendlyError(e);
+                  inst.disabled = false;
+                });
+            });
+            const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
+            results.appendChild(skillCard({
+              name: r.name,
+              meta: `${r.version} · ${installs} · ${r.publisher_login}`,
+              description: r.description,
+              className: "canon-search-result",
+              fetchPreview: () => canonPreview(active.slug, r.name, r.version).then((p) => p.skill_md),
+              actions: [inst],
+              stats: [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)],
+            }));
+          }
+        })
+        .catch((e) => {
+          results.replaceChildren();
+          errorEl.hidden = false;
+          errorEl.textContent = this.friendlyError(e);
+        });
+    };
+    go.addEventListener("click", runSearch);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+
+    searchRow.append(input, go);
+    el.append(searchRow, errorEl, results);
+    return el;
   }
 }

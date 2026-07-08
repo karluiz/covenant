@@ -8,9 +8,15 @@ vi.mock("../../api", () => ({
   canonRemoveMember: vi.fn().mockResolvedValue(undefined),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
+  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], contextFiles: [] }),
+  canonReadLocal: vi.fn().mockResolvedValue(""),
+  canonPublish: vi.fn().mockResolvedValue(undefined),
+  canonSearch: vi.fn().mockResolvedValue([]),
+  canonPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
+  canonInstallRegistry: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { canonMyOrgs } from "../../api";
+import { canonMyOrgs, canonSearch } from "../../api";
 
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
@@ -80,5 +86,20 @@ describe("CanonCockpitView create-org flow", () => {
 
     expect(setActiveOrg).toHaveBeenCalledWith("neworg");
     expect(v.element.textContent).toContain("neworg");
+  });
+});
+
+describe("CanonCockpitView Registry section", () => {
+  it("renders registry search results for the active org", async () => {
+    vi.mocked(canonSearch).mockResolvedValue([
+      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234" },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("registry");
+    const input = v.element.querySelector(".canon-cockpit-search-input") as HTMLInputElement;
+    const go = v.element.querySelector(".canon-cockpit-search-go") as HTMLButtonElement;
+    input.value = "kyc"; go.click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(v.element.textContent).toContain("kyc");
   });
 });

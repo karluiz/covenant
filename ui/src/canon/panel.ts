@@ -78,7 +78,7 @@ function stripFrontmatter(md: string): string {
 /** Full-screen rendered-markdown reader for a SKILL.md — same vibe as the
  *  spec preview. renderMarkdown HTML-escapes every segment, so the untrusted
  *  registry content is safe to innerHTML here. Esc / backdrop / esc button closes. */
-function openMarkdownReader(
+export function openMarkdownReader(
   title: string,
   fetchMd: () => Promise<string>,
   stats?: string[],
@@ -115,6 +115,71 @@ function openMarkdownReader(
     .catch((e) => { body.textContent = `Failed to load: ${String(e)}`; });
 }
 
+/** A skill/package card: name + meta + actions, a one-line description,
+ *  and a Preview toggle that lazy-loads the full SKILL.md (rendered as
+ *  plain text — registry content is untrusted, never innerHTML). Shared by
+ *  the rail panel (CanonPanel) and the cockpit's Skills/Registry sections. */
+export function skillCard(opts: {
+  name: string;
+  meta: string;
+  description?: string;
+  className: string;
+  fetchPreview: () => Promise<string>;
+  actions: HTMLButtonElement[];
+  stats?: string[];
+}): HTMLElement {
+  const card = document.createElement("div");
+  card.className = opts.className;
+
+  const head = document.createElement("div");
+  head.className = "canon-card-head";
+  const name = document.createElement("span");
+  name.className = "canon-name";
+  name.textContent = opts.name;
+  const meta = document.createElement("span");
+  meta.className = "canon-meta";
+  meta.textContent = opts.meta;
+  head.append(name, meta);
+
+  const pre = document.createElement("pre");
+  pre.className = "canon-preview";
+  pre.hidden = true;
+  let loaded = false;
+  const prev = document.createElement("button");
+  prev.className = "canon-preview-btn canon-icon-btn";
+  prev.innerHTML = Icons.eye({ size: 15 });
+  prev.setAttribute("aria-label", "Preview");
+  attachTooltip(prev, "Preview SKILL.md");
+  prev.addEventListener("click", () => {
+    const show = pre.hidden;
+    pre.hidden = !show;
+    prev.innerHTML = show ? Icons.eyeOff({ size: 15 }) : Icons.eye({ size: 15 });
+    if (show && !loaded) {
+      loaded = true;
+      pre.textContent = "Loading…";
+      void opts.fetchPreview()
+        .then((md) => { pre.textContent = md.trim() || "(empty)"; })
+        .catch((e) => { pre.textContent = `Failed to load: ${String(e)}`; loaded = false; });
+    }
+  });
+  const expand = iconButton(
+    Icons.maximize({ size: 14 }),
+    "Open full screen",
+    () => openMarkdownReader(opts.name, opts.fetchPreview, opts.stats),
+  );
+  head.append(prev, expand, ...opts.actions);
+  card.appendChild(head);
+
+  if (opts.description?.trim()) {
+    const desc = document.createElement("p");
+    desc.className = "canon-result-desc";
+    desc.textContent = opts.description;
+    card.appendChild(desc);
+  }
+  card.appendChild(pre);
+  return card;
+}
+
 function errorLine(text: string): HTMLElement {
   const p = document.createElement("p");
   p.className = "canon-error";
@@ -124,7 +189,7 @@ function errorLine(text: string): HTMLElement {
 
 /** Compact square action button: an icon + a tooltip (no visible text), so
  *  rows stay legible in the narrow rail. The SVG string is trusted (from Icons). */
-function iconButton(svg: string, label: string, onClick: () => void): HTMLButtonElement {
+export function iconButton(svg: string, label: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement("button");
   b.className = "canon-icon-btn";
   b.innerHTML = svg;
@@ -432,7 +497,7 @@ export class CanonPanel {
         }
         const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => void this.runEvals(i.name, runBtn));
         actions.push(runBtn);
-        skills.appendChild(this.skillCard({
+        skills.appendChild(skillCard({
           name: i.name,
           meta: `${i.version} · ${i.source}`,
           className: "canon-skill-row",
@@ -469,7 +534,7 @@ export class CanonPanel {
           for (const r of rows) {
             const inst = iconButton(Icons.download({ size: 15 }), "Install", () => void this.install(orgSlug, r.name, r.version));
             const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
-            results.appendChild(this.skillCard({
+            results.appendChild(skillCard({
               name: r.name,
               meta: `${r.version} · ${installs} · ${r.publisher_login}`,
               description: r.description,
@@ -636,70 +701,6 @@ export class CanonPanel {
     } catch (e) {
       pushInfoToast({ message: `Install failed: ${String(e)}` });
     }
-  }
-
-  /** A skill/package card: name + meta + actions, a one-line description,
-   *  and a Preview toggle that lazy-loads the full SKILL.md (rendered as
-   *  plain text — registry content is untrusted, never innerHTML). */
-  private skillCard(opts: {
-    name: string;
-    meta: string;
-    description?: string;
-    className: string;
-    fetchPreview: () => Promise<string>;
-    actions: HTMLButtonElement[];
-    stats?: string[];
-  }): HTMLElement {
-    const card = document.createElement("div");
-    card.className = opts.className;
-
-    const head = document.createElement("div");
-    head.className = "canon-card-head";
-    const name = document.createElement("span");
-    name.className = "canon-name";
-    name.textContent = opts.name;
-    const meta = document.createElement("span");
-    meta.className = "canon-meta";
-    meta.textContent = opts.meta;
-    head.append(name, meta);
-
-    const pre = document.createElement("pre");
-    pre.className = "canon-preview";
-    pre.hidden = true;
-    let loaded = false;
-    const prev = document.createElement("button");
-    prev.className = "canon-preview-btn canon-icon-btn";
-    prev.innerHTML = Icons.eye({ size: 15 });
-    prev.setAttribute("aria-label", "Preview");
-    attachTooltip(prev, "Preview SKILL.md");
-    prev.addEventListener("click", () => {
-      const show = pre.hidden;
-      pre.hidden = !show;
-      prev.innerHTML = show ? Icons.eyeOff({ size: 15 }) : Icons.eye({ size: 15 });
-      if (show && !loaded) {
-        loaded = true;
-        pre.textContent = "Loading…";
-        void opts.fetchPreview()
-          .then((md) => { pre.textContent = md.trim() || "(empty)"; })
-          .catch((e) => { pre.textContent = `Failed to load: ${String(e)}`; loaded = false; });
-      }
-    });
-    const expand = iconButton(
-      Icons.maximize({ size: 14 }),
-      "Open full screen",
-      () => openMarkdownReader(opts.name, opts.fetchPreview, opts.stats),
-    );
-    head.append(prev, expand, ...opts.actions);
-    card.appendChild(head);
-
-    if (opts.description?.trim()) {
-      const desc = document.createElement("p");
-      desc.className = "canon-result-desc";
-      desc.textContent = opts.description;
-      card.appendChild(desc);
-    }
-    card.appendChild(pre);
-    return card;
   }
 
   close(): void {

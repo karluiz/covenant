@@ -208,6 +208,79 @@
   padding: 0 8px;
 }
 
+/* ── Skills section ─────────────────────────────────────────────────── */
+
+.canon-cockpit-skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ── Registry section ──────────────────────────────────────────────── */
+
+.canon-cockpit-search-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.canon-cockpit-search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.canon-cockpit-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Skill/registry cards (skillCard, shared with the rail panel via panel.ts)
+   render inside `.canon-cockpit-section`. panel.ts's styles.css only defines
+   --canon-lift-1/-2/--canon-line scoped to `.canon-panel` (the rail panel
+   root) — `.canon-cockpit` is a separate body-level overlay, not a
+   descendant, so those custom properties would otherwise be unset here and
+   the reused `.canon-skill-row`/`.canon-search-result` card chrome
+   (background + border) would silently not render. Scope the same tokens to
+   `body.canon-cockpit-open` (set for the cockpit's lifetime, see view.ts)
+   so both the cards here AND the SKILL.md reader (openMarkdownReader) that
+   Preview/expand can launch from this same overlay inherit them too. */
+body.canon-cockpit-open {
+  --canon-lift-1: rgb(var(--ink-rgb, 255 255 255) / 0.03);
+  --canon-lift-2: rgb(var(--ink-rgb, 255 255 255) / 0.05);
+  --canon-line: var(--border, #1c2027);
+}
+body.theme-true-dark.canon-cockpit-open {
+  --canon-lift-1: #141416;
+  --canon-lift-2: #1c1c1f;
+  --canon-line: #242427;
+}
+
+/* Cards' head buttons (Preview/expand/Publish/Install) carry their own
+   compact sizing from styles.css (`.canon-card-head button`, `.canon-icon-btn`)
+   at the same specificity as this file's generic `.canon-cockpit-section
+   button` reset — pin the win here so they don't inherit the taller
+   general-purpose button box. */
+.canon-cockpit-section .canon-card-head button {
+  height: auto;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.canon-cockpit-section .canon-icon-btn {
+  padding: 4px 6px;
+}
+
+/* ── Rail SKILL.md reader, re-stacked for the full-screen cockpit ─────
+   openMarkdownReader (panel.ts) builds a fixed-position `.canon-reader`
+   sized/offset for the narrow rail panel (top: 76px, z-index: 60) and
+   appends it to document.body as a sibling of `.canon-cockpit` (z-index:
+   9600) — reused here for Skills/Registry previews. Without this override
+   it would render fully hidden behind the cockpit overlay. */
+body.canon-cockpit-open .canon-reader {
+  top: 0;
+  bottom: 0;
+  z-index: 9700;
+}
+
 /* ── Close ──────────────────────────────────────────────────────────── */
 
 .canon-cockpit-close {
