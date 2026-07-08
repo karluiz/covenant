@@ -28,8 +28,17 @@ pub fn install_from_bytes(bytes: &[u8], spec: &ServerSpec, data_dir: &Path) -> R
     }
 
     let root = install_root(data_dir, spec);
-    let staging = root.with_extension("staging");
-    let _ = std::fs::remove_dir_all(&staging);
+    // `root`'s last component is the full version string (layout is
+    // `<data_dir>/lsp/<name>/<version>/`), which may itself contain dots
+    // (e.g. "4.3.0"). Derive staging from the full file name rather than
+    // `with_extension`, which only replaces the last dot-delimited segment
+    // and would collide across versions like "4.3.0" and "4.3.1".
+    let staging = root.with_file_name(format!("{}.staging", spec.version));
+    if let Err(e) = std::fs::remove_dir_all(&staging) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!("failed to clean up pre-existing staging directory before install");
+        }
+    }
     std::fs::create_dir_all(&staging)?;
 
     match artifact.kind {
@@ -55,7 +64,9 @@ pub fn install_from_bytes(bytes: &[u8], spec: &ServerSpec, data_dir: &Path) -> R
         if let Ok(entries) = std::fs::read_dir(name_dir) {
             for e in entries.flatten() {
                 if e.path() != root {
-                    let _ = std::fs::remove_dir_all(e.path());
+                    if let Err(_err) = std::fs::remove_dir_all(e.path()) {
+                        tracing::warn!("failed to clean up superseded LSP server version directory");
+                    }
                 }
             }
         }
@@ -107,13 +118,17 @@ mod tests {
     }
 
     fn spec_with_sha(sha256: &str) -> ServerSpec {
+        spec_with_sha_and_version(sha256, "1.0")
+    }
+
+    fn spec_with_sha_and_version(sha256: &str, version: &str) -> ServerSpec {
         let mut artifacts = HashMap::new();
         artifacts.insert(
             crate::registry::platform_key().to_string(),
             Artifact { url: "https://example.invalid/x.gz".into(), sha256: sha256.into(), kind: ArchiveKind::Gzip },
         );
         ServerSpec {
-            language: "rust".into(), name: "fake-ra".into(), version: "1.0".into(),
+            language: "rust".into(), name: "fake-ra".into(), version: version.into(),
             cmd: "fake-ra".into(), args: vec![], root_markers: vec!["Cargo.toml".into()],
             approx_size_mb: 1, artifacts,
         }
@@ -153,5 +168,38 @@ mod tests {
     fn not_installed_when_entry_missing() {
         let dir = tempfile::tempdir().unwrap();
         assert!(!is_installed(dir.path(), &spec_with_sha(&"0".repeat(64))));
+    }
+
+    #[test]
+    fn dotted_version_upgrade_stages_uniquely_and_gcs_old_version() {
+        // Regression test: `root.with_extension("staging")` only replaces
+        // the last dot-delimited segment of the path, so for a dotted
+        // version like "4.3.0" it produced a staging dir "4.3.staging" that
+        // would collide with a later "4.3.1" install. Installing two dotted
+        // versions of the same server back-to-back exercises both the
+        // staging-path derivation and the old-version GC sweep.
+        let dir = tempfile::tempdir().unwrap();
+
+        let payload_old = b"#!/bin/sh\necho old\n";
+        let gz_old = gzip(payload_old);
+        let sha_old = format!("{:x}", Sha256::digest(&gz_old));
+        let spec_old = spec_with_sha_and_version(&sha_old, "4.3.0");
+
+        let payload_new = b"#!/bin/sh\necho new\n";
+        let gz_new = gzip(payload_new);
+        let sha_new = format!("{:x}", Sha256::digest(&gz_new));
+        let spec_new = spec_with_sha_and_version(&sha_new, "4.3.1");
+
+        let entry_old = install_from_bytes(&gz_old, &spec_old, dir.path()).unwrap();
+        assert_eq!(std::fs::read(&entry_old).unwrap(), payload_old);
+        assert!(is_installed(dir.path(), &spec_old));
+
+        let entry_new = install_from_bytes(&gz_new, &spec_new, dir.path()).unwrap();
+        assert_eq!(std::fs::read(&entry_new).unwrap(), payload_new);
+
+        // Old dotted-version directory must be gone (old-version GC), and
+        // the new dotted version must report installed.
+        assert!(!install_root(dir.path(), &spec_old).exists(), "old version directory should have been GC'd");
+        assert!(is_installed(dir.path(), &spec_new));
     }
 }
