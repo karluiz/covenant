@@ -6,6 +6,10 @@
 
 .canon-createorg {
   --mono-h: 220;
+  /* Darkening scrim (a scrim pushes toward the *background*, not the ink —
+     --ink-rgb is white on dark, so it can't be used here). Theme-scoped
+     literals, same approach as the Spec Creator entrance. */
+  --co-scrim: rgba(7, 8, 12, 0.82);
   position: fixed;
   top: 38px;
   left: 0;
@@ -17,19 +21,19 @@
   font-family: var(--ui-font);
 }
 
+body.theme-true-dark .canon-createorg { --co-scrim: rgba(0, 0, 0, 0.9); }
+:root[data-theme="light"] .canon-createorg,
+body.theme-light .canon-createorg { --co-scrim: rgba(244, 246, 250, 0.86); }
+
 /* Blurred scrim over the app. */
 .canon-createorg-scrim {
   position: absolute;
   inset: 0;
-  background: rgb(var(--ink-rgb, 0 0 0) / 0.72);
+  background: var(--co-scrim);
   backdrop-filter: blur(10px) saturate(1.1);
   -webkit-backdrop-filter: blur(10px) saturate(1.1);
   opacity: 0;
   transition: opacity 0.4s ease;
-}
-:root[data-theme="light"] .canon-createorg-scrim,
-body.theme-light .canon-createorg-scrim {
-  background: rgb(255 255 255 / 0.72);
 }
 
 /* Ambient identity field — two soft glows tinted by the org hue, drifting. */
