@@ -6,6 +6,48 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.136 — LSP code navigation (rust-analyzer) + Context Miner
+
+### Added
+
+- **LSP Phase 1 — code navigation in the Structure editor**: ⌘click
+  go-to-definition, hover type signatures, and ⌥⌘click find-references,
+  powered by a real language server. Language servers are **never
+  bundled** — rust-analyzer downloads on explicit consent to
+  app-support, sha256-verified, with zero impact on the app bundle
+  (Rust only for now; TypeScript/C#/Java are later phases). New crate
+  `crates/lsp` owns the server processes and byte framing; the LSP
+  protocol lives in the frontend next to CodeMirror
+  (`ui/src/lsp/{client,manager,cm6,positions}.ts`), wired through five
+  Tauri commands over a single registry mutex
+  (`crates/app/src/lsp_commands.rs`). A download-consent banner and a
+  live status chip surface progress in the editor header. Proven
+  end-to-end by an ignored smoke test that downloads real rust-analyzer,
+  verifies the hash, spawns it, and resolves a definition
+  (`crates/lsp/tests/smoke.rs`).
+- **CDLC Context Miner**: "New context" opens an immersive repo-mining
+  agent — a provider-agnostic inference loop streams `emit_finding`
+  events into a 3-zone curation UI, then compiles the curated findings
+  into a packaged CDLC skill (`ui/src/cdlc/miner/`, `crates/cdlc`
+  compiler, `crates/agent` miner loop with a hard turn ceiling so the
+  loop always terminates).
+
+### Changed
+
+- **Markdown reader close affordance**: the reader's close button gains
+  an `esc` visual hint (`ui/src`).
+- **Context Miner routing**: the miner now runs through the shared
+  inference system, making it provider-agnostic
+  (`crates/agent`, `crates/cdlc`).
+
+### Fixed
+
+- **ACP tab titler retry**: retries titling after the first turn once the
+  full transcript is available (`crates/app` ACP path).
+- **Somnus history re-render**: raised the history `STORE_CAP` to 2 MB (=
+  `DISPLAY_CAP`) so replayed JSON re-renders the collapsible tree instead
+  of truncating (`ui/src/somnus`).
+
 ## v0.8.135 — Somnus toggle in Indicators settings
 
 ### Added
