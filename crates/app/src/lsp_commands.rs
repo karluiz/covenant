@@ -416,6 +416,79 @@ pub fn lsp_delete_server(state: State<'_, LspState>, language: String) -> Result
     Ok(())
 }
 
+/// Recursively copy every file and subdirectory under `src` into `dst`,
+/// creating `dst` (and any intermediate directories) as needed. `dst` need
+/// not exist yet.
+///
+/// Used to materialize a WRITABLE copy of jdtls's `-configuration` dir: the
+/// equinox launcher extracts a JNI helper library into
+/// `<configuration>/org.eclipse.equinox.launcher/` on every startup, and the
+/// shared install dir (`install_root`) must stay read-only/shared across
+/// server instances — pointing `-configuration` directly at it crashes with
+/// `AccessDeniedException` (verified empirically, see
+/// `.superpowers/lsp-p5-research.md` §3.1). Symlinks are skipped; none are
+/// expected inside the jdtls tar.gz config dirs.
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path)?;
+        } else if file_type.is_file() {
+            std::fs::copy(entry.path(), &dst_path)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod copy_dir_all_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn copies_nested_files_and_preserves_content() {
+        let src = tempfile::tempdir().unwrap();
+        fs::write(src.path().join("top.txt"), b"top-level").unwrap();
+        fs::create_dir_all(src.path().join("nested/deeper")).unwrap();
+        fs::write(src.path().join("nested/mid.txt"), b"mid-level").unwrap();
+        fs::write(src.path().join("nested/deeper/leaf.txt"), b"leaf-level").unwrap();
+
+        let dst_parent = tempfile::tempdir().unwrap();
+        // Deliberately a path that does not exist yet, to confirm
+        // copy_dir_all creates it (and intermediate dirs) itself.
+        let dst = dst_parent.path().join("copy-dest");
+
+        copy_dir_all(src.path(), &dst).unwrap();
+
+        assert_eq!(fs::read(dst.join("top.txt")).unwrap(), b"top-level");
+        assert_eq!(fs::read(dst.join("nested/mid.txt")).unwrap(), b"mid-level");
+        assert_eq!(
+            fs::read(dst.join("nested/deeper/leaf.txt")).unwrap(),
+            b"leaf-level"
+        );
+    }
+
+    #[test]
+    fn is_a_real_copy_not_a_reference() {
+        let src = tempfile::tempdir().unwrap();
+        fs::write(src.path().join("f.txt"), b"original").unwrap();
+        let dst_parent = tempfile::tempdir().unwrap();
+        let dst = dst_parent.path().join("copy-dest");
+
+        copy_dir_all(src.path(), &dst).unwrap();
+        fs::write(src.path().join("f.txt"), b"mutated-after-copy").unwrap();
+
+        assert_eq!(
+            fs::read(dst.join("f.txt")).unwrap(),
+            b"original",
+            "destination must be an independent copy, not linked to src"
+        );
+    }
+}
+
 #[tauri::command]
 pub async fn lsp_start(
     app: AppHandle,
@@ -470,10 +543,18 @@ pub async fn lsp_start(
 
     // Step 2: spawn with no lock held — this can be slow (process launch,
     // handshake) and must never block lsp_send/lsp_stop for other servers.
-    // Three cases:
+    // Four cases:
     //   - Npm servers spawn the resolved `node` binary with the JS entry
     //     point as its first argument, since the "binary" here is a
     //     `.mjs`/`.js` file that can't execute itself.
+    //   - Binary+config_subpath (java/jdtls) spawns the resolved `java`
+    //     runtime binary with the equinox launcher jar via `-jar`, plus a
+    //     WRITABLE per-server copy of the manifest's `config_subpath` dir
+    //     (jdtls extracts a JNI helper into it at every startup; a
+    //     read-only path crashes — see lsp-p5-research.md §3.1) and a
+    //     per-server `-data` workspace dir (required — omitting it crashes
+    //     too, §3.2). Checked BEFORE the runtime-only branch below since
+    //     java also declares `spec.runtime`.
     //   - Binary-with-runtime (csharp/Roslyn) spawns `entry_path` DIRECTLY
     //     — the apphost self-resolves the dotnet runtime, we never launch
     //     via `dotnet <entry>` — but requires Roslyn's mandatory CLI args
@@ -491,6 +572,64 @@ pub async fn lsp_start(
             let mut args = vec![entry.to_string_lossy().to_string()];
             args.extend(spec.args.iter().cloned());
             (node.path, args)
+        }
+        InstallKind::Binary if spec.config_subpath.is_some() => {
+            let rt = spec
+                .runtime
+                .as_ref()
+                .ok_or_else(|| format!("{} is a java server but has no runtime spec", spec.name))?;
+            let java = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
+            let entry = install::entry_path(&state.data_dir, spec);
+            let config_subpath = spec.config_subpath.as_deref().ok_or_else(|| {
+                format!("{} is a java server but has no config_subpath", spec.name)
+            })?;
+            let config_src = install::install_root(&state.data_dir, spec).join(config_subpath);
+
+            // Per-server writable dirs — never shared across server
+            // instances, unlike `install_root` which stays read-only.
+            let server_dir = state.data_dir.join("lsp").join("jdtls").join(id.to_string());
+            let config_dst = server_dir.join("config");
+            let workspace_dir = server_dir.join("data");
+            copy_dir_all(&config_src, &config_dst).map_err(|e| {
+                format!(
+                    "copying jdtls config {} -> {}: {e}",
+                    config_src.display(),
+                    config_dst.display()
+                )
+            })?;
+            std::fs::create_dir_all(&workspace_dir).map_err(|e| {
+                format!(
+                    "creating jdtls -data workspace dir {}: {e}",
+                    workspace_dir.display()
+                )
+            })?;
+
+            // Verified working JVM flag set (lsp-p5-research.md §3.3):
+            // initialize returned in ~2.2s with exactly these flags, no
+            // more, no fewer.
+            let mut args: Vec<String> = [
+                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+                "-Dosgi.bundles.defaultStartLevel=4",
+                "-Declipse.product=org.eclipse.jdt.ls.core.product",
+                "-Dfile.encoding=UTF-8",
+                "-Xmx1G",
+                "--add-modules=ALL-SYSTEM",
+                "--add-opens",
+                "java.base/java.util=ALL-UNNAMED",
+                "--add-opens",
+                "java.base/java.lang=ALL-UNNAMED",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+            args.push("-jar".to_string());
+            args.push(entry.to_string_lossy().to_string());
+            args.push("-configuration".to_string());
+            args.push(config_dst.to_string_lossy().to_string());
+            args.push("-data".to_string());
+            args.push(workspace_dir.to_string_lossy().to_string());
+            args.extend(spec.args.iter().cloned());
+            (java.path, args)
         }
         InstallKind::Binary if spec.runtime.is_some() => {
             let entry = install::entry_path(&state.data_dir, spec);
