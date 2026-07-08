@@ -23,7 +23,7 @@
 
 body.theme-true-dark .canon-createorg { --co-scrim: rgba(0, 0, 0, 0.9); }
 :root[data-theme="light"] .canon-createorg,
-body.theme-light .canon-createorg { --co-scrim: rgba(244, 246, 250, 0.86); }
+body.theme-light .canon-createorg { --co-scrim: rgba(231, 234, 241, 0.92); }
 
 /* Blurred scrim over the app. */
 .canon-createorg-scrim {
@@ -115,8 +115,10 @@ body.theme-light .canon-createorg { --co-scrim: rgba(244, 246, 250, 0.86); }
   transform: scale(1.06);
 }
 
-/* Large, borderless name field. */
-.canon-createorg-name {
+/* Large, borderless name field. Scoped under .canon-createorg so it beats the
+   global `body.theme-light input { background:#fff }` reset (which otherwise
+   paints a jarring white box in light mode). */
+.canon-createorg .canon-createorg-name {
   width: 100%;
   padding: 2px 0;
   font-family: inherit;
