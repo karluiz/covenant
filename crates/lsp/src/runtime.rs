@@ -139,6 +139,144 @@ fn pick_newest_satisfying(candidates: &[(String, String)], min: &str) -> Option<
         .cloned()
 }
 
+/// Bin dirs to probe for a given runtime, macOS-curated. Each returned dir
+/// is expected to contain an executable named `req.name`. ponytail: a
+/// curated list, not a filesystem walk; extend per-OS as needed.
+fn candidate_bin_dirs(name: &str) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let home = std::env::var("HOME").ok().map(PathBuf::from);
+    match name {
+        "java" => {
+            // Homebrew openjdk / openjdk@NN → <keg>/bin
+            dirs.extend(homebrew_opt_bins("openjdk"));
+            // macOS java_home lists every registered JVM's Home dir.
+            if let Ok(out) = std::process::Command::new("/usr/libexec/java_home")
+                .arg("-V")
+                .output()
+            {
+                let text = String::from_utf8_lossy(&out.stderr); // java_home -V prints to stderr
+                for line in text.lines() {
+                    if let Some(idx) = line.find('/') {
+                        let p = PathBuf::from(line[idx..].trim());
+                        if p.is_dir() {
+                            dirs.push(p.join("bin"));
+                        }
+                    }
+                }
+            }
+            if let Some(h) = &home {
+                push_glob_children(&mut dirs, &h.join(".sdkman/candidates/java"), "bin");
+            }
+        }
+        "node" => {
+            dirs.extend(homebrew_opt_bins("node"));
+            dirs.push(PathBuf::from("/usr/local/bin"));
+            if let Some(h) = &home {
+                push_glob_children(&mut dirs, &h.join(".nvm/versions/node"), "bin");
+            }
+        }
+        "dotnet" => {
+            // dotnet's dir holds the `dotnet` binary directly (no /bin).
+            dirs.push(PathBuf::from("/usr/local/share/dotnet"));
+            for d in homebrew_opt_bins("dotnet") {
+                // homebrew_opt_bins appends /bin; dotnet keg exposes bin too.
+                dirs.push(d);
+            }
+        }
+        _ => {}
+    }
+    dirs
+}
+
+/// `/opt/homebrew/opt/<prefix>*/bin` for every keg whose name starts with prefix.
+fn homebrew_opt_bins(prefix: &str) -> Vec<PathBuf> {
+    let base = PathBuf::from("/opt/homebrew/opt");
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&base) {
+        for e in entries.flatten() {
+            if e.file_name().to_string_lossy().starts_with(prefix) {
+                out.push(e.path().join("bin"));
+            }
+        }
+    }
+    out
+}
+
+/// For each immediate child dir of `parent`, push `child/<sub>`.
+fn push_glob_children(dirs: &mut Vec<PathBuf>, parent: &std::path::Path, sub: &str) {
+    if let Ok(entries) = std::fs::read_dir(parent) {
+        for e in entries.flatten() {
+            if e.path().is_dir() {
+                dirs.push(e.path().join(sub));
+            }
+        }
+    }
+}
+
+fn install_hint(name: &str) -> String {
+    match name {
+        "java" => "brew install openjdk".into(),
+        "node" => "brew install node".into(),
+        "dotnet" => "brew install dotnet".into(),
+        other => format!("install {other}"),
+    }
+}
+
+/// The bin dirs currently on the login-shell PATH (what `detect` uses).
+fn login_shell_path_dirs() -> Vec<String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let out = std::process::Command::new(&shell)
+        .args(["-lc", "echo $PATH"])
+        .output();
+    match out {
+        Ok(o) => String::from_utf8_lossy(&o.stdout)
+            .trim()
+            .split(':')
+            .map(|s| s.to_string())
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Called after `detect` reports RuntimeMissing. Scans curated locations
+/// for a satisfying version; suggests a PATH fix if one exists off-PATH,
+/// else an install hint. Never fails — always returns a usable suggestion.
+pub fn suggest_fix(req: &RuntimeReq) -> RuntimeSuggestion {
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    for dir in candidate_bin_dirs(&req.name) {
+        let exe = dir.join(&req.name);
+        if !exe.is_file() {
+            continue;
+        }
+        if let Ok(out) = std::process::Command::new(&exe).arg(&req.version_arg).output() {
+            let raw = String::from_utf8_lossy(&out.stdout);
+            // node/dotnet print to stdout; java --version also stdout.
+            let raw = if raw.trim().is_empty() {
+                String::from_utf8_lossy(&out.stderr).into_owned()
+            } else {
+                raw.into_owned()
+            };
+            if let Some(v) = extract_version(&raw) {
+                candidates.push((dir.to_string_lossy().into_owned(), v));
+            }
+        }
+    }
+    match pick_newest_satisfying(&candidates, &req.min_version) {
+        Some((dir, version)) => {
+            let on_path = login_shell_path_dirs().iter().any(|p| p == &dir);
+            if on_path {
+                // Already on PATH yet detect failed → the on-PATH one is the
+                // old one and this dir is too; don't tell the user to add a
+                // dir they have. Fall back to install hint.
+                RuntimeSuggestion::Install { hint: install_hint(&req.name) }
+            } else {
+                RuntimeSuggestion::OnDiskNotOnPath { version, dir }
+            }
+        }
+        None => RuntimeSuggestion::Install { hint: install_hint(&req.name) },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,5 +371,31 @@ mod tests {
             pick_newest_satisfying(&c, "21"),
             Some(("/b".to_string(), "21.2.0".to_string()))
         );
+    }
+
+    #[test]
+    fn suggest_fix_returns_install_hint_for_unknown_runtime() {
+        // A runtime we scan no locations for → always Install (never panics).
+        let req = RuntimeReq {
+            name: "totally-not-a-real-runtime".into(),
+            min_version: "1".into(),
+            version_arg: "--version".into(),
+        };
+        match suggest_fix(&req) {
+            RuntimeSuggestion::Install { hint } => assert!(!hint.is_empty()),
+            other => panic!("expected Install, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn suggest_fix_never_panics_for_known_runtimes() {
+        for name in ["java", "node", "dotnet"] {
+            let req = RuntimeReq {
+                name: name.into(),
+                min_version: "999".into(), // nothing satisfies → forces Install or a real on-disk<999
+                version_arg: "--version".into(),
+            };
+            let _ = suggest_fix(&req); // must not panic
+        }
     }
 }
