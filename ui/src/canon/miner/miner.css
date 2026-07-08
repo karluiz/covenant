@@ -19,6 +19,9 @@
   background: var(--bg-overlay, #11141a);
   color: var(--text-primary, #f5f6f7);
   font-family: var(--ui-font);
+  /* Divider from the titlebar (same as the cockpit) — without it the opaque
+     surface fuses into the title bar. */
+  border-top: 1px solid var(--border);
 }
 
 /* ── Header ─────────────────────────────────────────────────────────── */
@@ -99,12 +102,14 @@
   color: var(--danger);
 }
 
+/* Exit affordance: an `esc` chip, not an × — the house convention for
+   full-screen surfaces (see DESIGN.md). Matches the cockpit's esc button. */
 .canon-miner-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
   height: 26px;
+  padding: 0 8px;
   border-radius: 0;
   border: 0;
   background: none;
@@ -112,7 +117,6 @@
   cursor: pointer;
 }
 .canon-miner-close:hover { color: var(--fg); background: rgba(var(--ink-rgb), 0.06); }
-.canon-miner-close svg { width: 15px; height: 15px; }
 
 .canon-miner-body {
   flex: 1;

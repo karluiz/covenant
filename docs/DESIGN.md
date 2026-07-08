@@ -190,3 +190,5 @@ Rules:
 7. Floating UI is opaque (`--bg-overlay`); workspace chrome honors `--surface-alpha`.
 8. No new heavyweight frontend deps for visuals (no component libraries, no CSS frameworks).
 9. Semantic states always use `--ok`/`--fail`/`--running`/`--danger` — never ad-hoc greens and reds.
+10. **Exit with `esc`, not an ×.** Full-screen / immersive surfaces (cockpit, miner, create surfaces, readers) close via a labelled `esc` affordance (`<kbd class="settings-esc">esc</kbd>`) **and** the Escape key — never a close ×. Rail/sidebar panels close via their rail toggle, so they carry no × either. Reserve × only where there is genuinely no rail toggle and no full-screen Escape context.
+11. **Full-screen surfaces respect the chrome.** Anything `position: fixed` starts at `top: 38px` (below the titlebar / traffic lights) and carries a `border-top`; it never paints over the window controls. Working surfaces (cockpit) also inset the sidebar (`--tabbar-w`) and status bar (`--statusbar-h`); focused immersive moments (create, miner) may go full-bleed below the titlebar.

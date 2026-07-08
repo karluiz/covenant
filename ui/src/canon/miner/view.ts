@@ -182,9 +182,8 @@ export class ContextMinerView {
 
     const closeBtn = document.createElement("button");
     closeBtn.className = "canon-miner-close";
-    closeBtn.setAttribute("aria-label", "Close");
-    closeBtn.innerHTML = Icons.x({ size: 15 });
-    attachTooltip(closeBtn, "Close (Esc)");
+    closeBtn.setAttribute("aria-label", "Close (Esc)");
+    closeBtn.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
     closeBtn.addEventListener("click", () => this.destroy());
     this.headEl.appendChild(closeBtn);
   }
