@@ -9,6 +9,7 @@
 import "./miner.css";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
+import { startSky } from "../../spec-chat/entrance";
 import { pushInfoToast } from "../../notifications/toast";
 import {
   canonCompileSkill,
@@ -77,8 +78,23 @@ export class ContextMinerView {
   private footerEl: HTMLElement | null = null;
   private cardEls = new Map<string, HTMLElement>();
   private categoryEls = new Map<string, HTMLElement>();
+  /** Teardown for the setup-phase constellation sky (see startSky). */
+  private skyTeardown: (() => void) | null = null;
 
   private readonly onKeyDown = (e: KeyboardEvent): void => this.handleKeyDown(e);
+
+  /** Stop the constellation sky if running (rAF + ResizeObserver). */
+  private stopSky(): void {
+    this.skyTeardown?.();
+    this.skyTeardown = null;
+  }
+
+  /** Clear the body for a new phase — always tears the sky down first so its
+   *  rAF loop doesn't leak when the setup DOM is replaced. */
+  private clearBody(): void {
+    this.stopSky();
+    this.bodyEl.innerHTML = "";
+  }
 
   constructor(private opts: ContextMinerOpts) {
     this.root = document.createElement("div");
@@ -99,6 +115,7 @@ export class ContextMinerView {
   }
 
   destroy(): void {
+    this.stopSky();
     document.removeEventListener("keydown", this.onKeyDown);
     if (this.unlisten) {
       this.unlisten();
@@ -207,7 +224,7 @@ export class ContextMinerView {
   }
 
   private showSetup(): void {
-    this.bodyEl.innerHTML = "";
+    this.clearBody();
 
     const setup = document.createElement("div");
     setup.className = "canon-miner-setup";
@@ -269,10 +286,25 @@ export class ContextMinerView {
       void this.start(errorEl, startBtn);
     });
 
+    // Staged rise choreography for the card contents (entrance).
+    [title, sub, nameWrap, focusWrap, thoroughRow, startBtn].forEach((el, i) => {
+      el.classList.add("canon-miner-rise");
+      (el as HTMLElement).style.setProperty("--rise-delay", `${90 + i * 65}ms`);
+    });
     card.append(title, sub, nameWrap, focusWrap, thoroughRow, errorEl, startBtn);
-    setup.appendChild(card);
+
+    // Constellation sky behind the card — the same particle field as the
+    // Spec Creator's immersive entrance (reused via startSky).
+    const sky = document.createElement("canvas");
+    sky.className = "canon-miner-sky";
+    setup.append(sky, card);
     this.bodyEl.appendChild(setup);
-    nameInput.focus();
+
+    requestAnimationFrame(() => {
+      this.skyTeardown = startSky(sky);
+      setup.classList.add("open");
+      nameInput.focus();
+    });
   }
 
   private async start(errorEl: HTMLElement, startBtn: HTMLButtonElement): Promise<void> {
@@ -307,7 +339,7 @@ export class ContextMinerView {
   // ── Mining view (3-zone grid) ────────────────────────────────────────
 
   private showMining(): void {
-    this.bodyEl.innerHTML = "";
+    this.clearBody();
     this.cardEls.clear();
     this.categoryEls.clear();
 
@@ -632,7 +664,7 @@ export class ContextMinerView {
   // ── Empty-done state ─────────────────────────────────────────────────
 
   private showEmptyDone(): void {
-    this.bodyEl.innerHTML = "";
+    this.clearBody();
     const wrap = document.createElement("div");
     wrap.className = "canon-miner-empty-state";
     const note = document.createElement("div");

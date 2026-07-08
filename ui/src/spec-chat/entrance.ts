@@ -93,8 +93,10 @@ const LINK_DIST = 110;
 const INTRO_MS = 1400;
 const INTRO_STAGGER_MS = 500;
 
-/** Starts the sky; returns a teardown fn. No-ops when canvas 2d is unavailable. */
-function startSky(canvas: HTMLCanvasElement): () => void {
+/** Starts the constellation sky; returns a teardown fn. No-ops when canvas 2d
+ *  is unavailable. Exported so other immersive surfaces (e.g. the Canon context
+ *  miner) can reuse the same particle field. */
+export function startSky(canvas: HTMLCanvasElement): () => void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return () => {};
 

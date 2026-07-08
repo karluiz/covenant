@@ -128,19 +128,48 @@
 /* ── Setup bar ──────────────────────────────────────────────────────── */
 
 .canon-miner-setup {
+  position: relative;
+  overflow: hidden;
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  /* Ambient field so the setup isn't a flat void (the card's --bg-elevated
-     equals the surface on light theme). Subtle accent atmosphere. */
+  /* Ambient field under the particle sky so the setup isn't a flat void. */
   background:
-    radial-gradient(68% 58% at 50% 36%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%),
-    radial-gradient(48% 44% at 82% 86%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 72%);
+    radial-gradient(68% 58% at 50% 36%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
+    radial-gradient(48% 44% at 82% 86%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 72%);
+}
+
+/* Constellation sky — reused from the Spec Creator entrance (startSky). */
+.canon-miner-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease 0.1s;
+}
+.canon-miner-setup.open .canon-miner-sky { opacity: 1; }
+
+/* Staged rise choreography, keyed off .open (mirrors the entrance). */
+.canon-miner-rise {
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 0.45s ease var(--rise-delay, 0ms),
+    transform 0.5s cubic-bezier(0.18, 0.7, 0.27, 1) var(--rise-delay, 0ms);
+}
+.canon-miner-setup.open .canon-miner-rise { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .canon-miner-sky, .canon-miner-rise { transition: none; }
+  .canon-miner-rise { opacity: 1; transform: none; }
 }
 
 .canon-miner-setup-card {
+  position: relative;
+  z-index: 1;
   width: min(540px, calc(100vw - 64px));
   display: flex;
   flex-direction: column;
