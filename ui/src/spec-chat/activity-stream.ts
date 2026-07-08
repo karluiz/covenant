@@ -86,10 +86,16 @@ export function mountActivityStream(
       } else if (m.role === 'question') {
         el = buildQuestionCard(m);
         questionCards.set(i, el);
+      } else if (m.role === 'user') {
+        const text = m.content.trim() ? `<div class="bubble-text">${esc(m.content)}</div>` : '';
+        // previewUrl is a data: URL (canvas.toDataURL); guard to data/blob only.
+        const imgs = (m.previews ?? [])
+          .filter((u) => u.startsWith('data:') || u.startsWith('blob:'))
+          .map((u) => `<img class="bubble-img" src="${esc(u)}" alt="attached image" />`)
+          .join('');
+        el = itemFromHtml(`<div class="item"><div class="bubble user">${text}${imgs}</div></div>`);
       } else {
-        const cls = m.role === 'user' ? 'user' : 'asst';
-        const body = m.role === 'user' ? esc(m.content) : renderProse(m.content);
-        el = itemFromHtml(`<div class="item"><div class="bubble ${cls}">${body}</div></div>`);
+        el = itemFromHtml(`<div class="item"><div class="bubble asst">${renderProse(m.content)}</div></div>`);
       }
       stream.insertBefore(el, live);
     }

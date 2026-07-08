@@ -169,6 +169,10 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 
 .spec-creator .bubble { max-width: 92%; border-radius: 0; padding: 11px 14px; font-size: 13.5px; line-height: 1.55; }
 .spec-creator .bubble.user { align-self: flex-end; background: linear-gradient(180deg,#272a39,#222536); border:1px solid #313548; color: #eef0f7; }
+/* Attached-image thumbnails inside the user bubble (sharp corners per house rule). */
+.spec-creator .bubble.user .bubble-img { display: block; max-width: 200px; max-height: 200px; border: 1px solid #3a3f55; }
+.spec-creator .bubble.user .bubble-text + .bubble-img,
+.spec-creator .bubble.user .bubble-img + .bubble-img { margin-top: 6px; }
 .spec-creator .bubble.asst { align-self: flex-start; background: var(--bg-elev); border:1px solid var(--line-soft); color: var(--txt); }
 
 /* markdown rendered inside assistant bubbles */

@@ -49,6 +49,15 @@ describe('createStreamState', () => {
     expect(s.ready()).toBe(true);
   });
 
+  it('addUserMessage stores image previews on the message', () => {
+    const s = createStreamState();
+    s.addUserMessage('with pics', ['data:image/png;base64,AAAA']);
+    s.addUserMessage('no pics');
+    const msgs = s.messages();
+    expect(msgs[0]).toEqual({ role: 'user', content: 'with pics', previews: ['data:image/png;base64,AAAA'] });
+    expect(msgs[1]).toEqual({ role: 'user', content: 'no pics' }); // no previews key when empty
+  });
+
   it('hydrate replaces existing messages rather than appending', () => {
     const s = createStreamState();
     s.addUserMessage('stale');

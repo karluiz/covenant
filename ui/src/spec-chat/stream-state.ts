@@ -4,7 +4,7 @@ import { SECTIONS, parseSectionsFromMarkdown, parseSectionMarkers, stripLeadingH
 
 export interface ToolActivity { id: string; tool: string; arg: string; summary?: string; ok?: boolean; }
 export interface SectionView { markdown: string; status: 'filling' | 'done'; }
-export interface ConvMessage { role: 'user' | 'assistant'; content: string; }
+export interface ConvMessage { role: 'user' | 'assistant'; content: string; previews?: string[]; }
 /** A historical tool call reconstructed from a resumed transcript — rendered
  *  inline as a chip mirroring the live one (verb · arg · hit). */
 export interface ToolChip { role: 'tool'; tool: string; arg?: string; summary?: string; }
@@ -14,8 +14,9 @@ export type TimelineItem = ConvMessage | ToolChip | QuestionCard;
 
 export interface StreamState {
   apply(e: SpecStreamEvent): void;
-  /** Record the user's submitted message and reset live activity for the new turn. */
-  addUserMessage(text: string): void;
+  /** Record the user's submitted message and reset live activity for the new
+   *  turn. `previews` are data/blob URLs of any attached image thumbnails. */
+  addUserMessage(text: string, previews?: string[]): void;
   /** Restore a persisted draft: prior conversation turns and, if the draft was
    *  already complete, its final markdown (so publish is immediately available). */
   hydrate(data: { messages: readonly ConvMessage[]; markdown?: string | null; finalMarkdown?: string | null }): void;
@@ -92,12 +93,16 @@ export function createStreamState(): StreamState {
       }
       fire();
     },
-    addUserMessage(t: string) {
+    addUserMessage(t: string, previews?: string[]) {
       // Answering closes any pending question card (chips go inert).
       for (const m of messages) {
         if (m.role === 'question' && !m.answered) m.answered = true;
       }
-      messages.push({ role: 'user', content: t });
+      messages.push(
+        previews && previews.length
+          ? { role: 'user', content: t, previews }
+          : { role: 'user', content: t },
+      );
       // Fresh activity for the new turn.
       text = '';
       thinking = '';

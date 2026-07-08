@@ -17,6 +17,20 @@ describe('mountActivityStream', () => {
     expect(row.textContent).toContain('4 matches');
   });
 
+  it('renders attached image thumbnails inside the user bubble', () => {
+    const state = createStreamState();
+    mountActivityStream(host, state);
+    state.addUserMessage('mira esto', [
+      'data:image/png;base64,AAAA',
+      'javascript:alert(1)', // non-data/blob url must be dropped
+    ]);
+    const bubble = host.querySelector('.bubble.user')!;
+    expect(bubble.querySelector('.bubble-text')!.textContent).toBe('mira esto');
+    const imgs = bubble.querySelectorAll<HTMLImageElement>('.bubble-img');
+    expect(imgs).toHaveLength(1); // the javascript: url is filtered out
+    expect(imgs[0].getAttribute('src')).toBe('data:image/png;base64,AAAA');
+  });
+
   it('renders a thinking block', () => {
     const state = createStreamState();
     mountActivityStream(host, state);
