@@ -1,5 +1,6 @@
 //! CDLC — the `.covenant/cdlc/` artifact, local install, and executor projection.
 
+pub mod compile;
 pub mod install;
 pub mod manifest;
 pub mod project;

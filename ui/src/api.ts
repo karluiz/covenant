@@ -2752,6 +2752,36 @@ export async function subscribeAcpEvents(
   return unlisten;
 }
 
+// ── CDLC Context Miner ───────────────────────────────────────────────
+
+export interface MinerFinding {
+  category: string;
+  title: string;
+  bodyMd: string;
+  evidence: string[];
+  confidence: string;
+}
+export type MinerEvent =
+  | { kind: "text_delta"; text: string }
+  | { kind: "tool_start"; id: string; tool: string; arg: string }
+  | { kind: "tool_result"; id: string; summary: string; ok: boolean }
+  | { kind: "finding"; id: string; finding: MinerFinding }
+  | { kind: "run_done"; findingsTotal: number; stopped: boolean }
+  | { kind: "error"; message: string };
+
+export async function cdlcMineStart(repoRoot: string, skillName: string, focus: string, thorough: boolean): Promise<string> {
+  return invoke<string>("cdlc_mine_start", { repoRoot, skillName, focus, thorough });
+}
+export async function cdlcMineStop(runId: string): Promise<void> {
+  return invoke<void>("cdlc_mine_stop", { runId });
+}
+export async function cdlcCompileSkill(repoRoot: string, skillName: string, findings: MinerFinding[], overwrite: boolean): Promise<string> {
+  return invoke<string>("cdlc_compile_skill", { repoRoot, skillName, findings, overwrite });
+}
+export async function subscribeMinerEvents(runId: string, cb: (ev: MinerEvent) => void): Promise<UnlistenFn> {
+  return listen<MinerEvent>(`cdlc://miner/${runId}`, (e) => cb(e.payload));
+}
+
 export interface VitalsInFlight {
   model: string;
   started_unix_ms: number;
@@ -2992,4 +3022,49 @@ export async function cloudSyncRestore(): Promise<CloudApplySummary> {
 
 export async function cloudSyncWipe(): Promise<void> {
   return invoke<void>("cloud_sync_wipe");
+}
+
+// ---- LSP ------------------------------------------------------------
+
+export interface LspServerStatus {
+  language: string;
+  name: string;
+  version: string;
+  installed: boolean;
+  approxSizeMb: number;
+}
+
+export interface LspStartResult {
+  serverId: number;
+  root: string;
+}
+
+export async function lspServerStatus(language: string): Promise<LspServerStatus> {
+  const raw = await invoke<{
+    language: string; name: string; version: string; installed: boolean; approx_size_mb: number;
+  }>("lsp_server_status", { language });
+  return {
+    language: raw.language,
+    name: raw.name,
+    version: raw.version,
+    installed: raw.installed,
+    approxSizeMb: raw.approx_size_mb,
+  };
+}
+
+export async function lspDownloadServer(language: string): Promise<void> {
+  await invoke<void>("lsp_download_server", { language });
+}
+
+export async function lspStart(language: string, filePath: string): Promise<LspStartResult> {
+  const raw = await invoke<{ server_id: number; root: string }>("lsp_start", { language, filePath });
+  return { serverId: raw.server_id, root: raw.root };
+}
+
+export async function lspSend(serverId: number, message: string): Promise<void> {
+  await invoke<void>("lsp_send", { serverId, message });
+}
+
+export async function lspStop(serverId: number): Promise<void> {
+  await invoke<void>("lsp_stop", { serverId });
 }

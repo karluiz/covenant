@@ -87,6 +87,8 @@ import { mountSpecChat } from "./spec-chat/index";
 import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel } from "./project-notes/panel";
 import { CdlcPanel } from "./cdlc/panel";
+import "./cdlc/miner/miner.css";
+import { ContextMinerView } from "./cdlc/miner/view";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor } from "./spawns/shortcuts";
@@ -1497,7 +1499,12 @@ async function boot(): Promise<void> {
         rail.handleExternalClose("cdlc");
       },
       onNewContext: () => {
-        window.dispatchEvent(new CustomEvent("spec-chat:open", { detail: { cdlcContext: true } }));
+        const root = manager.groupRootDirFor(args.groupId);
+        if (!root) {
+          pushInfoToast({ message: "Set a project folder for this group first" });
+          return;
+        }
+        new ContextMinerView({ repoRoot: root, groupName: args.groupLabel });
       },
       onPickFolder: () => {
         const a = args;

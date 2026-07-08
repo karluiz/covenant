@@ -28,6 +28,7 @@ pub enum Role {
     Operator,
     Triage,
     SpecCreator,
+    ContextMiner,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -577,6 +578,13 @@ fn default_model_routes() -> HashMap<Role, RouteEntry> {
             model: "claude-opus-4-8".into(),
         },
     );
+    m.insert(
+        Role::ContextMiner,
+        RouteEntry {
+            provider_id: "anthropic".into(),
+            model: "claude-opus-4-8".into(),
+        },
+    );
     m
 }
 
@@ -625,6 +633,7 @@ pub fn build_trial_settings(mut s: Settings, backend_url: &str, jwt: &str) -> Se
         Role::Operator,
         Role::Triage,
         Role::SpecCreator,
+        Role::ContextMiner,
     ] {
         s.model_routes.insert(
             role,
@@ -1075,7 +1084,14 @@ mod tests {
         assert_eq!(p.api_key.as_deref(), Some("jwt.abc"));
         // Trailing slash trimmed; /trial appended (no double slash).
         assert_eq!(p.base_url.as_deref(), Some("https://forge.covenant.uno/trial"));
-        for role in [Role::Summary, Role::Chat, Role::Operator, Role::Triage, Role::SpecCreator] {
+        for role in [
+            Role::Summary,
+            Role::Chat,
+            Role::Operator,
+            Role::Triage,
+            Role::SpecCreator,
+            Role::ContextMiner,
+        ] {
             let r = s.model_routes.get(&role).expect("route");
             assert_eq!(r.provider_id, TRIAL_PROVIDER_ID);
             assert_eq!(r.model, TRIAL_MODEL);

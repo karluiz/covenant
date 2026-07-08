@@ -407,6 +407,11 @@ pub fn openai_messages_json(system: &str, messages: &[DraftMessage]) -> Vec<serd
 pub struct AnthropicStreamingDispatcher {
     pub api_key: String,
     pub model: String,
+    /// Override the tool roster sent to the model. `None` keeps the
+    /// default spec_author roster (`tools::tool_specs()`) so existing
+    /// spec-chat call sites are byte-identical. The context miner sets
+    /// this to its own roster (spec tools + `emit_finding`).
+    pub tools: Option<serde_json::Value>,
 }
 
 #[async_trait]
@@ -431,7 +436,7 @@ impl StreamingDispatcher for AnthropicStreamingDispatcher {
             "output_config": { "effort": "xhigh" },
             "system": [{ "type": "text", "text": system,
                 "cache_control": { "type": "ephemeral" } }],
-            "tools": tools::tool_specs(),
+            "tools": self.tools.clone().unwrap_or_else(tools::tool_specs),
             "messages": api_messages,
         });
 
@@ -568,6 +573,10 @@ pub struct OpenAiStreamingDispatcher {
     pub auth: OpenAiAuth,
     /// `None` for Azure OpenAI mode (deployment is in the URL); `Some` otherwise.
     pub model: Option<String>,
+    /// Override the tool roster sent to the model. `None` = the default
+    /// spec-author repo tools; `Some(..)` lets the context miner inject its
+    /// `emit_finding` tool (OpenAI function format).
+    pub tools: Option<serde_json::Value>,
 }
 
 #[async_trait]
@@ -585,7 +594,7 @@ impl StreamingDispatcher for OpenAiStreamingDispatcher {
             "max_tokens": 4096,
             "stream": true,
             "stream_options": { "include_usage": true },
-            "tools": tools::tool_specs_openai(),
+            "tools": self.tools.clone().unwrap_or_else(tools::tool_specs_openai),
             "tool_choice": "auto",
             "messages": api_messages,
         });

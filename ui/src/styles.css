@@ -8336,6 +8336,131 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .s
     background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
 }
 
+/* ── LSP status chip + download-consent banner ── */
+.structure-editor-lsp-chip {
+    font-size: 9.5px;
+    line-height: 1;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-family: var(--ui-font);
+}
+.structure-editor-lsp-chip[data-state="ready"] {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.structure-editor-lsp-chip[data-state="busy"] {
+    opacity: 0.7;
+}
+.structure-editor-lsp-chip[data-state="error"] {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+.structure-editor-lsp-chip[hidden] {
+    display: none;
+}
+
+.structure-editor-lsp-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    font-size: 11px;
+    color: var(--text-primary);
+    background: rgba(var(--ink-rgb), 0.04);
+    border-bottom: 1px solid var(--border);
+}
+.structure-editor-lsp-banner[hidden] {
+    display: none;
+}
+.structure-editor-lsp-banner button {
+    appearance: none;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 10.5px;
+    padding: 2px 10px;
+    cursor: pointer;
+    font-family: var(--ui-font);
+}
+.structure-editor-lsp-banner button:hover {
+    background: rgba(var(--ink-rgb), 0.06);
+}
+
+/* ── LSP hover tooltip (CM6 hoverTooltip host) ── */
+.lsp-hover {
+    max-width: 480px;
+    padding: 6px 8px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    font-family: var(--font-mono, ui-monospace, monospace);
+}
+.lsp-hover pre,
+.lsp-hover code {
+    font-family: inherit;
+}
+
+/* ── LSP references panel (CM6 bottom panel) ── */
+.lsp-references {
+    display: flex;
+    flex-direction: column;
+    max-height: 180px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    font-family: var(--ui-font);
+}
+.lsp-references-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+}
+.lsp-references-header button {
+    appearance: none;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+.lsp-references-list {
+    overflow-y: auto;
+}
+.lsp-references-row {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 3px 8px;
+    appearance: none;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 11px;
+    cursor: pointer;
+}
+.lsp-references-row:hover {
+    background: rgba(var(--ink-rgb), 0.06);
+}
+.lsp-references-more {
+    color: var(--muted);
+    cursor: default;
+}
+.lsp-references-more:hover {
+    background: transparent;
+}
+
 /* Preview host — sibling of the CM6 host. Each viewer renders its
    own root inside this div. Padding/scroll live here so each Preview
    implementation can stay focused on its content. */

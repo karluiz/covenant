@@ -374,7 +374,14 @@ pub fn tool_specs() -> Value {
 /// (`{type:"function", function:{name, description, parameters}}`). Used by the
 /// Azure / OpenAI-compat streaming dispatcher.
 pub fn tool_specs_openai() -> Value {
-    let anthropic = tool_specs();
+    to_openai_tools(&tool_specs())
+}
+
+/// Convert an Anthropic-format tool array (`{name, description, input_schema}`)
+/// to the OpenAI function-calling format. Shared by the spec author and the
+/// context miner so a custom tool roster (e.g. `emit_finding`) works on either
+/// provider without maintaining two hand-written schemas.
+pub fn to_openai_tools(anthropic: &Value) -> Value {
     let arr = anthropic.as_array().cloned().unwrap_or_default();
     let converted: Vec<Value> = arr
         .into_iter()
