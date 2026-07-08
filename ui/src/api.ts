@@ -1465,6 +1465,11 @@ export interface Org {
   slug: string;
   name: string;
   role: string;
+  personal: boolean;
+}
+export interface Member {
+  login: string;
+  role: string;
 }
 export interface PkgMeta {
   id: number;
@@ -1477,6 +1482,18 @@ export interface PkgMeta {
 }
 export async function canonMyOrgs(): Promise<Org[]> {
   return invoke<Org[]>("canon_my_orgs");
+}
+export async function canonCreateOrg(slug: string, name: string): Promise<unknown> {
+  return invoke("canon_create_org", { slug, name });
+}
+export async function canonOrgMembers(org: string): Promise<Member[]> {
+  return invoke<Member[]>("canon_org_members", { org });
+}
+export async function canonAddMember(org: string, login: string): Promise<void> {
+  return invoke("canon_add_member", { org, login });
+}
+export async function canonRemoveMember(org: string, login: string): Promise<void> {
+  return invoke("canon_remove_member", { org, login });
 }
 export async function canonSearch(org: string, query: string | null): Promise<PkgMeta[]> {
   return invoke<PkgMeta[]>("canon_search", { org, query });

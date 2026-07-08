@@ -311,6 +311,9 @@ interface TabGroup {
   /// default (new tabs start in $HOME like ungrouped tabs). Set via
   /// the group's context menu ("Set root dir…").
   rootDir: string | null;
+  /// Active Canon org slug for this group. Null = resolve to the user's
+  /// personal org. Persisted like rootDir.
+  canonOrg: string | null;
 }
 
 /// Persisted manifest schema. Version-tagged so we can evolve later
@@ -483,6 +486,10 @@ interface SerializedGroup {
   /// backward compat — older manifests lacking the field default to
   /// null on restore.
   root_dir?: string | null;
+  /// Active Canon org slug for this group. Optional for backward
+  /// compat — older manifests lacking the field default to null (the
+  /// user's personal org) on restore.
+  canon_org?: string | null;
 }
 
 export interface RailTabView {
@@ -1775,6 +1782,22 @@ export class TabManager {
   /// doesn't exist or has no root dir set.
   groupRootDirFor(groupId: string): string | null {
     return this.groups.get(groupId)?.rootDir ?? null;
+  }
+
+  /// Lookup the active Canon org slug for a group by id. Returns null
+  /// if the group doesn't exist or has no org set (resolves to the
+  /// user's personal org).
+  groupCanonOrg(groupId: string): string | null {
+    return this.groups.get(groupId)?.canonOrg ?? null;
+  }
+
+  /// Set the active Canon org slug for a group. Null clears back to
+  /// the user's personal org. Persisted like `rootDir`.
+  setGroupCanonOrg(groupId: string, slug: string | null): void {
+    const g = this.groups.get(groupId);
+    if (!g) return;
+    g.canonOrg = slug;
+    this.scheduleSave();
   }
 
   constructor(
@@ -5396,6 +5419,7 @@ export class TabManager {
         color: g.color,
         collapsed: g.collapsed,
         root_dir: g.rootDir,
+        canon_org: g.canonOrg,
       })),
     };
   }
@@ -5420,6 +5444,7 @@ export class TabManager {
         color: g.color,
         collapsed: g.collapsed,
         rootDir: g.root_dir ?? null,
+        canonOrg: g.canon_org ?? null,
       });
     }
     // Normalise every tab into the new panes+layout shape so downstream
@@ -6146,6 +6171,7 @@ export class TabManager {
       color: null,
       collapsed: false,
       rootDir: null,
+      canonOrg: null,
     });
     tab.groupId = id;
     // No reorder needed — tab stays where it is, becomes a single-
@@ -6435,6 +6461,7 @@ export class TabManager {
       color: null,
       collapsed: false,
       rootDir: null,
+      canonOrg: null,
     });
     this.renaming = { kind: "group", id };
     this.renderTabbar();

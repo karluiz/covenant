@@ -101,7 +101,7 @@ describe("CanonPanel", () => {
       groupId: "g1", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
     }).mount(host);
     // simulate orgs loaded + a status with one installed skill
-    panel.setOrgs([{ id: 1, slug: "mibanco", name: "Mibanco", role: "owner" }]);
+    panel.setOrgs([{ id: 1, slug: "mibanco", name: "Mibanco", role: "owner", personal: false }]);
     panel.renderStatus({
       installed: [
         { name: "kyc-peru", version: "1.0.0", source: "local:/x", sha: "a", signer: null, installedAt: "t" },
