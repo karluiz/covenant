@@ -35,7 +35,6 @@ import { MarketplacePanel } from "./operator_marketplace";
 import { scheduleCloudPush } from "./cloud_push";
 import { PersonaComposerModal } from "../operator/persona-composer";
 import { CustomSelect } from "../ui/select";
-import { MarkdownEditor } from "../ui/markdown-editor";
 import "./operator-creator.css";
 
 /// Blank SOUL.md template seeded into the editor when the user starts
@@ -1615,13 +1614,17 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     hcHint.className = "op-hc-hint";
     hcHint.textContent =
       "Regex deny rules — a command matching any line is never auto-executed; the operator asks you first. One rule per line.";
-    const hc = new MarkdownEditor({
-      mode: "inline",
-      className: "op-soul-hard",
-      value: view.hard_constraints ?? "",
-      placeholder: "One deny rule per line (regex). e.g. ^git push --force",
-      onChange: (md) => { view.hard_constraints = md; commit(false); },
-    });
+    // Plain textarea, not Milkdown: these are regex deny rules where a
+    // WYSIWYG round-trip would escape backslashes (\.env → \\.env), breaking
+    // the pattern. Same reason the body editor is a textarea. Enter = newline,
+    // which is exactly right for "one rule per line".
+    const hc = document.createElement("textarea");
+    hc.className = "op-soul-hard";
+    hc.spellcheck = false;
+    hc.rows = 4;
+    hc.value = view.hard_constraints ?? "";
+    hc.placeholder = "One deny rule per line (regex). e.g. ^git push --force";
+    hc.addEventListener("input", () => { view.hard_constraints = hc.value; commit(false); });
     const hcChips = document.createElement("div");
     hcChips.className = "op-hc-chips";
     for (const rule of HARD_CONSTRAINT_EXAMPLES) {
@@ -1639,7 +1642,7 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       });
       hcChips.appendChild(btn);
     }
-    adv.append(advSum, hcHint, hc.element, hcChips);
+    adv.append(advSum, hcHint, hc, hcChips);
     controls.append(adv);
   }
 

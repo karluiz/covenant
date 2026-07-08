@@ -104,6 +104,18 @@
   outline: none; border-color: rgba(124, 140, 255, 0.6);
   box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.14);
 }
+.op-creator .op-soul-hard {
+  width: 100%; resize: vertical; display: block;
+  background: #16171e; color: #d7dae6;
+  border: 1px solid #23252f; border-radius: 8px; padding: 9px 11px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12.5px; line-height: 1.5;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.op-creator .op-soul-hard:focus {
+  outline: none; border-color: rgba(124, 140, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.14);
+}
 .op-creator .op-soul-section-title {
   font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase;
   color: #8b90a4; margin: 0 0 8px;
@@ -165,6 +177,7 @@ body.theme-true-dark .op-creator .op-modal-input,
 body.theme-true-dark .op-creator .op-modal-select,
 body.theme-true-dark .op-creator .op-soul-source,
 body.theme-true-dark .op-creator .op-soul-body,
+body.theme-true-dark .op-creator .op-soul-hard,
 body.theme-true-dark .op-creator .op-skills-pills {
   background: #0a0a0a;
   border-color: #1a1a1a;
