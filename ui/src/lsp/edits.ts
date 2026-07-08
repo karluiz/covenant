@@ -73,7 +73,7 @@ function posToStringOffset(lineStarts: number[], textLength: number, pos: LspPos
   return Math.min(lineStart + Math.max(0, pos.character), lineEnd);
 }
 
-function editsByUri(edit: WorkspaceEdit): Record<string, LspEdit[]> {
+export function editsByUri(edit: WorkspaceEdit): Record<string, LspEdit[]> {
   if (edit.changes) return edit.changes;
   if (edit.documentChanges) {
     const byUri: Record<string, LspEdit[]> = {};
@@ -85,32 +85,53 @@ function editsByUri(edit: WorkspaceEdit): Record<string, LspEdit[]> {
   return {};
 }
 
+/// Number of files a WorkspaceEdit touches (uris with at least one
+/// edit). Shared by the confirm-dialog count (cm6.ts) and
+/// `applyWorkspaceEdit` below so the two can never diverge.
+export function countFiles(edit: WorkspaceEdit): number {
+  return Object.values(editsByUri(edit)).filter((edits) => edits.length > 0).length;
+}
+
 /// Apply a WorkspaceEdit across however many files it touches. The
 /// active-editor uri is dispatched through `host` (CM6 changes, undo
 /// preserved); every other uri is patched on disk via
 /// structureReadFile → applyTextEdits → structureWriteFile. Returns
 /// counts for the caller's confirmation UI.
+///
+/// Ordering: disk files are read/written BEFORE the active view is
+/// touched. structureReadFile/structureWriteFile can throw (see the
+/// non-text guard below); doing all disk work first means a failure
+/// there aborts the whole rename before the live CM6 buffer — which
+/// has no rollback here — is ever changed.
+///
+/// ponytail: no cross-file rollback in P2 — a mid-apply failure leaves
+/// earlier disk files edited; surfaced to the user (the throw
+/// propagates to commitRename's try/finally), full transactionality if
+/// it proves needed.
 export async function applyWorkspaceEdit(
   edit: WorkspaceEdit,
   host: WorkspaceEditHost,
 ): Promise<{ files: number; edits: number }> {
   const byUri = editsByUri(edit);
   const activeUri = host.activeUri();
-  let files = 0;
+  const files = countFiles(edit);
   let editCount = 0;
+  let activeEdits: LspEdit[] | null = null;
   for (const [uri, uriEdits] of Object.entries(byUri)) {
     if (!uriEdits.length) continue;
-    files++;
     editCount += uriEdits.length;
     if (uri === activeUri) {
-      host.applyToActiveView(uriEdits);
-    } else {
-      const path = uriToPath(uri);
-      const result = await structureReadFile(path);
-      const text = result.content ?? "";
-      const newText = applyTextEdits(text, uriEdits);
-      await structureWriteFile(path, newText);
+      activeEdits = uriEdits;
+      continue;
     }
+    const path = uriToPath(uri);
+    const result = await structureReadFile(path);
+    if (result.kind !== "text" || result.content == null) {
+      throw new Error(`cannot apply rename to non-text file: ${path}`);
+    }
+    const newText = applyTextEdits(result.content, uriEdits);
+    await structureWriteFile(path, newText);
   }
+  if (activeEdits) host.applyToActiveView(activeEdits);
   return { files, edits: editCount };
 }

@@ -9,7 +9,7 @@ import { type CompletionSource, type Completion } from "@codemirror/autocomplete
 import type { LspDoc } from "./manager";
 import { lspRangeToCm, lspToOffset, offsetToLsp, uriToPath } from "./positions";
 import type { LspCompletionItem, LspDiagnostic, LspLocation } from "./client";
-import { applyWorkspaceEdit, type LspEdit, type WorkspaceEdit } from "./edits";
+import { applyWorkspaceEdit, countFiles, type LspEdit, type WorkspaceEdit } from "./edits";
 
 export interface LspHost {
   doc(): LspDoc | null;
@@ -360,21 +360,31 @@ async function commitRename(
   // Narrow into a new const (rather than `edit!` in the closure below) —
   // `edit`'s null-check above doesn't survive into the deferred arrow fn.
   const resolvedEdit = edit;
-  const uris = new Set([
-    ...Object.keys(resolvedEdit.changes ?? {}),
-    ...(resolvedEdit.documentChanges ?? []).map((dc) => dc.textDocument.uri),
-  ]);
-  if (uris.size > 1) {
+  const fileCount = countFiles(resolvedEdit);
+  if (fileCount > 1) {
     showRenameConfirm(
       box,
-      uris.size,
-      () => applyWorkspaceEdit(resolvedEdit, host).finally(cleanup),
+      fileCount,
+      async () => {
+        try {
+          await applyWorkspaceEdit(resolvedEdit, host);
+        } catch (e) {
+          console.warn("[lsp] rename failed", e);
+        } finally {
+          cleanup();
+        }
+      },
       cleanup,
     );
     return;
   }
-  await applyWorkspaceEdit(resolvedEdit, host);
-  cleanup();
+  try {
+    await applyWorkspaceEdit(resolvedEdit, host);
+  } catch (e) {
+    console.warn("[lsp] rename failed", e);
+  } finally {
+    cleanup();
+  }
 }
 
 function showRenameConfirm(

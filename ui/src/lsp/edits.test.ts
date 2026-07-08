@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ReadResult } from "../api";
-import { applyTextEdits, applyWorkspaceEdit, type WorkspaceEdit, type WorkspaceEditHost } from "./edits";
+import {
+  applyTextEdits,
+  applyWorkspaceEdit,
+  countFiles,
+  type WorkspaceEdit,
+  type WorkspaceEditHost,
+} from "./edits";
 
 vi.mock("../api", () => ({
   structureReadFile: vi.fn(),
@@ -144,5 +150,73 @@ describe("applyWorkspaceEdit", () => {
     expect(result).toEqual({ files: 2, edits: 2 });
     expect(applied).toHaveLength(1);
     expect(writeMock).toHaveBeenCalledWith("/disk.rs", "fn renamed() {}\n");
+  });
+
+  it("refuses to write a non-text (binary/too_large) file instead of coercing content to empty string", async () => {
+    const api = await import("../api");
+    const readMock = vi.mocked(api.structureReadFile);
+    const writeMock = vi.mocked(api.structureWriteFile);
+    readMock.mockReset();
+    writeMock.mockReset();
+    readMock.mockResolvedValue({ kind: "binary", content: null, size_bytes: 4096 } as ReadResult);
+
+    const host: WorkspaceEditHost = {
+      activeUri: () => "file:///active.rs",
+      applyToActiveView: vi.fn(),
+    };
+    const edit: WorkspaceEdit = {
+      changes: {
+        "file:///image.png": [
+          { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "x" },
+        ],
+      },
+    };
+    await expect(applyWorkspaceEdit(edit, host)).rejects.toThrow(/non-text file/);
+    expect(writeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not touch the active view when a disk write for another file fails first", async () => {
+    const api = await import("../api");
+    const readMock = vi.mocked(api.structureReadFile);
+    const writeMock = vi.mocked(api.structureWriteFile);
+    readMock.mockReset();
+    writeMock.mockReset();
+    readMock.mockResolvedValue({ kind: "too_large", content: null, size_bytes: 10_000_000 } as ReadResult);
+
+    const applyToActiveView = vi.fn();
+    const host: WorkspaceEditHost = {
+      activeUri: () => "file:///active.rs",
+      applyToActiveView,
+    };
+    const edit: WorkspaceEdit = {
+      changes: {
+        "file:///active.rs": [
+          { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "x" },
+        ],
+        "file:///huge.bin": [
+          { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "x" },
+        ],
+      },
+    };
+    await expect(applyWorkspaceEdit(edit, host)).rejects.toThrow(/non-text file/);
+    expect(applyToActiveView).not.toHaveBeenCalled();
+    expect(writeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("countFiles", () => {
+  it("matches the number of files applyWorkspaceEdit actually touches", () => {
+    const edit: WorkspaceEdit = {
+      changes: {
+        "file:///a.rs": [
+          { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "x" },
+        ],
+        "file:///b.rs": [
+          { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "y" },
+        ],
+        "file:///empty.rs": [],
+      },
+    };
+    expect(countFiles(edit)).toBe(2);
   });
 });
