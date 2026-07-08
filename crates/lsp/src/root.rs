@@ -14,7 +14,9 @@ pub fn detect_root(file: &Path, markers: &[String]) -> PathBuf {
             git_hit = Some(dir.to_path_buf());
         }
     }
-    marker_hit.or(git_hit).unwrap_or_else(|| start.to_path_buf())
+    marker_hit
+        .or(git_hit)
+        .unwrap_or_else(|| start.to_path_buf())
 }
 
 #[cfg(test)]
@@ -30,10 +32,13 @@ mod tests {
     #[test]
     fn outermost_marker_wins_for_workspaces() {
         let t = tempfile::tempdir().unwrap();
-        touch(&t.path().join("ws/Cargo.toml"));           // workspace root
-        touch(&t.path().join("ws/member/Cargo.toml"));    // member crate
+        touch(&t.path().join("ws/Cargo.toml")); // workspace root
+        touch(&t.path().join("ws/member/Cargo.toml")); // member crate
         touch(&t.path().join("ws/member/src/lib.rs"));
-        let root = detect_root(&t.path().join("ws/member/src/lib.rs"), &["Cargo.toml".into()]);
+        let root = detect_root(
+            &t.path().join("ws/member/src/lib.rs"),
+            &["Cargo.toml".into()],
+        );
         assert_eq!(root, t.path().join("ws"));
     }
 

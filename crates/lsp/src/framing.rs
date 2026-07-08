@@ -21,7 +21,9 @@ impl FrameDecoder {
         let mut out = Vec::new();
         loop {
             // Find end of header block.
-            let Some(hdr_end) = find_subslice(&self.buf, b"\r\n\r\n") else { break };
+            let Some(hdr_end) = find_subslice(&self.buf, b"\r\n\r\n") else {
+                break;
+            };
             let headers = String::from_utf8_lossy(&self.buf[..hdr_end]);
             let len = headers.lines().find_map(|l| {
                 let (k, v) = l.split_once(':')?;
@@ -39,7 +41,8 @@ impl FrameDecoder {
             if self.buf.len() < body_start + len {
                 break; // body incomplete — wait for more bytes
             }
-            let body = String::from_utf8_lossy(&self.buf[body_start..body_start + len]).into_owned();
+            let body =
+                String::from_utf8_lossy(&self.buf[body_start..body_start + len]).into_owned();
             self.buf.drain(..body_start + len);
             out.push(body);
         }

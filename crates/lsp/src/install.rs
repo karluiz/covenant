@@ -20,11 +20,18 @@ pub fn is_installed(data_dir: &Path, spec: &ServerSpec) -> bool {
 
 /// Verify sha256 of the raw artifact bytes, unpack, and atomically move
 /// into place. Verification happens BEFORE any bytes are unpacked.
-pub fn install_from_bytes(bytes: &[u8], spec: &ServerSpec, data_dir: &Path) -> Result<PathBuf, LspError> {
+pub fn install_from_bytes(
+    bytes: &[u8],
+    spec: &ServerSpec,
+    data_dir: &Path,
+) -> Result<PathBuf, LspError> {
     let artifact = spec.artifact()?;
     let actual = format!("{:x}", Sha256::digest(bytes));
     if !actual.eq_ignore_ascii_case(&artifact.sha256) {
-        return Err(LspError::ShaMismatch { expected: artifact.sha256.clone(), actual });
+        return Err(LspError::ShaMismatch {
+            expected: artifact.sha256.clone(),
+            actual,
+        });
     }
 
     let root = install_root(data_dir, spec);
@@ -53,7 +60,10 @@ pub fn install_from_bytes(bytes: &[u8], spec: &ServerSpec, data_dir: &Path) -> R
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(staging.join(&spec.cmd), std::fs::Permissions::from_mode(0o755))?;
+        std::fs::set_permissions(
+            staging.join(&spec.cmd),
+            std::fs::Permissions::from_mode(0o755),
+        )?;
     }
 
     let _ = std::fs::remove_dir_all(&root);
@@ -65,7 +75,9 @@ pub fn install_from_bytes(bytes: &[u8], spec: &ServerSpec, data_dir: &Path) -> R
             for e in entries.flatten() {
                 if e.path() != root {
                     if let Err(_err) = std::fs::remove_dir_all(e.path()) {
-                        tracing::warn!("failed to clean up superseded LSP server version directory");
+                        tracing::warn!(
+                            "failed to clean up superseded LSP server version directory"
+                        );
                     }
                 }
             }
@@ -125,12 +137,21 @@ mod tests {
         let mut artifacts = HashMap::new();
         artifacts.insert(
             crate::registry::platform_key().to_string(),
-            Artifact { url: "https://example.invalid/x.gz".into(), sha256: sha256.into(), kind: ArchiveKind::Gzip },
+            Artifact {
+                url: "https://example.invalid/x.gz".into(),
+                sha256: sha256.into(),
+                kind: ArchiveKind::Gzip,
+            },
         );
         ServerSpec {
-            language: "rust".into(), name: "fake-ra".into(), version: version.into(),
-            cmd: "fake-ra".into(), args: vec![], root_markers: vec!["Cargo.toml".into()],
-            approx_size_mb: 1, artifacts,
+            language: "rust".into(),
+            name: "fake-ra".into(),
+            version: version.into(),
+            cmd: "fake-ra".into(),
+            args: vec![],
+            root_markers: vec!["Cargo.toml".into()],
+            approx_size_mb: 1,
+            artifacts,
         }
     }
 
@@ -199,7 +220,10 @@ mod tests {
 
         // Old dotted-version directory must be gone (old-version GC), and
         // the new dotted version must report installed.
-        assert!(!install_root(dir.path(), &spec_old).exists(), "old version directory should have been GC'd");
+        assert!(
+            !install_root(dir.path(), &spec_old).exists(),
+            "old version directory should have been GC'd"
+        );
         assert!(is_installed(dir.path(), &spec_new));
     }
 }

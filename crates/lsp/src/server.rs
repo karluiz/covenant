@@ -31,9 +31,18 @@ impl LspServer {
             .spawn()
             .map_err(|e| LspError::Spawn(format!("{}: {e}", bin.display())))?;
 
-        let mut stdin = child.stdin.take().ok_or_else(|| LspError::Spawn("no stdin".into()))?;
-        let mut stdout = child.stdout.take().ok_or_else(|| LspError::Spawn("no stdout".into()))?;
-        let stderr = child.stderr.take().ok_or_else(|| LspError::Spawn("no stderr".into()))?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| LspError::Spawn("no stdin".into()))?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| LspError::Spawn("no stdout".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| LspError::Spawn("no stderr".into()))?;
 
         // Writer pump: frame and forward outgoing messages.
         let (outgoing, mut outgoing_rx) = mpsc::channel::<String>(256);
@@ -104,13 +113,16 @@ mod tests {
             std::path::Path::new("/bin/cat"),
             &[],
             std::path::Path::new("/tmp"),
-            move |msg| { let _ = tx.send(msg); },
+            move |msg| {
+                let _ = tx.send(msg);
+            },
             |_| {},
         )
         .await
         .expect("spawn cat");
 
-        srv.send(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#.to_string()).await;
+        srv.send(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#.to_string())
+            .await;
         let echoed = tokio::time::timeout(Duration::from_secs(5), rx.recv())
             .await
             .expect("timed out waiting for echo")
@@ -127,7 +139,9 @@ mod tests {
             &[],
             std::path::Path::new("/tmp"),
             |_| {},
-            move |code| { let _ = tx.send(code); },
+            move |code| {
+                let _ = tx.send(code);
+            },
         )
         .await
         .expect("spawn cat");
