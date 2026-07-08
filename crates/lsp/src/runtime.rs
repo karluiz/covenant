@@ -112,6 +112,33 @@ pub fn version_ge(found: &str, min: &str) -> bool {
     (fmaj, fmin) >= (mmaj, mmin)
 }
 
+/// A remedy the UI can show when `detect` reports a runtime missing/too old.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RuntimeSuggestion {
+    /// A satisfying version exists on disk but its bin dir isn't on the
+    /// login-shell PATH. `dir` is the bin dir to prepend.
+    OnDiskNotOnPath { version: String, dir: String },
+    /// No satisfying version found in the curated locations.
+    Install { hint: String },
+}
+
+/// Parse a version string to a sortable (major, minor, patch) key. Missing
+/// segments default to 0; a leading `v` is tolerated. Non-numeric → 0.
+fn version_key(v: &str) -> (u32, u32, u32) {
+    let mut it = v.trim().trim_start_matches('v').split('.');
+    let p = |x: Option<&str>| x.and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+    (p(it.next()), p(it.next()), p(it.next()))
+}
+
+/// From `(dir, version)` candidates, return the newest that is `>= min`.
+fn pick_newest_satisfying(candidates: &[(String, String)], min: &str) -> Option<(String, String)> {
+    candidates
+        .iter()
+        .filter(|(_, v)| version_ge(v, min))
+        .max_by_key(|(_, v)| version_key(v))
+        .cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +194,44 @@ mod tests {
 
         let dotnet = extract_version("10.0.101").unwrap();
         assert!(version_ge(&dotnet, "10"));
+    }
+
+    #[test]
+    fn pick_newest_satisfying_picks_highest_above_min() {
+        let c = vec![
+            ("/a".to_string(), "17.0.18".to_string()),
+            ("/b".to_string(), "26.0.1".to_string()),
+            ("/c".to_string(), "21.0.2".to_string()),
+        ];
+        assert_eq!(
+            pick_newest_satisfying(&c, "21"),
+            Some(("/b".to_string(), "26.0.1".to_string()))
+        );
+    }
+
+    #[test]
+    fn pick_newest_satisfying_ignores_below_min() {
+        let c = vec![
+            ("/a".to_string(), "17.0.18".to_string()),
+            ("/b".to_string(), "20.9.9".to_string()),
+        ];
+        assert_eq!(pick_newest_satisfying(&c, "21"), None);
+    }
+
+    #[test]
+    fn pick_newest_satisfying_empty_is_none() {
+        assert_eq!(pick_newest_satisfying(&[], "21"), None);
+    }
+
+    #[test]
+    fn pick_newest_satisfying_orders_by_full_version_not_just_major() {
+        let c = vec![
+            ("/a".to_string(), "21.0.9".to_string()),
+            ("/b".to_string(), "21.2.0".to_string()),
+        ];
+        assert_eq!(
+            pick_newest_satisfying(&c, "21"),
+            Some(("/b".to_string(), "21.2.0".to_string()))
+        );
     }
 }
