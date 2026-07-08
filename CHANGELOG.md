@@ -6,6 +6,42 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.138 — LSP Phase 2: full Rust IDE features in the editor
+
+### Added
+
+- **Live diagnostics**: Rust errors and warnings render as inline
+  squiggles + gutter markers in the Structure editor, driven by the
+  language server's `publishDiagnostics` notifications (`ui/src/lsp/cm6.ts`
+  via `@codemirror/lint`, `ui/src/lsp/client.ts` notification handling).
+- **Semantic completion**: rust-analyzer-backed autocomplete replaces the
+  buffer-word fallback on `.rs` files when the server is ready, degrading
+  cleanly to language-pack + word completion when it isn't
+  (`ui/src/lsp/cm6.ts` completion source, per-file completion compartment
+  in `ui/src/structure/editor.ts`).
+- **Rename symbol** (F2) and **code actions / quick fixes** (gutter
+  lightbulb): both apply multi-file `WorkspaceEdit`s through a shared,
+  data-loss-guarded applier — edits to the open buffer go through
+  CodeMirror (undo preserved), edits to other files hit disk, non-text
+  files are refused rather than overwritten (`ui/src/lsp/edits.ts`,
+  `client.ts`, `cm6.ts`).
+- **Code intelligence settings**: Settings → Terminal grows a "Code
+  intelligence" section — master toggle, per-language toggle, and a list
+  of downloaded servers with size + delete (`ui/src/settings/code_intelligence.ts`,
+  `crates/app/src/lsp_commands.rs` list/delete commands, `crates/lsp/src/install.rs`
+  size/remove). Download consent migrates from localStorage to the
+  settings store.
+
+### Changed
+
+- **Incremental document sync**: edits now send ranged `didChange` deltas
+  (computed against the pre-change document, applied rightmost-first so
+  offsets stay valid) instead of the full document text on every
+  keystroke (`ui/src/lsp/manager.ts`, `client.ts`).
+- **Idle server lifecycle**: language servers shut down after 10 minutes
+  with no open documents, capped at 4 live servers (LRU eviction of idle
+  ones), keeping memory bounded (`ui/src/lsp/lru.ts`, wired in `manager.ts`).
+
 ## v0.8.137 — Operator Perception: auto-answers trivial ACP prompts
 
 ### Added
