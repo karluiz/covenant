@@ -87,6 +87,8 @@ import {
 import { editorHighlight, editorTheme, currentEditorMode } from "./theme";
 import { CustomSelect } from "../ui/select";
 import { ContextMenu } from "../menu/context-menu";
+import { lspExtensions } from "../lsp/cm6";
+import { lspManager, lspLanguageId, type LspDoc, type LspDocStatus } from "../lsp/manager";
 
 export interface EditorCallbacks {
   onSave?: (path: string) => void;
@@ -157,6 +159,12 @@ export class StructureEditor {
   private readonly placeholderEl: HTMLElement;
   private currentPath: string | null = null;
   private originalContent: string | null = null;
+
+  /// LSP-backed doc for the currently open file. Null until `setupLsp`
+  /// resolves (unsupported language / consent pending / still starting).
+  private lspDoc: LspDoc | null = null;
+  private readonly lspChipEl: HTMLElement;
+  private readonly lspBannerEl: HTMLElement;
   /// Latest known content irrespective of viewer. In source mode it
   /// shadows the CM6 doc on every change; in preview mode it keeps
   /// the last source value so toggling back doesn't lose edits.
@@ -220,6 +228,13 @@ export class StructureEditor {
     this.headerEl.className = "structure-editor-header";
     this.root.appendChild(this.headerEl);
 
+    // Download-consent banner — sits between header and body. Shown
+    // when a language server needs the user's OK before downloading.
+    this.lspBannerEl = document.createElement("div");
+    this.lspBannerEl.className = "structure-editor-lsp-banner";
+    this.lspBannerEl.hidden = true;
+    this.root.insertBefore(this.lspBannerEl, this.headerEl.nextSibling);
+
     this.pathLabelEl = document.createElement("span");
     this.pathLabelEl.className = "structure-editor-path";
     this.headerEl.appendChild(this.pathLabelEl);
@@ -232,6 +247,14 @@ export class StructureEditor {
     this.statusEl = document.createElement("span");
     this.statusEl.className = "structure-editor-status";
     this.headerEl.appendChild(this.statusEl);
+
+    // LSP status chip — shows download/starting/ready/error state for
+    // the currently open file's language server. Hidden when the file
+    // has no LSP support.
+    this.lspChipEl = document.createElement("span");
+    this.lspChipEl.className = "structure-editor-lsp-chip";
+    this.lspChipEl.hidden = true;
+    this.headerEl.appendChild(this.lspChipEl);
 
     // Scale dropdown — sits left of the PNG button. Persisted choice
     // applies across restarts; default 2× covers the retina case.
@@ -610,6 +633,18 @@ export class StructureEditor {
           indentWithTab,
         ]),
 
+        // Cmd/Ctrl-click go-to-definition / hover / references, backed
+        // by the LSP client. Registered BEFORE the Astro handler below
+        // so `.rs` files' ⌘click is consumed here first (this handler
+        // returns `true` when it acts); it no-ops when `lspDoc` isn't
+        // ready, letting the click fall through as normal.
+        lspExtensions({
+          doc: () => this.lspDoc,
+          openFile: (path, line) => {
+            void this.open(path, { line });
+          },
+        }),
+
         // Cmd/Ctrl-click imported Astro component tags to jump to the
         // component file. This is intentionally local/static: no LSP,
         // no project index, just imports in the current document.
@@ -672,6 +707,7 @@ export class StructureEditor {
       this.dirty = next;
       this.renderStatus();
     }
+    this.lspDoc?.change(this.liveContent);
   }
 
   /// Save handler bound to ⌘S in the keymap. Returns `true` to stop
@@ -778,6 +814,12 @@ export class StructureEditor {
     this.statusEl.textContent = "loading…";
     this.statusEl.classList.remove("dirty");
 
+    // Release the previous file's LSP doc and kick off acquisition for
+    // the new one. Non-blocking — file open must NEVER wait on LSP.
+    this.lspDoc?.close();
+    this.lspDoc = null;
+    void this.setupLsp(path);
+
     this.show();
 
     // Binary-only preview kinds (images, spreadsheets) bypass the
@@ -847,6 +889,111 @@ export class StructureEditor {
     }
     this.refreshPreviewButton();
     this.renderStatus();
+  }
+
+  // ─── LSP wiring ────────────────────────────────────────
+
+  /// Resolve the LSP status for `path` and either render the
+  /// consent/error/unsupported state or start the server. Kicked off
+  /// (not awaited) from `open()` so file loads never block on LSP.
+  private async setupLsp(path: string): Promise<void> {
+    if (!lspLanguageId(path)) {
+      this.renderLspState({ kind: "unsupported" });
+      return;
+    }
+    const status = await lspManager.status(path);
+    if (this.currentPath !== path) return; // user moved on
+    if (status.kind === "consent-needed") {
+      this.renderLspState(status);
+      return;
+    }
+    if (status.kind === "ready") await this.startLsp(path);
+    else this.renderLspState(status);
+  }
+
+  private async startLsp(path: string): Promise<void> {
+    this.renderLspState({ kind: "starting" });
+    try {
+      const doc = await lspManager.open(path, this.liveContent);
+      if (this.currentPath !== path) {
+        doc.close();
+        return;
+      }
+      this.lspDoc = doc;
+      this.renderLspState({ kind: "ready" });
+    } catch (e) {
+      this.renderLspState({ kind: "error", message: String(e) });
+    }
+  }
+
+  private async downloadLspServer(path: string, language: string): Promise<void> {
+    lspManager.grantConsent(language);
+    this.lspBannerEl.hidden = true;
+    this.renderLspState({ kind: "downloading", percent: 0 });
+    try {
+      await lspManager.download(language, (percent) => {
+        this.renderLspState({ kind: "downloading", percent });
+      });
+      if (this.currentPath === path) await this.startLsp(path);
+    } catch (e) {
+      this.renderLspState({ kind: "error", message: String(e) });
+    }
+  }
+
+  /// Renders the LSP chip + consent banner for the given status.
+  private renderLspState(status: LspDocStatus): void {
+    const chip = this.lspChipEl;
+    const banner = this.lspBannerEl;
+    banner.hidden = true;
+    switch (status.kind) {
+      case "unsupported":
+        chip.hidden = true;
+        break;
+      case "consent-needed": {
+        chip.hidden = true;
+        banner.hidden = false;
+        banner.replaceChildren();
+        const label = document.createElement("span");
+        label.textContent = `Download ${status.name} (~${status.approxSizeMb} MB) to enable code intelligence?`;
+        const yes = document.createElement("button");
+        yes.type = "button";
+        yes.textContent = "Download";
+        yes.addEventListener("click", () => {
+          const path = this.currentPath;
+          const language = path ? lspLanguageId(path) : null;
+          if (path && language) void this.downloadLspServer(path, language);
+        });
+        const no = document.createElement("button");
+        no.type = "button";
+        no.textContent = "Not now";
+        no.addEventListener("click", () => {
+          banner.hidden = true;
+        });
+        banner.append(label, yes, no);
+        break;
+      }
+      case "downloading":
+        chip.hidden = false;
+        chip.textContent = status.percent === null ? "LSP: downloading…" : `LSP: ${status.percent}%`;
+        chip.dataset.state = "busy";
+        break;
+      case "starting":
+        chip.hidden = false;
+        chip.textContent = "LSP: starting…";
+        chip.dataset.state = "busy";
+        break;
+      case "ready":
+        chip.hidden = false;
+        chip.textContent = "LSP";
+        chip.dataset.state = "ready";
+        break;
+      case "error":
+        chip.hidden = false;
+        chip.textContent = "LSP: error";
+        chip.dataset.state = "error";
+        console.warn("[lsp]", status.message);
+        break;
+    }
   }
 
   /// Mount CM6 with `text` as the initial doc. Used both for fresh
@@ -1140,6 +1287,10 @@ export class StructureEditor {
         : this.liveContent;
     try {
       await structureWriteFile(this.currentPath, text);
+      // ponytail: flush a didChange instead of wiring a real didSave
+      // notification — rust-analyzer treats them equivalently for
+      // freshness purposes, and a dedicated didSave is P2 polish.
+      this.lspDoc?.client.didChange(this.lspDoc.uri, text);
       this.originalContent = text;
       this.liveContent = text;
       this.dirty = false;
@@ -1184,6 +1335,9 @@ export class StructureEditor {
     this.liveContent = "";
     this.dirty = false;
     this.previewKind = null;
+    this.lspDoc?.close();
+    this.lspDoc = null;
+    this.renderLspState({ kind: "unsupported" });
     if (this.view) {
       this.view.destroy();
       this.view = null;
