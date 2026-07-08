@@ -26,6 +26,20 @@
         "packages": ["typescript-language-server@5.3.0", "typescript@6.0.3"],
         "bin_entry": "node_modules/typescript-language-server/lib/cli.mjs"
       }
+    },
+    {
+      "language": "csharp",
+      "name": "roslyn-language-server",
+      "version": "5.4.0-2.26179.14",
+      "cmd": "Microsoft.CodeAnalysis.LanguageServer",
+      "args": [],
+      "root_markers": ["*.sln", "*.csproj", "global.json"],
+      "approx_size_mb": 57,
+      "runtime": { "name": "dotnet", "min_version": "10", "version_arg": "--version" },
+      "entry_subpath": "content/LanguageServer/osx-arm64/Microsoft.CodeAnalysis.LanguageServer",
+      "artifacts": {
+        "macos-aarch64": { "url": "https://pkgs.dev.azure.com/azure-public/vside/_packaging/vs-impl/nuget/v3/flat2/microsoft.codeanalysis.languageserver.osx-arm64/5.4.0-2.26179.14/microsoft.codeanalysis.languageserver.osx-arm64.5.4.0-2.26179.14.nupkg", "sha256": "b8583ea7571767b8b6b157cdbece5aa8945aece55cca151040c747a134052a9d", "kind": "zip" }
+      }
     }
   ]
 }
