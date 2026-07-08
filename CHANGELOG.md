@@ -6,6 +6,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.137 — Operator Perception: auto-answers trivial ACP prompts
+
+### Added
+
+- **Operator Perception**: a per-operator capability that, when a
+  Perception-enabled operator is assigned to an interactive ACP session,
+  auto-answers *trivial, safe* permission prompts on your behalf — so you
+  are only interrupted for decisions that genuinely need judgment. A hard
+  safety floor (`safety::classify`, a closed set: reads/edits, or executes
+  only when classified Safe; unknown kinds escalate) runs **before** a Haiku
+  judge decides triviality; any doubt, unknown option, or model failure
+  escalates to you (never more permissive than the classifier). Only
+  non-persistent options are auto-selected, with a 5-in-a-row handback cap
+  (reset on escalation or a human answer) and an audit chip per auto-answer
+  in the ACP tab. Toggle it per operator in the operator editor; **off by
+  default** and independent of AOM. Pure decision core in
+  `crates/agent/src/acp/perception.rs`, forwarder wiring in
+  `crates/app/src/acp_commands.rs`, per-operator flag in
+  `crates/app/src/operator_registry.rs`, UI in `ui/src/settings/operators.ts`
+  and `ui/src/executors/acp/view.ts`. ACP executors only in this first cut.
+
 ## v0.8.136 — LSP code navigation (rust-analyzer) + Context Miner
 
 ### Added
