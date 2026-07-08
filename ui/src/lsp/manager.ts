@@ -35,7 +35,6 @@ const CHANGE_DEBOUNCE_MS = 200;
 interface ServerEntry {
   serverId: number;
   client: LspClient;
-  initialized: Promise<void>;
   openDocs: Map<string, number>; // uri → refcount
   unlisten: UnlistenFn[];
 }
@@ -44,7 +43,11 @@ class TauriTransport implements Transport {
   private cb: (m: string) => void = () => {};
   constructor(private readonly serverId: number) {}
   async send(message: string): Promise<void> {
-    await lspSend(this.serverId, message);
+    try {
+      await lspSend(this.serverId, message);
+    } catch {
+      // server already stopped — nothing left to deliver to.
+    }
   }
   onMessage(cb: (message: string) => void): void {
     this.cb = cb;
@@ -94,6 +97,10 @@ class LspManager {
   /// root) dedupe transparently maps two files in one workspace to one
   /// entry here.
   private servers = new Map<number, ServerEntry>();
+  // In-flight entry creation, keyed by serverId, so concurrent open()
+  // calls for the same server race onto ONE creation instead of each
+  // building its own LspClient (see module docstring).
+  private creating = new Map<number, Promise<ServerEntry>>();
 
   async status(path: string): Promise<LspDocStatus> {
     const language = lspLanguageId(path);
@@ -131,6 +138,30 @@ class LspManager {
     }
   }
 
+  private async createEntry(serverId: number, root: string): Promise<ServerEntry> {
+    const transport = new TauriTransport(serverId);
+    const client = new LspClient(transport);
+    const unMsg = await listen<string>(`lsp://${serverId}/message`, (e) => {
+      transport.deliver(e.payload);
+    });
+    const unExit = await listen<null>(`lsp://${serverId}/exit`, () => {
+      // ponytail: no auto-restart in P1 — drop the entry; the next
+      // open() spawns fresh. P2 adds restart-once policy per spec.
+      this.dropServer(serverId);
+    });
+    const entry: ServerEntry = { serverId, client, openDocs: new Map(), unlisten: [unMsg, unExit] };
+    try {
+      await client.initialize(pathToUri(root));
+    } catch (e) {
+      for (const un of entry.unlisten) un();
+      client.dispose();
+      void lspStop(serverId).catch(() => {});
+      throw e;
+    }
+    this.servers.set(serverId, entry);
+    return entry;
+  }
+
   async open(path: string, text: string): Promise<LspDoc> {
     const language = lspLanguageId(path);
     if (!language) throw new Error(`no LSP language for ${path}`);
@@ -140,26 +171,13 @@ class LspManager {
     // servers can be live simultaneously; P1 has exactly one language.
     let entry = this.servers.get(serverId);
     if (!entry) {
-      const transport = new TauriTransport(serverId);
-      const client = new LspClient(transport);
-      const unMsg = await listen<string>(`lsp://${serverId}/message`, (e) => {
-        transport.deliver(e.payload);
-      });
-      const unExit = await listen<null>(`lsp://${serverId}/exit`, () => {
-        // ponytail: no auto-restart in P1 — drop the entry; the next
-        // open() spawns fresh. P2 adds restart-once policy per spec.
-        this.dropServer(serverId);
-      });
-      entry = {
-        serverId,
-        client,
-        initialized: client.initialize(pathToUri(root)),
-        openDocs: new Map(),
-        unlisten: [unMsg, unExit],
-      };
-      this.servers.set(serverId, entry);
+      let creating = this.creating.get(serverId);
+      if (!creating) {
+        creating = this.createEntry(serverId, root).finally(() => this.creating.delete(serverId));
+        this.creating.set(serverId, creating);
+      }
+      entry = await creating; // both racers await the SAME promise → one client
     }
-    await entry.initialized;
 
     const uri = pathToUri(path);
     const refs = entry.openDocs.get(uri) ?? 0;
@@ -179,6 +197,7 @@ class LspManager {
   }
 
   private dropServer(serverId: number): void {
+    this.creating.delete(serverId); // defensive: no in-flight creation should outlive a drop
     const entry = this.servers.get(serverId);
     if (!entry) return;
     this.servers.delete(serverId);

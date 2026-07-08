@@ -121,6 +121,7 @@ export class LspClient {
   }
 
   private notify(method: string, params: unknown): void {
+    if (this.disposed) return;
     void this.transport.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
   }
 
