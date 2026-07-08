@@ -92,6 +92,7 @@ import { ContextMenu } from "../menu/context-menu";
 import { applyLspDiagnostics, lspCompletionSource, lspExtensions, type LspHost } from "../lsp/cm6";
 import { lspManager, lspLanguageId, onCodeIntelChange, type LspDoc, type LspDocStatus } from "../lsp/manager";
 import { lspRangeToCm, pathToUri } from "../lsp/positions";
+import { runtimeSuggestionLine } from "../lsp/runtime-hint";
 
 export interface EditorCallbacks {
   onSave?: (path: string) => void;
@@ -1135,6 +1136,32 @@ export class StructureEditor {
         label.textContent =
           `Code intelligence needs ${runtimeName} ≥ ${status.min}` +
           (status.found ? ` (found ${status.found})` : " — not found in your shell PATH");
+        banner.append(label);
+
+        const hint = runtimeSuggestionLine(status.suggestion);
+        if (hint.command) {
+          const guide = document.createElement("span");
+          guide.className = "structure-editor-lsp-banner-guide";
+          guide.textContent = hint.text;
+          const code = document.createElement("code");
+          code.className = "structure-editor-lsp-banner-cmd";
+          code.textContent = hint.command;
+          const copy = document.createElement("button");
+          copy.type = "button";
+          copy.textContent = "Copy";
+          copy.addEventListener("click", () => {
+            // hint.command is narrowed non-null by the `if` guard above;
+            // the closure captures `hint`, not the narrowed local, so TS
+            // needs the assertion re-stated here.
+            void navigator.clipboard.writeText(hint.command as string).catch(() => {});
+            copy.textContent = "Copied";
+            setTimeout(() => {
+              copy.textContent = "Copy";
+            }, 1500);
+          });
+          banner.append(guide, code, copy);
+        }
+
         const recheck = document.createElement("button");
         recheck.type = "button";
         recheck.textContent = "Recheck";
@@ -1142,7 +1169,7 @@ export class StructureEditor {
           const path = this.currentPath;
           if (path) void this.setupLsp(path);
         });
-        banner.append(label, recheck);
+        banner.append(recheck);
         break;
       }
       case "consent-needed": {

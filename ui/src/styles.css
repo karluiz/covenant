@@ -8414,6 +8414,20 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .s
 .structure-editor-lsp-banner button:hover {
     background: rgba(var(--ink-rgb), 0.06);
 }
+.structure-editor-lsp-banner-guide {
+    opacity: 0.85;
+}
+.structure-editor-lsp-banner-cmd {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11px;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    user-select: all;
+    white-space: nowrap;
+    overflow-x: auto;
+    max-width: 60ch;
+}
 
 /* ── LSP hover tooltip (CM6 hoverTooltip host) ── */
 .lsp-hover {
