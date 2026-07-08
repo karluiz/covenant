@@ -335,6 +335,34 @@ pub struct Settings {
     /// older version stamped.
     #[serde(default)]
     pub onboarding_version: u32,
+
+    /// LSP ("Code intelligence") master toggle + per-language consent.
+    /// Replaces the P1 localStorage-only consent store — see
+    /// `ui/src/lsp/manager.ts`.
+    #[serde(default)]
+    pub code_intelligence: CodeIntelligenceConfig,
+}
+
+/// Settings → "Code intelligence" section. `enabled` gates whether the
+/// LSP subsystem activates at all; `consented_languages` is the set of
+/// language ids the user has agreed to download a server for (populated
+/// either by the in-editor download-consent banner or by the per-language
+/// toggle in Settings — both write the same list).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeIntelligenceConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub consented_languages: Vec<String>,
+}
+
+impl Default for CodeIntelligenceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            consented_languages: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -699,6 +727,7 @@ impl Default for Settings {
             cloud_sync: CloudSyncConfig::default(),
             onboarding_completed: false,
             onboarding_version: 0,
+            code_intelligence: CodeIntelligenceConfig::default(),
         }
     }
 }
@@ -1382,6 +1411,26 @@ mod tests {
         let s: Settings = serde_json::from_str(legacy).unwrap();
         assert!(!s.onboarding_completed);
         assert_eq!(s.onboarding_version, 0);
+    }
+
+    #[test]
+    fn code_intelligence_defaults_enabled_with_no_consented_languages() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(s.code_intelligence.enabled);
+        assert!(s.code_intelligence.consented_languages.is_empty());
+    }
+
+    #[test]
+    fn code_intelligence_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let mut s = Settings::default();
+        s.code_intelligence.enabled = false;
+        s.code_intelligence.consented_languages = vec!["rust".to_string()];
+        save(&path, &s).unwrap();
+        let loaded = load(&path);
+        assert!(!loaded.code_intelligence.enabled);
+        assert_eq!(loaded.code_intelligence.consented_languages, vec!["rust"]);
     }
 
     #[test]

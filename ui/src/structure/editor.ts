@@ -973,7 +973,7 @@ export class StructureEditor {
   }
 
   private async downloadLspServer(path: string, language: string): Promise<void> {
-    lspManager.grantConsent(language);
+    await lspManager.grantConsent(language);
     this.lspBannerEl.hidden = true;
     this.renderLspState({ kind: "downloading", percent: 0 });
     try {

@@ -18,6 +18,25 @@ pub fn is_installed(data_dir: &Path, spec: &ServerSpec) -> bool {
     entry_path(data_dir, spec).is_file()
 }
 
+/// Size in bytes of the installed entry file, or 0 if not installed.
+pub fn installed_size(data_dir: &Path, spec: &ServerSpec) -> u64 {
+    std::fs::metadata(entry_path(data_dir, spec))
+        .map(|m| m.len())
+        .unwrap_or(0)
+}
+
+/// Delete the installed version directory for `spec`. Idempotent: removing
+/// an already-absent install is not an error (matches `is_installed`'s
+/// "false means gone" semantics either way).
+pub fn remove(data_dir: &Path, spec: &ServerSpec) -> Result<(), LspError> {
+    let root = install_root(data_dir, spec);
+    match std::fs::remove_dir_all(&root) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Verify sha256 of the raw artifact bytes, unpack, and atomically move
 /// into place. Verification happens BEFORE any bytes are unpacked.
 pub fn install_from_bytes(
@@ -225,5 +244,47 @@ mod tests {
             "old version directory should have been GC'd"
         );
         assert!(is_installed(dir.path(), &spec_new));
+    }
+
+    #[test]
+    fn installed_size_is_zero_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = spec_with_sha(&"0".repeat(64));
+        assert_eq!(installed_size(dir.path(), &spec), 0);
+    }
+
+    #[test]
+    fn installed_size_matches_entry_file_len_after_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = b"#!/bin/sh\necho fake, somewhat longer payload\n";
+        let gz = gzip(payload);
+        let sha = format!("{:x}", Sha256::digest(&gz));
+        let spec = spec_with_sha(&sha);
+
+        install_from_bytes(&gz, &spec, dir.path()).unwrap();
+        assert_eq!(installed_size(dir.path(), &spec), payload.len() as u64);
+    }
+
+    #[test]
+    fn remove_deletes_version_dir_and_is_installed_false_after() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = b"#!/bin/sh\necho fake\n";
+        let gz = gzip(payload);
+        let sha = format!("{:x}", Sha256::digest(&gz));
+        let spec = spec_with_sha(&sha);
+
+        install_from_bytes(&gz, &spec, dir.path()).unwrap();
+        assert!(is_installed(dir.path(), &spec));
+
+        remove(dir.path(), &spec).unwrap();
+        assert!(!is_installed(dir.path(), &spec));
+        assert!(!install_root(dir.path(), &spec).exists());
+    }
+
+    #[test]
+    fn remove_on_absent_install_is_a_noop_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = spec_with_sha(&"0".repeat(64));
+        assert!(remove(dir.path(), &spec).is_ok());
     }
 }

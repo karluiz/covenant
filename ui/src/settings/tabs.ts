@@ -8,6 +8,7 @@ const TAB_OF_SECTION: Record<string, SettingsTab> = {
   "sec-models":        "models",
   "sec-appearance":    "appearance",
   "sec-terminal":      "terminal",
+  "sec-code-intel":    "terminal",
   "sec-operators":     "operators",
   "sec-spawns":        "spawns",
   "sec-updates":       "updates",

@@ -5,7 +5,15 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ViewUpdate } from "@codemirror/view";
 
-import { lspDownloadServer, lspSend, lspServerStatus, lspStart, lspStop } from "../api";
+import {
+  getSettings,
+  lspDownloadServer,
+  lspSend,
+  lspServerStatus,
+  lspStart,
+  lspStop,
+  setSettings,
+} from "../api";
 import { LspClient, type LspContentChange, type LspDiagnostic, type Transport } from "./client";
 import { offsetToLsp, pathToUri } from "./positions";
 
@@ -22,13 +30,83 @@ export function lspLanguageId(path: string): string | null {
   return /\.rs$/i.test(path) ? "rust" : null;
 }
 
-export function consentState(language: string): boolean {
-  // ponytail: localStorage until the P2 Settings section lands.
-  return localStorage.getItem(`lsp.consent.${language}`) === "granted";
+// ---- Consent store ----------------------------------------------------
+// P1 shipped consent as localStorage keys (`lsp.consent.<language>`).
+// P2 moves it into the settings store (`settings.code_intelligence`) so
+// it lives alongside the master + per-language toggles in the Settings
+// UI. `consentState`/`grantConsentFor` are the only two entry points
+// callers use; both are now async because settings access is IPC, but
+// every call site was already inside an async function so this is a
+// same-shape signature change, not a structural refactor.
+
+interface CodeIntelCache {
+  enabled: boolean;
+  consentedLanguages: Set<string>;
 }
 
-export function grantConsentFor(language: string): void {
-  localStorage.setItem(`lsp.consent.${language}`, "granted");
+let cache: CodeIntelCache = { enabled: true, consentedLanguages: new Set() };
+let loadPromise: Promise<void> | null = null;
+
+// ponytail: one-time migration, not a sync engine. Reads the legacy
+// per-language localStorage keys, folds any "granted" ones into the
+// settings-store array, and never looks at localStorage again — the
+// settings store is the sole source of truth from here on.
+function migrateLegacyLocalStorage(): string[] {
+  const granted: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith("lsp.consent.")) continue;
+    if (localStorage.getItem(key) === "granted") {
+      granted.push(key.slice("lsp.consent.".length));
+    }
+  }
+  return granted;
+}
+
+async function ensureLoaded(): Promise<void> {
+  if (!loadPromise) {
+    loadPromise = (async () => {
+      const settings = await getSettings();
+      let ci = settings.code_intelligence;
+      if (!ci) {
+        ci = { enabled: true, consented_languages: migrateLegacyLocalStorage() };
+        await setSettings({ ...settings, code_intelligence: ci });
+      }
+      cache = { enabled: ci.enabled, consentedLanguages: new Set(ci.consented_languages) };
+    })();
+  }
+  return loadPromise;
+}
+
+/// Re-reads the settings store into the cache. Called after the Settings
+/// panel's Code intelligence section saves a change, so an already-open
+/// editor tab picks up the new master/per-language toggle immediately.
+export async function refreshCodeIntelSettings(): Promise<void> {
+  loadPromise = null;
+  await ensureLoaded();
+}
+
+async function persistConsent(): Promise<void> {
+  const settings = await getSettings();
+  await setSettings({
+    ...settings,
+    code_intelligence: {
+      enabled: cache.enabled,
+      consented_languages: [...cache.consentedLanguages],
+    },
+  });
+}
+
+export async function consentState(language: string): Promise<boolean> {
+  await ensureLoaded();
+  return cache.enabled && cache.consentedLanguages.has(language);
+}
+
+export async function grantConsentFor(language: string): Promise<void> {
+  await ensureLoaded();
+  if (cache.consentedLanguages.has(language)) return;
+  cache.consentedLanguages.add(language);
+  await persistConsent();
 }
 
 interface ServerEntry {
@@ -129,10 +207,12 @@ class LspManager {
   async status(path: string): Promise<LspDocStatus> {
     const language = lspLanguageId(path);
     if (!language) return { kind: "unsupported" };
+    await ensureLoaded();
+    if (!cache.enabled) return { kind: "unsupported" }; // master toggle off in Settings
     try {
       const st = await lspServerStatus(language);
       if (st.installed) return { kind: "ready" };
-      if (!consentState(language)) {
+      if (!(await consentState(language))) {
         return { kind: "consent-needed", name: st.name, approxSizeMb: st.approxSizeMb };
       }
       // Granted but not installed yet — still needs the download flow.
@@ -143,8 +223,8 @@ class LspManager {
     }
   }
 
-  grantConsent(language: string): void {
-    grantConsentFor(language);
+  async grantConsent(language: string): Promise<void> {
+    await grantConsentFor(language);
   }
 
   async download(language: string, onProgress: (percent: number | null) => void): Promise<void> {
