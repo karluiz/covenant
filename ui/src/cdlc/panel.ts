@@ -70,16 +70,26 @@ function stripFrontmatter(md: string): string {
 /** Full-screen rendered-markdown reader for a SKILL.md — same vibe as the
  *  spec preview. renderMarkdown HTML-escapes every segment, so the untrusted
  *  registry content is safe to innerHTML here. Esc / backdrop / esc button closes. */
-function openMarkdownReader(title: string, fetchMd: () => Promise<string>): void {
+function openMarkdownReader(
+  title: string,
+  fetchMd: () => Promise<string>,
+  stats?: string[],
+): void {
   const overlay = document.createElement("div");
   overlay.className = "cdlc-reader";
   overlay.innerHTML = `
     <header class="cdlc-reader-head">
-      <span class="cdlc-reader-title"></span>
+      <div class="cdlc-reader-headings">
+        <span class="cdlc-reader-title"></span>
+        <span class="cdlc-reader-stats"></span>
+      </div>
       <button type="button" class="cdlc-reader-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
     </header>
     <article class="cdlc-reader-body mission-page-preview-body">Loading…</article>`;
   (overlay.querySelector(".cdlc-reader-title") as HTMLElement).textContent = title;
+  const statsEl = overlay.querySelector(".cdlc-reader-stats") as HTMLElement;
+  if (stats && stats.length) statsEl.textContent = stats.join("  ·  ");
+  else statsEl.remove();
   const body = overlay.querySelector(".cdlc-reader-body") as HTMLElement;
 
   const close = (): void => {
@@ -270,6 +280,7 @@ export class CdlcPanel {
           className: "cdlc-skill-row",
           fetchPreview: () => (cwd ? cdlcReadLocal(cwd, i.name) : Promise.resolve("(no project folder)")),
           actions,
+          stats: [`v${i.version}`, i.source],
         }));
       }
     }
@@ -304,6 +315,7 @@ export class CdlcPanel {
               className: "cdlc-search-result",
               fetchPreview: () => cdlcPreview(org, r.name, r.version).then((p) => p.skill_md),
               actions: [inst],
+              stats: [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)],
             }));
           }
         }).catch((e) => { results.replaceChildren(errorLine(String(e))); });
@@ -474,6 +486,7 @@ export class CdlcPanel {
     className: string;
     fetchPreview: () => Promise<string>;
     actions: HTMLButtonElement[];
+    stats?: string[];
   }): HTMLElement {
     const card = document.createElement("div");
     card.className = opts.className;
@@ -512,7 +525,7 @@ export class CdlcPanel {
     const expand = iconButton(
       Icons.maximize({ size: 14 }),
       "Open full screen",
-      () => openMarkdownReader(opts.name, opts.fetchPreview),
+      () => openMarkdownReader(opts.name, opts.fetchPreview, opts.stats),
     );
     head.append(prev, expand, ...opts.actions);
     card.appendChild(head);

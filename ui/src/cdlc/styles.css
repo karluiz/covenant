@@ -442,8 +442,14 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   padding: 16px 24px;
   border-bottom: 1px solid var(--cdlc-line);
 }
-.cdlc-reader-title {
+.cdlc-reader-headings {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cdlc-reader-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -451,6 +457,17 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   font-weight: 600;
   font-size: 14px;
   color: var(--text-primary, #f5f6f7);
+}
+/* "shared by <publisher> · v1.1.0 · N installs · <sha7>" — the provenance
+   of a context published to the team registry. */
+.cdlc-reader-stats {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted, #6c7280);
 }
 /* Bare button; the visible pill is the inner .settings-esc (shared esc affordance). */
 .cdlc-reader-close {
