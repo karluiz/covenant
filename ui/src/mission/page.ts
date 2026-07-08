@@ -1,8 +1,8 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { draftsApi } from "../drafts/api";
 import type { DraftSummary, PublishedSpec } from "../drafts/api";
-import { listSuperpowersMissions, type MissionRef } from "../api";
-import type { SuperpowersMissionEntry } from "../api";
+import { listSuperpowersMissions, specAuthorListDrafts, type MissionRef } from "../api";
+import type { SuperpowersMissionEntry, SpecDraftSummary } from "../api";
 import { Icons } from "../icons";
 import { renderMarkdown } from "./preview";
 
@@ -15,6 +15,8 @@ export interface PageState {
   specs: PublishedSpec[];
   drafts: DraftSummary[];
   superpowers: SuperpowersMissionEntry[];
+  /** Spec Creator's in-progress/ready JSON drafts (~/.covenant/spec-drafts). */
+  inProgress: SpecDraftSummary[];
   selected: SelectedRef;
   inputValue: string;
   query: string;
@@ -27,6 +29,7 @@ export function initialState(currentMissionPath: string | null): PageState {
     specs: [],
     drafts: [],
     superpowers: [],
+    inProgress: [],
     selected: currentMissionPath ? { source: "card", path: currentMissionPath } : null,
     inputValue: "",
     query: "",
@@ -103,6 +106,8 @@ export class MissionPage {
   /// Invalidates async list/preview loads from a previous picker open.
   private openGeneration = 0;
   private state: PageState = initialState(null);
+  /** Section keys the user has folded shut. Persists across innerHTML re-renders. */
+  private collapsed = new Set<string>(["superpowers", "drafts"]);
   private opts: MissionPageOpts | null = null;
   private resolve: ((r: PageResult) => void) | null = null;
   private unlistenSp: UnlistenFn | null = null;
@@ -176,14 +181,23 @@ export class MissionPage {
     if (!this.opts || generation !== this.openGeneration) return;
     const root = this.opts.repoRoot;
     try {
-      const [specs, drafts, superpowers] = await Promise.all([
+      const [specs, drafts, superpowers, inProgress] = await Promise.all([
         draftsApi.listPublishedSpecs(root),
         draftsApi.list(root),
         listSuperpowersMissions(root).catch(() => []),
+        specAuthorListDrafts(root).catch(() => [] as SpecDraftSummary[]),
       ]);
       if (generation !== this.openGeneration || !this.isOpenState) return;
-      this.setState({ specs, drafts, superpowers, loading: false, error: null });
-      const sel = this.state.selected;
+      // Only the drafts still being worked on — Published ones live in `specs`.
+      const active = inProgress.filter((d) => d.status !== "Published");
+      this.setState({ specs, drafts, superpowers, inProgress: active, loading: false, error: null });
+      let sel = this.state.selected;
+      // Nothing anchored yet → preview the top spec so the pane is never an empty void.
+      if (!sel && specs.length > 0) {
+        this.state = selectCard(this.state, specs[0]!.path);
+        sel = this.state.selected;
+        this.render();
+      }
       if (sel?.source === "card") void this.loadPreview(sel.path, generation);
     } catch (err) {
       if (generation !== this.openGeneration || !this.isOpenState) return;
@@ -310,12 +324,53 @@ export class MissionPage {
                autocomplete="off" spellcheck="false" value="${escapeAttr(s.query)}" />
       </div>
       ${this.renderError()}
+      ${this.renderInProgressSection()}
       ${this.renderPublishedSection(visible)}
       ${this.renderSuperpowersSection()}
       ${this.renderDraftsSection()}
       ${this.renderPathRow()}
     `;
     return aside;
+  }
+
+  /** Foldable section wrapper. Open unless the user folded it — or always open
+   *  while searching, so matches buried in a folded group stay visible. */
+  private section(key: string, title: string, count: string, bodyHTML: string, actionHTML = ""): string {
+    const open = this.state.query.trim().length > 0 || !this.collapsed.has(key);
+    return `<details class="mission-page-section" data-section="${key}" ${open ? "open" : ""}>
+      <summary>
+        <span class="mission-page-sec-chevron" aria-hidden="true">${Icons.chevronRight({ size: 12 })}</span>
+        <span class="mission-page-sec-title">${escapeHtml(title)}</span>
+        ${count ? `<span class="mission-page-sec-count">${escapeHtml(count)}</span>` : ""}
+        ${actionHTML ? `<span class="mission-page-sec-action">${actionHTML}</span>` : ""}
+      </summary>
+      <div class="mission-page-list">${bodyHTML}</div>
+    </details>`;
+  }
+
+  private renderInProgressSection(): string {
+    const s = this.state;
+    if (s.loading || s.inProgress.length === 0) return "";
+    const q = s.query.trim().toLowerCase();
+    const filtered = q
+      ? s.inProgress.filter((d) => draftLabel(d).toLowerCase().includes(q))
+      : s.inProgress;
+    if (filtered.length === 0) return "";
+    const items = filtered.map((d) => `
+      <button type="button" class="mission-page-spec mission-page-wip-row" data-draft="${escapeAttr(d.id)}"
+              title="Resume in Spec Creator">
+        <span class="mission-page-id">${d.status === "Ready" ? "RDY" : "WIP"}</span>
+        <span class="mission-page-spec-body">
+          <span class="mission-page-spec-title">${escapeHtml(draftLabel(d))}</span>
+          <span class="mission-page-spec-goal">${escapeHtml(draftMeta(d))}</span>
+        </span>
+        <span class="mission-page-badge mission-page-badge-wip">${escapeHtml(phaseBadge(d.status))}</span>
+      </button>
+    `).join("");
+    const count = q && filtered.length !== s.inProgress.length
+      ? `${filtered.length}/${s.inProgress.length}`
+      : `${s.inProgress.length}`;
+    return this.section("inprogress", "In progress", count, items);
   }
 
   private renderError(): string {
@@ -328,6 +383,7 @@ export class MissionPage {
 
   private renderPublishedSection(visible: PublishedSpec[]): string {
     const s = this.state;
+    const specAction = `<button type="button" class="mission-page-sp-new" data-action="spec-new">✦ Spec Creator</button>`;
     if (s.loading) {
       return `<section class="mission-page-section">
         <h4>Published</h4>
@@ -335,24 +391,17 @@ export class MissionPage {
       </section>`;
     }
     if (s.specs.length === 0) {
-      return `<section class="mission-page-section">
-        <div class="mission-page-section-head">
-          <h4>Published (0)</h4>
-          <button type="button" class="mission-page-sp-new" data-action="spec-new">✦ Spec Creator</button>
-        </div>
-        <div class="mission-page-empty">
+      const body = `<div class="mission-page-empty">
           No published specs yet. Start the
           <button type="button" class="mission-page-link" data-action="spec-new">Spec Creator (⌘N)</button>,
           or write one in
           <button type="button" class="mission-page-link" data-action="open-drafts">Drafts (⌘⇧D)</button>.
-        </div>
-      </section>`;
+        </div>`;
+      return this.section("published", "Published", "0", body, specAction);
     }
     if (visible.length === 0) {
-      return `<section class="mission-page-section">
-        <h4>Published (${s.specs.length})</h4>
-        <div class="mission-page-empty">No matches for "${escapeHtml(s.query)}".</div>
-      </section>`;
+      const body = `<div class="mission-page-empty">No matches for "${escapeHtml(s.query)}".</div>`;
+      return this.section("published", "Published", `0/${s.specs.length}`, body, specAction);
     }
     const cards = visible.map((spec) => {
       const isSelected = s.selected?.source === "card" && s.selected.path === spec.path;
@@ -371,13 +420,8 @@ export class MissionPage {
         </button>
       `;
     }).join("");
-    return `<section class="mission-page-section">
-      <div class="mission-page-section-head">
-        <h4>Published (${visible.length}${visible.length !== s.specs.length ? `/${s.specs.length}` : ""})</h4>
-        <button type="button" class="mission-page-sp-new" data-action="spec-new">✦ Spec Creator</button>
-      </div>
-      <div class="mission-page-list">${cards}</div>
-    </section>`;
+    const count = visible.length !== s.specs.length ? `${visible.length}/${s.specs.length}` : `${visible.length}`;
+    return this.section("published", "Published", count, cards, specAction);
   }
 
   private renderSuperpowersSection(): string {
@@ -397,14 +441,10 @@ export class MissionPage {
     const countLabel = q && filtered.length !== s.superpowers.length
       ? `${filtered.length}/${s.superpowers.length}`
       : `${s.superpowers.length}`;
+    const spAction = `<button type="button" class="mission-page-sp-new" data-action="sp-new">+ New Superpowers mission</button>`;
     if (filtered.length === 0) {
-      return `<section class="mission-page-section">
-        <div class="mission-page-section-head">
-          <h4>Superpowers (${countLabel})</h4>
-          <button type="button" class="mission-page-sp-new" data-action="sp-new">+ New Superpowers mission</button>
-        </div>
-        <div class="mission-page-empty">No matches for "${escapeHtml(s.query)}".</div>
-      </section>`;
+      const body = `<div class="mission-page-empty">No matches for "${escapeHtml(s.query)}".</div>`;
+      return this.section("superpowers", "Superpowers", countLabel, body, spAction);
     }
     const items = filtered.map((e) => {
       const { title, date } = humanizeSpecFilename(e.spec_filename);
@@ -430,13 +470,7 @@ export class MissionPage {
         </button>
       `;
     }).join("");
-    return `<section class="mission-page-section">
-      <div class="mission-page-section-head">
-        <h4>Superpowers (${countLabel})</h4>
-        <button type="button" class="mission-page-sp-new" data-action="sp-new">+ New Superpowers mission</button>
-      </div>
-      <div class="mission-page-list">${items}</div>
-    </section>`;
+    return this.section("superpowers", "Superpowers", countLabel, items, spAction);
   }
 
   private renderDraftsSection(): string {
@@ -448,10 +482,7 @@ export class MissionPage {
         <button type="button" class="mission-page-publish" data-slug="${escapeAttr(d.slug)}">Publish to use</button>
       </div>
     `).join("");
-    return `<details class="mission-page-section mission-page-drafts">
-      <summary>Drafts (${s.drafts.length})</summary>
-      <div class="mission-page-list">${items}</div>
-    </details>`;
+    return this.section("drafts", "Drafts", `${s.drafts.length}`, items);
   }
 
   private renderPathRow(): string {
@@ -476,14 +507,9 @@ export class MissionPage {
     if (!this.previewPath) {
       main.innerHTML = `
         <div class="mission-page-preview-empty mission-page-preview-empty--hero">
-          <span class="mission-page-preview-empty-icon" aria-hidden="true">${Icons.target({ size: 28 })}</span>
+          <span class="mission-page-preview-empty-icon" aria-hidden="true">${Icons.target({ size: 40 })}</span>
           <h3>Select a spec</h3>
           <p>Pick a published spec, a Superpowers spec, or paste a Markdown path to preview it here before setting it on the tab.</p>
-          <div class="mission-page-preview-empty-steps" aria-hidden="true">
-            <span>1. Search</span>
-            <span>2. Preview</span>
-            <span>3. Set spec</span>
-          </div>
         </div>`;
       return main;
     }
@@ -523,7 +549,7 @@ export class MissionPage {
       });
     }
 
-    host.querySelectorAll<HTMLButtonElement>(".mission-page-spec").forEach((btn) => {
+    host.querySelectorAll<HTMLButtonElement>(".mission-page-spec[data-path]").forEach((btn) => {
       const path = btn.dataset.path!;
       btn.addEventListener("click", () => {
         this.state = selectCard(this.state, path);
@@ -533,6 +559,27 @@ export class MissionPage {
       btn.addEventListener("dblclick", () => {
         this.state = selectCard(this.state, path);
         this.submit();
+      });
+    });
+
+    // In-progress Spec Creator drafts → resume the immersive creator on that draft.
+    host.querySelectorAll<HTMLButtonElement>(".mission-page-wip-row").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const draftId = btn.dataset.draft;
+        if (!draftId) return;
+        this.finish(null);
+        window.dispatchEvent(new CustomEvent("spec-chat:open", { detail: { draftId } }));
+      });
+    });
+
+    // Persist fold state across the innerHTML wipe render() does on every keystroke.
+    host.querySelectorAll<HTMLDetailsElement>("details.mission-page-section").forEach((det) => {
+      const key = det.dataset.section;
+      if (!key) return;
+      det.addEventListener("toggle", () => {
+        if (det.open) this.collapsed.delete(key);
+        else this.collapsed.add(key);
       });
     });
 
@@ -681,6 +728,34 @@ function cleanGoalPreview(raw: string): string {
   s = s.replace(/^Date:\s*\d{4}-\d{2}-\d{2}\s*/i, "");
   s = s.replace(/\*\*/g, "");
   return s.trim();
+}
+
+/** Title for a Spec Creator draft: first line of its opening user message. */
+function draftLabel(d: SpecDraftSummary): string {
+  const firstUser = d.messages.find((m) => m.role === "User");
+  const t = (firstUser?.content ?? "").trim().split("\n")[0]?.trim() ?? "";
+  if (!t) return "Untitled draft";
+  return t.length > 56 ? t.slice(0, 56) + "…" : t;
+}
+
+function draftMeta(d: SpecDraftSummary): string {
+  const n = d.messages.length;
+  return `${n} message${n === 1 ? "" : "s"} · ${relTime(d.last_updated)}`;
+}
+
+/** Right-hand badge text: the phase for in-progress drafts, else "ready". */
+function phaseBadge(status: SpecDraftSummary["status"]): string {
+  if (status === "Ready") return "ready";
+  if (typeof status === "object" && "InProgress" in status) return status.InProgress.phase;
+  return "draft";
+}
+
+function relTime(iso: string): string {
+  const dt = Date.now() - new Date(iso).getTime();
+  if (dt < 60_000) return "just now";
+  if (dt < 3_600_000) return `${Math.floor(dt / 60_000)}m ago`;
+  if (dt < 86_400_000) return `${Math.floor(dt / 3_600_000)}h ago`;
+  return `${Math.floor(dt / 86_400_000)}d ago`;
 }
 
 export function humanizeSpecFilename(filename: string): { title: string; date: string } {
