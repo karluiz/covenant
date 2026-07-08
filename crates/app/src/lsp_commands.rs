@@ -66,6 +66,34 @@ pub struct LspServerStatus {
 pub struct LspStartResult {
     pub server_id: u64,
     pub root: String,
+    /// Absolute path to the `.sln` (falling back to the first `.csproj`)
+    /// found directly under `root`, for servers that need the Task-3-verified
+    /// post-initialize `solution/open` handshake (currently csharp/Roslyn
+    /// only — cross-file definitions never resolve without it). `None` for
+    /// every other language.
+    #[serde(default)]
+    pub solution_path: Option<String>,
+}
+
+/// `root`'s `.sln` (else its first `.csproj`), for languages whose server
+/// needs a post-initialize solution handshake. Non-recursive: `root` is
+/// already the outermost ancestor directory `detect_root` found containing
+/// one of these markers (see `root::marker_matches`), so the file is a
+/// direct child, never nested deeper.
+fn find_solution_path(root: &Path, language: &str) -> Option<String> {
+    if language != "csharp" {
+        return None;
+    }
+    let find_ext = |suffix: &str| -> Option<PathBuf> {
+        std::fs::read_dir(root).ok()?.flatten().find_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            name.ends_with(suffix).then(|| root.join(name))
+        })
+    };
+    find_ext(".sln")
+        .or_else(|| find_ext(".csproj"))
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -234,6 +262,7 @@ pub async fn lsp_start(
 
     let root = root::detect_root(Path::new(&file_path), &spec.root_markers);
     let root_str = root.to_string_lossy().to_string();
+    let solution_path = find_solution_path(&root, &language);
     let key = (language.clone(), root_str.clone());
 
     // Step 1: fast path — an already-live server for this key.
@@ -244,6 +273,7 @@ pub async fn lsp_start(
                 return Ok(LspStartResult {
                     server_id: id,
                     root: root_str,
+                    solution_path,
                 });
             }
         }
@@ -356,6 +386,7 @@ pub async fn lsp_start(
             return Ok(LspStartResult {
                 server_id: winner_id,
                 root: root_str,
+                solution_path,
             });
         }
     }
@@ -366,6 +397,7 @@ pub async fn lsp_start(
     Ok(LspStartResult {
         server_id: id,
         root: root_str,
+        solution_path,
     })
 }
 
