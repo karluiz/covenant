@@ -1429,7 +1429,7 @@ export async function somnusHistoryClear(): Promise<void> {
   return invoke<void>("somnus_history_clear", {});
 }
 
-// CDLC — local Covenant Dependency Lifecycle Catalog ------------------
+// Canon — local Covenant Dependency Lifecycle Catalog ------------------
 
 export interface InstalledRef {
   name: string;
@@ -1440,25 +1440,25 @@ export interface InstalledRef {
   installedAt: string;
 }
 
-export interface CdlcStatus {
+export interface CanonStatus {
   installed: InstalledRef[];
   contextFiles: string[];
 }
 
-export async function cdlcLocalStatus(cwd: string): Promise<CdlcStatus> {
-  return invoke<CdlcStatus>("cdlc_local_status", { cwd });
+export async function canonLocalStatus(cwd: string): Promise<CanonStatus> {
+  return invoke<CanonStatus>("canon_local_status", { cwd });
 }
 
-export async function cdlcInstallLocal(
+export async function canonInstallLocal(
   cwd: string,
   source: string,
   group: string | null,
   workspace: string | null,
 ): Promise<InstalledRef> {
-  return invoke<InstalledRef>("cdlc_install_local", { cwd, source, group, workspace });
+  return invoke<InstalledRef>("canon_install_local", { cwd, source, group, workspace });
 }
 
-// CDLC — registry (Phase 2) -------------------------------------------
+// Canon — registry (Phase 2) -------------------------------------------
 
 export interface Org {
   id: number;
@@ -1475,24 +1475,24 @@ export interface PkgMeta {
   installs: number;
   sha: string;
 }
-export async function cdlcMyOrgs(): Promise<Org[]> {
-  return invoke<Org[]>("cdlc_my_orgs");
+export async function canonMyOrgs(): Promise<Org[]> {
+  return invoke<Org[]>("canon_my_orgs");
 }
-export async function cdlcSearch(org: string, query: string | null): Promise<PkgMeta[]> {
-  return invoke<PkgMeta[]>("cdlc_search", { org, query });
+export async function canonSearch(org: string, query: string | null): Promise<PkgMeta[]> {
+  return invoke<PkgMeta[]>("canon_search", { org, query });
 }
-export interface CdlcPreview {
+export interface CanonPreview {
   description: string;
   skill_md: string;
 }
-export async function cdlcPreview(org: string, name: string, version: string): Promise<CdlcPreview> {
-  return invoke<CdlcPreview>("cdlc_preview", { org, name, version });
+export async function canonPreview(org: string, name: string, version: string): Promise<CanonPreview> {
+  return invoke<CanonPreview>("canon_preview", { org, name, version });
 }
-export async function cdlcReadLocal(cwd: string, name: string): Promise<string> {
-  return invoke<string>("cdlc_read_local", { cwd, name });
+export async function canonReadLocal(cwd: string, name: string): Promise<string> {
+  return invoke<string>("canon_read_local", { cwd, name });
 }
-export async function cdlcExport(cwd: string): Promise<void> {
-  return invoke<void>("cdlc_export", { cwd });
+export async function canonExport(cwd: string): Promise<void> {
+  return invoke<void>("canon_export", { cwd });
 }
 
 export type ProjState = "synced" | "stale" | "not_projected";
@@ -1504,8 +1504,8 @@ export interface ProjectionStatus {
   executors: ExecutorStatus[];
   source_edited_unix: number | null;
 }
-export async function cdlcProjectionStatus(cwd: string): Promise<ProjectionStatus> {
-  return invoke<ProjectionStatus>("cdlc_projection_status", { cwd });
+export async function canonProjectionStatus(cwd: string): Promise<ProjectionStatus> {
+  return invoke<ProjectionStatus>("canon_projection_status", { cwd });
 }
 
 export interface ScoreSummary {
@@ -1514,15 +1514,15 @@ export interface ScoreSummary {
   total_tokens: number;
   total_specs: number;
 }
-/** Per-group score aggregate (prompts/commits/specs/tokens) for the CDLC Loop. */
+/** Per-group score aggregate (prompts/commits/specs/tokens) for the Canon Loop. */
 export async function scoreSummaryFiltered(groupName: string | null): Promise<ScoreSummary> {
   const filter = { repo: null, branch: null, group_name: groupName, day: null, agent: null };
   return invoke<ScoreSummary>("score_summary_filtered", { filter });
 }
-export async function cdlcPublish(cwd: string, org: string, name: string): Promise<unknown> {
-  return invoke<unknown>("cdlc_publish", { cwd, org, name });
+export async function canonPublish(cwd: string, org: string, name: string): Promise<unknown> {
+  return invoke<unknown>("canon_publish", { cwd, org, name });
 }
-export async function cdlcInstallRegistry(
+export async function canonInstallRegistry(
   cwd: string,
   org: string,
   name: string,
@@ -1530,10 +1530,10 @@ export async function cdlcInstallRegistry(
   group: string | null,
   workspace: string | null,
 ): Promise<InstalledRef> {
-  return invoke<InstalledRef>("cdlc_install_registry", { cwd, org, name, version, group, workspace });
+  return invoke<InstalledRef>("canon_install_registry", { cwd, org, name, version, group, workspace });
 }
 
-// CDLC — eval runner (Task 4) -----------------------------------------
+// Canon — eval runner (Task 4) -----------------------------------------
 
 export interface EvalSkillSummary {
   skill: string;
@@ -1541,25 +1541,25 @@ export interface EvalSkillSummary {
   total: number;
 }
 
-export interface CdlcEvalProgress {
+export interface CanonEvalProgress {
   skill: string;
   eval_id: string;
   status: "running" | "pass" | "fail" | "skipped" | "error" | "done";
   reason: string;
 }
 
-export async function cdlcRunEvals(cwd: string, skill: string): Promise<void> {
-  return invoke<void>("cdlc_run_evals", { cwd, skill });
+export async function canonRunEvals(cwd: string, skill: string): Promise<void> {
+  return invoke<void>("canon_run_evals", { cwd, skill });
 }
 
-export async function cdlcEvalSummary(cwd: string): Promise<EvalSkillSummary[]> {
-  return invoke<EvalSkillSummary[]>("cdlc_eval_summary", { cwd });
+export async function canonEvalSummary(cwd: string): Promise<EvalSkillSummary[]> {
+  return invoke<EvalSkillSummary[]>("canon_eval_summary", { cwd });
 }
 
-export async function onCdlcEvalProgress(
-  handler: (e: CdlcEvalProgress) => void,
+export async function onCanonEvalProgress(
+  handler: (e: CanonEvalProgress) => void,
 ): Promise<UnlistenFn> {
-  return listen<CdlcEvalProgress>("cdlc-eval-progress", (e) => handler(e.payload));
+  return listen<CanonEvalProgress>("canon-eval-progress", (e) => handler(e.payload));
 }
 
 export async function gitFileDiff(cwd: string, path: string, staged: boolean): Promise<FileDiff> {
@@ -2781,7 +2781,7 @@ export async function subscribeAcpEvents(
   return unlisten;
 }
 
-// ── CDLC Context Miner ───────────────────────────────────────────────
+// ── Canon Context Miner ───────────────────────────────────────────────
 
 export interface MinerFinding {
   category: string;
@@ -2798,17 +2798,17 @@ export type MinerEvent =
   | { kind: "run_done"; findingsTotal: number; stopped: boolean }
   | { kind: "error"; message: string };
 
-export async function cdlcMineStart(repoRoot: string, skillName: string, focus: string, thorough: boolean): Promise<string> {
-  return invoke<string>("cdlc_mine_start", { repoRoot, skillName, focus, thorough });
+export async function canonMineStart(repoRoot: string, skillName: string, focus: string, thorough: boolean): Promise<string> {
+  return invoke<string>("canon_mine_start", { repoRoot, skillName, focus, thorough });
 }
-export async function cdlcMineStop(runId: string): Promise<void> {
-  return invoke<void>("cdlc_mine_stop", { runId });
+export async function canonMineStop(runId: string): Promise<void> {
+  return invoke<void>("canon_mine_stop", { runId });
 }
-export async function cdlcCompileSkill(repoRoot: string, skillName: string, findings: MinerFinding[], overwrite: boolean): Promise<string> {
-  return invoke<string>("cdlc_compile_skill", { repoRoot, skillName, findings, overwrite });
+export async function canonCompileSkill(repoRoot: string, skillName: string, findings: MinerFinding[], overwrite: boolean): Promise<string> {
+  return invoke<string>("canon_compile_skill", { repoRoot, skillName, findings, overwrite });
 }
 export async function subscribeMinerEvents(runId: string, cb: (ev: MinerEvent) => void): Promise<UnlistenFn> {
-  return listen<MinerEvent>(`cdlc://miner/${runId}`, (e) => cb(e.payload));
+  return listen<MinerEvent>(`canon://miner/${runId}`, (e) => cb(e.payload));
 }
 
 export interface VitalsInFlight {

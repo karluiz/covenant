@@ -31,8 +31,8 @@ export const draftsApi = {
     invoke<DraftDocument>("save_draft", { repoRoot, slug, title, body }),
   delete: (repoRoot: string, slug: string) =>
     invoke<void>("delete_draft", { repoRoot, slug }),
-  publish: (repoRoot: string, slug: string, id: string, finalSlug: string, cdlcContext?: boolean) =>
-    invoke<string>("publish_draft", { repoRoot, slug, id, finalSlug, cdlcContext: cdlcContext ?? null }),
+  publish: (repoRoot: string, slug: string, id: string, finalSlug: string, canonContext?: boolean) =>
+    invoke<string>("publish_draft", { repoRoot, slug, id, finalSlug, canonContext: canonContext ?? null }),
   nextId: (repoRoot: string) =>
     invoke<string>("next_draft_id", { repoRoot }),
   suggest: (repoRoot: string, slug: string, section: SuggestSection) =>

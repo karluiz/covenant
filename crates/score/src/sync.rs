@@ -70,7 +70,7 @@ pub async fn push_once(store: &ScoreStore) -> std::result::Result<u64, SyncError
                 kind: match kind {
                     EventKind::Prompt => "prompt",
                     EventKind::Commit => "commit",
-                    EventKind::CdlcInstall => "cdlc_install",
+                    EventKind::CanonInstall => "canon_install",
                 },
                 executor: exec.as_str(),
                 day,

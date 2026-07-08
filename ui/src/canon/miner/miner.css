@@ -1,10 +1,10 @@
-/* CDLC Context Miner — immersive full-screen overlay for mining a repo
+/* Canon Context Miner — immersive full-screen overlay for mining a repo
    into a compiled skill package. Opaque by design: #layout hosts a
    translucent NSVisualEffectView and anything fixed above it bleeds the
    desktop wallpaper through unless it paints a solid background
    (see reference_vibrancy_bleed_layout_panels). */
 
-.cdlc-miner {
+.canon-miner {
   position: fixed;
   inset: 0;
   z-index: 9500;
@@ -18,7 +18,7 @@
 
 /* ── Header ─────────────────────────────────────────────────────────── */
 
-.cdlc-miner-head {
+.canon-miner-head {
   flex: none;
   display: flex;
   align-items: center;
@@ -28,7 +28,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-.cdlc-miner-brand {
+.canon-miner-brand {
   font-size: var(--fs-title, 11.5px);
   font-weight: 600;
   letter-spacing: var(--ls-title, 0.09em);
@@ -37,7 +37,7 @@
   flex: none;
 }
 
-.cdlc-miner-name {
+.canon-miner-name {
   font-size: var(--fs-body, 12px);
   font-weight: 600;
   color: var(--text-primary);
@@ -46,25 +46,25 @@
   text-overflow: ellipsis;
 }
 
-.cdlc-miner-dot {
+.canon-miner-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   flex: none;
   background: var(--running);
-  animation: cdlc-miner-pulse 1.4s ease-in-out infinite;
+  animation: canon-miner-pulse 1.4s ease-in-out infinite;
 }
-.cdlc-miner-dot.is-done { background: var(--ok); animation: none; }
-.cdlc-miner-dot.is-stopped { background: var(--fg-dim); animation: none; }
+.canon-miner-dot.is-done { background: var(--ok); animation: none; }
+.canon-miner-dot.is-stopped { background: var(--fg-dim); animation: none; }
 
-@keyframes cdlc-miner-pulse {
+@keyframes canon-miner-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
 
-.cdlc-miner-spacer { flex: 1; }
+.canon-miner-spacer { flex: 1; }
 
-.cdlc-miner-btn {
+.canon-miner-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -78,23 +78,23 @@
   font-family: inherit;
   cursor: pointer;
 }
-.cdlc-miner-btn:hover { background: rgba(var(--ink-rgb), 0.08); }
-.cdlc-miner-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.cdlc-miner-btn svg { width: 13px; height: 13px; }
+.canon-miner-btn:hover { background: rgba(var(--ink-rgb), 0.08); }
+.canon-miner-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.canon-miner-btn svg { width: 13px; height: 13px; }
 
-.cdlc-miner-btn.is-primary {
+.canon-miner-btn.is-primary {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   color: var(--fg);
 }
-.cdlc-miner-btn.is-primary:hover { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+.canon-miner-btn.is-primary:hover { background: color-mix(in srgb, var(--accent) 32%, transparent); }
 
-.cdlc-miner-btn.is-danger:hover {
+.canon-miner-btn.is-danger:hover {
   border-color: color-mix(in srgb, var(--danger) 50%, transparent);
   color: var(--danger);
 }
 
-.cdlc-miner-close {
+.canon-miner-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -106,10 +106,10 @@
   color: var(--fg-dim);
   cursor: pointer;
 }
-.cdlc-miner-close:hover { color: var(--fg); background: rgba(var(--ink-rgb), 0.06); }
-.cdlc-miner-close svg { width: 15px; height: 15px; }
+.canon-miner-close:hover { color: var(--fg); background: rgba(var(--ink-rgb), 0.06); }
+.canon-miner-close svg { width: 15px; height: 15px; }
 
-.cdlc-miner-body {
+.canon-miner-body {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -118,14 +118,14 @@
 
 /* ── Setup bar ──────────────────────────────────────────────────────── */
 
-.cdlc-miner-setup {
+.canon-miner-setup {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.cdlc-miner-setup-card {
+.canon-miner-setup-card {
   width: min(560px, calc(100vw - 64px));
   display: flex;
   flex-direction: column;
@@ -136,26 +136,26 @@
   background: var(--bg-elevated);
 }
 
-.cdlc-miner-setup-title {
+.canon-miner-setup-title {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.cdlc-miner-setup-sub {
+.canon-miner-setup-sub {
   font-size: var(--fs-body, 12px);
   color: var(--fg-dim);
   margin-top: -8px;
 }
 
-.cdlc-miner-field { display: flex; flex-direction: column; gap: 5px; }
-.cdlc-miner-field label {
+.canon-miner-field { display: flex; flex-direction: column; gap: 5px; }
+.canon-miner-field label {
   font-size: var(--fs-meta, 11px);
   color: var(--fg-dim);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.cdlc-miner-field input[type="text"] {
+.canon-miner-field input[type="text"] {
   height: 32px;
   padding: 0 10px;
   border-radius: var(--rail-radius, 6px);
@@ -165,13 +165,13 @@
   font-size: var(--fs-body, 12px);
   font-family: inherit;
 }
-.cdlc-miner-field input[type="text"]:focus {
+.canon-miner-field input[type="text"]:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
 }
-.cdlc-miner-field input::placeholder { color: var(--fg-dim); }
+.canon-miner-field input::placeholder { color: var(--fg-dim); }
 
-.cdlc-miner-thorough {
+.canon-miner-thorough {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -180,41 +180,41 @@
   cursor: pointer;
 }
 
-.cdlc-miner-setup-error {
+.canon-miner-setup-error {
   font-size: var(--fs-meta, 11px);
   color: var(--danger);
 }
 
-.cdlc-miner-start-btn {
+.canon-miner-start-btn {
   align-self: flex-end;
   margin-top: 4px;
 }
 
 /* ── 3-zone grid ────────────────────────────────────────────────────── */
 
-.cdlc-miner-grid {
+.canon-miner-grid {
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: 280px 1fr 380px;
 }
 
-.cdlc-miner-activity,
-.cdlc-miner-preview {
+.canon-miner-activity,
+.canon-miner-preview {
   min-height: 0;
   overflow-y: auto;
   padding: 10px;
 }
-.cdlc-miner-activity { border-right: 1px solid var(--border); }
-.cdlc-miner-preview { border-left: 1px solid var(--border); }
+.canon-miner-activity { border-right: 1px solid var(--border); }
+.canon-miner-preview { border-left: 1px solid var(--border); }
 
-.cdlc-miner-cards {
+.canon-miner-cards {
   min-height: 0;
   overflow-y: auto;
   padding: 14px 16px;
 }
 
-.cdlc-miner-zone-title {
+.canon-miner-zone-title {
   font-size: var(--fs-meta, 11px);
   font-weight: 600;
   text-transform: uppercase;
@@ -224,7 +224,7 @@
 }
 
 /* Activity rows */
-.cdlc-miner-activity-row {
+.canon-miner-activity-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -232,36 +232,36 @@
   border-bottom: 1px solid rgba(var(--ink-rgb), 0.04);
   font-size: var(--fs-meta, 11px);
 }
-.cdlc-miner-activity-line {
+.canon-miner-activity-line {
   display: flex;
   gap: 6px;
   align-items: baseline;
   min-width: 0;
 }
-.cdlc-miner-activity-tool {
+.canon-miner-activity-tool {
   font-family: var(--font-mono, ui-monospace, monospace);
   color: var(--accent);
   flex: none;
 }
-.cdlc-miner-activity-arg {
+.canon-miner-activity-arg {
   color: var(--fg-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
 }
-.cdlc-miner-activity-summary {
+.canon-miner-activity-summary {
   color: var(--fg-dim);
   font-size: var(--fs-micro, 10px);
   padding-left: 4px;
 }
-.cdlc-miner-activity-row.is-fail .cdlc-miner-activity-summary { color: var(--fail); }
+.canon-miner-activity-row.is-fail .canon-miner-activity-summary { color: var(--fail); }
 
 /* Category groups + cards */
-.cdlc-miner-category {
+.canon-miner-category {
   margin-bottom: 18px;
 }
-.cdlc-miner-category-head {
+.canon-miner-category-head {
   font-size: var(--fs-meta, 11px);
   font-weight: 600;
   text-transform: uppercase;
@@ -270,7 +270,7 @@
   margin: 0 0 8px 2px;
 }
 
-.cdlc-miner-card {
+.canon-miner-card {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -281,24 +281,24 @@
   border: 1px solid var(--border);
   background: var(--bg-elevated);
 }
-.cdlc-miner-card.is-accepted {
+.canon-miner-card.is-accepted {
   border-left: 3px solid var(--ok);
   padding-left: 12px;
 }
 
-.cdlc-miner-card-top {
+.canon-miner-card-top {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.cdlc-miner-card-title {
+.canon-miner-card-title {
   font-size: var(--fs-body, 12px);
   font-weight: 600;
   color: var(--text-primary);
   flex: 1;
   min-width: 0;
 }
-.cdlc-miner-badge {
+.canon-miner-badge {
   font-size: var(--fs-micro, 10px);
   padding: 2px 6px;
   border-radius: 4px;
@@ -308,11 +308,11 @@
   color: var(--fg-dim);
   flex: none;
 }
-.cdlc-miner-badge.is-high { color: var(--ok); }
-.cdlc-miner-badge.is-medium { color: var(--running); }
-.cdlc-miner-badge.is-low { color: var(--fail); }
+.canon-miner-badge.is-high { color: var(--ok); }
+.canon-miner-badge.is-medium { color: var(--running); }
+.canon-miner-badge.is-low { color: var(--fail); }
 
-.cdlc-miner-card-body {
+.canon-miner-card-body {
   font-size: var(--fs-body, 12px);
   line-height: 1.5;
   color: var(--fg);
@@ -322,19 +322,19 @@
   margin: -2px -4px;
   cursor: text;
 }
-.cdlc-miner-card-body:hover { background: rgba(var(--ink-rgb), 0.03); }
-.cdlc-miner-card-body[contenteditable="true"] {
+.canon-miner-card-body:hover { background: rgba(var(--ink-rgb), 0.03); }
+.canon-miner-card-body[contenteditable="true"] {
   outline: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   background: rgba(var(--ink-rgb), 0.03);
   cursor: text;
 }
 
-.cdlc-miner-evidence {
+.canon-miner-evidence {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
 }
-.cdlc-miner-chip {
+.canon-miner-chip {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--fs-micro, 10px);
   color: var(--fg-dim);
@@ -343,13 +343,13 @@
   padding: 2px 6px;
 }
 
-.cdlc-miner-card-actions {
+.canon-miner-card-actions {
   display: flex;
   gap: 6px;
   justify-content: flex-end;
 }
 
-.cdlc-miner-discarded {
+.canon-miner-discarded {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -361,16 +361,16 @@
   cursor: pointer;
   border-radius: 6px;
 }
-.cdlc-miner-discarded:hover { background: rgba(var(--ink-rgb), 0.04); }
+.canon-miner-discarded:hover { background: rgba(var(--ink-rgb), 0.04); }
 
-.cdlc-miner-cards-empty {
+.canon-miner-cards-empty {
   color: var(--fg-dim);
   font-size: var(--fs-body, 12px);
   padding: 20px 4px;
 }
 
 /* Preview */
-.cdlc-miner-preview pre {
+.canon-miner-preview pre {
   margin: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--fs-meta, 11px);
@@ -382,7 +382,7 @@
 
 /* ── Footer ─────────────────────────────────────────────────────────── */
 
-.cdlc-miner-footer {
+.canon-miner-footer {
   flex: none;
   display: flex;
   align-items: center;
@@ -393,11 +393,11 @@
   font-size: var(--fs-meta, 11px);
   color: var(--fg-dim);
 }
-.cdlc-miner-footer-spacer { flex: 1; }
+.canon-miner-footer-spacer { flex: 1; }
 
 /* ── Empty-done state ───────────────────────────────────────────────── */
 
-.cdlc-miner-empty-state {
+.canon-miner-empty-state {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -410,7 +410,7 @@
 
 /* ── Inline confirm (overwrite-on-collision) ───────────────────────── */
 
-.cdlc-miner-confirm {
+.canon-miner-confirm {
   display: flex;
   align-items: center;
   gap: 8px;

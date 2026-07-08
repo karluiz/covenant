@@ -86,9 +86,9 @@ import { OperatorPicker } from "./operator/picker";
 import { mountSpecChat } from "./spec-chat/index";
 import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel } from "./project-notes/panel";
-import { CdlcPanel } from "./cdlc/panel";
-import "./cdlc/miner/miner.css";
-import { ContextMinerView } from "./cdlc/miner/view";
+import { CanonPanel } from "./canon/panel";
+import "./canon/miner/miner.css";
+import { ContextMinerView } from "./canon/miner/view";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor } from "./spawns/shortcuts";
@@ -567,7 +567,7 @@ async function boot(): Promise<void> {
   const resourcesBtn = document.getElementById("titlebar-resources");
   const beaconBtn = document.getElementById("titlebar-beacon");
   const somnusBtn = document.getElementById("titlebar-somnus");
-  const cdlcBtn = document.getElementById("titlebar-cdlc");
+  const canonBtn = document.getElementById("titlebar-canon");
   type SidebarTitlebarView = "blocks" | "structure" | "activity" | "recall";
   const ACTIVITY_KEY = "covenant.sidebar-view-activity";
   const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
@@ -581,7 +581,7 @@ async function boot(): Promise<void> {
     activity: viewActivityBtn,
     recall: viewRecallBtn,
     notes: projectNotesBtn,
-    cdlc: cdlcBtn,
+    canon: canonBtn,
     teammate: teammateBtn,
     tasker: taskerBtn,
     resources: resourcesBtn,
@@ -612,8 +612,8 @@ async function boot(): Promise<void> {
       case "notes":
         mountProjectNotes();
         break;
-      case "cdlc":
-        mountCdlc();
+      case "canon":
+        mountCanon();
         break;
       case "teammate":
         void openTeammatePanel();
@@ -638,8 +638,8 @@ async function boot(): Promise<void> {
       case "notes":
         activeProjectNotesPanel?.close();
         break;
-      case "cdlc":
-        activeCdlcPanel?.close();
+      case "canon":
+        activeCanonPanel?.close();
         break;
       case "teammate":
         closeTeammatePanel();
@@ -975,10 +975,10 @@ async function boot(): Promise<void> {
     resourcesBtn.addEventListener("click", () => rail.toggle("resources"));
   }
 
-  if (cdlcBtn) {
-    cdlcBtn.innerHTML = Icons.packageBox({ size: 14 });
-    attachTooltip(cdlcBtn, "CDLC (⌘⇧L)");
-    cdlcBtn.addEventListener("click", () => rail.toggle("cdlc"));
+  if (canonBtn) {
+    canonBtn.innerHTML = Icons.packageBox({ size: 14 });
+    attachTooltip(canonBtn, "Canon (⌘⇧L)");
+    canonBtn.addEventListener("click", () => rail.toggle("canon"));
   }
 
   // Internal-browser globe launcher — gated by `experimental.internal_browser`.
@@ -1466,37 +1466,37 @@ async function boot(): Promise<void> {
     onOpenProjectNotes: requestProjectNotes,
   });
 
-  // CDLC panel — per-group sidebar, same lifecycle pattern as Project Notes.
-  let activeCdlcPanel: CdlcPanel | null = null;
-  let pendingCdlcArgs: { groupId: string; groupLabel: string; groupColor: string | null } | null = null;
+  // Canon panel — per-group sidebar, same lifecycle pattern as Project Notes.
+  let activeCanonPanel: CanonPanel | null = null;
+  let pendingCanonArgs: { groupId: string; groupLabel: string; groupColor: string | null } | null = null;
 
-  function requestCdlc(groupId: string, groupLabel: string, groupColor: string | null): void {
-    pendingCdlcArgs = { groupId, groupLabel, groupColor };
-    rail.open("cdlc");
+  function requestCanon(groupId: string, groupLabel: string, groupColor: string | null): void {
+    pendingCanonArgs = { groupId, groupLabel, groupColor };
+    rail.open("canon");
   }
 
-  function mountCdlc(): void {
-    let args = pendingCdlcArgs;
-    pendingCdlcArgs = null;
+  function mountCanon(): void {
+    let args = pendingCanonArgs;
+    pendingCanonArgs = null;
     if (!args) {
       const g = manager.activeGroup();
       if (!g) return;
       args = { groupId: g.id, groupLabel: g.name, groupColor: g.color ?? null };
     }
-    if (activeCdlcPanel) activeCdlcPanel.close();
+    if (activeCanonPanel) activeCanonPanel.close();
     // Reflow the terminal to the panel's left edge (don't overlay it) —
-    // CDLC is position:fixed like Project Notes, so it needs the same
-    // body-class reflow. See body.cdlc-open rules in cdlc/styles.css.
-    document.body.classList.add("cdlc-open");
-    activeCdlcPanel = new CdlcPanel({
+    // Canon is position:fixed like Project Notes, so it needs the same
+    // body-class reflow. See body.canon-open rules in canon/styles.css.
+    document.body.classList.add("canon-open");
+    activeCanonPanel = new CanonPanel({
       groupId: args.groupId,
       groupLabel: args.groupLabel,
       groupColor: args.groupColor,
       groupRootDir: manager.groupRootDirFor(args.groupId),
       onClose: () => {
-        activeCdlcPanel = null;
-        document.body.classList.remove("cdlc-open");
-        rail.handleExternalClose("cdlc");
+        activeCanonPanel = null;
+        document.body.classList.remove("canon-open");
+        rail.handleExternalClose("canon");
       },
       onNewContext: () => {
         const root = manager.groupRootDirFor(args.groupId);
@@ -1511,8 +1511,8 @@ async function boot(): Promise<void> {
         void manager.pickGroupRootDir(a.groupId).then((picked) => {
           if (!picked) return;
           // Remount so the head picks up the Project button too.
-          pendingCdlcArgs = a;
-          mountCdlc();
+          pendingCanonArgs = a;
+          mountCanon();
         });
       },
     }).mount(document.body);
@@ -1548,13 +1548,13 @@ async function boot(): Promise<void> {
         requestProjectNotes(g.id, g.name, g.color ?? null);
       }
     }
-    // ⌘⇧L — open CDLC panel for the active group.
+    // ⌘⇧L — open Canon panel for the active group.
     // (⌘⇧K is taken by the Shortcuts modal.)
     if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "l" || e.key === "L")) {
       const g = manager.activeGroup();
       if (g) {
         e.preventDefault();
-        requestCdlc(g.id, g.name, g.color ?? null);
+        requestCanon(g.id, g.name, g.color ?? null);
       }
     }
   });
@@ -1909,13 +1909,13 @@ async function boot(): Promise<void> {
     if (missionPanel.isOpen()) missionPanel.close();
     if (operator.isOpen()) operator.close();
     if (specChat.isOpen()) specChat.close();
-    // The CDLC panel is per-group — follow the active group so install/export
+    // The Canon panel is per-group — follow the active group so install/export
     // target the repo you're actually standing in, not the one it opened on.
-    if (activeCdlcPanel) {
+    if (activeCanonPanel) {
       const g = manager.activeGroup();
-      if (g && g.id !== activeCdlcPanel.groupId) {
-        pendingCdlcArgs = { groupId: g.id, groupLabel: g.name, groupColor: g.color ?? null };
-        mountCdlc();
+      if (g && g.id !== activeCanonPanel.groupId) {
+        pendingCanonArgs = { groupId: g.id, groupLabel: g.name, groupColor: g.color ?? null };
+        mountCanon();
       }
     }
   };
@@ -1923,7 +1923,7 @@ async function boot(): Promise<void> {
   const specChatPage = requireEl<HTMLElement>("spec-chat-page");
   const specChat = mountSpecChat(specChatPage, {
     openWizardWithBody: (body, opts) => {
-      draftsPanel.open({ slug: null, initialBody: body, cdlcContext: opts?.cdlcContext });
+      draftsPanel.open({ slug: null, initialBody: body, canonContext: opts?.canonContext });
     },
     openBlankWizard: () => {
       draftsPanel.open({ slug: null });
@@ -1945,8 +1945,8 @@ async function boot(): Promise<void> {
   };
 
   window.addEventListener("spec-chat:open", (e: Event) => {
-    const detail = (e as CustomEvent<{ draftId?: string; cdlcContext?: boolean }>).detail;
-    specChat.open(detail?.draftId, { cdlcContext: detail?.cdlcContext });
+    const detail = (e as CustomEvent<{ draftId?: string; canonContext?: boolean }>).detail;
+    specChat.open(detail?.draftId, { canonContext: detail?.canonContext });
   });
 
   // Open the spec-author wizard for a given repoRoot (no slug → fresh draft).

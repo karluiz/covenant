@@ -39,11 +39,11 @@ That exists natively only for **Claude** (`.claude/agents`) and **opencode**
 - **² Pi** has no subagent concept; it materializes agents as **skills**
   (`~/.pi/skills`).
 
-## Why CDLC projection exists
+## Why Canon projection exists
 
 Because the same concept maps onto a different native shape per tool, you author
-**once** in `.covenant/cdlc/` and **project** to every executor. The projection
-map is the ground truth in `crates/cdlc/src/project.rs`:
+**once** in `.covenant/canon/` and **project** to every executor. The projection
+map is the ground truth in `crates/canon/src/project.rs`:
 
 ```rust
 const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent"];
@@ -57,9 +57,9 @@ So one authored agent becomes: a file in `.claude/agents` and `.opencode/agent`,
 a managed block in `AGENTS.md` for codex/copilot, and a skill in `~/.pi/skills`.
 
 The Covenant tool in the Capabilities page exposes this via **Project to
-executors**, which runs the same `cdlc_export` engine.
+executors**, which runs the same `canon_export` engine.
 
-See [`cdlc-multi-export.md`](./cdlc-multi-export.md) for the full export rules
+See [`canon-multi-export.md`](./canon-multi-export.md) for the full export rules
 (covenant-block stripping, managed blocks, idempotency).
 
 ## Adding an executor or a capability

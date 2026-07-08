@@ -710,7 +710,7 @@ pub async fn capabilities_detect() -> Result<DetectResult, String> {
         pi: pi::detect(&h_clone),
         shared: shared::detect(&h_clone),
         // Covenant is a project-scoped concept; always available — the list is
-        // simply empty until a project root with `.covenant/cdlc` is selected.
+        // simply empty until a project root with `.covenant/canon` is selected.
         covenant: true,
     })
     .await

@@ -14,9 +14,9 @@ mod aom;
 mod archetypes;
 mod browser;
 mod capabilities_commands;
-mod cdlc_eval;
-mod cdlc_miner;
-mod cdlc_registry;
+mod canon_eval;
+mod canon_miner;
+mod canon_registry;
 pub mod cloud_sync;
 mod connectivity;
 mod context;
@@ -2341,112 +2341,112 @@ async fn beacon_cancel_workflow(cwd: String, run_id: u64) -> Result<(), String> 
 }
 
 #[tauri::command]
-async fn cdlc_local_status(cwd: String) -> Result<karl_cdlc::CdlcStatus, String> {
+async fn canon_local_status(cwd: String) -> Result<karl_canon::CanonStatus, String> {
     let repo = std::path::PathBuf::from(cwd);
-    tokio::task::spawn_blocking(move || karl_cdlc::status(&repo))
+    tokio::task::spawn_blocking(move || karl_canon::status(&repo))
         .await
-        .map_err(|e| format!("cdlc_local_status join: {e}"))?
+        .map_err(|e| format!("canon_local_status join: {e}"))?
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn cdlc_install_local(
+async fn canon_install_local(
     cwd: String,
     source: String,
     group: Option<String>,
     workspace: Option<String>,
-) -> Result<karl_cdlc::InstalledRef, String> {
+) -> Result<karl_canon::InstalledRef, String> {
     let repo = std::path::PathBuf::from(cwd);
     let src = std::path::PathBuf::from(source);
-    let r = tokio::task::spawn_blocking(move || karl_cdlc::install_local(&repo, &src))
+    let r = tokio::task::spawn_blocking(move || karl_canon::install_local(&repo, &src))
         .await
-        .map_err(|e| format!("cdlc_install_local join: {e}"))?
+        .map_err(|e| format!("canon_install_local join: {e}"))?
         .map_err(|e| e.to_string())?;
-    karl_score::record_cdlc_install(&r.name, group, workspace);
+    karl_score::record_canon_install(&r.name, group, workspace);
     Ok(r)
 }
 
 #[tauri::command]
-async fn cdlc_my_orgs() -> Result<Vec<cdlc_registry::Org>, String> {
-    cdlc_registry::list_orgs().await
+async fn canon_my_orgs() -> Result<Vec<canon_registry::Org>, String> {
+    canon_registry::list_orgs().await
 }
 
 #[tauri::command]
-async fn cdlc_search(
+async fn canon_search(
     org: String,
     query: Option<String>,
-) -> Result<Vec<cdlc_registry::PkgMeta>, String> {
-    cdlc_registry::search(&org, query.as_deref()).await
+) -> Result<Vec<canon_registry::PkgMeta>, String> {
+    canon_registry::search(&org, query.as_deref()).await
 }
 
 /// Resolve a registry package's full payload (description + SKILL.md) WITHOUT
 /// installing it — powers the pre-install preview.
 #[tauri::command]
-async fn cdlc_preview(
+async fn canon_preview(
     org: String,
     name: String,
     version: String,
 ) -> Result<serde_json::Value, String> {
-    let full = cdlc_registry::resolve(&org, &name, &version).await?;
+    let full = canon_registry::resolve(&org, &name, &version).await?;
     Ok(serde_json::json!({ "description": full.description, "skill_md": full.skill_md }))
 }
 
 /// Read an installed skill's SKILL.md from disk (preview of what's already in the repo).
 #[tauri::command]
-async fn cdlc_read_local(cwd: String, name: String) -> Result<String, String> {
+async fn canon_read_local(cwd: String, name: String) -> Result<String, String> {
     let repo = std::path::PathBuf::from(cwd);
     let (_toml, md, _sm) =
-        tokio::task::spawn_blocking(move || karl_cdlc::read_skill_package(&repo, &name))
+        tokio::task::spawn_blocking(move || karl_canon::read_skill_package(&repo, &name))
             .await
-            .map_err(|e| format!("cdlc_read_local join: {e}"))?
+            .map_err(|e| format!("canon_read_local join: {e}"))?
             .map_err(|e| e.to_string())?;
     Ok(md)
 }
 
-/// Re-run the multi-export: write every CDLC source (agents, skills, context)
+/// Re-run the multi-export: write every Canon source (agents, skills, context)
 /// into each executor's native files (.claude/*, AGENTS.md, copilot-instructions).
-/// Idempotent — safe to run any time after editing `.covenant/cdlc/`.
+/// Idempotent — safe to run any time after editing `.covenant/canon/`.
 #[tauri::command]
-async fn cdlc_export(cwd: String) -> Result<(), String> {
+async fn canon_export(cwd: String) -> Result<(), String> {
     let repo = std::path::PathBuf::from(cwd);
-    tokio::task::spawn_blocking(move || karl_cdlc::project_with_active(&repo, None))
+    tokio::task::spawn_blocking(move || karl_canon::project_with_active(&repo, None))
         .await
-        .map_err(|e| format!("cdlc_export join: {e}"))?
+        .map_err(|e| format!("canon_export join: {e}"))?
         .map_err(|e| e.to_string())
 }
 
 /// Read-only projection status per executor (synced / stale / not_projected)
-/// plus the newest CDLC source mtime. Used by the Capabilities panel badges.
+/// plus the newest Canon source mtime. Used by the Capabilities panel badges.
 #[tauri::command]
-async fn cdlc_projection_status(cwd: String) -> Result<karl_cdlc::ProjectionStatus, String> {
+async fn canon_projection_status(cwd: String) -> Result<karl_canon::ProjectionStatus, String> {
     let repo = std::path::PathBuf::from(cwd);
-    tokio::task::spawn_blocking(move || karl_cdlc::projection_status(&repo))
+    tokio::task::spawn_blocking(move || karl_canon::projection_status(&repo))
         .await
-        .map_err(|e| format!("cdlc_projection_status join: {e}"))?
+        .map_err(|e| format!("canon_projection_status join: {e}"))?
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn cdlc_publish(cwd: String, org: String, name: String) -> Result<serde_json::Value, String> {
+async fn canon_publish(cwd: String, org: String, name: String) -> Result<serde_json::Value, String> {
     let repo = std::path::PathBuf::from(cwd);
     let (toml_s, md_s, sm) =
-        tokio::task::spawn_blocking(move || karl_cdlc::read_skill_package(&repo, &name))
+        tokio::task::spawn_blocking(move || karl_canon::read_skill_package(&repo, &name))
             .await
-            .map_err(|e| format!("cdlc_publish join: {e}"))?
+            .map_err(|e| format!("canon_publish join: {e}"))?
             .map_err(|e| e.to_string())?;
-    cdlc_registry::publish(&org, &sm.name, &sm.version, "", &toml_s, &md_s).await
+    canon_registry::publish(&org, &sm.name, &sm.version, "", &toml_s, &md_s).await
 }
 
 #[tauri::command]
-async fn cdlc_install_registry(
+async fn canon_install_registry(
     cwd: String,
     org: String,
     name: String,
     version: String,
     group: Option<String>,
     workspace: Option<String>,
-) -> Result<karl_cdlc::InstalledRef, String> {
-    let full = cdlc_registry::resolve(&org, &name, &version).await?;
+) -> Result<karl_canon::InstalledRef, String> {
+    let full = canon_registry::resolve(&org, &name, &version).await?;
     let pkg_id = full.id;
     let label = format!("registry:{}/{}@{}", org, full.name, full.version);
     let repo = std::path::PathBuf::from(cwd);
@@ -2456,21 +2456,21 @@ async fn cdlc_install_registry(
     let pkg_ver = full.version.clone();
     let r = tokio::task::spawn_blocking(move || {
         let tmp = std::env::temp_dir().join(format!(
-            "cdlc-reg-{}-{pkg_name}-{pkg_ver}",
+            "canon-reg-{}-{pkg_name}-{pkg_ver}",
             std::process::id()
         ));
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         std::fs::write(tmp.join("skill.toml"), toml_s.as_bytes()).map_err(|e| e.to_string())?;
         std::fs::write(tmp.join("SKILL.md"), md_s.as_bytes()).map_err(|e| e.to_string())?;
-        let res = karl_cdlc::install_from_dir(&repo, &tmp, &label).map_err(|e| e.to_string());
+        let res = karl_canon::install_from_dir(&repo, &tmp, &label).map_err(|e| e.to_string());
         let _ = std::fs::remove_dir_all(&tmp);
         res
     })
     .await
-    .map_err(|e| format!("cdlc_install_registry join: {e}"))??;
+    .map_err(|e| format!("canon_install_registry join: {e}"))??;
     // best-effort adoption telemetry (don't fail the install if these error)
-    let _ = cdlc_registry::record_install(pkg_id).await;
-    karl_score::record_cdlc_install(&r.name, group, workspace);
+    let _ = canon_registry::record_install(pkg_id).await;
+    karl_score::record_canon_install(&r.name, group, workspace);
     Ok(r)
 }
 
@@ -4358,7 +4358,7 @@ pub fn run() {
             let spec_edit_tracker = notch_hub.spec_edit_tracker();
             app.manage(spec_edit_tracker.clone());
 
-            app.manage(cdlc_miner::MinerRuns::new());
+            app.manage(canon_miner::MinerRuns::new());
 
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
@@ -4610,21 +4610,21 @@ pub fn run() {
             somnus::somnus_history,
             somnus::somnus_history_delete,
             somnus::somnus_history_clear,
-            cdlc_eval::cdlc_run_evals,
-            cdlc_eval::cdlc_eval_summary,
-            cdlc_local_status,
-            cdlc_install_local,
-            cdlc_my_orgs,
-            cdlc_search,
-            cdlc_preview,
-            cdlc_read_local,
-            cdlc_export,
-            cdlc_projection_status,
-            cdlc_publish,
-            cdlc_install_registry,
-            cdlc_miner::cdlc_mine_start,
-            cdlc_miner::cdlc_mine_stop,
-            cdlc_miner::cdlc_compile_skill,
+            canon_eval::canon_run_evals,
+            canon_eval::canon_eval_summary,
+            canon_local_status,
+            canon_install_local,
+            canon_my_orgs,
+            canon_search,
+            canon_preview,
+            canon_read_local,
+            canon_export,
+            canon_projection_status,
+            canon_publish,
+            canon_install_registry,
+            canon_miner::canon_mine_start,
+            canon_miner::canon_mine_stop,
+            canon_miner::canon_compile_skill,
             git_file_diff,
             git_stage,
             git_unstage,

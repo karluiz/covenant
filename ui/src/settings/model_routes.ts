@@ -34,7 +34,7 @@ const ROLE_TAGLINE: Record<Role, string> = {
   operator:     "Autonomous agent that runs tools across your sessions",
   triage:       "Cheap gate before an expensive operator call",
   spec_creator: "The immersive Spec Creator's research agent",
-  context_miner: "The CDLC Context Miner's repo-scanning agent",
+  context_miner: "The Canon Context Miner's repo-scanning agent",
 };
 
 /** Longer explanation shown as the default footer hint for each role. */
@@ -50,7 +50,7 @@ const ROLE_HINT: Record<Role, string> = {
   spec_creator:
     "The streaming agent behind the immersive Spec Creator: it greps/reads your repo and drafts the spec. Needs tool use. Opus 4.8 explores deepest; Azure gpt-4o is faster/cheaper but shallower on long tool loops.",
   context_miner:
-    "The agent behind the CDLC “New context” Miner: it scans your repo and emits findings that compile into a skill. Needs tool use (Anthropic, an OpenAI-compatible server, or Azure).",
+    "The agent behind the Canon “New context” Miner: it scans your repo and emits findings that compile into a skill. Needs tool use (Anthropic, an OpenAI-compatible server, or Azure).",
 };
 
 export function renderModelsTab(

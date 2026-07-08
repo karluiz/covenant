@@ -187,9 +187,9 @@ pub fn record_llm_call(
 
 pub use achievements::{BuildKind, RiskyOutcome};
 
-pub fn record_cdlc_install(name: &str, group: Option<String>, workspace: Option<String>) {
+pub fn record_canon_install(name: &str, group: Option<String>, workspace: Option<String>) {
     let now = chrono::Utc::now().timestamp_millis();
-    let exec = format!("cdlc:{name}");
+    let exec = format!("canon:{name}");
     let ctx = Context {
         repo: None,
         branch: None,
@@ -198,7 +198,7 @@ pub fn record_cdlc_install(name: &str, group: Option<String>, workspace: Option<
     };
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
-            let _ = store.append_with_context(now, EventKind::CdlcInstall, &exec, None, &ctx);
+            let _ = store.append_with_context(now, EventKind::CanonInstall, &exec, None, &ctx);
         }
     }
 }
@@ -289,26 +289,26 @@ mod emit_tests {
     }
 
     #[test]
-    fn cdlc_install_event_records() {
+    fn canon_install_event_records() {
         let tmp = tempfile::tempdir().unwrap();
         let store = Arc::new(ScoreStore::open(tmp.path()).unwrap());
         set_recorder(store.clone());
 
-        record_cdlc_install("kyc-peru", Some("payments".into()), Some("main".into()));
+        record_canon_install("kyc-peru", Some("payments".into()), Some("main".into()));
 
         // Query the event directly from the database
         let conn = store.connection();
         let c = conn.lock().unwrap();
         let count: i64 = c
             .query_row(
-                "SELECT COUNT(*) FROM score_events WHERE kind = 'cdlc_install'",
+                "SELECT COUNT(*) FROM score_events WHERE kind = 'canon_install'",
                 [],
                 |r| r.get(0),
             )
             .expect("query should succeed");
         assert_eq!(
             count, 1,
-            "exactly one cdlc_install event should be recorded"
+            "exactly one canon_install event should be recorded"
         );
 
         clear_recorder_for_test();

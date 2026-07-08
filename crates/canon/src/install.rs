@@ -1,6 +1,6 @@
 use crate::project::project;
-use crate::types::{CdlcManifest, InstalledRef, SkillManifest};
-use crate::{cdlc_dir, read_manifest, write_manifest, CdlcError};
+use crate::types::{CanonManifest, InstalledRef, SkillManifest};
+use crate::{canon_dir, read_manifest, write_manifest, CanonError};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -17,7 +17,7 @@ pub(crate) fn valid_pkg_name(name: &str) -> bool {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CdlcStatus {
+pub struct CanonStatus {
     pub installed: Vec<InstalledRef>,
     pub context_files: Vec<String>,
 }
@@ -27,11 +27,11 @@ pub fn install_from_dir(
     repo_root: &Path,
     source_dir: &Path,
     source_label: &str,
-) -> Result<InstalledRef, CdlcError> {
+) -> Result<InstalledRef, CanonError> {
     let skill_toml = source_dir.join("skill.toml");
     let skill_md = source_dir.join("SKILL.md");
     if !skill_toml.exists() || !skill_md.exists() {
-        return Err(CdlcError::InvalidPackage(
+        return Err(CanonError::InvalidPackage(
             "source must contain skill.toml and SKILL.md".into(),
         ));
     }
@@ -39,7 +39,7 @@ pub fn install_from_dir(
 
     // C1: reject names that could escape the skills directory via path traversal.
     if !valid_pkg_name(&sm.name) {
-        return Err(CdlcError::InvalidPackage(format!(
+        return Err(CanonError::InvalidPackage(format!(
             "invalid skill name: {:?}",
             sm.name
         )));
@@ -48,12 +48,12 @@ pub fn install_from_dir(
     let payload = std::fs::read(&skill_md)?;
     let sha = format!("{:x}", Sha256::digest(&payload));
 
-    // Copy package into .covenant/cdlc/skills/<name>/
-    let skills_root = cdlc_dir(repo_root).join("skills");
+    // Copy package into .covenant/canon/skills/<name>/
+    let skills_root = canon_dir(repo_root).join("skills");
     let dest = skills_root.join(&sm.name);
     // Belt-and-suspenders: ensure dest stays inside skills_root even after path resolution.
     if !dest.starts_with(&skills_root) {
-        return Err(CdlcError::InvalidPackage(format!(
+        return Err(CanonError::InvalidPackage(format!(
             "skill path escapes skills dir: {:?}",
             sm.name
         )));
@@ -85,7 +85,7 @@ pub fn install_from_dir(
 }
 
 /// Install from a local directory, labeling provenance as `local:<canonical-path>`.
-pub fn install_local(repo_root: &Path, source_dir: &Path) -> Result<InstalledRef, CdlcError> {
+pub fn install_local(repo_root: &Path, source_dir: &Path) -> Result<InstalledRef, CanonError> {
     let label = format!(
         "local:{}",
         source_dir
@@ -100,33 +100,33 @@ pub fn install_local(repo_root: &Path, source_dir: &Path) -> Result<InstalledRef
 pub fn read_skill_package(
     repo_root: &Path,
     name: &str,
-) -> Result<(String, String, SkillManifest), CdlcError> {
+) -> Result<(String, String, SkillManifest), CanonError> {
     if !valid_pkg_name(name) {
-        return Err(CdlcError::InvalidPackage(format!(
+        return Err(CanonError::InvalidPackage(format!(
             "invalid skill name: {:?}",
             name
         )));
     }
-    let dir = cdlc_dir(repo_root).join("skills").join(name);
+    let dir = canon_dir(repo_root).join("skills").join(name);
     let toml_s = std::fs::read_to_string(dir.join("skill.toml"))?;
     let md_s = std::fs::read_to_string(dir.join("SKILL.md"))?;
     let sm: SkillManifest = toml::from_str(&toml_s)?;
     Ok((toml_s, md_s, sm))
 }
 
-fn write_lock(repo_root: &Path, m: &CdlcManifest) -> Result<(), CdlcError> {
+fn write_lock(repo_root: &Path, m: &CanonManifest) -> Result<(), CanonError> {
     let lines: Vec<String> = m
         .installed
         .iter()
         .map(|i| format!("{} {} {}", i.name, i.version, i.sha))
         .collect();
-    std::fs::write(cdlc_dir(repo_root).join("cdlc.lock"), lines.join("\n"))?;
+    std::fs::write(canon_dir(repo_root).join("canon.lock"), lines.join("\n"))?;
     Ok(())
 }
 
-pub fn status(repo_root: &Path) -> Result<CdlcStatus, CdlcError> {
+pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
     let installed = read_manifest(repo_root)?.installed;
-    let ctx_dir = cdlc_dir(repo_root).join("context");
+    let ctx_dir = canon_dir(repo_root).join("context");
     let mut context_files = Vec::new();
     if ctx_dir.exists() {
         for entry in std::fs::read_dir(&ctx_dir)? {
@@ -139,7 +139,7 @@ pub fn status(repo_root: &Path) -> Result<CdlcStatus, CdlcError> {
         }
     }
     context_files.sort();
-    Ok(CdlcStatus {
+    Ok(CanonStatus {
         installed,
         context_files,
     })
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn path_traversal_is_rejected() {
-        let base = std::env::temp_dir().join(format!("cdlc-trav-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-trav-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.join("repo");
         let src = base.join("src-evil");
@@ -183,7 +183,7 @@ mod tests {
         assert!(result.is_err(), "path traversal name must be rejected");
 
         // Nothing should have been written outside the repo.
-        let escape_path = base.join("repo/.covenant/cdlc/skills").join("../escape");
+        let escape_path = base.join("repo/.covenant/canon/skills").join("../escape");
         assert!(!escape_path.exists(), "escape path must not exist on disk");
 
         let _ = std::fs::remove_dir_all(&base);
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn install_then_projection_is_idempotent() {
-        let base = std::env::temp_dir().join(format!("cdlc-inst-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-inst-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.join("repo");
         let src = base.join("src-kyc");
@@ -201,23 +201,23 @@ mod tests {
         let r = install_local(&repo, &src).unwrap();
         assert_eq!(r.name, "kyc-peru");
         assert!(repo
-            .join(".covenant/cdlc/skills/kyc-peru/SKILL.md")
+            .join(".covenant/canon/skills/kyc-peru/SKILL.md")
             .exists());
-        assert!(repo.join(".claude/skills/cdlc-kyc-peru/SKILL.md").exists());
+        assert!(repo.join(".claude/skills/canon-kyc-peru/SKILL.md").exists());
 
         let agents1 = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();
         // Re-project: must not duplicate the managed block.
         crate::project::project(&repo).unwrap();
         let agents2 = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();
         assert_eq!(agents1, agents2, "projection must be idempotent");
-        assert_eq!(agents2.matches("<!-- cdlc:start -->").count(), 1);
+        assert_eq!(agents2.matches("<!-- canon:start -->").count(), 1);
 
         let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
     fn install_from_dir_uses_custom_source_label() {
-        let base = std::env::temp_dir().join(format!("cdlc-srclabel-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("canon-srclabel-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.join("repo");
         let src = base.join("src");

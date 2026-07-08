@@ -1,11 +1,11 @@
-//! CDLC eval format + results store (Plan A of the eval runner).
+//! Canon eval format + results store (Plan A of the eval runner).
 //!
 //! Evals are per-skill `.toml` files under
-//! `.covenant/cdlc/skills/<skill>/evals/*.toml`. Each is a behavior test:
+//! `.covenant/canon/skills/<skill>/evals/*.toml`. Each is a behavior test:
 //! a `scenario` fed to a real executor and a `rubric` the judge applies to
-//! the transcript. Results are stored in `.covenant/cdlc/eval-results.json`.
+//! the transcript. Results are stored in `.covenant/canon/eval-results.json`.
 
-use crate::manifest::cdlc_dir;
+use crate::manifest::canon_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -27,10 +27,10 @@ pub struct EvalResult {
 }
 
 fn evals_dir(repo_root: &Path, skill: &str) -> std::path::PathBuf {
-    cdlc_dir(repo_root).join("skills").join(skill).join("evals")
+    canon_dir(repo_root).join("skills").join(skill).join("evals")
 }
 
-/// Scan `.covenant/cdlc/skills/<skill>/evals/*.toml`, sorted by id.
+/// Scan `.covenant/canon/skills/<skill>/evals/*.toml`, sorted by id.
 /// Unparseable or non-toml files are skipped (warned), never fatal.
 pub fn read_evals(repo_root: &Path, skill: &str) -> Vec<Eval> {
     let dir = evals_dir(repo_root, skill);
@@ -46,7 +46,7 @@ pub fn read_evals(repo_root: &Path, skill: &str) -> Vec<Eval> {
         }
         match std::fs::read_to_string(&path).ok().and_then(|s| toml::from_str::<Eval>(&s).ok()) {
             Some(ev) => out.push(ev),
-            None => tracing::warn!(target: "cdlc", path = %path.display(), "skipping unparseable eval"),
+            None => tracing::warn!(target: "canon", path = %path.display(), "skipping unparseable eval"),
         }
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
@@ -54,7 +54,7 @@ pub fn read_evals(repo_root: &Path, skill: &str) -> Vec<Eval> {
 }
 
 fn results_path(repo_root: &Path) -> std::path::PathBuf {
-    cdlc_dir(repo_root).join("eval-results.json")
+    canon_dir(repo_root).join("eval-results.json")
 }
 
 type ResultMap = BTreeMap<String, BTreeMap<String, EvalResult>>;
@@ -71,7 +71,7 @@ pub fn read_results(repo_root: &Path) -> ResultMap {
 /// simultaneous "Run evals" can't clobber each other's data.
 static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Upsert one result and persist atomically. Creates `.covenant/cdlc/` if needed.
+/// Upsert one result and persist atomically. Creates `.covenant/canon/` if needed.
 ///
 /// Concurrent safety: all writes are serialised behind `WRITE_LOCK`.
 /// Corrupt-file safety: if the results file exists, is non-empty, but fails
@@ -96,7 +96,7 @@ pub fn write_result(repo_root: &Path, skill: &str, result: &EvalResult) -> std::
                 Err(_) => {
                     let backup = path.with_extension("corrupt.json");
                     tracing::warn!(
-                        target: "cdlc",
+                        target: "canon",
                         "eval-results.json is corrupt; backing up to {}",
                         backup.display()
                     );
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn reads_and_sorts_evals_for_a_skill() {
         let tmp = tempfile::tempdir().unwrap();
-        let evals_dir = tmp.path().join(".covenant/cdlc/skills/kyc-peru/evals");
+        let evals_dir = tmp.path().join(".covenant/canon/skills/kyc-peru/evals");
         write_eval(
             &evals_dir,
             "b.toml",
@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn write_result_backs_up_corrupt_file_instead_of_losing_it() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().join(".covenant/cdlc");
+        let dir = tmp.path().join(".covenant/canon");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("eval-results.json"), "{ this is not json").unwrap();
         let r = EvalResult {

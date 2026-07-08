@@ -18,8 +18,8 @@ import {
   capabilitiesRead,
   capabilitiesScaffold,
   capabilitiesWrite,
-  cdlcExport,
-  cdlcProjectionStatus,
+  canonExport,
+  canonProjectionStatus,
   type ProjectionStatus,
   type ProjState,
 } from "../api";
@@ -166,12 +166,12 @@ export class CapabilitiesPanel {
       this.detect = { claude: false, copilot: false, opencode: false, codex: false, pi: false, shared: false, covenant: false };
       this.items = [];
     }
-    // Projection status is CDLC-specific: a malformed manifest must not blank
+    // Projection status is Canon-specific: a malformed manifest must not blank
     // the unrelated per-executor capability lists, so isolate its failure.
     try {
-      this.projStatus = this.projectRoot ? await cdlcProjectionStatus(this.projectRoot) : null;
+      this.projStatus = this.projectRoot ? await canonProjectionStatus(this.projectRoot) : null;
     } catch (err) {
-      console.error("cdlc projection status failed", err);
+      console.error("canon projection status failed", err);
       this.projStatus = null;
     }
     // Reset selection if it's no longer present.
@@ -392,7 +392,7 @@ export class CapabilitiesPanel {
     return bar;
   }
 
-  // Covenant is the source of truth: editing `.covenant/cdlc/` and then
+  // Covenant is the source of truth: editing `.covenant/canon/` and then
   // projecting fans the changes out to every executor's native files
   // (.claude/agents, .opencode/agent, .pi/skills, AGENTS.md, copilot, hermes).
   // This affordance is what distinguishes Covenant from the passive viewers.
@@ -419,8 +419,8 @@ export class CapabilitiesPanel {
       btn.disabled = true;
       btn.textContent = "Projecting…";
       try {
-        await cdlcExport(this.projectRoot);
-        pushInfoToast({ message: "CDLC projected to all executors" });
+        await canonExport(this.projectRoot);
+        pushInfoToast({ message: "Canon projected to all executors" });
       } catch (e) {
         pushInfoToast({ message: `Projection failed: ${String(e)}` });
       } finally {

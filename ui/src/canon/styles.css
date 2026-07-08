@@ -1,8 +1,8 @@
-/* CDLC panel — context-skill registry & local skills.
+/* Canon panel — context-skill registry & local skills.
    Mirrors the Project Notes right-rail panel (ui/src/project-notes/styles.css):
    a fixed panel inset over the right rail, themed from the app's tokens. */
 
-.cdlc-panel {
+.canon-panel {
   position: fixed;
   top: 76px; /* titlebar (38) + horizontal tabbar (38) */
   right: 0;
@@ -21,112 +21,112 @@
   animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 
   /* local lift tokens: neutral white in dark, opaque grays in True Dark */
-  --cdlc-lift-1: rgb(var(--ink-rgb, 255 255 255) / 0.03);
-  --cdlc-lift-2: rgb(var(--ink-rgb, 255 255 255) / 0.05);
-  --cdlc-line: var(--border, #1c2027);
+  --canon-lift-1: rgb(var(--ink-rgb, 255 255 255) / 0.03);
+  --canon-lift-2: rgb(var(--ink-rgb, 255 255 255) / 0.05);
+  --canon-line: var(--border, #1c2027);
 }
 
 /* Full-page routes (Settings/Docs/Drafts/Mission/Operator/Capabilities) must
-   cover the floating CDLC panel. It's position:fixed so it would otherwise sit
+   cover the floating Canon panel. It's position:fixed so it would otherwise sit
    on top of these pages — mirrors the .pn-panel rule in styles.css. */
-body:has(#settings-page:not([hidden])) .cdlc-panel,
-body:has(#docs-page:not([hidden])) .cdlc-panel,
-body:has(#drafts-page:not([hidden])) .cdlc-panel,
-body:has(#mission-page:not([hidden])) .cdlc-panel,
-body:has(#operator-page:not([hidden])) .cdlc-panel,
-body:has(#capabilities-page:not([hidden])) .cdlc-panel {
+body:has(#settings-page:not([hidden])) .canon-panel,
+body:has(#docs-page:not([hidden])) .canon-panel,
+body:has(#drafts-page:not([hidden])) .canon-panel,
+body:has(#mission-page:not([hidden])) .canon-panel,
+body:has(#operator-page:not([hidden])) .canon-panel,
+body:has(#capabilities-page:not([hidden])) .canon-panel {
   display: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cdlc-panel { animation: none; }
+  .canon-panel { animation: none; }
 }
 
 /* Reflow the workspace so the terminal shrinks to the panel's left edge
    instead of being overlaid — identical mechanism to body.project-notes-open
-   (ui/src/styles.css). CDLC is position:fixed, so #layout stays a single
+   (ui/src/styles.css). Canon is position:fixed, so #layout stays a single
    full-width column and the terminal is inset via the tab-pane `right`
    offset; the per-tab ResizeObserver then refits xterm + the PTY. */
-body.cdlc-open:not(.tabbar-left) #layout {
+body.canon-open:not(.tabbar-left) #layout {
   grid-template-columns: minmax(0, 1fr) !important;
 }
-body.cdlc-open.tabbar-left #layout {
+body.canon-open.tabbar-left #layout {
   grid-template-columns: var(--tabbar-w) minmax(0, 1fr) !important;
 }
-body.cdlc-open #activity-sidebar { display: none; }
-body.cdlc-open .tab-pane {
+body.canon-open #activity-sidebar { display: none; }
+body.canon-open .tab-pane {
   right: calc(var(--right-sidebar-w) + 1px) !important;
   grid-template-columns: 1fr 0 0 0 !important;
 }
-body.cdlc-open .tab-blocks { display: none !important; }
-body.cdlc-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+body.canon-open .tab-blocks { display: none !important; }
+body.canon-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
   right: 0 !important;
 }
 
-body.tabbar-left .cdlc-panel { top: 38px; }
+body.tabbar-left .canon-panel { top: 38px; }
 
-body.theme-light .cdlc-panel {
+body.theme-light .canon-panel {
   border-left: 1px solid rgba(15, 23, 42, 0.14) !important;
   border-top: 1px solid rgba(15, 23, 42, 0.14) !important;
   box-shadow: none !important;
 }
 
-body.theme-true-dark .cdlc-panel,
-body.theme-true-dark .cdlc-reader {
-  --cdlc-lift-1: #141416;
-  --cdlc-lift-2: #1c1c1f;
-  --cdlc-line: #242427;
+body.theme-true-dark .canon-panel,
+body.theme-true-dark .canon-reader {
+  --canon-lift-1: #141416;
+  --canon-lift-2: #1c1c1f;
+  --canon-line: #242427;
   /* muted #6c7280 is 4.4:1 on pure black — lift dim text on OLED */
   --muted: #8b919d;
   --fg-dim: #9aa0ab;
 }
-body.theme-true-dark .cdlc-loop .cdlc-loop-note { opacity: 1; }
+body.theme-true-dark .canon-loop .canon-loop-note { opacity: 1; }
 
 /* True Dark elevation pass — pure black flattens flat fills, so cards carry
    their own depth: a neutral top-lit gradient + hairline top edge (neutral
    lifts per the True Dark surface rule; accent stays on data only). */
-body.theme-true-dark .cdlc-skill-row,
-body.theme-true-dark .cdlc-search-result,
-body.theme-true-dark .cdlc-context-row,
-body.theme-true-dark .cdlc-stat {
+body.theme-true-dark .canon-skill-row,
+body.theme-true-dark .canon-search-result,
+body.theme-true-dark .canon-context-row,
+body.theme-true-dark .canon-stat {
   background: linear-gradient(180deg, #18181b, #121214);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
 }
-body.theme-true-dark .cdlc-skill-row:hover,
-body.theme-true-dark .cdlc-search-result:hover {
+body.theme-true-dark .canon-skill-row:hover,
+body.theme-true-dark .canon-search-result:hover {
   background: linear-gradient(180deg, #1d1d21, #151518);
 }
 /* recede the section hairlines so the cards read first */
-body.theme-true-dark .cdlc-body h3::after { opacity: 0.4; }
+body.theme-true-dark .canon-body h3::after { opacity: 0.4; }
 /* translucent-black code bg vanishes on pure black — go opaque */
-body.theme-true-dark .cdlc-preview { background: #0c0c0e; }
+body.theme-true-dark .canon-preview { background: #0c0c0e; }
 /* adoption bars: lit-from-the-right gradient + soft glow instead of a slab */
-body.theme-true-dark .cdlc-bar { background: #1c1c1f; }
-body.theme-true-dark .cdlc-bar-fill {
+body.theme-true-dark .canon-bar { background: #1c1c1f; }
+body.theme-true-dark .canon-bar-fill {
   background: linear-gradient(90deg,
-    color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 65%, #000),
-    var(--cdlc-accent, var(--accent, #7aa2f7)));
-  box-shadow: 0 0 10px -2px color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 55%, transparent);
+    color-mix(in srgb, var(--canon-accent, var(--accent, #7aa2f7)) 65%, #000),
+    var(--canon-accent, var(--accent, #7aa2f7)));
+  box-shadow: 0 0 10px -2px color-mix(in srgb, var(--canon-accent, var(--accent, #7aa2f7)) 55%, transparent);
 }
-body.theme-true-dark .cdlc-bar-fill.is-ok {
+body.theme-true-dark .canon-bar-fill.is-ok {
   background: linear-gradient(90deg,
     color-mix(in srgb, var(--ok, #9ece6a) 65%, #000),
     var(--ok, #9ece6a));
   box-shadow: 0 0 10px -2px color-mix(in srgb, var(--ok, #9ece6a) 55%, transparent);
 }
 /* hero token count gets the one glow in the readout */
-body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
-  text-shadow: 0 0 14px color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 45%, transparent);
+body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
+  text-shadow: 0 0 14px color-mix(in srgb, var(--canon-accent, var(--accent, #7aa2f7)) 45%, transparent);
 }
 
-.cdlc-panel button,
-.cdlc-panel input {
+.canon-panel button,
+.canon-panel input {
   box-sizing: border-box;
   font-family: inherit;
 }
 
 /* ── Header ── */
-.cdlc-head {
+.canon-head {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -138,20 +138,20 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-primary, #f5f6f7);
-  border-bottom: 1px solid var(--cdlc-line);
+  border-bottom: 1px solid var(--canon-line);
 }
 
 /* Accent diamond — the one bit of group color in the header chrome */
-.cdlc-mark {
+.canon-mark {
   flex-shrink: 0;
   width: 7px;
   height: 7px;
-  background: var(--cdlc-accent, var(--accent, #7aa2f7));
+  background: var(--canon-accent, var(--accent, #7aa2f7));
   border-radius: 50%;
-  box-shadow: 0 0 8px -1px color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 70%, transparent);
+  box-shadow: 0 0 8px -1px color-mix(in srgb, var(--canon-accent, var(--accent, #7aa2f7)) 70%, transparent);
 }
 
-.cdlc-title {
+.canon-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -160,7 +160,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
 }
 
 /* Header icon buttons (Re-export) — match the close button's quiet style */
-.cdlc-head .cdlc-icon-btn {
+.canon-head .canon-icon-btn {
   flex-shrink: 0;
   background: transparent;
   border: 0;
@@ -170,15 +170,15 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   opacity: 0.75;
   transition: opacity 120ms, background 120ms, color 120ms;
 }
-.cdlc-head .cdlc-icon-btn:hover {
+.canon-head .canon-icon-btn:hover {
   opacity: 1;
   color: var(--text-primary, #f5f6f7);
-  background: var(--cdlc-lift-1);
+  background: var(--canon-lift-1);
 }
-.cdlc-head .cdlc-icon-btn:disabled { opacity: 0.4; cursor: default; }
+.canon-head .canon-icon-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* Project button — labeled pill so it can't read as a reload/refresh */
-.cdlc-project-btn {
+.canon-project-btn {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -188,28 +188,28 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   font-size: 10px;
   letter-spacing: 0.06em;
   color: var(--text-primary, #f5f6f7);
-  background: var(--cdlc-lift-1);
-  border: 1px solid var(--cdlc-line);
+  background: var(--canon-lift-1);
+  border: 1px solid var(--canon-line);
   border-radius: 0;
   cursor: pointer;
   opacity: 0.85;
   transition: opacity 120ms, background 120ms, border-color 120ms;
 }
-.cdlc-project-btn:hover {
+.canon-project-btn:hover {
   opacity: 1;
-  background: var(--cdlc-lift-2, var(--cdlc-lift-1));
-  border-color: color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 55%, transparent);
+  background: var(--canon-lift-2, var(--canon-lift-1));
+  border-color: color-mix(in srgb, var(--canon-accent, var(--accent, #7aa2f7)) 55%, transparent);
 }
-.cdlc-project-btn svg { display: block; color: var(--cdlc-accent, var(--accent, #7aa2f7)); }
-.cdlc-project-btn:disabled { opacity: 0.4; cursor: default; }
+.canon-project-btn svg { display: block; color: var(--canon-accent, var(--accent, #7aa2f7)); }
+.canon-project-btn:disabled { opacity: 0.4; cursor: default; }
 
-.cdlc-export-ok {
+.canon-export-ok {
   margin: 0 0 8px;
   font-size: 11px;
   color: var(--ok, #9ece6a);
 }
 
-.cdlc-close-btn {
+.canon-close-btn {
   flex-shrink: 0;
   background: transparent;
   border: 0;
@@ -222,14 +222,14 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   opacity: 0.75;
   transition: opacity 120ms, background 120ms, color 120ms;
 }
-.cdlc-close-btn:hover {
+.canon-close-btn:hover {
   opacity: 1;
   color: var(--text-primary, #f5f6f7);
-  background: var(--cdlc-lift-1);
+  background: var(--canon-lift-1);
 }
 
 /* ── Body ── */
-.cdlc-body {
+.canon-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
@@ -237,7 +237,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
 }
 
 /* Section headings with a trailing hairline */
-.cdlc-body h3 {
+.canon-body h3 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -249,49 +249,49 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   text-transform: uppercase;
   color: var(--muted, #6c7280);
 }
-.cdlc-body h3::after {
+.canon-body h3::after {
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--cdlc-line);
+  background: var(--canon-line);
   opacity: 0.6;
 }
 
-.cdlc-skills > p,
-.cdlc-loop > p {
+.canon-skills > p,
+.canon-loop > p {
   margin: 0 0 4px;
   font-size: 12px;
   color: var(--muted, #6c7280);
 }
 
 /* ── Rows: installed skills, context files, search results ── */
-.cdlc-skill-row,
-.cdlc-context-row,
-.cdlc-search-result {
+.canon-skill-row,
+.canon-context-row,
+.canon-search-result {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   padding: 8px 10px;
   margin-bottom: 6px;
-  background: var(--cdlc-lift-1);
-  border: 1px solid var(--cdlc-line);
+  background: var(--canon-lift-1);
+  border: 1px solid var(--canon-line);
   border-radius: 0;
   font-size: 12px;
   transition: border-color 120ms, background 120ms;
 }
-.cdlc-skill-row:hover,
-.cdlc-search-result:hover {
-  border-color: color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 45%, var(--cdlc-line));
-  background: var(--cdlc-lift-2);
+.canon-skill-row:hover,
+.canon-search-result:hover {
+  border-color: color-mix(in srgb, var(--canon-accent, var(--accent, #7aa2f7)) 45%, var(--canon-line));
+  background: var(--canon-lift-2);
 }
 
-.cdlc-name {
+.canon-name {
   font-weight: 600;
   color: var(--text-primary, #f5f6f7);
   flex-shrink: 0;
 }
-.cdlc-meta {
+.canon-meta {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -302,24 +302,24 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
 }
 
 /* head action buttons never shrink (the cluster is right-aligned by the
-   margin-left:auto on .cdlc-preview-btn) */
-.cdlc-card-head button {
+   margin-left:auto on .canon-preview-btn) */
+.canon-card-head button {
   flex-shrink: 0;
 }
 
-.cdlc-context-row {
+.canon-context-row {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
   color: var(--text-primary, #f5f6f7);
 }
 
 /* ── Buttons (secondary, house style) ── */
-.cdlc-new-context-btn,
-.cdlc-search-row button,
-.cdlc-card-head button {
+.canon-new-context-btn,
+.canon-search-row button,
+.canon-card-head button {
   background: transparent;
   color: var(--muted, #6c7280);
-  border: 1px solid var(--cdlc-line);
+  border: 1px solid var(--canon-line);
   border-radius: 0;
   padding: 4px 10px;
   font-size: 11px;
@@ -327,49 +327,49 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   white-space: nowrap;
   transition: color 120ms, border-color 120ms, background 120ms;
 }
-.cdlc-new-context-btn:hover,
-.cdlc-search-row button:hover,
-.cdlc-card-head button:hover {
+.canon-new-context-btn:hover,
+.canon-search-row button:hover,
+.canon-card-head button:hover {
   color: var(--text-primary, #f5f6f7);
-  border-color: var(--cdlc-accent, var(--accent, #7aa2f7));
-  background: var(--cdlc-lift-1);
+  border-color: var(--canon-accent, var(--accent, #7aa2f7));
+  background: var(--canon-lift-1);
 }
-.cdlc-new-context-btn { margin-bottom: 8px; }
+.canon-new-context-btn { margin-bottom: 8px; }
 
 /* Compact square icon buttons (Preview / Install / Publish) */
-.cdlc-icon-btn {
+.canon-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 4px 6px;
   line-height: 0;
 }
-.cdlc-icon-btn svg { display: block; }
+.canon-icon-btn svg { display: block; }
 
 /* ── Registry search ── */
-.cdlc-search-row {
+.canon-search-row {
   display: flex;
   gap: 6px;
   margin: 8px 0 6px;
 }
-.cdlc-search-row input {
+.canon-search-row input {
   flex: 1;
   min-width: 0;
-  background: var(--cdlc-lift-1);
+  background: var(--canon-lift-1);
   color: var(--text-primary, #f5f6f7);
-  border: 1px solid var(--cdlc-line);
+  border: 1px solid var(--canon-line);
   border-radius: 0;
   padding: 6px 9px;
   font-size: 12px;
   transition: border-color 120ms;
 }
-.cdlc-search-row input::placeholder { color: var(--muted, #6c7280); }
-.cdlc-search-row input:focus {
+.canon-search-row input::placeholder { color: var(--muted, #6c7280); }
+.canon-search-row input:focus {
   outline: none;
-  border-color: var(--cdlc-accent, var(--accent, #7aa2f7));
+  border-color: var(--canon-accent, var(--accent, #7aa2f7));
 }
 
-.cdlc-error {
+.canon-error {
   margin: 6px 0 0;
   font-size: 11px;
   color: var(--danger, #e85a5a);
@@ -377,8 +377,8 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
 
 /* Skill / registry cards: a head row (name + meta + actions), an optional
    one-line description, and a collapsible SKILL.md preview underneath. */
-.cdlc-skill-row,
-.cdlc-search-result {
+.canon-skill-row,
+.canon-search-result {
   position: relative;
   flex-direction: column;
   align-items: stretch;
@@ -386,45 +386,45 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   overflow: hidden;
 }
 /* Accent edge that reveals on hover — turns a flat row into a held artifact */
-.cdlc-skill-row::before,
-.cdlc-search-result::before {
+.canon-skill-row::before,
+.canon-search-result::before {
   content: "";
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
   width: 2px;
-  background: var(--cdlc-accent, var(--accent, #7aa2f7));
+  background: var(--canon-accent, var(--accent, #7aa2f7));
   opacity: 0;
   transition: opacity 120ms;
 }
-.cdlc-skill-row:hover::before,
-.cdlc-search-result:hover::before { opacity: 0.85; }
-.cdlc-card-head {
+.canon-skill-row:hover::before,
+.canon-search-result:hover::before { opacity: 0.85; }
+.canon-card-head {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
-.cdlc-card-head .cdlc-preview-btn {
+.canon-card-head .canon-preview-btn {
   margin-left: auto; /* push the action cluster to the right edge */
 }
-.cdlc-result-desc {
+.canon-result-desc {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
   color: var(--fg-dim, #8b929b);
 }
-.cdlc-empty {
+.canon-empty {
   margin: 4px 0;
   font-size: 12px;
   color: var(--muted, #6c7280);
 }
 
 /* ── Full-screen SKILL.md reader (rendered markdown, like the spec preview) ── */
-.cdlc-reader {
+.canon-reader {
   position: fixed;
-  top: 76px; /* titlebar (38) + horizontal tabbar (38) — matches .cdlc-panel */
+  top: 76px; /* titlebar (38) + horizontal tabbar (38) — matches .canon-panel */
   left: 0;
   right: 0;
   bottom: calc(var(--statusbar-h, 50px) + 1px);
@@ -434,22 +434,22 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   background: var(--bg, #0e0f12);
   animation: right-rail-panel-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
-.cdlc-reader-head {
+.canon-reader-head {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
   padding: 16px 24px;
-  border-bottom: 1px solid var(--cdlc-line);
+  border-bottom: 1px solid var(--canon-line);
 }
-.cdlc-reader-headings {
+.canon-reader-headings {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
-.cdlc-reader-title {
+.canon-reader-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -460,7 +460,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
 }
 /* "shared by <publisher> · v1.1.0 · N installs · <sha7>" — the provenance
    of a context published to the team registry. */
-.cdlc-reader-stats {
+.canon-reader-stats {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -470,7 +470,7 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   color: var(--muted, #6c7280);
 }
 /* Bare button; the visible pill is the inner .settings-esc (shared esc affordance). */
-.cdlc-reader-close {
+.canon-reader-close {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -479,14 +479,14 @@ body.theme-true-dark .cdlc-stat.is-hero .cdlc-stat-val {
   padding: 0;
   cursor: pointer;
 }
-.cdlc-reader-close:hover .settings-esc {
+.canon-reader-close:hover .settings-esc {
   color: #fff;
   background: rgba(var(--ink-rgb), 0.08);
   border-color: rgba(var(--ink-rgb), 0.16);
 }
-body.tabbar-left .cdlc-reader { top: 38px; }
+body.tabbar-left .canon-reader { top: 38px; }
 
-.cdlc-reader-body {
+.canon-reader-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
@@ -495,13 +495,13 @@ body.tabbar-left .cdlc-reader { top: 38px; }
 }
 
 /* Collapsible SKILL.md preview — the actual bundle content you're installing */
-.cdlc-preview {
+.canon-preview {
   margin: 2px 0 0;
   padding: 10px 11px;
   max-height: 260px;
   overflow: auto;
   background: var(--pn-code-bg, rgb(0 0 0 / 0.28));
-  border: 1px solid var(--cdlc-line);
+  border: 1px solid var(--canon-line);
   border-radius: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11.5px;
@@ -512,7 +512,7 @@ body.tabbar-left .cdlc-reader { top: 38px; }
 }
 
 /* ── Loop — Observe/Adapt: adoption + inference footprint ── */
-.cdlc-subhead {
+.canon-subhead {
   margin: 12px 0 5px;
   font-size: 10px;
   font-weight: 600;
@@ -522,24 +522,24 @@ body.tabbar-left .cdlc-reader { top: 38px; }
 }
 /* Inference footprint — a 2×2 instrument readout. Tokens (hero) is tinted
    with the group accent; the rest stay neutral so the one number reads. */
-.cdlc-stats {
+.canon-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1px;
   margin: 2px 0 4px;
-  background: var(--cdlc-line);
-  border: 1px solid var(--cdlc-line);
+  background: var(--canon-line);
+  border: 1px solid var(--canon-line);
   border-radius: 0;
   overflow: hidden;
 }
-.cdlc-stat {
+.canon-stat {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 10px 11px;
-  background: var(--cdlc-lift-1);
+  background: var(--canon-lift-1);
 }
-.cdlc-stat-val {
+.canon-stat-val {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 17px;
   font-weight: 600;
@@ -548,10 +548,10 @@ body.tabbar-left .cdlc-reader { top: 38px; }
   font-variant-numeric: tabular-nums;
   color: var(--text-primary, #f5f6f7);
 }
-.cdlc-stat.is-hero .cdlc-stat-val {
-  color: var(--cdlc-accent, var(--accent, #7aa2f7));
+.canon-stat.is-hero .canon-stat-val {
+  color: var(--canon-accent, var(--accent, #7aa2f7));
 }
-.cdlc-stat-lbl {
+.canon-stat-lbl {
   font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.09em;
@@ -560,34 +560,34 @@ body.tabbar-left .cdlc-reader { top: 38px; }
 }
 
 /* Adoption / eval meters — name + value over a thin accent bar */
-.cdlc-meter {
+.canon-meter {
   display: flex;
   flex-direction: column;
   gap: 5px;
   padding: 6px 2px;
 }
-.cdlc-meter-top {
+.canon-meter-top {
   display: flex;
   align-items: baseline;
   gap: 8px;
   font-size: 12px;
 }
-.cdlc-meter-top .cdlc-meta { margin-left: auto; }
-.cdlc-bar {
+.canon-meter-top .canon-meta { margin-left: auto; }
+.canon-bar {
   height: 3px;
   border-radius: 0;
-  background: var(--cdlc-line);
+  background: var(--canon-line);
   overflow: hidden;
 }
-.cdlc-bar-fill {
+.canon-bar-fill {
   height: 100%;
   border-radius: 0;
-  background: var(--cdlc-accent, var(--accent, #7aa2f7));
+  background: var(--canon-accent, var(--accent, #7aa2f7));
   transition: width 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.cdlc-bar-fill.is-ok { background: var(--ok, #9ece6a); }
+.canon-bar-fill.is-ok { background: var(--ok, #9ece6a); }
 
-.cdlc-loop .cdlc-loop-note {
+.canon-loop .canon-loop-note {
   margin: 12px 0 0;
   font-size: 11px;
   color: var(--muted, #6c7280);

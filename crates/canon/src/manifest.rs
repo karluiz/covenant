@@ -1,25 +1,25 @@
-use crate::types::CdlcManifest;
-use crate::CdlcError;
+use crate::types::CanonManifest;
+use crate::CanonError;
 use std::path::{Path, PathBuf};
 
-pub fn cdlc_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join(".covenant/cdlc")
+pub fn canon_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join(".covenant/canon")
 }
 
-pub fn read_manifest(repo_root: &Path) -> Result<CdlcManifest, CdlcError> {
-    let path = cdlc_dir(repo_root).join("cdlc.toml");
+pub fn read_manifest(repo_root: &Path) -> Result<CanonManifest, CanonError> {
+    let path = canon_dir(repo_root).join("canon.toml");
     if !path.exists() {
-        return Ok(CdlcManifest::default());
+        return Ok(CanonManifest::default());
     }
     let text = std::fs::read_to_string(&path)?;
     Ok(toml::from_str(&text)?)
 }
 
-pub fn write_manifest(repo_root: &Path, m: &CdlcManifest) -> Result<(), CdlcError> {
-    let dir = cdlc_dir(repo_root);
+pub fn write_manifest(repo_root: &Path, m: &CanonManifest) -> Result<(), CanonError> {
+    let dir = canon_dir(repo_root);
     std::fs::create_dir_all(&dir)?;
     let text = toml::to_string_pretty(m)?;
-    std::fs::write(dir.join("cdlc.toml"), text)?;
+    std::fs::write(dir.join("canon.toml"), text)?;
     Ok(())
 }
 
@@ -30,9 +30,9 @@ mod tests {
 
     #[test]
     fn roundtrip_manifest() {
-        let tmp = std::env::temp_dir().join(format!("cdlc-rt-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("canon-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        let m = CdlcManifest {
+        let m = CanonManifest {
             version: 1,
             installed: vec![InstalledRef {
                 name: "kyc-peru".into(),
@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn missing_manifest_is_default() {
-        let tmp = std::env::temp_dir().join("cdlc-missing-does-not-exist-xyz");
+        let tmp = std::env::temp_dir().join("canon-missing-does-not-exist-xyz");
         let m = read_manifest(&tmp).unwrap();
         assert_eq!(m.version, 0);
         assert!(m.installed.is_empty());

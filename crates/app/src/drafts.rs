@@ -121,9 +121,9 @@ pub fn slugify(title: &str) -> String {
 }
 
 /// Where a published spec is written, relative to repo root.
-pub fn publish_subdir(cdlc_context: bool) -> &'static str {
-    if cdlc_context {
-        ".covenant/cdlc/context"
+pub fn publish_subdir(canon_context: bool) -> &'static str {
+    if canon_context {
+        ".covenant/canon/context"
     } else {
         "docs/specs"
     }
@@ -510,14 +510,14 @@ pub fn delete_draft_sync(repo_root: &Path, slug: &str) -> Result<(), DraftError>
 /// Returns the published file path. Validates ID uniqueness against
 /// existing `docs/specs/*.md` and slug uniqueness.
 ///
-/// When `cdlc_context` is `true`, the file is written to
-/// `.covenant/cdlc/context/` instead of `docs/specs/`.
+/// When `canon_context` is `true`, the file is written to
+/// `.covenant/canon/context/` instead of `docs/specs/`.
 pub fn publish_draft_sync(
     repo_root: &Path,
     slug: &str,
     id: &str,
     final_slug: &str,
-    cdlc_context: bool,
+    canon_context: bool,
 ) -> Result<PathBuf, DraftError> {
     // Validate ID format: `<u32>.<u32>`.
     let mut parts = id.split('.');
@@ -536,7 +536,7 @@ pub fn publish_draft_sync(
         )));
     }
 
-    let specs_dir = repo_root.join(publish_subdir(cdlc_context));
+    let specs_dir = repo_root.join(publish_subdir(canon_context));
     let dest = specs_dir.join(format!("{id}-{final_slug}.md"));
     if dest.exists() {
         return Err(DraftError::Collision(format!("{}", dest.display())));
@@ -973,17 +973,17 @@ mod tests {
 }
 
 #[cfg(test)]
-mod cdlc_tests {
+mod canon_tests {
     use super::*;
 
     #[test]
-    fn cdlc_context_redirects_publish_dir() {
+    fn canon_context_redirects_publish_dir() {
         assert_eq!(publish_subdir(false), "docs/specs");
-        assert_eq!(publish_subdir(true), ".covenant/cdlc/context");
+        assert_eq!(publish_subdir(true), ".covenant/canon/context");
     }
 
     #[test]
-    fn publish_draft_sync_cdlc_writes_to_cdlc_dir() {
+    fn publish_draft_sync_canon_writes_to_canon_dir() {
         let tmp = tempfile::tempdir().unwrap();
         save_draft_sync(
             tmp.path(),
@@ -993,7 +993,7 @@ mod cdlc_tests {
         )
         .unwrap();
         let dest = publish_draft_sync(tmp.path(), "my-context", "1.0", "my-context", true).unwrap();
-        assert!(dest.to_string_lossy().contains(".covenant/cdlc/context"));
+        assert!(dest.to_string_lossy().contains(".covenant/canon/context"));
         assert!(dest.exists());
     }
 }
@@ -1066,12 +1066,12 @@ pub async fn publish_draft(
     slug: String,
     id: String,
     final_slug: String,
-    cdlc_context: Option<bool>,
+    canon_context: Option<bool>,
 ) -> Result<String, String> {
     let path = PathBuf::from(repo_root);
-    let cdlc = cdlc_context.unwrap_or(false);
+    let canon = canon_context.unwrap_or(false);
     let dest = tokio::task::spawn_blocking(move || {
-        publish_draft_sync(&path, &slug, &id, &final_slug, cdlc)
+        publish_draft_sync(&path, &slug, &id, &final_slug, canon)
     })
     .await
     .map_err(|e| e.to_string())?

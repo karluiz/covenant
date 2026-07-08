@@ -1,4 +1,7 @@
-//! Authed HTTP client for the covenant-server CDLC package registry.
+//! Authed HTTP client for the covenant-server Canon package registry.
+// ponytail: wire path stays `/cdlc/packages` — the deployed forge.covenant.uno
+// backend still serves that route. Rename to `/canon/` only alongside a server
+// deploy that adds the new route (keep the old one until old clients age out).
 use karl_score::auth;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
