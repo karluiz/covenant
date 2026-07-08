@@ -6,7 +6,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
-use karl_lsp::{install, registry, root, server::LspServer};
+use karl_lsp::registry::InstallKind;
+use karl_lsp::{install, registry, root, runtime, server::LspServer, LspError};
 
 /// One server per workspace root. Both maps live behind a single mutex so
 /// `lsp_start` and `lsp_stop` can never acquire them in opposite orders
@@ -34,6 +35,17 @@ impl LspState {
     }
 }
 
+/// Populated on `LspServerStatus` when an npm-method server needs a runtime
+/// (e.g. node) that isn't present, or is present but too old. `found` is
+/// `None` when the runtime binary wasn't found at all, `Some(version)` when
+/// it was found but failed the minimum-version check.
+#[derive(Debug, Clone, Serialize)]
+pub struct RuntimeMissingInfo {
+    pub name: String,
+    pub min: String,
+    pub found: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct LspServerStatus {
     pub language: String,
@@ -41,6 +53,10 @@ pub struct LspServerStatus {
     pub version: String,
     pub installed: bool,
     pub approx_size_mb: u32,
+    /// `Some` only for npm-method servers whose runtime dependency (node)
+    /// is missing or too old. Binary servers (rust-analyzer) always report
+    /// `None` here.
+    pub runtime_missing: Option<RuntimeMissingInfo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,6 +71,15 @@ struct DownloadProgress {
     total: Option<u64>,
 }
 
+/// Progress payload for the npm-install path (no byte-stream progress —
+/// `npm_install` fires this periodically with a human-readable status
+/// instead). Emitted on the same `lsp://download/{language}` topic as
+/// `DownloadProgress`; consumers distinguish by install kind.
+#[derive(Debug, Clone, Serialize)]
+struct NpmInstallProgress {
+    message: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct LspInstalledServer {
     pub language: String,
@@ -67,12 +92,31 @@ pub struct LspInstalledServer {
 #[tauri::command]
 pub fn lsp_server_status(state: State<'_, LspState>, language: String) -> Result<LspServerStatus, String> {
     let spec = registry::spec_for_language(&language).map_err(|e| e.to_string())?;
+
+    let mut installed = install::is_installed(&state.data_dir, spec);
+    let mut runtime_missing = None;
+
+    if spec.install_kind() == InstallKind::Npm {
+        if let Some(rt) = &spec.runtime {
+            if let Err(e) = runtime::detect(&rt.as_runtime_req()) {
+                match e {
+                    LspError::RuntimeMissing { name, min, found } => {
+                        runtime_missing = Some(RuntimeMissingInfo { name, min, found });
+                        installed = false;
+                    }
+                    other => return Err(other.to_string()),
+                }
+            }
+        }
+    }
+
     Ok(LspServerStatus {
         language,
         name: spec.name.clone(),
         version: spec.version.clone(),
-        installed: install::is_installed(&state.data_dir, spec),
+        installed,
         approx_size_mb: spec.approx_size_mb,
+        runtime_missing,
     })
 }
 
@@ -84,11 +128,37 @@ pub async fn lsp_download_server(
 ) -> Result<(), String> {
     let spec = registry::spec_for_language(&language).map_err(|e| e.to_string())?;
     let topic = format!("lsp://download/{language}");
-    install::download(spec, &state.data_dir, |received, total| {
-        let _ = app.emit(&topic, DownloadProgress { received, total });
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    match spec.install_kind() {
+        InstallKind::Binary => {
+            install::download(spec, &state.data_dir, |received, total| {
+                let _ = app.emit(&topic, DownloadProgress { received, total });
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+        InstallKind::Npm => {
+            let rt = spec.runtime.as_ref().ok_or_else(|| {
+                format!("{} is an npm server but has no runtime spec", spec.name)
+            })?;
+            let node = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
+            // Node's PARENT DIR (not the binary itself) so npm_install's
+            // resolve_npm_path fast path finds `npm` next to it instead of
+            // falling back to a login-shell lookup.
+            let node_dir = node.path.parent().ok_or_else(|| {
+                format!("cannot resolve parent directory of {}", node.path.display())
+            })?;
+            install::npm_install(spec, &state.data_dir, node_dir, |message| {
+                let _ = app.emit(
+                    &topic,
+                    NpmInstallProgress {
+                        message: message.to_string(),
+                    },
+                );
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
     Ok(())
 }
 
@@ -144,14 +214,32 @@ pub async fn lsp_start(
 
     // Step 2: spawn with no lock held — this can be slow (process launch,
     // handshake) and must never block lsp_send/lsp_stop for other servers.
+    // Binary servers (rust-analyzer) spawn `entry_path` directly — the
+    // downloaded binary IS the command. Npm servers spawn the resolved
+    // `node` binary with the JS entry point as its first argument, since
+    // the "binary" here is a `.mjs`/`.js` file that can't execute itself.
+    let (bin, spawn_args): (PathBuf, Vec<String>) = match spec.install_kind() {
+        InstallKind::Binary => (install::entry_path(&state.data_dir, spec), spec.args.clone()),
+        InstallKind::Npm => {
+            let rt = spec.runtime.as_ref().ok_or_else(|| {
+                format!("{} is an npm server but has no runtime spec", spec.name)
+            })?;
+            let node = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
+            let entry = install::entry_path(&state.data_dir, spec);
+            let mut args = vec![entry.to_string_lossy().to_string()];
+            args.extend(spec.args.iter().cloned());
+            (node.path, args)
+        }
+    };
+
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     let msg_topic = format!("lsp://{id}/message");
     let exit_topic = format!("lsp://{id}/exit");
     let app_msg = app.clone();
     let app_exit = app.clone();
     let mut srv = LspServer::spawn(
-        &install::entry_path(&state.data_dir, spec),
-        &spec.args,
+        &bin,
+        &spawn_args,
         &root,
         move |msg| {
             let _ = app_msg.emit(&msg_topic, msg);

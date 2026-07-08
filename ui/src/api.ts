@@ -3055,12 +3055,23 @@ export async function cloudSyncWipe(): Promise<void> {
 
 // ---- LSP ------------------------------------------------------------
 
+/// Present only for npm-method servers (e.g. TypeScript) whose runtime
+/// dependency (node) is missing or too old. `found` is `null` when the
+/// runtime binary wasn't found at all, a version string when it was found
+/// but failed the minimum-version check.
+export interface LspRuntimeMissing {
+  name: string;
+  min: string;
+  found?: string | null;
+}
+
 export interface LspServerStatus {
   language: string;
   name: string;
   version: string;
   installed: boolean;
   approxSizeMb: number;
+  runtimeMissing?: LspRuntimeMissing | null;
 }
 
 export interface LspStartResult {
@@ -3070,7 +3081,12 @@ export interface LspStartResult {
 
 export async function lspServerStatus(language: string): Promise<LspServerStatus> {
   const raw = await invoke<{
-    language: string; name: string; version: string; installed: boolean; approx_size_mb: number;
+    language: string;
+    name: string;
+    version: string;
+    installed: boolean;
+    approx_size_mb: number;
+    runtime_missing?: { name: string; min: string; found?: string | null } | null;
   }>("lsp_server_status", { language });
   return {
     language: raw.language,
@@ -3078,6 +3094,9 @@ export async function lspServerStatus(language: string): Promise<LspServerStatus
     version: raw.version,
     installed: raw.installed,
     approxSizeMb: raw.approx_size_mb,
+    runtimeMissing: raw.runtime_missing
+      ? { name: raw.runtime_missing.name, min: raw.runtime_missing.min, found: raw.runtime_missing.found }
+      : null,
   };
 }
 
