@@ -22,6 +22,19 @@ const store = new StackStore();
 const stack = document.getElementById("stack") as HTMLElement;
 mountRender(stack, store);
 
+// Resting glyph: in notch modes the HUD is a permanent extension of the
+// physical notch, so show a quiet resting dot whenever there's no active
+// pill. Corner modes stay hidden when idle.
+const rest = document.getElementById("rest") as HTMLElement;
+const syncRest = (): void => {
+  // Only the minimal nub keeps a resting state (a small black tab flush with
+  // the notch). The full Dynamic Island shows nothing at rest and only its
+  // pill on activity — a persistent black box there just floats and misaligns.
+  const restingMode = document.body.dataset.corner === "notch-mini";
+  rest.hidden = !(restingMode && store.pills().length === 0);
+};
+store.subscribe(syncRest);
+
 type StatePayload = {
   session: string;
   phase: ExecutorPhase;
@@ -53,11 +66,18 @@ const notchStateListenerReady = listen<StatePayload>("notch:state", onNotchState
 
 setInterval(() => store.gc(), 500);
 
-type NotchCorner = "bottom-right" | "bottom-left" | "top-right" | "top-left";
+type NotchCorner =
+  | "bottom-right"
+  | "bottom-left"
+  | "top-right"
+  | "top-left"
+  | "notch"
+  | "notch-mini";
 type NotchTheme = "dark" | "light" | "system";
 type NotchReady = { corner: NotchCorner; sound_on_done: boolean; theme?: NotchTheme };
 const applyCorner = (corner: NotchCorner) => {
   document.body.dataset.corner = corner;
+  syncRest();
 };
 const applyTheme = (theme: NotchTheme) => {
   // `system` intentionally leaves both classes off so CSS can follow

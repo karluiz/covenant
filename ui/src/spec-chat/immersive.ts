@@ -188,12 +188,9 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
     renderAttachments();
   };
 
-  const sendText = (text: string, images: OutgoingImage[] = []) => {
+  const sendText = (text: string, images: OutgoingImage[] = [], previews: string[] = []) => {
     if (!text.trim() && images.length === 0) return;
-    const shown = images.length
-      ? `${text.trim()}${text.trim() ? '\n' : ''}📎 ${images.length} imagen${images.length > 1 ? 'es' : ''}`
-      : text.trim();
-    state.addUserMessage(shown);
+    state.addUserMessage(text.trim(), previews);
     void opts.source
       .send(draftId, text.trim(), opts.cwd, images.length ? images : undefined)
       .then((id) => { draftId = id; })
@@ -203,10 +200,11 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
     const text = composer.value.trim();
     if (!text && pending.length === 0) return;
     const images: OutgoingImage[] = pending.map((p) => ({ dataB64: p.dataB64, mediaType: p.mediaType }));
+    const previews = pending.map((p) => p.previewUrl);
     composer.value = '';
     pending = [];
     renderAttachments();
-    sendText(text, images);
+    sendText(text, images, previews);
   };
   composer = new MarkdownEditor({
     mode: 'inline',

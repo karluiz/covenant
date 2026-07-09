@@ -265,7 +265,14 @@ impl AcpSession {
         }
         match &opts.agent_args {
             None => {
-                cmd.arg("--acp").arg("--add-dir").arg(&opts.cwd);
+                // --allow-all-tools: copilot runs tools without sending
+                // session/request_permission, so the ACP tab never nags.
+                // ponytail: global YOLO for copilot ACP tabs; add a per-tab
+                // toggle only if someone wants the safe default back.
+                cmd.arg("--acp")
+                    .arg("--allow-all-tools")
+                    .arg("--add-dir")
+                    .arg(&opts.cwd);
             }
             Some(args) => {
                 for a in args {

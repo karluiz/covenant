@@ -7014,6 +7014,7 @@ button.status-segment.status-add-operator:focus-visible {
    the same "alive" feel as the dot pulse without animating the icon
    itself (animating a 12px detailed glyph reads as flicker). */
 .status-executor__icon {
+  position: relative;  /* anchors the health dot overlay */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7026,6 +7027,24 @@ button.status-segment.status-add-operator:focus-visible {
 .status-executor__icon svg {
   display: block;
 }
+/* Provider health dot — bottom-right corner of the executor icon.
+   A 5px circle with a 1px window-background ring to separate it
+   from the logo. Not rendered at all for "unknown" providers
+   (no status page = no signal worth showing). */
+.status-executor__health {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--bg, #1a1b1e);
+  pointer-events: none;
+  transition: background-color 0.4s ease;
+}
+.status-executor__health--ok      { background: #22c55e; }
+.status-executor__health--degraded { background: #f59e0b; }
+.status-executor__health--down    { background: #ef4444; }
 /* Offline state — executor chip dims, italicizes, and gains a small
    amber "no internet" reason tag. The chip stays in place so the user
    reads "this is why Claude isn't responding" without a separate banner. */

@@ -95,9 +95,9 @@ body[data-corner="top-left"] .stack {
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--notch-border);
   border-top-color: var(--notch-border-top);
-  border-left: 3px solid var(--tab, #7c5cff);
-  border-radius: 12px;
-  padding: 9px 14px 9px 11px;
+  border-left: 2px solid var(--tab, #7c5cff);
+  border-radius: 0;
+  padding: 9px 14px 9px 12px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -155,9 +155,9 @@ body[data-corner="top-left"] .stack {
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--notch-border);
   border-top-color: var(--notch-border-top);
-  border-left: 3px solid var(--tab, #7c5cff);
-  border-radius: 999px;
-  padding: 6px 14px 6px 8px;
+  border-left: 2px solid var(--tab, #7c5cff);
+  border-radius: 0;
+  padding: 6px 14px 6px 9px;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -170,8 +170,8 @@ body[data-corner="top-left"] .stack {
   cursor: pointer;
 }
 .pill.compact:hover {
-  padding: 9px 14px 9px 11px;
-  border-radius: 12px;
+  padding: 9px 14px 9px 12px;
+  border-radius: 0;
   min-width: 210px;
 }
 .pill.compact .target {
@@ -196,6 +196,125 @@ body[data-corner="top-left"] .stack {
 @keyframes slideIn {
   from { opacity: 0; transform: translateY(8px) scale(0.95); }
   to { opacity: 1; transform: none; }
+}
+
+/* ── Dynamic Island mode ──────────────────────────────────────────────
+   A black HUD that hangs flush from the physical notch: centered at the
+   top, flat top corners (merge with the notch), rounded bottom, content
+   padded below the notch height so it clears the camera/menu bar. The
+   window itself is centered + raised above the menu bar in notch.rs. */
+body[data-corner="notch"] .stack {
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
+}
+body[data-corner="notch"] .pill.expanded,
+body[data-corner="notch"] .pill.compact {
+  background: #000;
+  /* Kill the inherited blur/saturate so the fill is truly #000 (matches the
+     physical notch as closely as a lit pixel can). */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 0;
+  border-bottom: 2px solid var(--tab, #7c5cff);
+  border-radius: 0 0 14px 14px;
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  gap: 8px;
+  /* Hug the notch: drop the 210px min-width floor and tighten the box. */
+  min-width: 0;
+  padding: 34px 22px 7px 12px; /* top clears the notch / menu bar strip */
+  animation: notchDrop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+/* Give the Dynamic Island real body — a fixed-ish width instead of hugging
+   the text, so it reads as an island under the notch, not a thin pill. */
+body[data-corner="notch"] .pill.expanded { min-width: 190px; max-width: 320px; }
+/* Keep the breadcrumb on one line so the pill sizes to its natural width
+   instead of wrapping and going too narrow. */
+body[data-corner="notch"] .pill.expanded .tabchip { white-space: nowrap; }
+body[data-corner="notch"] .pill.compact:hover {
+  border-radius: 0 0 14px 14px;
+  min-width: 0;
+  padding: 34px 14px 7px 12px;
+}
+body[data-corner="notch"] .pill.expanded .tabchip { font-size: 8.5px; }
+body[data-corner="notch"] .pill .verb { font-size: 11.5px; }
+body[data-corner="notch"] .pill.expanded .ico { width: 18px; height: 18px; }
+/* Force light text — the island is always black regardless of OS theme. */
+body[data-corner="notch"] .pill .verb,
+body[data-corner="notch"] .pill .target { color: #e5e7eb; }
+body[data-corner="notch"] .pill .tabchip {
+  color: color-mix(in srgb, var(--tab, #7c5cff) 78%, #ffffff);
+}
+@keyframes notchDrop {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Notch minimal ────────────────────────────────────────────────────
+   Same placement as Notch, but icon-only: hide the breadcrumb/verb and
+   show just the animated phase glyph in a small pill (Whirr-style). */
+/* The window itself IS the tab (sized + placed flush-left of the notch in
+   notch.rs), so the pill fills it edge-to-edge: black, flat top, rounded
+   bottom-left to mirror the notch's corner; right stays square (overlaps the
+   notch). Icon centered. */
+body[data-corner="notch-mini"] .stack {
+  inset: 0;
+  transform: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+body[data-corner="notch-mini"] .pill.expanded,
+body[data-corner="notch-mini"] .pill.compact,
+body[data-corner="notch-mini"] .pill.compact:hover {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  gap: 0;
+  padding: 0;
+  background: #000;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 0;
+  border-radius: 0 0 0 10px; /* rounded outer (left) corner; right meets notch */
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: notchDrop 0.3s ease-out;
+}
+/* Strip everything but the icon. */
+body[data-corner="notch-mini"] .pill .col,
+body[data-corner="notch-mini"] .pill .verb,
+body[data-corner="notch-mini"] .pill .target,
+body[data-corner="notch-mini"] .pill .tabchip { display: none; }
+body[data-corner="notch-mini"] .pill .ico { width: 18px; height: 18px; }
+
+/* ── Resting state ────────────────────────────────────────────────────
+   Permanent presence for notch modes: just the black shape, no glyph or
+   animation, so it reads as a static part of the notch until an executor
+   event swaps in the phase pill. */
+.rest { display: block; }
+.rest[hidden] { display: none; }
+body[data-corner="notch-mini"] .rest {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  border-radius: 0 0 0 10px;
+}
+body[data-corner="notch"] .rest {
+  position: fixed;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 54px;
+  height: 44px;
+  background: #000;
+  border-radius: 0 0 12px 12px;
 }
 
 /* All phase icons share a 16×16 SVG canvas. Sizing handled by .ico. */

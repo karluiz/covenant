@@ -6,6 +6,94 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.144 — Notch Dynamic Island + minimal HUD modes
+
+### Added
+
+- **Notch (Dynamic Island) position**: a new status-HUD position that hangs
+  a black pill flush from the physical MacBook notch, centered above the
+  menu bar (raised to `NSStatusWindowLevel`). `crates/app/src/notch.rs`
+  centers the overlay window on the built-in display; `ui/notch/styles.css`
+  styles the pill black with a flat top / rounded bottom.
+- **Notch (minimal) position**: an icon-only tab butted flush against the
+  notch's left edge, sized to the notch's exact height. Placement reads the
+  real notch geometry from `NSScreen` (`safeAreaInsets.top` +
+  `auxiliaryTopLeftArea`) via private struct-return objc calls, shrinking
+  the overlay window to the tab and pinning it to the notch's left edge.
+- **Always-present notch HUD**: in both notch modes the HUD is a permanent
+  extension of the notch — shown at boot (and on switch) with a quiet
+  resting state (plain black), swapping to the animated phase glyph on
+  executor activity and back to rest when idle (`ui/notch/main.ts`,
+  `ui/notch/index.html`).
+- **Notch position "Test" button**: Settings → Notch position now has a
+  Test button (`notch_preview` command) that plays a synthetic
+  Thinking → Done sequence so the chosen position can be previewed without
+  waiting for a real executor event (`ui/src/settings/panel.ts`).
+
+### Changed
+
+- **Sharp notch pills**: the floating overlay pills lost their rounded
+  corners (`border-radius: 0`) and the accent border thinned to 2px
+  (`ui/notch/styles.css`).
+- **Notch window pinned across Spaces**: the overlay is marked
+  `canJoinAllSpaces | stationary` and shown on all workspaces so it stays
+  put in Mission Control. (The horizontal Space-switch swipe still animates
+  the transparent WebView window — a macOS limitation.)
+
+### Fixed
+
+- **Focus-gated corner overlay**: the windowed corner notch now hides while
+  Covenant is focused and re-shows on blur (fullscreen still uses the inline
+  rack), so a status pill no longer hovers over the terminal while you work
+  (`crates/app/src/notch.rs`, `crates/app/src/lib.rs`).
+- **"Start agent" icon**: the executor "Start agent" menu item now uses the
+  sparkles icon instead of headphones (headphones is operator-only)
+  (`ui/src/tabs/manager.ts`).
+- **Release manifest generation**: the aggregate `latest.json` step reads
+  the manifest to EOF instead of exiting early (`.github/workflows`).
+
+## v0.8.143 — provider-health status chip + Canon rename
+
+### Added
+
+- **Provider-health chip in the status bar**: the running executor's
+  segment now carries a live health dot fed by the Atlassian Statuspage v2
+  API (`status.anthropic.com`, `githubstatus.com`, `status.openai.com`).
+  A per-executor poller (`ui/src/status/provider-health.ts`, 60s interval)
+  drives ok/degraded/down states; the tooltip appends the provider's status
+  line. `ui/src/status/bar.ts` subscribes per-executor and tears the
+  subscription down on agent switch.
+- **Worktree-aware spec & draft picker**: specs and drafts now surface
+  before merge by resolving through `--git-common-dir` and unioning
+  `git worktree list`, so in-progress drafts on other worktrees appear in
+  the "Set spec" picker (`crates/app/src/drafts.rs`,
+  `crates/agent/src/spec_author.rs`, `ui/src/mission/page.ts`).
+
+### Changed
+
+- **CDLC → Canon rename**: the CDLC brand, crate, and on-disk layout are
+  renamed to Canon across the workspace (`crates/canon/`,
+  `crates/app/src/canon_*.rs`, skill dirs). Behavior unchanged; naming only.
+- **Copilot ACP tabs run with `--allow-all-tools`**: copilot doesn't emit
+  `session/request_permission`, so ACP tabs no longer stall on a permission
+  nag (`crates/agent/src/acp/session.rs`).
+- **`latest.json` release notes from CHANGELOG**: the updater manifest now
+  slices this tag's CHANGELOG section into the auto-updater notes instead of
+  a bare release URL (`.github/workflows/release-manifest.yml`).
+
+### Fixed
+
+- **Tooltip hides over the titlebar drag region**: macOS suppresses
+  `mousemove` over `-webkit-app-region: drag`, leaving stale pointer coords
+  that hid the tooltip on the first frame. The rect-watch now arms only on
+  trusted coords (`ui/src/tooltip/tooltip.ts`).
+- **Mission keydown listener leak**: the Esc/submit handler is added and
+  removed on the capture phase symmetrically, so it no longer lingers
+  (`ui/src/mission/page.ts`).
+- **Background-workspace MRU seeding**: a background workspace's Recent
+  signal is dated from its `last_used_at` rather than always null
+  (`ui/src/workspaces/manager.ts`).
+
 ## v0.8.142 — LSP runtime-fix banner + CDLC context provenance
 
 ### Added

@@ -4,17 +4,21 @@ import { CustomSelect, type SelectOption } from "../ui/select";
 
 type Role = "summary" | "chat" | "operator" | "triage" | "spec_creator" | "context_miner";
 
-// ponytail: in-flight dedupe so the 5 role rows mounting at once collapse
-// identical provider probes into ONE request (Azure throttles 5 parallel
-// /openai/deployments calls past the backend's 8s timeout → false "unreachable").
-// Cleared on settle, so a later manual refresh still re-probes.
-const inflightProbes = new Map<string, Promise<{ id: string }[]>>();
+// ponytail: cache successful probes for 60s. Rows share providers (4+ use the
+// same Azure endpoint), so without caching, mounting all 6 fired parallel
+// /openai/deployments calls that blew past the backend's 8s timeout → false
+// "unreachable". Failures aren't cached, so a broken provider retries.
+// ponytail: 60s TTL, bump if provider model lists change more often than that.
+const PROBE_TTL_MS = 60_000;
+const probeCache = new Map<string, { at: number; p: Promise<{ id: string }[]> }>();
 function probe(key: string, fn: () => Promise<{ id: string }[]>) {
-  let p = inflightProbes.get(key);
-  if (!p) {
-    p = fn().finally(() => inflightProbes.delete(key));
-    inflightProbes.set(key, p);
-  }
+  const hit = probeCache.get(key);
+  if (hit && Date.now() - hit.at < PROBE_TTL_MS) return hit.p;
+  const p = fn().catch((e) => {
+    probeCache.delete(key);
+    throw e;
+  });
+  probeCache.set(key, { at: Date.now(), p });
   return p;
 }
 
@@ -118,6 +122,7 @@ function renderRoleRow(
     status.classList.add(`is-${kind}`);
   };
 
+  let lastModelCount = 0;
   const refreshModels = async () => {
     const providerId = providerSel.value;
     const entry = settings.providers?.[providerId];
@@ -169,6 +174,7 @@ function renderRoleRow(
       modelOptions.push({ value: route.model, label: `${route.model} (not found)` });
     }
     modelSel.setOptions(modelOptions, route.model);
+    lastModelCount = models.length;
     if (!route.model) {
       setStatus("warn", `⚠ ${models.length} models — pick one`);
     } else if (!modelPresent && entry.kind !== "anthropic") {
@@ -194,21 +200,26 @@ function renderRoleRow(
   };
 
   providerSel.element.addEventListener("change", () => {
+    // Switching provider clears the model — the old one rarely exists on the
+    // new provider, and a blank model gives a clear "pick one" prompt.
+    route.model = "";
+    modelSel.setOptions([], "");
     const next: Settings = structuredClone(settings);
     next.model_routes = next.model_routes ?? {};
-    next.model_routes[role] = { provider_id: providerSel.value, model: route.model };
+    next.model_routes[role] = { provider_id: providerSel.value, model: "" };
     onChange(next);
     void refreshModels();
   });
   modelSel.element.addEventListener("change", () => {
+    // Model pick needs no re-probe — the list is already loaded.
+    route.model = modelSel.value;
     const next: Settings = structuredClone(settings);
     next.model_routes = next.model_routes ?? {};
-    next.model_routes[role] = {
-      provider_id: providerSel.value,
-      model: modelSel.value,
-    };
+    next.model_routes[role] = { provider_id: providerSel.value, model: modelSel.value };
     onChange(next);
-    void refreshModels();
+    const entry = settings.providers?.[providerSel.value];
+    setStatus("ok", `✓ ${entry?.kind === "anthropic" ? "anthropic" : `reachable, ${lastModelCount} models`}`);
+    updateWarning();
   });
 
   wrap.appendChild(labeled("Provider", providerSel.element));

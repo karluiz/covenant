@@ -164,7 +164,13 @@ interface Settings {
   /// Floating bottom-right notch overlay showing executor phase pills
   /// (Thinking / Reading / Running / Writing / Done). Default true.
   notch_enabled: boolean;
-  notch_corner?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  notch_corner?:
+    | "bottom-right"
+    | "bottom-left"
+    | "top-right"
+    | "top-left"
+    | "notch"
+    | "notch-mini";
   notch_sound_on_done?: boolean;
   tabbar_position: TabbarPosition;
   folded_rail_style?: FoldedRailStyle;
@@ -441,7 +447,7 @@ export class SettingsPanel {
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
       <a href="#sec-operators" data-target="sec-operators">Operators</a>
-      <a href="#sec-spawns" data-target="sec-spawns">Spawns</a>
+      <a href="#sec-spawns" data-target="sec-spawns">Harnesses</a>
       <a href="#sec-updates" data-target="sec-updates">Updates</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
@@ -559,9 +565,17 @@ export class SettingsPanel {
           </label>
           <label class="settings-field">
             <span class="settings-label">Notch position</span>
-            <span data-role="notch-corner-select"></span>
+            <span style="display:flex;gap:8px;align-items:stretch">
+              <span data-role="notch-corner-select" style="flex:1"></span>
+              <button type="button" data-role="notch-preview-btn"
+                style="display:inline-flex;align-items:center;gap:6px;padding:0 14px;white-space:nowrap;background:var(--surface-2,#1c1c1e);color:var(--fg,#e5e7eb);border:1px solid var(--border,#2e2e30);cursor:pointer;font-size:12px;font-weight:600">
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M2 1.5v9l8-4.5z"/></svg>
+                Test
+              </button>
+            </span>
             <small class="settings-hint">
-              Screen corner where the floating overlay anchors.
+              Where the status HUD anchors. “Notch” modes hang from the
+              MacBook notch. Hit Test to preview.
             </small>
           </label>
           <label class="settings-field">
@@ -1303,9 +1317,16 @@ export class SettingsPanel {
         { value: "bottom-left", label: "Bottom left" },
         { value: "top-right", label: "Top right" },
         { value: "top-left", label: "Top left" },
+        { value: "notch", label: "Notch (Dynamic Island)" },
+        { value: "notch-mini", label: "Notch (minimal)" },
       ],
     });
     notchCornerHost.replaceWith(notchCorner.element);
+    form
+      .querySelector<HTMLButtonElement>('[data-role="notch-preview-btn"]')
+      ?.addEventListener("click", () => {
+        void invoke("notch_preview", { corner: notchCorner.value }).catch(() => {});
+      });
     const notchSoundOnDone = form.querySelector<HTMLInputElement>(
       'input[name="notch_sound_on_done"]',
     )!;
@@ -1630,14 +1651,11 @@ export class SettingsPanel {
 
     const modelsRoutesRoot = form.querySelector<HTMLElement>("#models-routes-root");
     if (modelsRoutesRoot && this.current) {
-      const renderModels = (): void => {
-        if (!this.current || !modelsRoutesRoot) return;
-        renderModelsTab(modelsRoutesRoot, this.current, (next) => {
-          this.current = next;
-          renderModels();
-        });
-      };
-      renderModels();
+      // ponytail: render once; cards update themselves in place. Re-rendering
+      // on every change tore down all 6 cards and re-probed every provider.
+      renderModelsTab(modelsRoutesRoot, this.current, (next) => {
+        this.current = next;
+      });
     }
 
     const opMount = form.querySelector<HTMLElement>("#operators-pane");
