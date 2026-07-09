@@ -100,18 +100,37 @@ const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent"];
 /// convention). Skills and full context bodies land here as `canon-<name>/SKILL.md`.
 const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills"];
 
-fn project_agents(repo_root: &Path, agents: &[(String, String)]) -> Result<(), CanonError> {
-    if agents.is_empty() {
+/// Executors that read a multi-file COMMAND dir as file-per-item `<name>.md`
+/// slash commands. Codex has no project-level commands; Copilot uses a
+/// different extension/frontmatter — both deferred. Add an executor here.
+const COMMAND_DIRS: &[&str] = &[".claude/commands", ".opencode/commands", ".pi/prompts"];
+
+/// Write each `<stem>.md` (covenant block stripped) into every dir in `dirs`.
+/// Shared by agents and commands — the two file-per-item projection kinds.
+fn project_file_per_item(
+    repo_root: &Path,
+    dirs: &[&str],
+    items: &[(String, String)],
+) -> Result<(), CanonError> {
+    if items.is_empty() {
         return Ok(());
     }
-    for base in AGENT_DIRS {
+    for base in dirs {
         let dir = repo_root.join(base);
         std::fs::create_dir_all(&dir)?;
-        for (stem, raw) in agents {
+        for (stem, raw) in items {
             std::fs::write(dir.join(format!("{stem}.md")), strip_covenant_block(raw))?;
         }
     }
     Ok(())
+}
+
+fn project_agents(repo_root: &Path, agents: &[(String, String)]) -> Result<(), CanonError> {
+    project_file_per_item(repo_root, AGENT_DIRS, agents)
+}
+
+fn project_commands(repo_root: &Path, commands: &[(String, String)]) -> Result<(), CanonError> {
+    project_file_per_item(repo_root, COMMAND_DIRS, commands)
 }
 
 /// Write `canon-<name>/SKILL.md` (with content already prepared) into every
@@ -349,6 +368,7 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
     let skills_dir = canon_dir(repo_root).join("skills");
     let agents = read_dir_md(&canon_dir(repo_root).join("agents"))?;
     let contexts = read_dir_md(&canon_dir(repo_root).join("context"))?;
+    let commands = read_dir_md(&canon_dir(repo_root).join("commands"))?;
     let mut skills: Vec<(String, String, String)> = Vec::new();
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
@@ -356,7 +376,7 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
     }
 
     // No sources at all → nothing is projected anywhere.
-    if agents.is_empty() && skills.is_empty() && contexts.is_empty() {
+    if agents.is_empty() && skills.is_empty() && contexts.is_empty() && commands.is_empty() {
         return Ok(ProjectionStatus {
             executors: TOOLS
                 .iter()
@@ -382,6 +402,12 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         let content = ensure_frontmatter(stem, body_after_frontmatter(raw));
         files.push(("claude", repo_root.join(".claude/skills").join(format!("canon-{stem}")).join("SKILL.md"), content.clone()));
         files.push(("pi", repo_root.join(".pi/skills").join(format!("canon-{stem}")).join("SKILL.md"), content));
+    }
+    for (stem, raw) in &commands {
+        let content = strip_covenant_block(raw);
+        files.push(("claude", repo_root.join(".claude/commands").join(format!("{stem}.md")), content.clone()));
+        files.push(("opencode", repo_root.join(".opencode/commands").join(format!("{stem}.md")), content.clone()));
+        files.push(("pi", repo_root.join(".pi/prompts").join(format!("{stem}.md")), content));
     }
 
     let body = managed_body(None, &agents, &skills, &contexts);
@@ -424,6 +450,7 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     // Sources.
     let agents = read_dir_md(&canon_dir(repo_root).join("agents"))?;
     let contexts = read_dir_md(&canon_dir(repo_root).join("context"))?;
+    let commands = read_dir_md(&canon_dir(repo_root).join("commands"))?;
     let mut skills: Vec<(String, String, String)> = Vec::new(); // (name, version, body)
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
@@ -437,6 +464,7 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     // File-per-item executors (Claude, opencode, pi): one file per artifact.
     project_agents(repo_root, &agents)?;
     project_context_skills(repo_root, &contexts)?;
+    project_commands(repo_root, &commands)?;
     for (name, _v, body) in &skills {
         write_skill_dirs(repo_root, name, &ensure_frontmatter(name, body))?;
     }
@@ -996,5 +1024,32 @@ mod tests {
         assert_eq!(st.source_edited_unix, None);
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn project_commands_writes_all_three_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        let cmds = vec![("deploy".to_string(), "---\ndescription: x\n---\nRun deploy\n".to_string())];
+        project_commands(repo, &cmds).unwrap();
+        assert!(repo.join(".claude/commands/deploy.md").exists());
+        assert!(repo.join(".opencode/commands/deploy.md").exists());
+        assert!(repo.join(".pi/prompts/deploy.md").exists());
+        let written = std::fs::read_to_string(repo.join(".claude/commands/deploy.md")).unwrap();
+        assert!(written.contains("Run deploy"));
+    }
+
+    #[test]
+    fn projection_status_flags_stale_command() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        std::fs::create_dir_all(repo.join(".covenant/canon/commands")).unwrap();
+        std::fs::write(repo.join(".covenant/canon/commands/deploy.md"), "Run deploy\n").unwrap();
+        project(repo).unwrap();
+        // Tamper the projected claude command → claude must read stale.
+        std::fs::write(repo.join(".claude/commands/deploy.md"), "tampered\n").unwrap();
+        let st = projection_status(repo).unwrap();
+        let claude = st.executors.iter().find(|e| e.tool == "claude").unwrap();
+        assert_eq!(claude.state, ProjState::Stale);
     }
 }

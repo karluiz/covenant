@@ -2430,6 +2430,7 @@ async fn canon_read_source(cwd: String, kind: String, name: String) -> Result<St
     let k = match kind.as_str() {
         "agent" => karl_canon::ContextKind::Agent,
         "context" => karl_canon::ContextKind::Context,
+        "command" => karl_canon::ContextKind::Command,
         "skill" => karl_canon::ContextKind::Skill,
         other => return Err(format!("unknown context kind: {other}")),
     };
