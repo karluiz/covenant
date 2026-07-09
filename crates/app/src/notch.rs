@@ -460,7 +460,11 @@ pub fn spawn_bridge(
                     // stay up like a menu-bar HUD, so focus does not suppress
                     // it (fullscreen still does — the menu bar is hidden there).
                     let corner = settings.lock().await.notch_corner;
-                    let notch_mode = matches!(corner, crate::settings::NotchCorner::Notch);
+                    let notch_mode = matches!(
+                        corner,
+                        crate::settings::NotchCorner::Notch
+                            | crate::settings::NotchCorner::NotchMini
+                    );
                     let main_win = app.get_webview_window("main");
                     let suppress = hub.inline_mode()
                         || main_win
@@ -574,7 +578,11 @@ fn apply_notch_window_level(win: &tauri::WebviewWindow, corner: crate::settings:
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
     // NSStatusWindowLevel = 25 (above the 24 menu bar), NSFloatingWindowLevel = 3.
-    let level: i64 = if matches!(corner, NotchCorner::Notch) { 25 } else { 3 };
+    let level: i64 = if matches!(corner, NotchCorner::Notch | NotchCorner::NotchMini) {
+        25
+    } else {
+        3
+    };
     if let Ok(ns_window) = win.ns_window() {
         unsafe {
             let obj = ns_window as *mut AnyObject;
@@ -594,8 +602,15 @@ fn apply_notch_window_level(_win: &tauri::WebviewWindow, _corner: crate::setting
 fn apply_macos_collection_behavior(win: &tauri::WebviewWindow) {
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
-    // NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
-    const BEHAVIOR: u64 = 1 << 0;
+    // Show the notch HUD on every Space (via Tauri so tao keeps it across
+    // window events) and mark it Stationary so it stays put in Mission
+    // Control / Exposé. NOTE: neither this nor the private WindowServer
+    // "sticky" tag (CGSSetWindowTags 0x800) stops a transparent WebView
+    // window from riding the horizontal Space-switch swipe animation — that
+    // was verified at runtime and is a macOS limitation for this window type.
+    let _ = win.set_visible_on_all_workspaces(true);
+    // CanJoinAllSpaces (1<<0) | Stationary (1<<4).
+    const BEHAVIOR: u64 = (1 << 0) | (1 << 4);
     if let Ok(ns_window) = win.ns_window() {
         unsafe {
             let obj = ns_window as *mut AnyObject;
@@ -607,6 +622,91 @@ fn apply_macos_collection_behavior(win: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 fn apply_macos_collection_behavior(_win: &tauri::WebviewWindow) {}
 
+/// Read the physical notch geometry from the window's NSScreen: returns
+/// `(notch_left_edge_x, notch_height)` in points. `None` when there's no
+/// notch (external display / non-notched Mac) so callers can fall back.
+#[cfg(target_os = "macos")]
+fn notch_metrics(win: &tauri::WebviewWindow) -> Option<(f64, f64)> {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NSEdgeInsets {
+        top: f64,
+        left: f64,
+        bottom: f64,
+        right: f64,
+    }
+    unsafe impl Encode for NSEdgeInsets {
+        const ENCODING: Encoding = Encoding::Struct(
+            "NSEdgeInsets",
+            &[
+                Encoding::Double,
+                Encoding::Double,
+                Encoding::Double,
+                Encoding::Double,
+            ],
+        );
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGSize,
+    }
+    unsafe impl Encode for CGPoint {
+        const ENCODING: Encoding =
+            Encoding::Struct("CGPoint", &[Encoding::Double, Encoding::Double]);
+    }
+    unsafe impl Encode for CGSize {
+        const ENCODING: Encoding =
+            Encoding::Struct("CGSize", &[Encoding::Double, Encoding::Double]);
+    }
+    unsafe impl Encode for CGRect {
+        const ENCODING: Encoding =
+            Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
+    }
+
+    unsafe {
+        let ns_window = win.ns_window().ok()? as *mut AnyObject;
+        let mut screen: *mut AnyObject = msg_send![&*ns_window, screen];
+        if screen.is_null() {
+            screen = msg_send![class!(NSScreen), mainScreen];
+        }
+        if screen.is_null() {
+            return None;
+        }
+        let insets: NSEdgeInsets = msg_send![&*screen, safeAreaInsets];
+        // No safe-area inset at the top ⇒ no notch on this display.
+        if insets.top <= 0.0 {
+            return None;
+        }
+        // The left auxiliary area spans from the screen's left edge to the
+        // notch's left edge, so its width IS the notch-left x (points).
+        let left_area: CGRect = msg_send![&*screen, auxiliaryTopLeftArea];
+        Some((left_area.size.width, insets.top))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn notch_metrics(_win: &tauri::WebviewWindow) -> Option<(f64, f64)> {
+    None
+}
+
 fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorner) {
     use crate::settings::NotchCorner;
     let Ok(Some(monitor)) = win.current_monitor() else {
@@ -614,6 +714,36 @@ fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::Notch
     };
     let size = monitor.size();
     let scale = monitor.scale_factor();
+
+    // NotchMini: shrink the window to a small tab and butt it against the
+    // physical notch's left edge so it reads as a leftward continuation of
+    // the notch, at the notch's exact height. Geometry comes from the real
+    // NSScreen notch metrics; if unavailable (no notch), fall back to a small
+    // faux tab in the top-left.
+    if matches!(corner, NotchCorner::NotchMini) {
+        const NUB_W: f64 = 44.0; // logical width of the tab
+        let (notch_left_pts, notch_h_pts) = notch_metrics(win).unwrap_or((72.0, 26.0));
+        let nub_w = NUB_W * scale;
+        // auxiliaryTopLeftArea leaves a safe-area margin before the notch, so
+        // its edge sits a few pt left of the real notch. Nudge the nub right
+        // so its edge tucks under the notch (invisible seam — both black).
+        const NUDGE: f64 = 12.0;
+        let x = (notch_left_pts * scale - nub_w + NUDGE * scale).round() as i32;
+        let win_h = (notch_h_pts * scale).round().max(1.0) as u32;
+        let _ = win.set_size(tauri::PhysicalSize {
+            width: nub_w.round() as u32,
+            height: win_h,
+        });
+        let _ = win.set_position(tauri::PhysicalPosition { x: x.max(0), y: 0 });
+        return;
+    }
+
+    // Every other mode uses the full-size overlay window; restore it in case
+    // we're switching away from NotchMini's shrunken window.
+    let _ = win.set_size(tauri::PhysicalSize {
+        width: (360.0 * scale).round() as u32,
+        height: (440.0 * scale).round() as u32,
+    });
     let w = (360.0 * scale) as i32;
     let h = (440.0 * scale) as i32;
     let pad_x = (16.0 * scale) as i32;
@@ -636,6 +766,8 @@ fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::Notch
         // hangs from the physical notch. The CSS centers the pill within the
         // window and pads its content below the notch height.
         NotchCorner::Notch => ((size.width as i32 - w) / 2, 0),
+        // Handled above with a shrunken window.
+        NotchCorner::NotchMini => return,
     };
     let _ = win.set_position(tauri::PhysicalPosition { x, y });
 }
@@ -645,6 +777,65 @@ pub async fn notch_set_passthrough(window: tauri::Window, passthrough: bool) -> 
     window
         .set_ignore_cursor_events(passthrough)
         .map_err(|e| e.to_string())
+}
+
+/// Show the notch at the current position and play a short synthetic
+/// Thinking → Done sequence so the user can preview its look without waiting
+/// for a real executor event. Auto-dismisses (Idle) after the Done chime.
+#[tauri::command]
+pub async fn notch_preview(
+    app: AppHandle,
+    state: tauri::State<'_, crate::AppState>,
+    corner: Option<crate::settings::NotchCorner>,
+) -> Result<(), String> {
+    // Preview the position the user is currently choosing (may be unsaved),
+    // falling back to the saved one.
+    let corner = match corner {
+        Some(c) => c,
+        None => state.settings.lock().await.notch_corner,
+    };
+    if let Some(win) = app.get_webview_window("notch") {
+        show_notch(&win, corner);
+    }
+    // Sync the webview's CSS mode (notch vs notch-mini vs corner) to match.
+    let _ = app.emit("notch:corner", serde_json::json!({ "corner": corner }));
+    let phase = |k: serde_json::Value| {
+        serde_json::json!({ "session": "__preview__", "tab_label": "Preview", "phase": k })
+    };
+    let _ = app.emit("notch:state", phase(serde_json::json!({ "kind": "thinking" })));
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
+        let _ = app.emit(
+            "notch:state",
+            serde_json::json!({
+                "session": "__preview__",
+                "tab_label": "Preview",
+                "phase": { "kind": "done", "summary": "preview" }
+            }),
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(2800)).await;
+        let _ = app.emit(
+            "notch:state",
+            serde_json::json!({
+                "session": "__preview__",
+                "tab_label": "Preview",
+                "phase": { "kind": "idle" }
+            }),
+        );
+        // Corner modes only appear on events, so tidy the preview window away
+        // (a real event re-shows it). Notch modes are permanent — leave them.
+        let persist = matches!(
+            corner,
+            crate::settings::NotchCorner::Notch | crate::settings::NotchCorner::NotchMini
+        );
+        if !persist {
+            if let Some(win) = app.get_webview_window("notch") {
+                let _ = win.hide();
+            }
+        }
+    });
+    Ok(())
 }
 
 /// Called by the notch webview once its listener is mounted. Replays

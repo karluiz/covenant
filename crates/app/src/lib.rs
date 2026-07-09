@@ -2583,7 +2583,19 @@ async fn set_settings(
     state.notch_hub.set_enabled(notch_enabled).await;
     if notch_corner_changed {
         if let Some(win) = app.get_webview_window("notch") {
-            notch::reposition_notch(&win, new_corner);
+            // Notch modes are a permanent extension of the notch — show the
+            // HUD immediately on switch (resting glyph until activity). Corner
+            // modes only appear on events, so take the overlay back down when
+            // switching away so it doesn't linger.
+            if matches!(
+                new_corner,
+                settings::NotchCorner::Notch | settings::NotchCorner::NotchMini
+            ) {
+                notch::show_notch(&win, new_corner);
+            } else {
+                notch::reposition_notch(&win, new_corner);
+                let _ = win.hide();
+            }
         }
         let _ = app.emit("notch:corner", serde_json::json!({ "corner": new_corner }));
     }
@@ -4457,7 +4469,10 @@ pub fn run() {
                             let corner = state.settings.lock().await.notch_corner;
                             // Dynamic-Island mode stays up like a menu-bar HUD;
                             // don't focus-gate it.
-                            if matches!(corner, settings::NotchCorner::Notch) {
+                            if matches!(
+                                corner,
+                                settings::NotchCorner::Notch | settings::NotchCorner::NotchMini
+                            ) {
                                 if !focused {
                                     notch::show_notch(&notch, corner);
                                 }
@@ -4510,10 +4525,28 @@ pub fn run() {
                                 if let Some(notch) = h.get_webview_window("notch") {
                                     if fs {
                                         let _ = notch.hide();
+                                    } else {
+                                        // On exit, notch modes are permanent so
+                                        // re-show immediately; corner modes stay
+                                        // hidden and the bridge re-shows them on
+                                        // the next executor event.
+                                        let settings_arc = h
+                                            .try_state::<AppState>()
+                                            .map(|s| s.settings.clone());
+                                        if let Some(settings_arc) = settings_arc {
+                                            let notch = notch.clone();
+                                            tauri::async_runtime::spawn(async move {
+                                                let c = settings_arc.lock().await.notch_corner;
+                                                if matches!(
+                                                    c,
+                                                    settings::NotchCorner::Notch
+                                                        | settings::NotchCorner::NotchMini
+                                                ) {
+                                                    notch::show_notch(&notch, c);
+                                                }
+                                            });
+                                        }
                                     }
-                                    // On exit we leave the overlay hidden; the
-                                    // bridge re-shows it on the next executor
-                                    // event naturally.
                                 }
                                 let _ = h.emit(
                                     "notch:inline-mode",
@@ -4542,9 +4575,27 @@ pub fn run() {
                 // re-applied through `set_settings`.
                 let hub = state.notch_hub.clone();
                 let settings_arc = state.settings.clone();
+                let boot_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    let enabled = settings_arc.lock().await.notch_enabled;
+                    let (enabled, corner) = {
+                        let s = settings_arc.lock().await;
+                        (s.notch_enabled, s.notch_corner)
+                    };
                     hub.set_enabled(enabled).await;
+                    // Notch modes are a permanent extension of the physical
+                    // notch, so show the HUD at boot (it renders a resting
+                    // glyph until an executor event arrives) rather than
+                    // popping in on first activity.
+                    if enabled
+                        && matches!(
+                            corner,
+                            settings::NotchCorner::Notch | settings::NotchCorner::NotchMini
+                        )
+                    {
+                        if let Some(win) = boot_handle.get_webview_window("notch") {
+                            notch::show_notch(&win, corner);
+                        }
+                    }
                 });
             }
 
@@ -4837,6 +4888,7 @@ pub fn run() {
             cloud_sync::commands::cloud_sync_wipe,
             notch::notch_set_passthrough,
             notch::notch_ready,
+            notch::notch_preview,
             spawns_commands::spawns_list,
             spawns_commands::spawns_upsert,
             spawns_commands::spawns_delete,

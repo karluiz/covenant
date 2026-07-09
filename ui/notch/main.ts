@@ -22,6 +22,17 @@ const store = new StackStore();
 const stack = document.getElementById("stack") as HTMLElement;
 mountRender(stack, store);
 
+// Resting glyph: in notch modes the HUD is a permanent extension of the
+// physical notch, so show a quiet resting dot whenever there's no active
+// pill. Corner modes stay hidden when idle.
+const rest = document.getElementById("rest") as HTMLElement;
+const syncRest = (): void => {
+  const c = document.body.dataset.corner;
+  const notchMode = c === "notch" || c === "notch-mini";
+  rest.hidden = !(notchMode && store.pills().length === 0);
+};
+store.subscribe(syncRest);
+
 type StatePayload = {
   session: string;
   phase: ExecutorPhase;
@@ -53,11 +64,18 @@ const notchStateListenerReady = listen<StatePayload>("notch:state", onNotchState
 
 setInterval(() => store.gc(), 500);
 
-type NotchCorner = "bottom-right" | "bottom-left" | "top-right" | "top-left" | "notch";
+type NotchCorner =
+  | "bottom-right"
+  | "bottom-left"
+  | "top-right"
+  | "top-left"
+  | "notch"
+  | "notch-mini";
 type NotchTheme = "dark" | "light" | "system";
 type NotchReady = { corner: NotchCorner; sound_on_done: boolean; theme?: NotchTheme };
 const applyCorner = (corner: NotchCorner) => {
   document.body.dataset.corner = corner;
+  syncRest();
 };
 const applyTheme = (theme: NotchTheme) => {
   // `system` intentionally leaves both classes off so CSS can follow

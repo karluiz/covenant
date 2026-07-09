@@ -215,16 +215,27 @@ body[data-corner="notch"] .pill.compact {
   background: #000;
   border: 0;
   border-bottom: 2px solid var(--tab, #7c5cff);
-  border-radius: 0 0 16px 16px;
+  border-radius: 0 0 14px 14px;
   color: #fff;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
-  padding-top: 40px; /* clear the notch / menu bar strip */
+  gap: 8px;
+  /* Hug the notch: drop the 210px min-width floor and tighten the box. */
+  min-width: 0;
+  padding: 34px 22px 7px 12px; /* top clears the notch / menu bar strip */
   animation: notchDrop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+body[data-corner="notch"] .pill.expanded { max-width: 340px; }
+/* Keep the breadcrumb on one line so the pill sizes to its natural width
+   instead of wrapping and going too narrow. */
+body[data-corner="notch"] .pill.expanded .tabchip { white-space: nowrap; }
 body[data-corner="notch"] .pill.compact:hover {
-  border-radius: 0 0 16px 16px;
-  padding-top: 40px;
+  border-radius: 0 0 14px 14px;
+  min-width: 0;
+  padding: 34px 14px 7px 12px;
 }
+body[data-corner="notch"] .pill.expanded .tabchip { font-size: 8.5px; }
+body[data-corner="notch"] .pill .verb { font-size: 11.5px; }
+body[data-corner="notch"] .pill.expanded .ico { width: 18px; height: 18px; }
 /* Force light text — the island is always black regardless of OS theme. */
 body[data-corner="notch"] .pill .verb,
 body[data-corner="notch"] .pill .target { color: #e5e7eb; }
@@ -234,6 +245,68 @@ body[data-corner="notch"] .pill .tabchip {
 @keyframes notchDrop {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: none; }
+}
+
+/* ── Notch minimal ────────────────────────────────────────────────────
+   Same placement as Notch, but icon-only: hide the breadcrumb/verb and
+   show just the animated phase glyph in a small pill (Whirr-style). */
+/* The window itself IS the tab (sized + placed flush-left of the notch in
+   notch.rs), so the pill fills it edge-to-edge: black, flat top, rounded
+   bottom-left to mirror the notch's corner; right stays square (overlaps the
+   notch). Icon centered. */
+body[data-corner="notch-mini"] .stack {
+  inset: 0;
+  transform: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+body[data-corner="notch-mini"] .pill.expanded,
+body[data-corner="notch-mini"] .pill.compact,
+body[data-corner="notch-mini"] .pill.compact:hover {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  gap: 0;
+  padding: 0;
+  background: #000;
+  border: 0;
+  border-radius: 0 0 0 10px; /* rounded outer (left) corner; right meets notch */
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: notchDrop 0.3s ease-out;
+}
+/* Strip everything but the icon. */
+body[data-corner="notch-mini"] .pill .col,
+body[data-corner="notch-mini"] .pill .verb,
+body[data-corner="notch-mini"] .pill .target,
+body[data-corner="notch-mini"] .pill .tabchip { display: none; }
+body[data-corner="notch-mini"] .pill .ico { width: 18px; height: 18px; }
+
+/* ── Resting state ────────────────────────────────────────────────────
+   Permanent presence for notch modes: just the black shape, no glyph or
+   animation, so it reads as a static part of the notch until an executor
+   event swaps in the phase pill. */
+.rest { display: block; }
+.rest[hidden] { display: none; }
+body[data-corner="notch-mini"] .rest {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  border-radius: 0 0 0 10px;
+}
+body[data-corner="notch"] .rest {
+  position: fixed;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 54px;
+  height: 44px;
+  background: #000;
+  border-radius: 0 0 12px 12px;
 }
 
 /* All phase icons share a 16×16 SVG canvas. Sizing handled by .ico. */

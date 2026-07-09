@@ -447,6 +447,9 @@ pub enum NotchCorner {
     /// physical notch (top-center, above the menu bar). Falls back to a
     /// floating top-center pill on Macs without a notch.
     Notch,
+    /// Same placement as `Notch` but icon-only — a minimal HUD showing just
+    /// the animated phase glyph, no breadcrumb or verb text (Whirr-style).
+    NotchMini,
 }
 
 fn default_notch_sound_on_done() -> bool {
