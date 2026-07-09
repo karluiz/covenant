@@ -2423,6 +2423,22 @@ async fn canon_read_local(cwd: String, name: String) -> Result<String, String> {
     Ok(md)
 }
 
+/// Raw source markdown for a context unit of a given kind (agent/context/skill).
+#[tauri::command]
+async fn canon_read_source(cwd: String, kind: String, name: String) -> Result<String, String> {
+    let repo = std::path::PathBuf::from(cwd);
+    let k = match kind.as_str() {
+        "agent" => karl_canon::ContextKind::Agent,
+        "context" => karl_canon::ContextKind::Context,
+        "skill" => karl_canon::ContextKind::Skill,
+        other => return Err(format!("unknown context kind: {other}")),
+    };
+    tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, k, &name))
+        .await
+        .map_err(|e| format!("canon_read_source join: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
 /// Re-run the multi-export: write every Canon source (agents, skills, context)
 /// into each executor's native files (.claude/*, AGENTS.md, copilot-instructions).
 /// Idempotent — safe to run any time after editing `.covenant/canon/`.
@@ -4731,6 +4747,7 @@ pub fn run() {
             canon_remove_member,
             canon_preview,
             canon_read_local,
+            canon_read_source,
             canon_export,
             canon_projection_status,
             canon_publish,

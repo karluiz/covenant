@@ -8,7 +8,7 @@ pub mod types;
 pub mod eval;
 pub mod kind;
 
-pub use install::{install_from_dir, install_local, read_skill_package, status, CanonStatus};
+pub use install::{install_from_dir, install_local, read_skill_package, read_source, status, CanonStatus};
 pub use manifest::{canon_dir, read_manifest, write_manifest};
 pub use project::{
     project, project_with_active, projection_status, ExecutorStatus, ProjState, ProjectionStatus,

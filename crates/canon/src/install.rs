@@ -1,6 +1,6 @@
 use crate::project::project;
 use crate::types::{CanonManifest, InstalledRef, SkillManifest};
-use crate::{canon_dir, read_manifest, write_manifest, CanonError};
+use crate::{canon_dir, read_manifest, write_manifest, CanonError, ContextKind};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -126,6 +126,19 @@ pub fn read_skill_package(
     let md_s = std::fs::read_to_string(dir.join("SKILL.md"))?;
     let sm: SkillManifest = toml::from_str(&toml_s)?;
     Ok((toml_s, md_s, sm))
+}
+
+/// Raw source markdown for a single context unit. Path-traversal safe.
+pub fn read_source(repo_root: &Path, kind: ContextKind, name: &str) -> Result<String, CanonError> {
+    if !valid_pkg_name(name) {
+        return Err(CanonError::InvalidPackage(format!("invalid name: {name:?}")));
+    }
+    let base = canon_dir(repo_root).join(kind.dir());
+    let path = match kind {
+        ContextKind::Skill => base.join(name).join("SKILL.md"),
+        _ => base.join(format!("{name}.md")),
+    };
+    Ok(std::fs::read_to_string(path)?)
 }
 
 fn write_lock(repo_root: &Path, m: &CanonManifest) -> Result<(), CanonError> {
@@ -270,5 +283,21 @@ mod tests {
         assert_eq!(s.contexts[0].name, "kyc");
         assert_eq!(s.contexts[0].summary.as_deref(), Some("KYC rules"));
         assert!(s.installed.is_empty());
+    }
+
+    #[test]
+    fn read_source_returns_agent_and_context_bodies() {
+        use crate::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let canon = root.join(".covenant/canon");
+        std::fs::create_dir_all(canon.join("agents")).unwrap();
+        std::fs::write(canon.join("agents/reviewer.md"), "PERSONA BODY").unwrap();
+        std::fs::create_dir_all(canon.join("context")).unwrap();
+        std::fs::write(canon.join("context/kyc.md"), "CTX BODY").unwrap();
+
+        assert_eq!(read_source(root, ContextKind::Agent, "reviewer").unwrap(), "PERSONA BODY");
+        assert_eq!(read_source(root, ContextKind::Context, "kyc").unwrap(), "CTX BODY");
+        assert!(read_source(root, ContextKind::Agent, "../etc/passwd").is_err());
     }
 }
