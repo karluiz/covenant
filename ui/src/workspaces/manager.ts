@@ -238,7 +238,12 @@ export class WorkspaceManager {
             tabIndex: i,
             title: t.custom_name ?? `Tab ${i + 1}`,
             isActiveTabInWorkspace: i === w.active_index,
-            lastActiveAt: null,
+            // ponytail: no per-tab timestamp persisted, so a background
+            // workspace's MRU signal is the tab it was left on, dated by
+            // when that workspace was last used. Recent thus mixes one row
+            // per other workspace. Add a per-tab last_active_at to
+            // SerializedTab if true cross-workspace per-tab MRU is needed.
+            lastActiveAt: i === w.active_index ? w.last_used_at : null,
           });
         });
       }

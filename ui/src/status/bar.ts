@@ -48,6 +48,12 @@ import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
 import { attachTooltip } from "../tooltip/tooltip";
 import { VitalsCluster } from "./vitals";
+import {
+  subscribeProviderHealth,
+  getProviderHealth,
+  getProviderDescription,
+  type ProviderHealth,
+} from "./provider-health";
 // TODO(task-17): integrate `renderOperatorChip` here once the LIVE
 // badge + colored-dot composition can be expressed via the shared
 // chip primitive. Today the status-bar operator chip carries a LIVE
@@ -140,6 +146,15 @@ export class StatusBar {
   /// gains a "no internet" reason tag; a standalone offline chip is
   /// surfaced when no executor is running.
   private online: boolean = isOnline();
+  /// Provider health for the currently running executor. Refreshed by
+  /// the provider-health poller (60s interval). "unknown" is the default
+  /// when no status page is available or no executor is active.
+  private executorHealth: ProviderHealth = "unknown";
+  private executorHealthDesc = "";
+  /// Unsubscribe function returned by subscribeProviderHealth. Cleaned
+  /// up on the next setExecutor() call so we never listen for the
+  /// previous executor's health after switching agents.
+  private unsubscribeHealth: (() => void) | null = null;
 
   /// Wired by main.ts to TabManager. Fires when the user clicks the
   /// "+ Mission" affordance on the status bar (only shown when no
@@ -318,6 +333,27 @@ export class StatusBar {
   setExecutor(name: string | null): void {
     if (this.currentExecutor === name) return;
     this.currentExecutor = name;
+
+    // Tear down the previous health subscription.
+    this.unsubscribeHealth?.();
+    this.unsubscribeHealth = null;
+
+    if (name) {
+      // Seed from cache immediately so the chip doesn't flash "unknown"
+      // on a tab switch where we already have a cached value.
+      this.executorHealth = getProviderHealth(name);
+      this.executorHealthDesc = getProviderDescription(name);
+      this.unsubscribeHealth = subscribeProviderHealth(name, (health, desc) => {
+        if (this.executorHealth === health && this.executorHealthDesc === desc) return;
+        this.executorHealth = health;
+        this.executorHealthDesc = desc;
+        this.render(this.lastDirCtx);
+      });
+    } else {
+      this.executorHealth = "unknown";
+      this.executorHealthDesc = "";
+    }
+
     this.render(this.lastDirCtx);
   }
 
@@ -732,7 +768,14 @@ export class StatusBar {
 
     // ─── RIGHT ───────────────────────────────────────────
     if (this.currentExecutor) {
-      right.appendChild(executorSegment(this.currentExecutor, this.online));
+      right.appendChild(
+        executorSegment(
+          this.currentExecutor,
+          this.online,
+          this.executorHealth,
+          this.executorHealthDesc,
+        ),
+      );
     } else if (!this.online) {
       right.appendChild(offlineSegment());
     }
@@ -1399,19 +1442,32 @@ function executorBrand(name: string): { color: string; label: string } | null {
   }
 }
 
-function executorSegment(name: string, online: boolean = true): HTMLElement {
+function executorSegment(
+  name: string,
+  online: boolean = true,
+  health: ProviderHealth = "unknown",
+  healthDesc = "",
+): HTMLElement {
   const el = document.createElement("span");
   const brand = executorBrand(name);
   const offlineCls = online ? "" : " status-executor--offline";
   el.className = (brand
     ? "status-segment status-executor status-executor-brand"
     : "status-segment status-executor") + offlineCls;
-  attachTooltip(
-    el,
-    online
-      ? `Running ${brand?.label ?? name} in this tab`
-      : `${brand?.label ?? name} unavailable — no internet`,
-  );
+
+  // Tooltip: base line + health status when known.
+  const baseLine = online
+    ? `Running ${brand?.label ?? name} in this tab`
+    : `${brand?.label ?? name} unavailable — no internet`;
+  const healthLine =
+    health === "ok"
+      ? healthDesc || "All Systems Operational"
+      : health === "degraded"
+        ? `Degraded${healthDesc ? ` — ${healthDesc}` : ""}`
+        : health === "down"
+          ? `Down${healthDesc ? ` — ${healthDesc}` : ""}`
+          : null;
+  attachTooltip(el, healthLine ? `${baseLine} · ${healthLine}` : baseLine);
   el.setAttribute(
     "aria-label",
     online
@@ -1432,6 +1488,13 @@ function executorSegment(name: string, online: boolean = true): HTMLElement {
       const iconWrap = document.createElement("span");
       iconWrap.className = "status-executor__icon";
       iconWrap.innerHTML = svg;
+      // Health dot overlaid on the bottom-right corner of the icon.
+      if (health !== "unknown") {
+        const healthDot = document.createElement("span");
+        healthDot.className = `status-executor__health status-executor__health--${health}`;
+        healthDot.setAttribute("aria-hidden", "true");
+        iconWrap.appendChild(healthDot);
+      }
       el.appendChild(iconWrap);
     } else {
       // No glyph for this vendor → keep the dot AND the name, since a

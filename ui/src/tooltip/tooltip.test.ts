@@ -92,6 +92,18 @@ describe("attachTooltip stuck-tooltip watchdog", () => {
     next.remove();
   });
 
+  test("stays visible when opened with stale-outside coords (titlebar drag region)", () => {
+    // macOS suppresses mousemove over a -webkit-app-region: drag ancestor, so
+    // lastMouse is stale-outside the icon when mouseenter opens the tooltip.
+    // The rect-watch must stay disarmed instead of hiding on the first frame.
+    pointerAt(500, 500); // last known position, nowhere near the target
+    target.dispatchEvent(new MouseEvent("mouseenter"));
+    vi.advanceTimersByTime(350);
+    expect(tooltipHost()?.classList.contains("is-visible")).toBe(true);
+    vi.advanceTimersByTime(300); // several rAF ticks — must not self-hide
+    expect(tooltipHost()?.classList.contains("is-visible")).toBe(true);
+  });
+
   test("still hides when the target detaches from the DOM", () => {
     openTooltip();
     target.remove();

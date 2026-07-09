@@ -70,9 +70,24 @@ jobs:
           WIN_SIGV=$(cat "sigs/$WIN_SIG")
           LIN_SIGV=$(cat "sigs/$LIN_SIG")
 
+          # Release notes = this tag's CHANGELOG.md section (the in-app modal
+          # renders it as Markdown). This job has no checkout, so pull the file
+          # at the tag via the API. Fall back to the release URL if extraction
+          # yields nothing. ponytail: awk section-slice, fine for this format.
+          NOTES="See https://github.com/${REPO}/releases/tag/${TAG}"
+          CHANGELOG=$(gh api "repos/${REPO}/contents/CHANGELOG.md?ref=${TAG}" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || true)
+          if [ -n "$CHANGELOG" ]; then
+            SECTION=$(printf '%s\n' "$CHANGELOG" | awk -v tag="$TAG" '
+              $0 ~ "^## " tag "([ ]|$)" { grab=1; next }
+              grab && /^## / { exit }
+              grab { print }
+            ' | sed '/./,$!d')
+            [ -n "$(printf '%s' "$SECTION" | tr -d '[:space:]')" ] && NOTES="$SECTION"
+          fi
+
           jq -n \
             --arg v "$VERSION" --arg d "$DATE" \
-            --arg notes "See https://github.com/${REPO}/releases/tag/${TAG}" \
+            --arg notes "$NOTES" \
             --arg armurl "${BASE}/${ARM_TGZ}" --arg armsig "$ARM_SIGV" \
             --arg x64url "${BASE}/${X64_TGZ}" --arg x64sig "$X64_SIGV" \
             --arg winurl "${BASE}/${WIN_MSI}" --arg winsig "$WIN_SIGV" \
