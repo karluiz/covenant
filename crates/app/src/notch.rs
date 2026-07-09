@@ -450,31 +450,35 @@ pub fn spawn_bridge(
             match rx.recv().await {
                 Ok(ev @ SessionEvent::ExecutorStateChanged { .. }) => {
                     tracing::info!(target: "notch", "bridge: forwarding ExecutorStateChanged to webview");
-                    // When Covenant is in fullscreen the main UI renders
-                    // inline pills — keep the overlay hidden but still
-                    // fan the event out so the inline rack updates.
-                    // Authoritative fullscreen flag (set by the Resized hook
-                    // after macOS settles) OR'd with a live poll as a
-                    // belt-and-suspenders fallback for the launch-in-fullscreen
-                    // case before any Resized fires. Never show the overlay
-                    // when either says fullscreen — in fullscreen the notch
-                    // must not exist; the inline rack carries the load.
-                    let main_fullscreen = hub.inline_mode()
-                        || app
-                            .get_webview_window("main")
+                    // Suppress the floating overlay when the main UI can carry
+                    // the status itself: in fullscreen the inline rack does,
+                    // and when the main window is focused the user is already
+                    // looking at Covenant — a pill hovering over the terminal
+                    // is just noise. The overlay exists for peripheral
+                    // awareness when Covenant is in the background, so only
+                    // show it then. Fullscreen flag is authoritative (set by
+                    // the Resized hook after macOS settles) OR'd with a live
+                    // poll; focus is always polled live.
+                    let main_win = app.get_webview_window("main");
+                    let suppress = hub.inline_mode()
+                        || main_win
+                            .as_ref()
                             .and_then(|w| w.is_fullscreen().ok())
+                            .unwrap_or(false)
+                        || main_win
+                            .as_ref()
+                            .and_then(|w| w.is_focused().ok())
                             .unwrap_or(false);
                     if let Some(win) = app.get_webview_window("notch") {
                         let visible = win.is_visible().unwrap_or(false);
-                        if !visible && !main_fullscreen {
+                        if !visible && !suppress {
                             let corner = settings.lock().await.notch_corner;
                             show_notch(&win, corner);
-                        } else if visible && main_fullscreen {
-                            // Entered fullscreen while the overlay was up.
-                            // The Resized hook may have missed the transition
-                            // (macOS flips is_fullscreen a beat late), so the
-                            // overlay can linger on top of the fullscreen
-                            // Space. Take it down here on the next event.
+                        } else if visible && suppress {
+                            // Went fullscreen or regained focus while the
+                            // overlay was up. The window-event hooks may have
+                            // missed the transition (macOS flips is_fullscreen
+                            // a beat late), so take it down here too.
                             let _ = win.hide();
                         }
                         // Emit via the AppHandle (global) instead of the

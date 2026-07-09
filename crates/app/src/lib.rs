@@ -4438,6 +4438,35 @@ pub fn run() {
                             }
                         }
                     }
+                    // Focus-gate the floating overlay: hide it while the main
+                    // window is focused (the user is looking at Covenant, so a
+                    // pill over the terminal is noise), re-show it on blur so
+                    // it keeps its peripheral-awareness job when Covenant is in
+                    // the background. Skip re-showing in fullscreen — the
+                    // inline rack owns status there.
+                    if let tauri::WindowEvent::Focused(focused) = ev {
+                        let h = handle.clone();
+                        let focused = *focused;
+                        tauri::async_runtime::spawn(async move {
+                            let Some(notch) = h.get_webview_window("notch") else {
+                                return;
+                            };
+                            if focused {
+                                let _ = notch.hide();
+                            } else {
+                                let fullscreen = h
+                                    .get_webview_window("main")
+                                    .and_then(|w| w.is_fullscreen().ok())
+                                    .unwrap_or(false);
+                                if !fullscreen {
+                                    if let Some(state) = h.try_state::<AppState>() {
+                                        let corner = state.settings.lock().await.notch_corner;
+                                        notch::show_notch(&notch, corner);
+                                    }
+                                }
+                            }
+                        });
+                    }
                     if let tauri::WindowEvent::Resized(_) = ev {
                         let h = handle.clone();
                         let last_fs = last_fs.clone();
