@@ -139,10 +139,10 @@ fn project_context_skills(
     Ok(())
 }
 
-/// First top-level `summary:` value inside the leading frontmatter, trimmed and
-/// dequoted. `None` if there is no frontmatter or no non-empty summary.
-/// ponytail: single-line summaries only; add block-scalar support if needed.
-pub(crate) fn parse_summary(md: &str) -> Option<String> {
+/// First top-level `<key>:` value inside the leading frontmatter, trimmed and
+/// dequoted. `None` if there is no frontmatter or no non-empty value.
+/// ponytail: single-line values only; add block-scalar support if needed.
+pub(crate) fn parse_frontmatter_str(md: &str, key: &str) -> Option<String> {
     let lines: Vec<&str> = md.lines().collect();
     let open = lines.iter().position(|l| l.trim() == "---")?;
     let close = open
@@ -151,8 +151,9 @@ pub(crate) fn parse_summary(md: &str) -> Option<String> {
             .iter()
             .skip(open + 1)
             .position(|l| l.trim() == "---")?;
+    let prefix = format!("{key}:");
     for l in &lines[open + 1..close] {
-        if let Some(rest) = l.strip_prefix("summary:") {
+        if let Some(rest) = l.strip_prefix(&prefix) {
             let v = rest.trim().trim_matches('"').trim();
             if !v.is_empty() {
                 return Some(v.to_string());
@@ -160,6 +161,10 @@ pub(crate) fn parse_summary(md: &str) -> Option<String> {
         }
     }
     None
+}
+
+pub(crate) fn parse_summary(md: &str) -> Option<String> {
+    parse_frontmatter_str(md, "summary")
 }
 
 /// Markdown body after the closing `---` of a leading frontmatter block.

@@ -3,7 +3,7 @@
 //! / Spec / Memory join in later sub-projects.
 
 use crate::manifest::{canon_dir, read_manifest};
-use crate::project::{parse_summary, read_dir_md};
+use crate::project::{parse_frontmatter_str, parse_summary, read_dir_md};
 use crate::CanonError;
 use serde::Serialize;
 use std::path::Path;
@@ -13,6 +13,7 @@ use std::path::Path;
 pub enum ContextKind {
     Agent,
     Context,
+    Command,
     Skill,
 }
 
@@ -22,6 +23,7 @@ impl ContextKind {
         match self {
             Self::Agent => "agents",
             Self::Context => "context",
+            Self::Command => "commands",
             Self::Skill => "skills",
         }
     }
@@ -31,6 +33,7 @@ impl ContextKind {
         match self {
             Self::Agent => "Agent",
             Self::Context => "Context",
+            Self::Command => "Command",
             Self::Skill => "Skill",
         }
     }
@@ -65,6 +68,15 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
         out.push(ContextUnit {
             kind: ContextKind::Context,
             summary: parse_summary(&raw),
+            name,
+            projectable: true,
+            packageable: false,
+        });
+    }
+    for (name, raw) in read_dir_md(&base.join("commands"))? {
+        out.push(ContextUnit {
+            kind: ContextKind::Command,
+            summary: parse_frontmatter_str(&raw, "description").or_else(|| parse_summary(&raw)),
             name,
             projectable: true,
             packageable: false,
@@ -122,5 +134,25 @@ mod tests {
         let skill = units.iter().find(|u| u.kind == ContextKind::Skill).unwrap();
         assert_eq!(skill.name, "testing");
         assert!(skill.packageable);
+    }
+
+    #[test]
+    fn list_context_includes_commands_with_description_summary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let canon = root.join(".covenant/canon");
+        std::fs::create_dir_all(canon.join("commands")).unwrap();
+        std::fs::write(
+            canon.join("commands/deploy.md"),
+            "---\ndescription: Ship the current branch\n---\nRun the deploy.\n",
+        )
+        .unwrap();
+
+        let units = list_context(root).unwrap();
+        let cmd = units.iter().find(|u| u.kind == ContextKind::Command).unwrap();
+        assert_eq!(cmd.name, "deploy");
+        assert_eq!(cmd.summary.as_deref(), Some("Ship the current branch"));
+        assert!(!cmd.packageable);
+        assert!(cmd.projectable);
     }
 }
