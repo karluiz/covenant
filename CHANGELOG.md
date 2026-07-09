@@ -6,6 +6,51 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.0 — Canon org cockpit + Inference settings fix
+
+### Added
+
+- **Canon cockpit**: a full-screen organization cockpit launched from the
+  Canon rail's expand button, built on the Capabilities layout language
+  with Org, Members, Skills, Registry, Context, and Loop sections
+  (`ui/src/canon/cockpit/view.ts`, `cockpit.css`). The rail is slimmed to a
+  compact skill summary; registry search, adoption/inference/eval
+  dashboards, and context-file management now live in the cockpit.
+- **Organizations**: a per-group active-org model with a rail org selector,
+  monogram chip, and org menu (`ui/src/canon/org.ts`, `panel.ts`), plus an
+  immersive Create-organization experience (`ui/src/canon/create-org/`).
+  Backed by typed org APIs and Tauri commands for create/list/add/remove
+  members (`canon_create_org`, `canon_org_members`, …).
+- **Premium context miner**: the Canon "New context" miner gets a
+  Spec-Creator-grade immersive intro with a constellation sky, staged rise
+  choreography, top border, and esc-to-exit (`ui/src/canon/miner/`).
+- **Worktree-aware specs**: specs & drafts surface before merge by resolving
+  through the git common dir (`feat(spec-picker)`).
+
+### Changed
+
+- **CDLC → Canon**: the whole subsystem renamed — brand, code, and on-disk
+  layout (`ui/src/canon/`, `crates/app/src/canon_registry.rs`).
+- **Spawns → Harnesses**: the Settings section and nav label renamed
+  (`ui/src/settings/spawns.ts`, `panel.ts`).
+- **Onboarding sharp corners**: onboarding card and buttons squared to
+  `border-radius: 0`, matching the house convention (`ui/src/styles.css`).
+
+### Fixed
+
+- **Inference settings re-probing storm**: picking any provider/model in
+  Settings → Inference no longer tears down and re-probes all six role
+  cards. The tab renders once, probes are cached 60s (fixing false Azure
+  "unreachable" from parallel throttling), the model resets on a provider
+  switch, and a model-only pick skips the probe entirely
+  (`ui/src/settings/model_routes.ts`, `panel.ts`).
+- **Notch resting nub**: only the minimal nub keeps a resting black tab; the
+  full Dynamic Island shows nothing at rest. Traffic lights nudged to y=12
+  (`crates/app/src/notch.rs`, `ui/notch/main.ts`).
+- **Tooltip over drag regions**: tooltips no longer hide on the first frame
+  when opened over a `-webkit-app-region: drag` titlebar, where macOS
+  suppresses `mousemove` and left stale pointer coords (`ui/src/tooltip/tooltip.ts`).
+
 ## v0.8.144 — Notch Dynamic Island + minimal HUD modes
 
 ### Added
