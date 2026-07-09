@@ -2423,7 +2423,7 @@ async fn canon_read_local(cwd: String, name: String) -> Result<String, String> {
     Ok(md)
 }
 
-/// Raw source markdown for a context unit of a given kind (agent/context/skill).
+/// Raw source markdown for a context unit of a given kind (agent/context/command/skill).
 #[tauri::command]
 async fn canon_read_source(cwd: String, kind: String, name: String) -> Result<String, String> {
     let repo = std::path::PathBuf::from(cwd);
