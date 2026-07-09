@@ -6,6 +6,48 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.143 — provider-health status chip + Canon rename
+
+### Added
+
+- **Provider-health chip in the status bar**: the running executor's
+  segment now carries a live health dot fed by the Atlassian Statuspage v2
+  API (`status.anthropic.com`, `githubstatus.com`, `status.openai.com`).
+  A per-executor poller (`ui/src/status/provider-health.ts`, 60s interval)
+  drives ok/degraded/down states; the tooltip appends the provider's status
+  line. `ui/src/status/bar.ts` subscribes per-executor and tears the
+  subscription down on agent switch.
+- **Worktree-aware spec & draft picker**: specs and drafts now surface
+  before merge by resolving through `--git-common-dir` and unioning
+  `git worktree list`, so in-progress drafts on other worktrees appear in
+  the "Set spec" picker (`crates/app/src/drafts.rs`,
+  `crates/agent/src/spec_author.rs`, `ui/src/mission/page.ts`).
+
+### Changed
+
+- **CDLC → Canon rename**: the CDLC brand, crate, and on-disk layout are
+  renamed to Canon across the workspace (`crates/canon/`,
+  `crates/app/src/canon_*.rs`, skill dirs). Behavior unchanged; naming only.
+- **Copilot ACP tabs run with `--allow-all-tools`**: copilot doesn't emit
+  `session/request_permission`, so ACP tabs no longer stall on a permission
+  nag (`crates/agent/src/acp/session.rs`).
+- **`latest.json` release notes from CHANGELOG**: the updater manifest now
+  slices this tag's CHANGELOG section into the auto-updater notes instead of
+  a bare release URL (`.github/workflows/release-manifest.yml`).
+
+### Fixed
+
+- **Tooltip hides over the titlebar drag region**: macOS suppresses
+  `mousemove` over `-webkit-app-region: drag`, leaving stale pointer coords
+  that hid the tooltip on the first frame. The rect-watch now arms only on
+  trusted coords (`ui/src/tooltip/tooltip.ts`).
+- **Mission keydown listener leak**: the Esc/submit handler is added and
+  removed on the capture phase symmetrically, so it no longer lingers
+  (`ui/src/mission/page.ts`).
+- **Background-workspace MRU seeding**: a background workspace's Recent
+  signal is dated from its `last_used_at` rather than always null
+  (`ui/src/workspaces/manager.ts`).
+
 ## v0.8.142 — LSP runtime-fix banner + CDLC context provenance
 
 ### Added
