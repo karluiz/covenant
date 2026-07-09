@@ -6,6 +6,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.2 — Traffic-light vertical alignment fix
+
+### Fixed
+
+- **Traffic lights re-centered in the title bar**: `40c5f9ea` regressed the
+  macOS window-control inset from `y=17` back to `y=12`, riding the lights too
+  high in the 38px bar. Restored to `y=17` (tao's inset `y` maps to the button
+  center at `y+2`, so 17 centers them) (`crates/app/tauri.conf.json`).
+
 ## v0.9.1 — Syntax colors for .gitignore/.env + real switcher titles
 
 ### Added
