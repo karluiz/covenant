@@ -198,6 +198,44 @@ body[data-corner="top-left"] .stack {
   to { opacity: 1; transform: none; }
 }
 
+/* ── Dynamic Island mode ──────────────────────────────────────────────
+   A black HUD that hangs flush from the physical notch: centered at the
+   top, flat top corners (merge with the notch), rounded bottom, content
+   padded below the notch height so it clears the camera/menu bar. The
+   window itself is centered + raised above the menu bar in notch.rs. */
+body[data-corner="notch"] .stack {
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
+}
+body[data-corner="notch"] .pill.expanded,
+body[data-corner="notch"] .pill.compact {
+  background: #000;
+  border: 0;
+  border-bottom: 2px solid var(--tab, #7c5cff);
+  border-radius: 0 0 16px 16px;
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  padding-top: 40px; /* clear the notch / menu bar strip */
+  animation: notchDrop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+body[data-corner="notch"] .pill.compact:hover {
+  border-radius: 0 0 16px 16px;
+  padding-top: 40px;
+}
+/* Force light text — the island is always black regardless of OS theme. */
+body[data-corner="notch"] .pill .verb,
+body[data-corner="notch"] .pill .target { color: #e5e7eb; }
+body[data-corner="notch"] .pill .tabchip {
+  color: color-mix(in srgb, var(--tab, #7c5cff) 78%, #ffffff);
+}
+@keyframes notchDrop {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
 /* All phase icons share a 16×16 SVG canvas. Sizing handled by .ico. */
 .ld-think, .ld-read, .ld-write, .ld-run, .ld-wait, .ld-done {
   width: 16px;

@@ -443,6 +443,10 @@ pub enum NotchCorner {
     BottomLeft,
     TopRight,
     TopLeft,
+    /// macOS only: a Dynamic-Island-style HUD that hangs flush from the
+    /// physical notch (top-center, above the menu bar). Falls back to a
+    /// floating top-center pill on Macs without a notch.
+    Notch,
 }
 
 fn default_notch_sound_on_done() -> bool {

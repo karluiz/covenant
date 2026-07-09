@@ -453,26 +453,28 @@ pub fn spawn_bridge(
                     // Suppress the floating overlay when the main UI can carry
                     // the status itself: in fullscreen the inline rack does,
                     // and when the main window is focused the user is already
-                    // looking at Covenant — a pill hovering over the terminal
-                    // is just noise. The overlay exists for peripheral
+                    // looking at Covenant — a corner pill hovering over the
+                    // terminal is just noise. The overlay exists for peripheral
                     // awareness when Covenant is in the background, so only
-                    // show it then. Fullscreen flag is authoritative (set by
-                    // the Resized hook after macOS settles) OR'd with a live
-                    // poll; focus is always polled live.
+                    // show it then. EXCEPTION: Dynamic-Island mode is meant to
+                    // stay up like a menu-bar HUD, so focus does not suppress
+                    // it (fullscreen still does — the menu bar is hidden there).
+                    let corner = settings.lock().await.notch_corner;
+                    let notch_mode = matches!(corner, crate::settings::NotchCorner::Notch);
                     let main_win = app.get_webview_window("main");
                     let suppress = hub.inline_mode()
                         || main_win
                             .as_ref()
                             .and_then(|w| w.is_fullscreen().ok())
                             .unwrap_or(false)
-                        || main_win
-                            .as_ref()
-                            .and_then(|w| w.is_focused().ok())
-                            .unwrap_or(false);
+                        || (!notch_mode
+                            && main_win
+                                .as_ref()
+                                .and_then(|w| w.is_focused().ok())
+                                .unwrap_or(false));
                     if let Some(win) = app.get_webview_window("notch") {
                         let visible = win.is_visible().unwrap_or(false);
                         if !visible && !suppress {
-                            let corner = settings.lock().await.notch_corner;
                             show_notch(&win, corner);
                         } else if visible && suppress {
                             // Went fullscreen or regained focus while the
@@ -549,6 +551,7 @@ pub fn show_notch(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorn
         let _ = w.show();
         position_at_corner(&w, corner);
         apply_macos_collection_behavior(&w);
+        apply_notch_window_level(&w, corner);
     });
 }
 
@@ -556,8 +559,32 @@ pub fn show_notch(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorn
 /// the user changes the corner setting at runtime.
 pub fn reposition_notch(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorner) {
     let w = win.clone();
-    let _ = win.run_on_main_thread(move || position_at_corner(&w, corner));
+    let _ = win.run_on_main_thread(move || {
+        position_at_corner(&w, corner);
+        apply_notch_window_level(&w, corner);
+    });
 }
+
+/// In Notch mode the HUD must draw over the menu bar, so raise the window
+/// above `NSMainMenuWindowLevel`. Every other corner sits in normal window
+/// space, so keep the default floating level (matches `alwaysOnTop`).
+#[cfg(target_os = "macos")]
+fn apply_notch_window_level(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorner) {
+    use crate::settings::NotchCorner;
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    // NSStatusWindowLevel = 25 (above the 24 menu bar), NSFloatingWindowLevel = 3.
+    let level: i64 = if matches!(corner, NotchCorner::Notch) { 25 } else { 3 };
+    if let Ok(ns_window) = win.ns_window() {
+        unsafe {
+            let obj = ns_window as *mut AnyObject;
+            let _: () = msg_send![&*obj, setLevel: level];
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_notch_window_level(_win: &tauri::WebviewWindow, _corner: crate::settings::NotchCorner) {}
 
 /// Set NSWindowCollectionBehavior so the notch window appears on all Spaces
 /// in windowed mode. We deliberately omit `FullScreenAuxiliary` so the
@@ -605,6 +632,10 @@ fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::Notch
         NotchCorner::BottomLeft => (pad_x, size.height as i32 - h - pad_y_bottom),
         NotchCorner::TopRight => (size.width as i32 - w - pad_x, pad_y_top),
         NotchCorner::TopLeft => (pad_x, pad_y_top),
+        // Centered on the built-in display, flush with the top so the pill
+        // hangs from the physical notch. The CSS centers the pill within the
+        // window and pads its content below the notch height.
+        NotchCorner::Notch => ((size.width as i32 - w) / 2, 0),
     };
     let _ = win.set_position(tauri::PhysicalPosition { x, y });
 }

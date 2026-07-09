@@ -164,7 +164,7 @@ interface Settings {
   /// Floating bottom-right notch overlay showing executor phase pills
   /// (Thinking / Reading / Running / Writing / Done). Default true.
   notch_enabled: boolean;
-  notch_corner?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  notch_corner?: "bottom-right" | "bottom-left" | "top-right" | "top-left" | "notch";
   notch_sound_on_done?: boolean;
   tabbar_position: TabbarPosition;
   folded_rail_style?: FoldedRailStyle;
@@ -1303,6 +1303,7 @@ export class SettingsPanel {
         { value: "bottom-left", label: "Bottom left" },
         { value: "top-right", label: "Top right" },
         { value: "top-left", label: "Top left" },
+        { value: "notch", label: "Notch (Dynamic Island)" },
       ],
     });
     notchCornerHost.replaceWith(notchCorner.element);

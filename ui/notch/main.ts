@@ -53,7 +53,7 @@ const notchStateListenerReady = listen<StatePayload>("notch:state", onNotchState
 
 setInterval(() => store.gc(), 500);
 
-type NotchCorner = "bottom-right" | "bottom-left" | "top-right" | "top-left";
+type NotchCorner = "bottom-right" | "bottom-left" | "top-right" | "top-left" | "notch";
 type NotchTheme = "dark" | "light" | "system";
 type NotchReady = { corner: NotchCorner; sound_on_done: boolean; theme?: NotchTheme };
 const applyCorner = (corner: NotchCorner) => {

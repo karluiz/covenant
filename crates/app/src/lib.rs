@@ -4451,6 +4451,18 @@ pub fn run() {
                             let Some(notch) = h.get_webview_window("notch") else {
                                 return;
                             };
+                            let Some(state) = h.try_state::<AppState>() else {
+                                return;
+                            };
+                            let corner = state.settings.lock().await.notch_corner;
+                            // Dynamic-Island mode stays up like a menu-bar HUD;
+                            // don't focus-gate it.
+                            if matches!(corner, settings::NotchCorner::Notch) {
+                                if !focused {
+                                    notch::show_notch(&notch, corner);
+                                }
+                                return;
+                            }
                             if focused {
                                 let _ = notch.hide();
                             } else {
@@ -4459,10 +4471,7 @@ pub fn run() {
                                     .and_then(|w| w.is_fullscreen().ok())
                                     .unwrap_or(false);
                                 if !fullscreen {
-                                    if let Some(state) = h.try_state::<AppState>() {
-                                        let corner = state.settings.lock().await.notch_corner;
-                                        notch::show_notch(&notch, corner);
-                                    }
+                                    notch::show_notch(&notch, corner);
                                 }
                             }
                         });
