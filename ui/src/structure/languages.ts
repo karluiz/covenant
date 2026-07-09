@@ -356,6 +356,11 @@ const BY_NAME: Record<string, () => Extension> = {
   ".gitconfig": () => StreamLanguage.define(propertiesMode),
   ".npmrc": () => StreamLanguage.define(propertiesMode),
   ".editorconfig": () => StreamLanguage.define(propertiesMode),
+  // ponytail: properties mode → `#` comments + patterns as keys. No `!`/`**`
+  // glob awareness; swap for a real gitignore grammar if that needs color.
+  ".gitignore": () => StreamLanguage.define(propertiesMode),
+  ".dockerignore": () => StreamLanguage.define(propertiesMode),
+  ".npmignore": () => StreamLanguage.define(propertiesMode),
 };
 
 /// Resolve a CodeMirror language extension for `path`. Returns null
