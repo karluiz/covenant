@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.1 — Syntax colors for .gitignore/.env + real switcher titles
+
+### Added
+
+- **Syntax highlighting for ignore/env files**: `.gitignore`,
+  `.dockerignore`, and `.npmignore` now map to CodeMirror's properties mode
+  (`#` comments + patterns), and the Changes diff pane styles
+  `.tok-attributeName` so `.env` keys render colored — they already colored
+  in the Structure editor, but the standalone diff pane was missing the CSS
+  rule so keys showed as plain text (`ui/src/structure/languages.ts`,
+  `ui/src/changes/changes.css`).
+
+- **Real tab titles for background workspaces**: a tab's live derived title
+  (screen title / cwd basename) is now persisted as `default_title` in the
+  manifest, so the workspace switcher shows an unnamed background tab's real
+  title instead of a meaningless "Tab N". Old manifests fall back to the cwd
+  basename (`ui/src/tabs/manager.ts`, `ui/src/workspaces/manager.ts`).
+
 ## v0.9.0 — Canon org cockpit + Inference settings fix
 
 ### Added
