@@ -213,6 +213,10 @@ body[data-corner="notch"] .stack {
 body[data-corner="notch"] .pill.expanded,
 body[data-corner="notch"] .pill.compact {
   background: #000;
+  /* Kill the inherited blur/saturate so the fill is truly #000 (matches the
+     physical notch as closely as a lit pixel can). */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 0;
   border-bottom: 2px solid var(--tab, #7c5cff);
   border-radius: 0 0 14px 14px;
@@ -224,7 +228,9 @@ body[data-corner="notch"] .pill.compact {
   padding: 34px 22px 7px 12px; /* top clears the notch / menu bar strip */
   animation: notchDrop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-body[data-corner="notch"] .pill.expanded { max-width: 340px; }
+/* Give the Dynamic Island real body — a fixed-ish width instead of hugging
+   the text, so it reads as an island under the notch, not a thin pill. */
+body[data-corner="notch"] .pill.expanded { min-width: 190px; max-width: 320px; }
 /* Keep the breadcrumb on one line so the pill sizes to its natural width
    instead of wrapping and going too narrow. */
 body[data-corner="notch"] .pill.expanded .tabchip { white-space: nowrap; }
@@ -271,6 +277,8 @@ body[data-corner="notch-mini"] .pill.compact:hover {
   gap: 0;
   padding: 0;
   background: #000;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 0;
   border-radius: 0 0 0 10px; /* rounded outer (left) corner; right meets notch */
   box-shadow: none;

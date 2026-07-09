@@ -602,14 +602,17 @@ fn apply_notch_window_level(_win: &tauri::WebviewWindow, _corner: crate::setting
 fn apply_macos_collection_behavior(win: &tauri::WebviewWindow) {
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
-    // Show the notch HUD on every Space (via Tauri so tao keeps it across
-    // window events) and mark it Stationary so it stays put in Mission
-    // Control / Exposé. NOTE: neither this nor the private WindowServer
-    // "sticky" tag (CGSSetWindowTags 0x800) stops a transparent WebView
-    // window from riding the horizontal Space-switch swipe animation — that
-    // was verified at runtime and is a macOS limitation for this window type.
-    let _ = win.set_visible_on_all_workspaces(true);
-    // CanJoinAllSpaces (1<<0) | Stationary (1<<4).
+    // CanJoinAllSpaces (1<<0): show on every Space. Stationary (1<<4): stay
+    // put in Mission Control / Exposé.
+    //
+    // Do NOT call `set_visible_on_all_workspaces` here — it re-applies the
+    // window's config frame as a side effect, clobbering the small size we
+    // set for NotchMini (the window blew up to the full 360×440). The raw
+    // setCollectionBehavior below has no such side effect.
+    //
+    // (The horizontal Space-switch swipe still animates this transparent
+    // WebView window — a macOS limitation, verified at runtime; neither the
+    // collection behavior nor the private WindowServer sticky tag stops it.)
     const BEHAVIOR: u64 = (1 << 0) | (1 << 4);
     if let Ok(ns_window) = win.ns_window() {
         unsafe {
@@ -709,7 +712,15 @@ fn notch_metrics(_win: &tauri::WebviewWindow) -> Option<(f64, f64)> {
 
 fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorner) {
     use crate::settings::NotchCorner;
-    let Ok(Some(monitor)) = win.current_monitor() else {
+    // A freshly-shown window often has no current_monitor yet — fall back to
+    // the primary monitor, otherwise we'd bail here and leave the window at
+    // Tauri's default centered position (a black box floating mid-screen).
+    let monitor = win
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| win.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
         return;
     };
     let size = monitor.size();

@@ -27,9 +27,11 @@ mountRender(stack, store);
 // pill. Corner modes stay hidden when idle.
 const rest = document.getElementById("rest") as HTMLElement;
 const syncRest = (): void => {
-  const c = document.body.dataset.corner;
-  const notchMode = c === "notch" || c === "notch-mini";
-  rest.hidden = !(notchMode && store.pills().length === 0);
+  // Only the minimal nub keeps a resting state (a small black tab flush with
+  // the notch). The full Dynamic Island shows nothing at rest and only its
+  // pill on activity — a persistent black box there just floats and misaligns.
+  const restingMode = document.body.dataset.corner === "notch-mini";
+  rest.hidden = !(restingMode && store.pills().length === 0);
 };
 store.subscribe(syncRest);
 
