@@ -41,7 +41,7 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
         <div class="repo-chip"></div>
         <div class="spine-host" style="flex:1"></div>
         <button class="spec-creator-del" aria-label="Delete draft" type="button">${Icons.trash({ size: 14 })}</button>
-        <div class="kbd">esc</div>
+        <button class="spec-creator-close" aria-label="Close" title="Close (Esc)" type="button">${Icons.x({ size: 15 })}</button>
       </header>
       <div class="stage">
         <div class="left"><div class="col-head">Reasoning &amp; exploration</div>
@@ -148,6 +148,9 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
       close();
     } catch { /* non-fatal */ }
   });
+
+  (root.querySelector('.spec-creator-close') as HTMLButtonElement)
+    .addEventListener('click', () => close());
 
   const boxEl = root.querySelector('.box') as HTMLElement;
   const sendBtn = root.querySelector('.send') as HTMLElement;

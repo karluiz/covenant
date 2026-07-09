@@ -157,7 +157,7 @@ export class MissionPage {
     if (!this.isOpenState) return;
     this.openGeneration++;
     if (this.keyHandler) {
-      window.removeEventListener("keydown", this.keyHandler);
+      window.removeEventListener("keydown", this.keyHandler, true);
       this.keyHandler = null;
     }
     this.pageHost.innerHTML = "";
@@ -664,7 +664,7 @@ export class MissionPage {
       });
     });
 
-    if (this.keyHandler) window.removeEventListener("keydown", this.keyHandler);
+    if (this.keyHandler) window.removeEventListener("keydown", this.keyHandler, true);
     this.keyHandler = (e: KeyboardEvent) => {
       if (!this.isOpenState) return;
       if (e.key === "Escape") { e.preventDefault(); this.finish(null); return; }
@@ -697,7 +697,7 @@ export class MissionPage {
         }
       }
     };
-    window.addEventListener("keydown", this.keyHandler);
+    window.addEventListener("keydown", this.keyHandler, true);
   }
 
   private submit(): void {

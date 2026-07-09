@@ -26,6 +26,12 @@ let activeTarget: HTMLElement | null = null;
 let watchRaf: number | null = null;
 let lastMouseX: number | null = null;
 let lastMouseY: number | null = null;
+// The rect-based hide in startWatch() only fires when we trust lastMouse.
+// Over a `-webkit-app-region: drag` ancestor (the titlebar) macOS suppresses
+// mousemove, so lastMouse is stale-outside when mouseenter opens the tooltip —
+// arming on stale coords would hide it on the first frame. Armed = pointer was
+// genuinely over the target at show(), or a fresh mousemove arrived since.
+let watchArmed = false;
 
 function ensureHost(): HTMLElement {
   if (host) return host;
@@ -98,10 +104,24 @@ function position(target: HTMLElement): void {
   el.style.visibility = "";
 }
 
+function pointerOutside(r: DOMRect): boolean {
+  if (lastMouseX == null || lastMouseY == null) return false;
+  return (
+    lastMouseX < r.left - POINTER_SLOP ||
+    lastMouseX > r.right + POINTER_SLOP ||
+    lastMouseY < r.top - POINTER_SLOP ||
+    lastMouseY > r.bottom + POINTER_SLOP
+  );
+}
+
 function show(target: HTMLElement, content: TooltipContent): void {
   const el = ensureHost();
   el.innerHTML = renderContent(content);
   activeTarget = target;
+  // Trust the rect-watch only if the pointer is really over the target now.
+  // Stale-outside coords (titlebar drag region) leave it disarmed until a
+  // fresh mousemove proves where the cursor is.
+  watchArmed = lastMouseX != null && !pointerOutside(target.getBoundingClientRect());
   position(target);
   el.classList.add("is-visible");
   el.setAttribute("aria-hidden", "false");
@@ -136,14 +156,8 @@ function startWatch(): void {
       hide();
       return;
     }
-    if (lastMouseX != null && lastMouseY != null && openTimer == null && closeTimer == null) {
-      const r = activeTarget.getBoundingClientRect();
-      const outside =
-        lastMouseX < r.left - POINTER_SLOP ||
-        lastMouseX > r.right + POINTER_SLOP ||
-        lastMouseY < r.top - POINTER_SLOP ||
-        lastMouseY > r.bottom + POINTER_SLOP;
-      if (outside) {
+    if (watchArmed && lastMouseX != null && lastMouseY != null && openTimer == null && closeTimer == null) {
+      if (pointerOutside(activeTarget.getBoundingClientRect())) {
         hide();
         return;
       }
@@ -226,6 +240,9 @@ window.addEventListener(
   (e) => {
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
+    // A real move gives trustworthy coords — arm the rect-watch so a genuine
+    // pointer-exit (even one WebKit drops the mouseleave for) still closes it.
+    watchArmed = true;
   },
   { capture: true, passive: true },
 );

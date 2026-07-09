@@ -130,7 +130,9 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 .spec-creator .node.active .label { color: var(--txt); }
 .spec-creator .seg.filled::after { width: 100%; }
 
-.spec-creator .kbd { font-family: var(--mono); font-size: 10.5px; color: var(--txt-faint); border: 1px solid var(--line); border-radius: 0; padding: 2px 7px; }
+
+.spec-creator-close { display:flex; align-items:center; justify-content:center; width:28px; height:28px; background:transparent; border:1px solid transparent; border-radius:0; color:var(--txt-faint); cursor:pointer; transition:all .15s; }
+.spec-creator-close:hover { color:var(--txt); border-color:var(--line); background:rgba(127,127,127,0.08); }
 
 .spec-creator-del {
   display: flex; align-items: center; justify-content: center;
@@ -282,7 +284,7 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 .spec-creator .sec .badge { width:16px;height:16px;border-radius:50%; border:1.5px solid #34373f; flex:none; display:grid;place-items:center; font-size:10px; transition: all .4s; }
 .spec-creator .sec .content { font-size: 13px; line-height: 1.65; color: var(--txt); }
 .spec-creator .sec .ghost { display:flex; flex-direction:column; gap:8px; }
-.spec-creator .sec .ghost span { height: 9px; border-radius: 0; background: linear-gradient(90deg,#1c1e25,#23262f,#1c1e25); background-size: 200% 100%; animation: gsh 1.8s linear infinite; }
+.spec-creator .sec .ghost span { height: 9px; border-radius: 0; background: linear-gradient(90deg,var(--line-soft),var(--line),var(--line-soft)); background-size: 200% 100%; animation: gsh 1.8s linear infinite; }
 @keyframes gsh { to { background-position:-200% 0; } }
 .spec-creator .sec .ghost span:nth-child(1){width:90%} .spec-creator .sec .ghost span:nth-child(2){width:72%} .spec-creator .sec .ghost span:nth-child(3){width:81%}
 
