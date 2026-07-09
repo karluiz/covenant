@@ -5,7 +5,7 @@ import { CanonPanel, slugify } from "./panel";
 // panel.ts's compact rail actually makes — registry search, install, and
 // the score/eval Loop dashboards moved to the cockpit (see cockpit tests).
 vi.mock("../api", () => ({
-  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], contextFiles: [] }),
+  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [] }),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
   canonPublish: vi.fn().mockResolvedValue({}),
@@ -35,7 +35,8 @@ describe("CanonPanel", () => {
       installed: [
         { name: "kyc-peru", version: "2.1.0", source: "local:/x", sha: "a", signer: "github:mibanco", installedAt: "2026-06-24T00:00:00Z" },
       ],
-      contextFiles: ["kyc-peru.md"],
+      agents: [],
+      contexts: [{ name: "kyc-peru.md", summary: null }],
     });
     expect(host.textContent).toContain("kyc-peru");
     expect(host.textContent).toContain("2.1.0");
@@ -50,7 +51,7 @@ describe("CanonPanel", () => {
       groupColor: null,
       groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], contextFiles: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [] });
     expect(host.textContent).toContain("No skills installed.");
   });
 
@@ -92,7 +93,8 @@ describe("CanonPanel", () => {
       installed: [
         { name: "kyc-peru", version: "1.0.0", source: "local:/x", sha: "a", signer: null, installedAt: "t" },
       ],
-      contextFiles: [],
+      agents: [],
+      contexts: [],
     });
     expect(host.querySelector('button[aria-label="Publish to registry"]')).not.toBeNull();
     expect(host.textContent).toContain("kyc-peru");
@@ -102,7 +104,8 @@ describe("CanonPanel", () => {
     const { canonLocalStatus } = await import("../api");
     (canonLocalStatus as Mock).mockResolvedValueOnce({
       installed: [{ name: "kyc-peru", version: "1.0.0", source: "registry:payments", sha: "a", signer: null, installedAt: "t" }],
-      contextFiles: [],
+      agents: [],
+      contexts: [],
     });
     const panel = new CanonPanel({ groupId: "g-eval-btn", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo" });
     await panel.refresh();
@@ -115,7 +118,8 @@ describe("CanonPanel", () => {
     const { pushInfoToast } = await import("../notifications/toast");
     (canonLocalStatus as Mock).mockResolvedValueOnce({
       installed: [{ name: "kyc-peru", version: "1.0.0", source: "registry:payments", sha: "a", signer: null, installedAt: "t" }],
-      contextFiles: [],
+      agents: [],
+      contexts: [],
     });
     // Backend signals an empty run via the done note.
     (onCanonEvalProgress as Mock).mockImplementationOnce(

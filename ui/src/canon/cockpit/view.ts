@@ -613,14 +613,14 @@ export class CanonCockpitView {
     void canonLocalStatus(cwd)
       .then((status) => {
         list.replaceChildren();
-        if (status.contextFiles.length === 0) {
+        if (status.contexts.length === 0) {
           list.appendChild(this.note("No context files yet."));
           return;
         }
-        for (const f of status.contextFiles) {
+        for (const c of status.contexts) {
           const row = document.createElement("div");
           row.className = "canon-context-row";
-          row.textContent = f;
+          row.textContent = c.name;
           list.appendChild(row);
         }
       })
@@ -648,7 +648,7 @@ export class CanonCockpitView {
     if (cwd && active) {
       const orgSlug = active.slug;
       void Promise.all([
-        canonLocalStatus(cwd).catch(() => ({ installed: [], contextFiles: [] }) as CanonStatus),
+        canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [] }) as CanonStatus),
         canonSearch(orgSlug, null).catch(() => [] as PkgMeta[]),
       ]).then(([status, pkgs]) => {
         const registrySkills = status.installed.filter((i) => i.source.startsWith("registry:"));

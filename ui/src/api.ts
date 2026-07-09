@@ -1446,9 +1446,19 @@ export interface InstalledRef {
   installedAt: string;
 }
 
+export interface AgentRef {
+  name: string;
+}
+
+export interface ContextRef {
+  name: string;
+  summary: string | null;
+}
+
 export interface CanonStatus {
   installed: InstalledRef[];
-  contextFiles: string[];
+  agents: AgentRef[];
+  contexts: ContextRef[];
 }
 
 export async function canonLocalStatus(cwd: string): Promise<CanonStatus> {
@@ -1513,6 +1523,14 @@ export async function canonPreview(org: string, name: string, version: string): 
 }
 export async function canonReadLocal(cwd: string, name: string): Promise<string> {
   return invoke<string>("canon_read_local", { cwd, name });
+}
+
+export async function canonReadSource(
+  cwd: string,
+  kind: "agent" | "context" | "skill",
+  name: string,
+): Promise<string> {
+  return invoke<string>("canon_read_source", { cwd, kind, name });
 }
 export async function canonExport(cwd: string): Promise<void> {
   return invoke<void>("canon_export", { cwd });

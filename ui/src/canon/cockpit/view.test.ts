@@ -8,7 +8,7 @@ vi.mock("../../api", () => ({
   canonRemoveMember: vi.fn().mockResolvedValue(undefined),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
-  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], contextFiles: [] }),
+  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [] }),
   canonReadLocal: vi.fn().mockResolvedValue(""),
   canonPublish: vi.fn().mockResolvedValue(undefined),
   canonSearch: vi.fn().mockResolvedValue([]),
@@ -111,7 +111,7 @@ describe("CanonCockpitView Registry section", () => {
 
 describe("CanonCockpitView Context section", () => {
   it("lists context files and invokes onNewContext (moved from the rail — see panel.test.ts)", async () => {
-    vi.mocked(canonLocalStatus).mockResolvedValueOnce({ installed: [], contextFiles: ["kyc-peru.md"] });
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({ installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }] });
     let called = false;
     const v = new CanonCockpitView({ ...opts, onNewContext: () => { called = true; } });
     v.open(); v.showSection("context");
