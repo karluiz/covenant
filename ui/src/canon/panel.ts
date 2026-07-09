@@ -6,7 +6,7 @@ import { renderMarkdown } from "../mission/preview";
 import type { CanonStatus, Org, CanonEvalProgress } from "../api";
 import {
   canonLocalStatus, canonMyOrgs, canonPublish,
-  canonReadLocal, canonExport, canonRunEvals, onCanonEvalProgress,
+  canonReadLocal, canonReadSource, canonExport, canonRunEvals, onCanonEvalProgress,
 } from "../api";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
@@ -468,39 +468,86 @@ export class CanonPanel {
     this.body.replaceChildren();
     const cwd = this.opts.groupRootDir ?? null;
 
-    const skills = document.createElement("section");
-    skills.className = "canon-skills";
-    const sh = document.createElement("h3");
-    sh.textContent = "Skills";
-    skills.appendChild(sh);
-    if (s.installed.length === 0) {
-      const p = document.createElement("p");
-      p.textContent = "No skills installed.";
-      skills.appendChild(p);
-    } else {
+    // ── Agents ──
+    const agents = this.kindSection(
+      "Agents",
+      s.agents.length,
+      "No agents authored.",
+      s.agents.map((a) =>
+        skillCard({
+          name: a.name,
+          meta: "agent",
+          className: "canon-skill-row",
+          fetchPreview: () =>
+            cwd ? canonReadSource(cwd, "agent", a.name) : Promise.resolve("(no project folder)"),
+          actions: [],
+        }),
+      ),
+    );
+
+    // ── Context ──
+    const contexts = this.kindSection(
+      "Context",
+      s.contexts.length,
+      "No context authored.",
+      s.contexts.map((c) =>
+        skillCard({
+          name: c.name,
+          meta: c.summary ?? "context",
+          className: "canon-skill-row",
+          fetchPreview: () =>
+            cwd ? canonReadSource(cwd, "context", c.name) : Promise.resolve("(no project folder)"),
+          actions: [],
+        }),
+      ),
+    );
+
+    // ── Skills (unchanged rows) ──
+    const rows: HTMLElement[] = [];
+    if (s.installed.length > 0) {
       const count = document.createElement("p");
       count.className = "canon-skills-count";
       count.textContent = `${s.installed.length} ${s.installed.length === 1 ? "skill" : "skills"} installed`;
-      skills.appendChild(count);
-      for (const i of s.installed) {
-        const actions: HTMLButtonElement[] = [];
-        if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
-          actions.push(iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => void this.publish(i.name)));
-        }
-        const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => void this.runEvals(i.name, runBtn));
-        actions.push(runBtn);
-        skills.appendChild(skillCard({
+      rows.push(count);
+    }
+    for (const i of s.installed) {
+      const actions: HTMLButtonElement[] = [];
+      if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
+        actions.push(iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => void this.publish(i.name)));
+      }
+      const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => void this.runEvals(i.name, runBtn));
+      actions.push(runBtn);
+      rows.push(
+        skillCard({
           name: i.name,
           meta: `${i.version} · ${i.source}`,
           className: "canon-skill-row",
           fetchPreview: () => (cwd ? canonReadLocal(cwd, i.name) : Promise.resolve("(no project folder)")),
           actions,
           stats: [`v${i.version}`, i.source],
-        }));
-      }
+        }),
+      );
     }
+    const skills = this.kindSection("Skills", s.installed.length, "No skills installed.", rows);
 
-    this.body.replaceChildren(skills);
+    this.body.replaceChildren(agents, contexts, skills);
+  }
+
+  /** One rail section: uppercase head, count, rows-or-empty-hint. */
+  private kindSection(title: string, count: number, emptyHint: string, rows: HTMLElement[]): HTMLElement {
+    const sec = document.createElement("section");
+    sec.className = "canon-skills";
+    const h = document.createElement("h3");
+    h.textContent = title;
+    sec.appendChild(h);
+    if (count === 0) {
+      const p = document.createElement("p");
+      p.textContent = emptyHint;
+      sec.appendChild(p);
+    } else {
+      for (const r of rows) sec.appendChild(r);
+    }
+    return sec;
   }
 
   private async runEvals(skill: string, btn: HTMLButtonElement): Promise<void> {

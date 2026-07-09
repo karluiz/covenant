@@ -10,6 +10,7 @@ vi.mock("../api", () => ({
   canonCreateOrg: vi.fn().mockResolvedValue({}),
   canonPublish: vi.fn().mockResolvedValue({}),
   canonReadLocal: vi.fn().mockResolvedValue(""),
+  canonReadSource: vi.fn().mockResolvedValue(""),
   canonExport: vi.fn().mockResolvedValue(undefined),
   canonRunEvals: vi.fn().mockResolvedValue(undefined),
   onCanonEvalProgress: vi.fn().mockResolvedValue(() => {}),
@@ -152,6 +153,37 @@ describe("CanonPanel", () => {
       getActiveOrg: () => "cleverit", setActiveOrg: () => {} });
     p2.setOrgs(orgs);
     expect(p2.activeOrg()?.slug).toBe("cleverit"); // group choice wins
+  });
+
+  it("renders Agents, Context and Skills sections", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-sections", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({
+      installed: [
+        { name: "kyc-peru", version: "1.0.0", source: "local:/x", sha: "a", signer: null, installedAt: "t" },
+      ],
+      agents: [{ name: "reviewer" }],
+      contexts: [{ name: "kyc", summary: "KYC rules" }],
+    });
+    expect(host.textContent).toContain("Agents");
+    expect(host.textContent).toContain("reviewer");
+    expect(host.textContent).toContain("Context");
+    expect(host.textContent).toContain("kyc");
+    expect(host.textContent).toContain("Skills");
+    expect(host.textContent).toContain("kyc-peru");
+  });
+
+  it("shows empty hints when a kind is absent", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-empty-hints", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({ installed: [], agents: [], contexts: [] });
+    expect(host.textContent).toContain("No agents authored.");
+    expect(host.textContent).toContain("No context authored.");
+    expect(host.textContent).toContain("No skills installed.");
   });
 
   it("slugifies a display name to a valid slug", () => {
