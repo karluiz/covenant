@@ -71,7 +71,7 @@ fn strip_covenant_block(md: &str) -> String {
 
 /// `(file_stem, contents)` for every `*.md` directly under `dir`, sorted by stem.
 /// Returns an empty Vec when `dir` does not exist.
-fn read_dir_md(dir: &Path) -> Result<Vec<(String, String)>, CanonError> {
+pub(crate) fn read_dir_md(dir: &Path) -> Result<Vec<(String, String)>, CanonError> {
     let mut out: Vec<(String, String)> = Vec::new();
     if !dir.exists() {
         return Ok(out);
@@ -142,7 +142,7 @@ fn project_context_skills(
 /// First top-level `summary:` value inside the leading frontmatter, trimmed and
 /// dequoted. `None` if there is no frontmatter or no non-empty summary.
 /// ponytail: single-line summaries only; add block-scalar support if needed.
-fn parse_summary(md: &str) -> Option<String> {
+pub(crate) fn parse_summary(md: &str) -> Option<String> {
     let lines: Vec<&str> = md.lines().collect();
     let open = lines.iter().position(|l| l.trim() == "---")?;
     let close = open
