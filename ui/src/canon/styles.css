@@ -162,7 +162,7 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
    cramped rail head). Sits between head and body, above the scroll area. ── */
 .canon-toolbar {
   display: flex;
-  align-items: center;
+  align-items: stretch; /* chip defines the row height; Project matches it */
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
@@ -170,7 +170,7 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
 /* In the toolbar the chip has room — let it grow and take the free space so
    Project sits at the right edge. (Overrides the 88px header cap below.) */
 .canon-toolbar .canon-org-chip { max-width: none; flex: 1 1 auto; }
-.canon-toolbar .canon-project-btn { flex-shrink: 0; }
+.canon-toolbar .canon-project-btn { flex-shrink: 0; align-items: center; }
 
 /* ── Org identity monogram — the signature device. A sharp initials tile
    carrying a deterministic per-org color (--mono-h set inline), reused in
