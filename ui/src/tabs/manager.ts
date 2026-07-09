@@ -1513,7 +1513,7 @@ export class TabManager {
     // pane (pane.executor is the detected foreground executor, null if idle).
     if (sessionId && !pane?.executor && this.runDefaultAgent) {
       const run = this.runDefaultAgent;
-      addItem("Start agent", () => run(sessionId), Icons.headphones());
+      addItem("Start agent", () => run(sessionId), Icons.sparkles());
     }
 
     // Split actions (only when the feature is on / a split exists). Splits
