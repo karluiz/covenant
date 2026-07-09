@@ -241,6 +241,10 @@ export class ContextMinerView {
       ? `${this.opts.groupName} · ${this.opts.repoRoot}`
       : this.opts.repoRoot;
 
+    const note = document.createElement("p");
+    note.className = "canon-miner-note";
+    note.textContent = "Mined context is packaged as a skill.";
+
     const { wrap: nameWrap, input: nameInput } = this.field(
       "Skill name",
       "e.g. testing-conventions",
@@ -287,11 +291,11 @@ export class ContextMinerView {
     });
 
     // Staged rise choreography for the card contents (entrance).
-    [title, sub, nameWrap, focusWrap, thoroughRow, startBtn].forEach((el, i) => {
+    [title, sub, note, nameWrap, focusWrap, thoroughRow, startBtn].forEach((el, i) => {
       el.classList.add("canon-miner-rise");
       (el as HTMLElement).style.setProperty("--rise-delay", `${90 + i * 65}ms`);
     });
-    card.append(title, sub, nameWrap, focusWrap, thoroughRow, errorEl, startBtn);
+    card.append(title, sub, note, nameWrap, focusWrap, thoroughRow, errorEl, startBtn);
 
     // Constellation sky behind the card — the same particle field as the
     // Spec Creator's immersive entrance (reused via startSky).

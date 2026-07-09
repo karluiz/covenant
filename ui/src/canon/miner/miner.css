@@ -196,6 +196,12 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.canon-miner-note {
+  margin: 0;
+  font-size: var(--fs-meta, 11px);
+  color: var(--fg-dim);
+}
+
 .canon-miner-field { display: flex; flex-direction: column; gap: 5px; }
 .canon-miner-field label {
   font-size: var(--fs-meta, 11px);
