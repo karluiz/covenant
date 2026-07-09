@@ -5,7 +5,7 @@ import { CanonPanel, slugify } from "./panel";
 // panel.ts's compact rail actually makes — registry search, install, and
 // the score/eval Loop dashboards moved to the cockpit (see cockpit tests).
 vi.mock("../api", () => ({
-  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [] }),
+  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], commands: [] }),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
   canonPublish: vi.fn().mockResolvedValue({}),
@@ -38,6 +38,7 @@ describe("CanonPanel", () => {
       ],
       agents: [],
       contexts: [{ name: "kyc-peru.md", summary: null }],
+      commands: [],
     });
     expect(host.textContent).toContain("kyc-peru");
     expect(host.textContent).toContain("2.1.0");
@@ -52,7 +53,7 @@ describe("CanonPanel", () => {
       groupColor: null,
       groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [] });
     expect(host.textContent).toContain("No skills installed.");
   });
 
@@ -96,6 +97,7 @@ describe("CanonPanel", () => {
       ],
       agents: [],
       contexts: [],
+      commands: [],
     });
     expect(host.querySelector('button[aria-label="Publish to registry"]')).not.toBeNull();
     expect(host.textContent).toContain("kyc-peru");
@@ -107,6 +109,7 @@ describe("CanonPanel", () => {
       installed: [{ name: "kyc-peru", version: "1.0.0", source: "registry:payments", sha: "a", signer: null, installedAt: "t" }],
       agents: [],
       contexts: [],
+      commands: [],
     });
     const panel = new CanonPanel({ groupId: "g-eval-btn", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo" });
     await panel.refresh();
@@ -121,6 +124,7 @@ describe("CanonPanel", () => {
       installed: [{ name: "kyc-peru", version: "1.0.0", source: "registry:payments", sha: "a", signer: null, installedAt: "t" }],
       agents: [],
       contexts: [],
+      commands: [],
     });
     // Backend signals an empty run via the done note.
     (onCanonEvalProgress as Mock).mockImplementationOnce(
@@ -166,6 +170,7 @@ describe("CanonPanel", () => {
       ],
       agents: [{ name: "reviewer" }],
       contexts: [{ name: "kyc", summary: "KYC rules" }],
+      commands: [],
     });
     expect(host.textContent).toContain("Agents");
     expect(host.textContent).toContain("reviewer");
@@ -180,7 +185,7 @@ describe("CanonPanel", () => {
     const panel = new CanonPanel({
       groupId: "g-empty-hints", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [] });
     expect(host.textContent).toContain("No agents authored.");
     expect(host.textContent).toContain("No context authored.");
     expect(host.textContent).toContain("No skills installed.");

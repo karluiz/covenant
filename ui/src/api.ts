@@ -1455,10 +1455,16 @@ export interface ContextRef {
   summary: string | null;
 }
 
+export interface CommandRef {
+  name: string;
+  description: string | null;
+}
+
 export interface CanonStatus {
   installed: InstalledRef[];
   agents: AgentRef[];
   contexts: ContextRef[];
+  commands: CommandRef[];
 }
 
 export async function canonLocalStatus(cwd: string): Promise<CanonStatus> {
@@ -1527,7 +1533,7 @@ export async function canonReadLocal(cwd: string, name: string): Promise<string>
 
 export async function canonReadSource(
   cwd: string,
-  kind: "agent" | "context" | "skill",
+  kind: "agent" | "context" | "command" | "skill",
   name: string,
 ): Promise<string> {
   return invoke<string>("canon_read_source", { cwd, kind, name });

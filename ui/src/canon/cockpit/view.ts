@@ -694,7 +694,7 @@ export class CanonCockpitView {
     if (cwd && active) {
       const orgSlug = active.slug;
       void Promise.all([
-        canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [] }) as CanonStatus),
+        canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [], commands: [] }) as CanonStatus),
         canonSearch(orgSlug, null).catch(() => [] as PkgMeta[]),
       ]).then(([status, pkgs]) => {
         const registrySkills = status.installed.filter((i) => i.source.startsWith("registry:"));
