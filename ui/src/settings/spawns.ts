@@ -350,7 +350,7 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
 
     const title = document.createElement("h3");
     title.className = "settings-section-title";
-    title.textContent = "Spawns";
+    title.textContent = "Harnesses";
     host.appendChild(title);
 
     const desc = document.createElement("p");

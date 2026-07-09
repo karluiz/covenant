@@ -447,7 +447,7 @@ export class SettingsPanel {
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
       <a href="#sec-operators" data-target="sec-operators">Operators</a>
-      <a href="#sec-spawns" data-target="sec-spawns">Spawns</a>
+      <a href="#sec-spawns" data-target="sec-spawns">Harnesses</a>
       <a href="#sec-updates" data-target="sec-updates">Updates</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
@@ -1651,14 +1651,11 @@ export class SettingsPanel {
 
     const modelsRoutesRoot = form.querySelector<HTMLElement>("#models-routes-root");
     if (modelsRoutesRoot && this.current) {
-      const renderModels = (): void => {
-        if (!this.current || !modelsRoutesRoot) return;
-        renderModelsTab(modelsRoutesRoot, this.current, (next) => {
-          this.current = next;
-          renderModels();
-        });
-      };
-      renderModels();
+      // ponytail: render once; cards update themselves in place. Re-rendering
+      // on every change tore down all 6 cards and re-probed every provider.
+      renderModelsTab(modelsRoutesRoot, this.current, (next) => {
+        this.current = next;
+      });
     }
 
     const opMount = form.querySelector<HTMLElement>("#operators-pane");
