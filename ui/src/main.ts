@@ -1534,7 +1534,9 @@ async function boot(): Promise<void> {
             getActiveOrg: () => manager.groupCanonOrg(a.groupId),
             setActiveOrg: (slug) => manager.setGroupCanonOrg(a.groupId, slug),
             onNewContext: () => launchContextMiner(a.groupId, a.groupLabel),
-            onClose: () => { void activeCanonPanel?.refresh(); },
+            // Esc closes Canon entirely (cockpit + rail) → terminal, the
+            // app-wide convention (Tasker / Settings / Changes / Release log).
+            onClose: () => activeCanonPanel?.close(),
           }).open();
         });
       },
