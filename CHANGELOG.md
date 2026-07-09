@@ -6,6 +6,52 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.144 — Notch Dynamic Island + minimal HUD modes
+
+### Added
+
+- **Notch (Dynamic Island) position**: a new status-HUD position that hangs
+  a black pill flush from the physical MacBook notch, centered above the
+  menu bar (raised to `NSStatusWindowLevel`). `crates/app/src/notch.rs`
+  centers the overlay window on the built-in display; `ui/notch/styles.css`
+  styles the pill black with a flat top / rounded bottom.
+- **Notch (minimal) position**: an icon-only tab butted flush against the
+  notch's left edge, sized to the notch's exact height. Placement reads the
+  real notch geometry from `NSScreen` (`safeAreaInsets.top` +
+  `auxiliaryTopLeftArea`) via private struct-return objc calls, shrinking
+  the overlay window to the tab and pinning it to the notch's left edge.
+- **Always-present notch HUD**: in both notch modes the HUD is a permanent
+  extension of the notch — shown at boot (and on switch) with a quiet
+  resting state (plain black), swapping to the animated phase glyph on
+  executor activity and back to rest when idle (`ui/notch/main.ts`,
+  `ui/notch/index.html`).
+- **Notch position "Test" button**: Settings → Notch position now has a
+  Test button (`notch_preview` command) that plays a synthetic
+  Thinking → Done sequence so the chosen position can be previewed without
+  waiting for a real executor event (`ui/src/settings/panel.ts`).
+
+### Changed
+
+- **Sharp notch pills**: the floating overlay pills lost their rounded
+  corners (`border-radius: 0`) and the accent border thinned to 2px
+  (`ui/notch/styles.css`).
+- **Notch window pinned across Spaces**: the overlay is marked
+  `canJoinAllSpaces | stationary` and shown on all workspaces so it stays
+  put in Mission Control. (The horizontal Space-switch swipe still animates
+  the transparent WebView window — a macOS limitation.)
+
+### Fixed
+
+- **Focus-gated corner overlay**: the windowed corner notch now hides while
+  Covenant is focused and re-shows on blur (fullscreen still uses the inline
+  rack), so a status pill no longer hovers over the terminal while you work
+  (`crates/app/src/notch.rs`, `crates/app/src/lib.rs`).
+- **"Start agent" icon**: the executor "Start agent" menu item now uses the
+  sparkles icon instead of headphones (headphones is operator-only)
+  (`ui/src/tabs/manager.ts`).
+- **Release manifest generation**: the aggregate `latest.json` step reads
+  the manifest to EOF instead of exiting early (`.github/workflows`).
+
 ## v0.8.143 — provider-health status chip + Canon rename
 
 ### Added
