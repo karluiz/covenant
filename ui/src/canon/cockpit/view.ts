@@ -30,7 +30,7 @@ import { openCreateOrgExperience } from "../create-org/view";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 
-export type SectionKey = "org" | "members" | "agents" | "skills" | "registry" | "context" | "loop";
+export type SectionKey = "org" | "members" | "agents" | "commands" | "skills" | "registry" | "context" | "loop";
 
 export interface CanonCockpitOpts {
   groupId: string;
@@ -61,6 +61,7 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "org", label: "Org" },
   { key: "members", label: "Members" },
   { key: "agents", label: "Agents" },
+  { key: "commands", label: "Commands" },
   { key: "skills", label: "Skills" },
   { key: "registry", label: "Registry" },
   { key: "context", label: "Context" },
@@ -72,6 +73,7 @@ const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   org: ["Organization", "The registry this group publishes to and installs from."],
   members: ["Members", "People with access to this organization's Canon."],
   agents: ["Agents", "Operator personas projected to your executors."],
+  commands: ["Commands", "Slash commands projected to your executors."],
   skills: ["Skills", "Skills installed in this group, projected to your executors."],
   registry: ["Registry", "Browse and install skills shared across the organization."],
   context: ["Context", "Repo-mined context this group carries into every session."],
@@ -155,6 +157,7 @@ export class CanonCockpitView {
       key === "org" ? this.renderOrgSection()
       : key === "members" ? this.renderMembersSection()
       : key === "agents" ? this.renderAgentsSection()
+      : key === "commands" ? this.renderCommandsSection()
       : key === "skills" ? this.renderSkillsSection()
       : key === "registry" ? this.renderRegistrySection()
       : key === "context" ? this.renderContextSection()
@@ -471,6 +474,48 @@ export class CanonCockpitView {
       .catch((e) => {
         list.replaceChildren();
         list.appendChild(this.note(`Failed to load agents: ${this.friendlyError(e)}`));
+      });
+
+    return el;
+  }
+
+  // ── Commands section ─────────────────────────────────────────────────
+
+  private renderCommandsSection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-commands";
+    const cwd = this.opts.groupRootDir;
+
+    if (!cwd) {
+      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage commands."));
+      return el;
+    }
+
+    const list = document.createElement("div");
+    list.className = "canon-cockpit-commands-list";
+    list.appendChild(this.note("Loading…"));
+    el.appendChild(list);
+
+    void canonLocalStatus(cwd)
+      .then((status) => {
+        list.replaceChildren();
+        if (status.commands.length === 0) {
+          list.appendChild(this.note("No commands authored yet."));
+          return;
+        }
+        for (const c of status.commands) {
+          list.appendChild(skillCard({
+            name: c.name,
+            meta: c.description ?? "command",
+            className: "canon-skill-row",
+            fetchPreview: () => canonReadSource(cwd, "command", c.name),
+            actions: [],
+          }));
+        }
+      })
+      .catch((e) => {
+        list.replaceChildren();
+        list.appendChild(this.note(`Failed to load commands: ${this.friendlyError(e)}`));
       });
 
     return el;
