@@ -17,9 +17,23 @@ pub(crate) fn valid_pkg_name(name: &str) -> bool {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentRef {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextRef {
+    pub name: String,
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CanonStatus {
     pub installed: Vec<InstalledRef>,
-    pub context_files: Vec<String>,
+    pub agents: Vec<AgentRef>,
+    pub contexts: Vec<ContextRef>,
 }
 
 /// Install a skill package from a local directory, recording `source_label` as provenance.
@@ -126,22 +140,24 @@ fn write_lock(repo_root: &Path, m: &CanonManifest) -> Result<(), CanonError> {
 
 pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
     let installed = read_manifest(repo_root)?.installed;
-    let ctx_dir = canon_dir(repo_root).join("context");
-    let mut context_files = Vec::new();
-    if ctx_dir.exists() {
-        for entry in std::fs::read_dir(&ctx_dir)? {
-            let entry = entry?;
-            if entry.path().extension().and_then(|s| s.to_str()) == Some("md") {
-                if let Some(name) = entry.file_name().to_str() {
-                    context_files.push(name.to_string());
-                }
-            }
-        }
-    }
-    context_files.sort();
+    let units = crate::list_context(repo_root)?;
+    let agents = units
+        .iter()
+        .filter(|u| u.kind == crate::ContextKind::Agent)
+        .map(|u| AgentRef { name: u.name.clone() })
+        .collect();
+    let contexts = units
+        .iter()
+        .filter(|u| u.kind == crate::ContextKind::Context)
+        .map(|u| ContextRef {
+            name: u.name.clone(),
+            summary: u.summary.clone(),
+        })
+        .collect();
     Ok(CanonStatus {
         installed,
-        context_files,
+        agents,
+        contexts,
     })
 }
 
@@ -231,5 +247,28 @@ mod tests {
         assert!(md_s.contains("KYC"));
         assert_eq!(sm.name, "kyc-peru");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn status_lists_agents_and_contexts_with_summary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let canon = root.join(".covenant/canon");
+        std::fs::create_dir_all(canon.join("agents")).unwrap();
+        std::fs::write(canon.join("agents/reviewer.md"), "persona\n").unwrap();
+        std::fs::create_dir_all(canon.join("context")).unwrap();
+        std::fs::write(
+            canon.join("context/kyc.md"),
+            "---\nsummary: KYC rules\n---\nbody\n",
+        )
+        .unwrap();
+
+        let s = status(root).unwrap();
+        assert_eq!(s.agents.len(), 1);
+        assert_eq!(s.agents[0].name, "reviewer");
+        assert_eq!(s.contexts.len(), 1);
+        assert_eq!(s.contexts[0].name, "kyc");
+        assert_eq!(s.contexts[0].summary.as_deref(), Some("KYC rules"));
+        assert!(s.installed.is_empty());
     }
 }
