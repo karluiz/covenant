@@ -16,6 +16,7 @@ import {
   canonMyOrgs,
   canonLocalStatus,
   canonReadLocal,
+  canonReadSource,
   canonPublish,
   canonSearch,
   canonPreview,
@@ -29,7 +30,7 @@ import { openCreateOrgExperience } from "../create-org/view";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 
-export type SectionKey = "org" | "members" | "skills" | "registry" | "context" | "loop";
+export type SectionKey = "org" | "members" | "agents" | "skills" | "registry" | "context" | "loop";
 
 export interface CanonCockpitOpts {
   groupId: string;
@@ -59,6 +60,7 @@ function loopSubhead(text: string): HTMLElement {
 const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "org", label: "Org" },
   { key: "members", label: "Members" },
+  { key: "agents", label: "Agents" },
   { key: "skills", label: "Skills" },
   { key: "registry", label: "Registry" },
   { key: "context", label: "Context" },
@@ -69,6 +71,7 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
 const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   org: ["Organization", "The registry this group publishes to and installs from."],
   members: ["Members", "People with access to this organization's Canon."],
+  agents: ["Agents", "Operator personas projected to your executors."],
   skills: ["Skills", "Skills installed in this group, projected to your executors."],
   registry: ["Registry", "Browse and install skills shared across the organization."],
   context: ["Context", "Repo-mined context this group carries into every session."],
@@ -151,6 +154,7 @@ export class CanonCockpitView {
     const body =
       key === "org" ? this.renderOrgSection()
       : key === "members" ? this.renderMembersSection()
+      : key === "agents" ? this.renderAgentsSection()
       : key === "skills" ? this.renderSkillsSection()
       : key === "registry" ? this.renderRegistrySection()
       : key === "context" ? this.renderContextSection()
@@ -428,6 +432,48 @@ export class CanonCockpitView {
 
     row.append(input, add);
     return row;
+  }
+
+  // ── Agents section ───────────────────────────────────────────────────
+
+  private renderAgentsSection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-agents";
+    const cwd = this.opts.groupRootDir;
+
+    if (!cwd) {
+      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage agents."));
+      return el;
+    }
+
+    const list = document.createElement("div");
+    list.className = "canon-cockpit-agents-list";
+    list.appendChild(this.note("Loading…"));
+    el.appendChild(list);
+
+    void canonLocalStatus(cwd)
+      .then((status) => {
+        list.replaceChildren();
+        if (status.agents.length === 0) {
+          list.appendChild(this.note("No agents authored yet."));
+          return;
+        }
+        for (const a of status.agents) {
+          list.appendChild(skillCard({
+            name: a.name,
+            meta: "agent",
+            className: "canon-skill-row",
+            fetchPreview: () => canonReadSource(cwd, "agent", a.name),
+            actions: [],
+          }));
+        }
+      })
+      .catch((e) => {
+        list.replaceChildren();
+        list.appendChild(this.note(`Failed to load agents: ${this.friendlyError(e)}`));
+      });
+
+    return el;
   }
 
   // ── Skills section ────────────────────────────────────────────────────
