@@ -424,7 +424,8 @@ describe("WorkspaceManager.listAllTabs", () => {
           tabs: [
             { custom_name: "named-b", cwd: null, color: null, group_id: "g-b",
               mission_path: null, operator_id: null },
-            { custom_name: null, cwd: null, color: null, group_id: null,
+            { custom_name: null, default_title: "vim", cwd: "/work/api",
+              color: null, group_id: null,
               mission_path: null, operator_id: null },
           ],
           groups: [
@@ -470,7 +471,9 @@ describe("WorkspaceManager.listAllTabs", () => {
     expect(rows[2].groupName).toBe("MyGroup");
     expect(rows[2].groupColor).toBe("#22c55e");
     expect(rows[2].isActiveTabInWorkspace).toBe(true);
-    expect(rows[3].title).toBe("Tab 2");
+    // Unnamed background tab uses its persisted default_title (the live
+    // screen title captured at save), not "Tab N".
+    expect(rows[3].title).toBe("vim");
     expect(rows[3].groupName).toBeNull();
   });
 });

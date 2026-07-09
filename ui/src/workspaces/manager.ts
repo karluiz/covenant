@@ -9,7 +9,7 @@
 
 import { tabManifestSave } from "../api";
 import { scheduleCloudPush } from "../settings/cloud_push";
-import { TabManager, type TabManifestV1 } from "../tabs/manager";
+import { TabManager, cwdBasename, type TabManifestV1 } from "../tabs/manager";
 import type { TabRow } from "./finder";
 
 export interface Workspace {
@@ -236,7 +236,11 @@ export class WorkspaceManager {
             groupName: g?.name ?? null,
             groupColor: g?.color ?? null,
             tabIndex: i,
-            title: t.custom_name ?? `Tab ${i + 1}`,
+            // Background workspaces don't have live TabManager state, so read
+            // the persisted title: custom_name → default_title (the live
+            // screen title captured at save) → cwd basename for pre-
+            // default_title manifests. Never a meaningless "Tab N".
+            title: t.custom_name ?? t.default_title ?? cwdBasename(t.cwd),
             isActiveTabInWorkspace: i === w.active_index,
             // ponytail: no per-tab timestamp persisted, so a background
             // workspace's MRU signal is the tab it was left on, dated by

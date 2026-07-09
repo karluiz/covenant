@@ -331,6 +331,12 @@ export interface SerializedTab {
   /// "shell" on restore so existing installs upgrade seamlessly.
   kind?: "shell" | "pi" | "acp";
   custom_name: string | null;
+  /// Live derived title (screen title / cold-start cwd basename) at save
+  /// time. Persisted so the switcher can show a background workspace's
+  /// real tab title instead of "Tab N" when no custom_name is set.
+  /// Optional for backward compat — old manifests fall back to the cwd
+  /// basename on read.
+  default_title?: string | null;
   cwd: string | null;
   color: string | null;
   group_id: string | null;
@@ -396,6 +402,7 @@ export interface SerializedLayout {
 export function serializeTab(tab: {
   kind: "shell" | "pi" | "acp";
   customName: string | null;
+  defaultTitle: string;
   color: string | null;
   groupId: string | null;
   panes: [Pane] | [Pane, Pane];
@@ -421,6 +428,7 @@ export function serializeTab(tab: {
   return {
     kind: pane0.kind === "pi" ? "pi" : pane0.kind === "acp" ? "acp" : "shell",
     custom_name: tab.customName,
+    default_title: tab.defaultTitle,
     cwd: null,           // legacy mirror; new readers use panes[i].cwd
     color: tab.color,
     group_id: tab.groupId,
@@ -528,7 +536,7 @@ type DragSource =
 
 /// Last path segment of a cwd, for the cold-start tab title. Empty/unknown
 /// cwd falls back to "shell".
-function cwdBasename(cwd: string | null | undefined): string {
+export function cwdBasename(cwd: string | null | undefined): string {
   const seg = (cwd ?? "").split("/").filter(Boolean).pop();
   return seg && seg.length > 0 ? seg : "shell";
 }
