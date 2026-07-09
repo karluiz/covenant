@@ -30,10 +30,18 @@ pub struct ContextRef {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CommandRef {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CanonStatus {
     pub installed: Vec<InstalledRef>,
     pub agents: Vec<AgentRef>,
     pub contexts: Vec<ContextRef>,
+    pub commands: Vec<CommandRef>,
 }
 
 /// Install a skill package from a local directory, recording `source_label` as provenance.
@@ -167,10 +175,19 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
             summary: u.summary.clone(),
         })
         .collect();
+    let commands = units
+        .iter()
+        .filter(|u| u.kind == crate::ContextKind::Command)
+        .map(|u| CommandRef {
+            name: u.name.clone(),
+            description: u.summary.clone(),
+        })
+        .collect();
     Ok(CanonStatus {
         installed,
         agents,
         contexts,
+        commands,
     })
 }
 
@@ -283,6 +300,24 @@ mod tests {
         assert_eq!(s.contexts[0].name, "kyc");
         assert_eq!(s.contexts[0].summary.as_deref(), Some("KYC rules"));
         assert!(s.installed.is_empty());
+    }
+
+    #[test]
+    fn status_lists_commands_with_description() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let canon = root.join(".covenant/canon");
+        std::fs::create_dir_all(canon.join("commands")).unwrap();
+        std::fs::write(
+            canon.join("commands/review.md"),
+            "---\ndescription: Review the diff\n---\nbody\n",
+        )
+        .unwrap();
+
+        let s = status(root).unwrap();
+        assert_eq!(s.commands.len(), 1);
+        assert_eq!(s.commands[0].name, "review");
+        assert_eq!(s.commands[0].description.as_deref(), Some("Review the diff"));
     }
 
     #[test]
