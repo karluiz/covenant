@@ -77,9 +77,12 @@ jobs:
           NOTES="See https://github.com/${REPO}/releases/tag/${TAG}"
           CHANGELOG=$(gh api "repos/${REPO}/contents/CHANGELOG.md?ref=${TAG}" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || true)
           if [ -n "$CHANGELOG" ]; then
+            # NOTE: awk must read to EOF (flip grab off, never `exit`) — an early
+            # `exit` closes the pipe while printf is still writing the CHANGELOG,
+            # and under `set -o pipefail` that SIGPIPE fails the whole step.
             SECTION=$(printf '%s\n' "$CHANGELOG" | awk -v tag="$TAG" '
               $0 ~ "^## " tag "([ ]|$)" { grab=1; next }
-              grab && /^## / { exit }
+              grab && /^## / { grab=0 }
               grab { print }
             ' | sed '/./,$!d')
             [ -n "$(printf '%s' "$SECTION" | tr -d '[:space:]')" ] && NOTES="$SECTION"
