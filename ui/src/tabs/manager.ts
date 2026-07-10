@@ -39,6 +39,7 @@ import {
   type Prompt,
 } from "../project-notes/api";
 import { sendPromptToSession } from "../project-notes/paste";
+import { noteSource } from "../project-notes/note-source";
 import { openMindLossModal } from "../operator/mind-loss-modal";
 import { openConfirmPrompt } from "../workspaces/confirm-prompt";
 import { openConfirmTyped } from "../workspaces/confirm-typed";
@@ -1522,6 +1523,21 @@ export class TabManager {
         },
         Icons.sparkles(),
       );
+      // Capture the selection into this group's Notes with provenance. Only
+      // when the pane belongs to a group (notes are per-group).
+      if (groupId) {
+        addItem(
+          "Add to notes",
+          () => {
+            const source = noteSource(pane?.executor ?? null, tabDisplayName(tab));
+            void projectNotesApi
+              .appendNote(groupId, selection, source)
+              .then(() => pushInfoToast({ message: "Added to notes" }))
+              .catch(() => pushInfoToast({ message: "Couldn’t add to notes" }));
+          },
+          Icons.noteText(),
+        );
+      }
     }
 
     // Start the default agent — only when none is already running in this
