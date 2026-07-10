@@ -1,6 +1,6 @@
 ---
 name: The Scout
-avatar: pack2:scout
+avatar: pack2:ken
 color: "#7aa2ff"
 model: claude-sonnet-4-6
 voice: terse

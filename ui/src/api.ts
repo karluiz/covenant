@@ -420,6 +420,9 @@ export interface ArchetypeView {
   avatar: string | null;
   color: string | null;
   tagline: string;
+  voice: string | null;
+  escalate_threshold: number | null;
+  tag: string | null;
 }
 
 export interface SoulView {

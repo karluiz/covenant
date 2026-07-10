@@ -1,6 +1,6 @@
 ---
 name: The Diplomat
-avatar: pack2:diplomat
+avatar: pack2:lina
 color: "#c4a7ff"
 model: claude-sonnet-4-6
 voice: warm

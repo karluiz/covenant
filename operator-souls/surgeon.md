@@ -1,6 +1,6 @@
 ---
 name: The Surgeon
-avatar: pack2:surgeon
+avatar: pack2:morrie
 color: "#e6b673"
 model: claude-sonnet-4-6
 voice: formal

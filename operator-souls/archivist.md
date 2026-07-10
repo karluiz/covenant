@@ -1,6 +1,6 @@
 ---
 name: The Archivist
-avatar: pack2:archivist
+avatar: pack2:maria
 color: "#9aa7ba"
 model: claude-sonnet-4-6
 voice: terse
