@@ -24,6 +24,8 @@ pub struct EvalResult {
     pub reason: String,
     pub ran_at_ms: i64,
     pub duration_ms: u64,
+    #[serde(default)]
+    pub baseline_pass: Option<bool>,
 }
 
 fn evals_dir(repo_root: &Path, skill: &str) -> std::path::PathBuf {
@@ -184,6 +186,7 @@ mod tests {
             reason: "because".into(),
             ran_at_ms: 1,
             duration_ms: 10,
+            baseline_pass: None,
         };
         write_result(tmp.path(), "kyc-peru", &mk("e1", true)).unwrap();
         write_result(tmp.path(), "kyc-peru", &mk("e2", false)).unwrap();
@@ -205,6 +208,7 @@ mod tests {
             reason: "r".into(),
             ran_at_ms: 1,
             duration_ms: 1,
+            baseline_pass: None,
         };
         write_result(tmp.path(), "skill-a", &mk("e1", true)).unwrap();
         write_result(tmp.path(), "skill-b", &mk("e1", false)).unwrap();
@@ -213,6 +217,21 @@ mod tests {
             all.contains_key("skill-a") && all.contains_key("skill-b"),
             "both skills survive interleaved writes"
         );
+    }
+
+    #[test]
+    fn eval_result_baseline_pass_defaults_to_none_and_roundtrips() {
+        // Old JSON without the field → None.
+        let old = r#"{"eval_id":"e1","pass":true,"reason":"ok","ran_at_ms":1,"duration_ms":2}"#;
+        let r: EvalResult = serde_json::from_str(old).unwrap();
+        assert_eq!(r.baseline_pass, None);
+
+        // New value round-trips.
+        let mut r2 = r.clone();
+        r2.baseline_pass = Some(false);
+        let s = serde_json::to_string(&r2).unwrap();
+        let back: EvalResult = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.baseline_pass, Some(false));
     }
 
     #[test]
@@ -227,6 +246,7 @@ mod tests {
             reason: "r".into(),
             ran_at_ms: 1,
             duration_ms: 1,
+            baseline_pass: None,
         };
         write_result(tmp.path(), "skill-a", &r).unwrap();
         assert!(dir.join("eval-results.corrupt.json").exists(), "corrupt file preserved");
