@@ -144,6 +144,7 @@ pub fn read_source(repo_root: &Path, kind: ContextKind, name: &str) -> Result<St
     let base = canon_dir(repo_root).join(kind.dir());
     let path = match kind {
         ContextKind::Skill => base.join(name).join("SKILL.md"),
+        ContextKind::Mcp => base.join(format!("{name}.json")),
         _ => base.join(format!("{name}.md")),
     };
     Ok(std::fs::read_to_string(path)?)
@@ -334,5 +335,17 @@ mod tests {
         assert_eq!(read_source(root, ContextKind::Agent, "reviewer").unwrap(), "PERSONA BODY");
         assert_eq!(read_source(root, ContextKind::Context, "kyc").unwrap(), "CTX BODY");
         assert!(read_source(root, ContextKind::Agent, "../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn read_source_reads_mcp_json() {
+        use crate::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join(".covenant/canon/mcp");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ctx7.json"), r#"{"command":"npx"}"#).unwrap();
+        let body = read_source(root, ContextKind::Mcp, "ctx7").unwrap();
+        assert!(body.contains("npx"));
     }
 }

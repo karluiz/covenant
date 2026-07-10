@@ -1,5 +1,5 @@
 //! The context-kind contract: the enumerable classes Canon carries into an
-//! executor's context. Skill is the only packageable kind today; Mcp / Spec /
+//! executor's context. Skill is the only packageable kind today; Spec /
 //! Memory join in later sub-projects.
 
 use crate::manifest::{canon_dir, read_manifest};
@@ -14,6 +14,7 @@ pub enum ContextKind {
     Agent,
     Context,
     Command,
+    Mcp,
     Skill,
 }
 
@@ -24,6 +25,7 @@ impl ContextKind {
             Self::Agent => "agents",
             Self::Context => "context",
             Self::Command => "commands",
+            Self::Mcp => "mcp",
             Self::Skill => "skills",
         }
     }
@@ -34,6 +36,7 @@ impl ContextKind {
             Self::Agent => "Agent",
             Self::Context => "Context",
             Self::Command => "Command",
+            Self::Mcp => "Mcp",
             Self::Skill => "Skill",
         }
     }
@@ -77,6 +80,15 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
         out.push(ContextUnit {
             kind: ContextKind::Command,
             summary: parse_frontmatter_str(&raw, "description").or_else(|| parse_summary(&raw)),
+            name,
+            projectable: true,
+            packageable: false,
+        });
+    }
+    for (name, srv) in crate::mcp::read_mcp_servers(repo_root)? {
+        out.push(ContextUnit {
+            kind: ContextKind::Mcp,
+            summary: srv.description.clone(),
             name,
             projectable: true,
             packageable: false,
@@ -154,5 +166,19 @@ mod tests {
         assert_eq!(cmd.summary.as_deref(), Some("Ship the current branch"));
         assert!(!cmd.packageable);
         assert!(cmd.projectable);
+    }
+
+    #[test]
+    fn list_context_includes_mcp_with_description() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join(".covenant/canon/mcp");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ctx7.json"), r#"{"command":"npx","description":"C7"}"#).unwrap();
+        let units = list_context(root).unwrap();
+        let mcp = units.iter().find(|u| u.kind == ContextKind::Mcp).unwrap();
+        assert_eq!(mcp.name, "ctx7");
+        assert_eq!(mcp.summary.as_deref(), Some("C7"));
+        assert!(!mcp.packageable);
     }
 }

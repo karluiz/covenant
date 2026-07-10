@@ -7,6 +7,7 @@ pub mod project;
 pub mod types;
 pub mod eval;
 pub mod kind;
+pub mod mcp;
 
 pub use install::{install_from_dir, install_local, read_skill_package, read_source, status, CanonStatus};
 pub use manifest::{canon_dir, read_manifest, write_manifest};
@@ -16,6 +17,7 @@ pub use project::{
 pub use types::{CanonManifest, InstalledRef, SkillManifest};
 pub use eval::{pass_rate, read_evals, read_results, write_result, Eval, EvalResult};
 pub use kind::{list_context, ContextKind, ContextUnit};
+pub use mcp::McpServer;
 
 use thiserror::Error;
 
