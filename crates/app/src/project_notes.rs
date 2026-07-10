@@ -34,6 +34,7 @@ pub struct Note {
     pub id: String,
     pub group_id: String,
     pub body: String,
+    pub source: Option<String>,
     pub created_at_unix_ms: i64,
 }
 
@@ -203,26 +204,65 @@ impl Store {
         .map_err(|e| Error::Join(e.to_string()))?
     }
 
-    pub async fn append_note(&self, group_id: &str, body: &str) -> Result<Note> {
+    pub async fn append_note(
+        &self,
+        group_id: &str,
+        body: &str,
+        source: Option<&str>,
+    ) -> Result<Note> {
         let conn = self.conn.clone();
         let group_id = group_id.to_owned();
         let body = body.to_owned();
+        let source = source.map(|s| s.to_owned());
         tokio::task::spawn_blocking(move || -> Result<Note> {
             let conn = conn.blocking_lock();
             let now = Self::now_ms();
             let id = Ulid::new().to_string();
             conn.execute(
-                "INSERT INTO project_notes
-                 (id, group_id, body, created_at_unix_ms)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![&id, &group_id, &body, now],
+                "INSERT INTO project_notes (id, group_id, body, source, created_at_unix_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![&id, &group_id, &body, &source, now],
             )?;
             Ok(Note {
                 id,
                 group_id,
                 body,
+                source,
                 created_at_unix_ms: now,
             })
+        })
+        .await
+        .map_err(|e| Error::Join(e.to_string()))?
+    }
+
+    pub async fn update_note(&self, id: &str, body: &str) -> Result<Option<Note>> {
+        let conn = self.conn.clone();
+        let id = id.to_owned();
+        let body = body.to_owned();
+        tokio::task::spawn_blocking(move || -> Result<Option<Note>> {
+            let conn = conn.blocking_lock();
+            let changed = conn.execute(
+                "UPDATE project_notes SET body = ?2 WHERE id = ?1",
+                params![&id, &body],
+            )?;
+            if changed == 0 {
+                return Ok(None);
+            }
+            let note = conn.query_row(
+                "SELECT id, group_id, body, source, created_at_unix_ms
+                   FROM project_notes WHERE id = ?1",
+                params![&id],
+                |r| {
+                    Ok(Note {
+                        id: r.get(0)?,
+                        group_id: r.get(1)?,
+                        body: r.get(2)?,
+                        source: r.get(3)?,
+                        created_at_unix_ms: r.get(4)?,
+                    })
+                },
+            )?;
+            Ok(Some(note))
         })
         .await
         .map_err(|e| Error::Join(e.to_string()))?
@@ -323,7 +363,7 @@ fn list_notes(
 ) -> Result<Vec<Note>> {
     if let Some(ts) = before_ts {
         let mut stmt = conn.prepare(
-            "SELECT id, group_id, body, created_at_unix_ms
+            "SELECT id, group_id, body, source, created_at_unix_ms
                FROM project_notes
               WHERE group_id = ?1 AND created_at_unix_ms < ?2
               ORDER BY created_at_unix_ms DESC
@@ -335,14 +375,15 @@ fn list_notes(
                     id: r.get(0)?,
                     group_id: r.get(1)?,
                     body: r.get(2)?,
-                    created_at_unix_ms: r.get(3)?,
+                    source: r.get(3)?,
+                    created_at_unix_ms: r.get(4)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     } else {
         let mut stmt = conn.prepare(
-            "SELECT id, group_id, body, created_at_unix_ms
+            "SELECT id, group_id, body, source, created_at_unix_ms
                FROM project_notes
               WHERE group_id = ?1
               ORDER BY created_at_unix_ms DESC
@@ -354,7 +395,8 @@ fn list_notes(
                     id: r.get(0)?,
                     group_id: r.get(1)?,
                     body: r.get(2)?,
-                    created_at_unix_ms: r.get(3)?,
+                    source: r.get(3)?,
+                    created_at_unix_ms: r.get(4)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -597,8 +639,21 @@ pub async fn project_note_append(
     store: State<'_, Store>,
     group_id: String,
     body: String,
+    source: Option<String>,
 ) -> std::result::Result<Note, String> {
-    store.append_note(&group_id, &body).await.map_err(map_err)
+    store
+        .append_note(&group_id, &body, source.as_deref())
+        .await
+        .map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_note_update(
+    store: State<'_, Store>,
+    id: String,
+    body: String,
+) -> std::result::Result<Option<Note>, String> {
+    store.update_note(&id, &body).await.map_err(map_err)
 }
 
 #[tauri::command]
@@ -684,11 +739,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn note_source_persists_and_updates() {
+        let s = fresh_store();
+        let n = s
+            .append_note("g1", "hello", Some("from Claude · tab 2"))
+            .await
+            .unwrap();
+        assert_eq!(n.source.as_deref(), Some("from Claude · tab 2"));
+
+        let plain = s.append_note("g1", "plain", None).await.unwrap();
+        assert_eq!(plain.source, None);
+
+        let updated = s.update_note(&n.id, "edited").await.unwrap().unwrap();
+        assert_eq!(updated.body, "edited");
+        assert_eq!(updated.source.as_deref(), Some("from Claude · tab 2")); // source preserved
+        assert!(s.update_note("missing-id", "x").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
     async fn notes_append_and_list_newest_first() {
         let s = fresh_store();
         let g = "g1";
         for body in ["one", "two", "three"] {
-            s.append_note(g, body).await.unwrap();
+            s.append_note(g, body, None).await.unwrap();
             // ensure monotonic timestamps when test runs fast
             tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         }
@@ -711,7 +784,7 @@ mod tests {
     #[tokio::test]
     async fn snapshot_isolated_per_group() {
         let s = fresh_store();
-        s.append_note("g1", "x").await.unwrap();
+        s.append_note("g1", "x", None).await.unwrap();
         s.create_command("g2", "t", "c").await.unwrap();
         let snap1 = s.snapshot("g1").await.unwrap();
         let snap2 = s.snapshot("g2").await.unwrap();
@@ -744,6 +817,7 @@ mod tests {
                 id: "2".into(),
                 group_id: "g".into(),
                 body: "wip".into(),
+                source: None,
                 created_at_unix_ms: now,
             }],
             docs: "# Hello".into(),
@@ -781,6 +855,7 @@ mod tests {
                 id: format!("{i}"),
                 group_id: "g".into(),
                 body: format!("note {i}"),
+                source: None,
                 created_at_unix_ms: now - (i as i64 * 1000),
             });
         }
