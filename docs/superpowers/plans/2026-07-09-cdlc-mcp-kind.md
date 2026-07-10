@@ -644,8 +644,12 @@ pub(crate) fn project_mcp_codex(
 ) -> Result<(), CanonError> {
     let path = repo_root.join(".codex/config.toml");
     let mut root: toml::Value = if path.exists() {
-        toml::from_str(&std::fs::read_to_string(&path)?)
-            .unwrap_or_else(|_| toml::Value::Table(Default::default()))
+        // Never clobber an existing config we can't parse (a stray typo in the
+        // user's config.toml must not destroy it) — leave it untouched.
+        match toml::from_str(&std::fs::read_to_string(&path)?) {
+            Ok(v) => v,
+            Err(_) => return Ok(()),
+        }
     } else {
         toml::Value::Table(Default::default())
     };
