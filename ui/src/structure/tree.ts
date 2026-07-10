@@ -123,6 +123,16 @@ export class StructureTree {
   /// started — avoids two reveals interleaving DOM updates.
   private revealGen = 0;
 
+  /// Internal copy/paste clipboard (VS Code-style ⌘C/⌘V). Holds the
+  /// source path; paste copies it into the destination dir via the same
+  /// collision-safe `copy_into` used for Finder drops — pasting into the
+  /// same folder yields `name (2)`, i.e. duplicate.
+  private clipboardPath: string | null = null;
+  /// Last row the user clicked or right-clicked — the target for keyboard
+  /// ⌘C/⌘V and the `.is-selected` outline. Distinct from `activeNode`
+  /// (the file currently open in the editor).
+  private selectedNode: NodeState | null = null;
+
   constructor(
     private readonly host: HTMLElement,
     private readonly onFileClick: FileClickHandler,
@@ -159,6 +169,54 @@ export class StructureTree {
       if (!this.cwd) return;
       this.openRootContextMenu(ev.clientX, ev.clientY);
     });
+
+    // Focusable so ⌘C/⌘V land here when the tree (not the editor) is
+    // focused. tabIndex -1 = programmatic focus only, not in tab order.
+    this.root.tabIndex = -1;
+    this.root.addEventListener("keydown", (ev) => this.onKeyDown(ev));
+  }
+
+  /// VS Code-style ⌘C (copy selected node) / ⌘V (paste into the selected
+  /// node's folder). Only fires when the tree holds focus — clicking a file
+  /// hands focus to the editor, so its ⌘C/⌘V win there; use right-click Copy
+  /// on a file instead. ponytail: keyboard target = last-clicked node; no
+  /// arrow-key navigation, add if users ask.
+  private onKeyDown(ev: KeyboardEvent): void {
+    if (!(ev.metaKey || ev.ctrlKey) || ev.altKey || ev.shiftKey) return;
+    const key = ev.key.toLowerCase();
+    if (key === "c" && this.selectedNode) {
+      ev.preventDefault();
+      this.clipboardPath = this.selectedNode.entry.path;
+    } else if (key === "v" && this.clipboardPath) {
+      ev.preventDefault();
+      void this.pasteClipboard(this.selectedNode);
+    }
+  }
+
+  /// Mark a row as selected (keyboard ⌘C/⌘V target + `.is-selected`
+  /// outline). Cleared implicitly on refresh when rows are rebuilt.
+  private selectNode(node: NodeState | null): void {
+    if (this.selectedNode === node) return;
+    this.selectedNode?.el
+      .querySelector(".structure-row")
+      ?.classList.remove("is-selected");
+    this.selectedNode = node;
+    node?.el.querySelector(".structure-row")?.classList.add("is-selected");
+  }
+
+  /// Destination directory for a paste, given the selected node: into a
+  /// folder itself, into a file's parent, or the tree root when nothing is
+  /// selected. Then copy the clipboard path in via `ingestDrop` (same
+  /// collision-safe copy + expand + refresh as a Finder drop).
+  private async pasteClipboard(target: NodeState | null): Promise<void> {
+    const src = this.clipboardPath;
+    if (!src || !this.cwd) return;
+    let destDir: string;
+    if (!target) destDir = this.cwd;
+    else if (target.entry.kind === "dir" && !target.entry.is_symlink)
+      destDir = target.entry.path;
+    else destDir = parentDir(target.entry.path, this.cwd);
+    await this.ingestDrop([src], destDir);
   }
 
   /// Pointer-based drag-to-move. We can't use HTML5 DnD here: the Tauri
@@ -542,7 +600,10 @@ export class StructureTree {
       // already toggles a folder, so a double-click would toggle twice
       // (open then immediately close) and feel broken.
       if (ev.detail > 1) return;
+      this.selectNode(node);
       if (entry.kind === "dir" && !entry.is_symlink) {
+        // Keep focus in the tree so ⌘C/⌘V land here (no editor opens).
+        this.root.focus({ preventScroll: true });
         if (node.expanded) {
           this.collapse(node);
         } else {
@@ -555,6 +616,7 @@ export class StructureTree {
 
     row.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
+      this.selectNode(node);
       // ContextMenu.show handles the <html> CSS zoom counter-scaling.
       this.openContextMenu(ev.clientX, ev.clientY, node);
     });
@@ -578,6 +640,23 @@ export class StructureTree {
 
     items.push(
       { label: "Reveal in Finder", onClick: () => this.revealInFinder(node.entry.path) },
+      { divider: true },
+      {
+        label: "Copy",
+        shortcut: "⌘C",
+        onClick: () => {
+          this.clipboardPath = node.entry.path;
+        },
+      },
+    );
+    if (this.clipboardPath) {
+      items.push({
+        label: "Paste",
+        shortcut: "⌘V",
+        onClick: () => void this.pasteClipboard(node),
+      });
+    }
+    items.push(
       { divider: true },
       { label: "Rename", onClick: () => this.startRename(node) },
       {
@@ -607,12 +686,20 @@ export class StructureTree {
   private openRootContextMenu(x: number, y: number): void {
     const dir = this.cwd;
     if (!dir) return;
-    this.contextMenu.show(x, y, [
+    const items: MenuItem[] = [
       { label: "New File", onClick: () => this.startCreateInRoot("file") },
       { label: "New Folder", onClick: () => this.startCreateInRoot("dir") },
       { divider: true },
       { label: "Reveal in Finder", onClick: () => this.revealInFinder(dir) },
-    ]);
+    ];
+    if (this.clipboardPath) {
+      items.push({
+        label: "Paste",
+        shortcut: "⌘V",
+        onClick: () => void this.pasteClipboard(null),
+      });
+    }
+    this.contextMenu.show(x, y, items);
   }
 
   /// Begin an inline "new file/folder" row at the tree root (this.cwd).

@@ -7888,6 +7888,14 @@ mark.mv-find-hit.is-active {
 .structure-row.is-active .structure-name {
     color: var(--fg, #e5e7eb);
 }
+/* Keyboard-selection target (last-clicked row) — the ⌘C/⌘V anchor.
+   Faint fill + accent ring so it reads as "selected" without competing
+   with .is-active (the open-file accent stripe). */
+.structure-row.is-selected {
+    background: rgba(var(--ink-rgb), 0.06);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #b794f4) 40%, transparent);
+    border-radius: 0;
+}
 .structure-node-expanded > .structure-row {
     color: var(--text-primary);
 }
