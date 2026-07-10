@@ -29,6 +29,7 @@ import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
+import { liftRow, groupVerdict } from "./lift";
 
 export type SectionKey = "org" | "members" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
 
@@ -915,13 +916,24 @@ export class CanonCockpitView {
       void canonEvalSummary(cwd)
         .then((evalSummary) => {
           if (evalSummary.length === 0) {
-            evalBox.appendChild(this.note("Run evals on a skill to measure its context-TDD pass-rate."));
+            evalBox.appendChild(this.note("Run evals on a skill to measure its context-lift (with vs without)."));
             return;
           }
-          evalBox.appendChild(loopSubhead("Eval pass-rate"));
+          evalBox.appendChild(loopSubhead("Context lift"));
+          const verdict = document.createElement("div");
+          verdict.className = "canon-loop-verdict";
+          verdict.textContent = groupVerdict(evalSummary);
+          evalBox.appendChild(verdict);
           for (const r of evalSummary) {
-            const pct = r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
-            evalBox.appendChild(meterRow(r.skill, `${r.passed}/${r.total} · ${pct}%`, pct, true));
+            const lv = liftRow(r);
+            // meterRow(label, value, percent, positive?) — reuse the existing helper.
+            // Bar width = |pct| for a clean A/B (capped at 100), else the absolute pass-rate.
+            const bar = lv.sign === "none"
+              ? (r.total > 0 ? (r.passed / r.total) * 100 : 0)
+              : Math.min(100, Math.abs(lv.pct));
+            const row = meterRow(r.skill, lv.label, bar, lv.sign === "pos");
+            row.classList.add(`lift-${lv.sign}`);
+            evalBox.appendChild(row);
           }
         })
         .catch(() => {});

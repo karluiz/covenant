@@ -1608,6 +1608,8 @@ export interface EvalSkillSummary {
   skill: string;
   passed: number;
   total: number;
+  baseline_passed: number;
+  baseline_total: number;
 }
 
 export interface CanonEvalProgress {

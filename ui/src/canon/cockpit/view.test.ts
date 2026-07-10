@@ -134,10 +134,10 @@ describe("CanonCockpitView Loop section", () => {
   });
 
   it("renders eval pass-rate in the Loop section (moved from the rail — see panel.test.ts)", async () => {
-    vi.mocked(canonEvalSummary).mockResolvedValueOnce([{ skill: "kyc-peru", passed: 4, total: 5 }]);
+    vi.mocked(canonEvalSummary).mockResolvedValueOnce([{ skill: "kyc-peru", passed: 4, total: 5, baseline_passed: 2, baseline_total: 5 }]);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("loop");
     await Promise.resolve(); await Promise.resolve();
-    expect(v.element.textContent).toContain("4/5");
+    expect(v.element.textContent).toContain("80%");
   });
 });
