@@ -74,6 +74,15 @@ pub(crate) fn prepare_sandbox(repo_root: &Path, skill: &str) -> std::io::Result<
     Ok(sbox)
 }
 
+/// Baseline sandbox: the same deny-list `settings.json` as `prepare_sandbox`,
+/// but with NO skill projected — the control arm for context-lift.
+pub(crate) fn prepare_sandbox_bare(_repo_root: &Path) -> std::io::Result<tempfile::TempDir> {
+    let sbox = tempfile::Builder::new().prefix("eval-sbox-").tempdir()?;
+    std::fs::create_dir_all(sbox.path().join(".claude"))?;
+    std::fs::write(sbox.path().join(".claude/settings.json"), denylist_settings())?;
+    Ok(sbox)
+}
+
 /// Returns CLI args for `claude -p <scenario>` that enforce read-only tools
 /// (Read/Grep/Glob) + deny-list settings.json + cwd sandbox + timeout.
 /// Full-tool agentic runs need the deferred hardened container.
@@ -104,6 +113,27 @@ fn classify_output(success: bool, stdout: &str, stderr: &str) -> HarnessStatus {
     }
 }
 
+/// Run `claude -p <scenario>` inside an already-prepared sandbox dir.
+async fn run_scenario_in(sbox_path: &Path, scenario: &str, started: Instant) -> HarnessOutcome {
+    let mut cmd = tokio::process::Command::new("claude");
+    cmd.args(harness_args(scenario))
+        .current_dir(sbox_path)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let (transcript, status) =
+        match tokio::time::timeout(Duration::from_secs(HARNESS_TIMEOUT_SECS), cmd.output()).await {
+            Err(_) => (String::new(), HarnessStatus::TimedOut),
+            Ok(Err(e)) => (String::new(), HarnessStatus::Skipped(format!("claude spawn failed: {e}"))),
+            Ok(Ok(out)) => {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                let status = classify_output(out.status.success(), &stdout, &stderr);
+                (stdout, status)
+            }
+        };
+    HarnessOutcome { transcript, status, duration_ms: started.elapsed().as_millis() as u64 }
+}
+
 /// Run one scenario through `claude -p` in the sandbox. Confined by read-only
 /// tools (Read/Grep/Glob) + deny-list settings.json + cwd sandbox + timeout.
 /// Full-tool agentic runs need the deferred hardened container.
@@ -127,29 +157,23 @@ pub async fn run_harness(repo_root: &Path, skill: &str, scenario: &str) -> Harne
             }
         }
     };
+    run_scenario_in(sbox.path(), scenario, started).await
+}
 
-    let mut cmd = tokio::process::Command::new("claude");
-    cmd.args(harness_args(scenario))
-        .current_dir(sbox.path())
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
-
-    let (transcript, status) =
-        match tokio::time::timeout(Duration::from_secs(HARNESS_TIMEOUT_SECS), cmd.output()).await {
-            Err(_) => (String::new(), HarnessStatus::TimedOut),
-            Ok(Err(e)) => (String::new(), HarnessStatus::Skipped(format!("claude spawn failed: {e}"))),
-            Ok(Ok(out)) => {
-                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                let status = classify_output(out.status.success(), &stdout, &stderr);
-                (stdout, status)
+/// The baseline (no-skill) arm: same scenario in `prepare_sandbox_bare`.
+pub async fn run_baseline(repo_root: &Path, scenario: &str) -> HarnessOutcome {
+    let started = Instant::now();
+    let sbox = match prepare_sandbox_bare(repo_root) {
+        Ok(s) => s,
+        Err(e) => {
+            return HarnessOutcome {
+                transcript: String::new(),
+                status: HarnessStatus::Skipped(format!("baseline sandbox prep failed: {e}")),
+                duration_ms: started.elapsed().as_millis() as u64,
             }
-        };
-    HarnessOutcome {
-        transcript,
-        status,
-        duration_ms: started.elapsed().as_millis() as u64,
-    }
+        }
+    };
+    run_scenario_in(sbox.path(), scenario, started).await
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -276,6 +300,8 @@ pub struct EvalSkillSummary {
     pub skill: String,
     pub passed: usize,
     pub total: usize,
+    pub baseline_passed: usize,
+    pub baseline_total: usize,
 }
 
 fn emit_progress(app: &AppHandle, skill: &str, eval_id: &str, status: &str, reason: &str) {
@@ -334,12 +360,24 @@ pub async fn canon_run_evals(
         }
         match judge(&settings, &ev.scenario, &ev.rubric, &outcome.transcript).await {
             Ok(v) => {
+                // Baseline arm: same scenario/rubric, no skill projected.
+                let base_outcome = run_baseline(&repo_root, &ev.scenario).await;
+                let baseline_pass = match base_outcome.status {
+                    HarnessStatus::Ran => {
+                        match judge(&settings, &ev.scenario, &ev.rubric, &base_outcome.transcript).await {
+                            Ok(bv) => Some(bv.pass),
+                            Err(_) => None, // baseline judge failed → lift not measurable for this eval
+                        }
+                    }
+                    _ => None, // baseline run skipped/timed out → no baseline for this eval
+                };
                 let result = karl_canon::EvalResult {
                     eval_id: ev.id.clone(),
                     pass: v.pass,
                     reason: v.reason.clone(),
                     ran_at_ms: chrono::Utc::now().timestamp_millis(),
                     duration_ms: outcome.duration_ms,
+                    baseline_pass,
                 };
                 if let Err(e) = karl_canon::write_result(&repo_root, &skill, &result) {
                     tracing::warn!(target: "canon", error = %e, "write_result failed");
@@ -362,7 +400,9 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalSkillSummary>, St
         .into_iter()
         .map(|(skill, inner)| {
             let passed = inner.values().filter(|r| r.pass).count();
-            EvalSkillSummary { skill, passed, total: inner.len() }
+            let baseline_total = inner.values().filter(|r| r.baseline_pass.is_some()).count();
+            let baseline_passed = inner.values().filter(|r| r.baseline_pass == Some(true)).count();
+            EvalSkillSummary { skill, passed, total: inner.len(), baseline_passed, baseline_total }
         })
         .collect())
 }
@@ -423,6 +463,14 @@ mod tests {
     fn missing_skill_md_is_an_error() {
         let repo = tempfile::tempdir().unwrap();
         assert!(prepare_sandbox(repo.path(), "nope").is_err());
+    }
+
+    #[test]
+    fn prepare_sandbox_bare_has_settings_but_no_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sbox = prepare_sandbox_bare(tmp.path()).unwrap();
+        assert!(sbox.path().join(".claude/settings.json").exists(), "deny-list settings present");
+        assert!(!sbox.path().join(".claude/skills").exists(), "no skill projected in baseline");
     }
 
     #[test]
