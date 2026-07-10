@@ -45,12 +45,20 @@ pub struct McpRef {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SpecRef {
+    pub name: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CanonStatus {
     pub installed: Vec<InstalledRef>,
     pub agents: Vec<AgentRef>,
     pub contexts: Vec<ContextRef>,
     pub commands: Vec<CommandRef>,
     pub mcp: Vec<McpRef>,
+    pub specs: Vec<SpecRef>,
 }
 
 /// Install a skill package from a local directory, recording `source_label` as provenance.
@@ -201,12 +209,17 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
             name,
         })
         .collect();
+    let specs = crate::kind::read_specs(repo_root)?
+        .into_iter()
+        .map(|(name, title)| SpecRef { name, title })
+        .collect();
     Ok(CanonStatus {
         installed,
         agents,
         contexts,
         commands,
         mcp,
+        specs,
     })
 }
 
@@ -390,5 +403,17 @@ mod tests {
         assert_eq!(s.mcp[0].name, "ctx7");
         assert_eq!(s.mcp[0].transport, "stdio");
         assert_eq!(s.mcp[0].description.as_deref(), Some("C7"));
+    }
+
+    #[test]
+    fn status_lists_specs_with_title() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("docs/specs")).unwrap();
+        std::fs::write(root.join("docs/specs/3.1-alpha.md"), "# 3.1 — Alpha\n").unwrap();
+        let s = status(root).unwrap();
+        assert_eq!(s.specs.len(), 1);
+        assert_eq!(s.specs[0].name, "3.1-alpha");
+        assert_eq!(s.specs[0].title, "3.1 — Alpha");
     }
 }

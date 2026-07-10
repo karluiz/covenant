@@ -2433,6 +2433,7 @@ async fn canon_read_source(cwd: String, kind: String, name: String) -> Result<St
         "command" => karl_canon::ContextKind::Command,
         "mcp" => karl_canon::ContextKind::Mcp,
         "skill" => karl_canon::ContextKind::Skill,
+        "spec" => karl_canon::ContextKind::Spec,
         other => return Err(format!("unknown context kind: {other}")),
     };
     tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, k, &name))
