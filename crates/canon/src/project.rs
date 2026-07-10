@@ -253,6 +253,7 @@ fn managed_body(
     agents: &[(String, String)],
     skills: &[(String, String, String)],
     contexts: &[(String, String)],
+    memories: &[(String, String)],
 ) -> Option<String> {
     let mut sections: Vec<String> = Vec::new();
     if let Some(name) = active_agent {
@@ -270,6 +271,24 @@ fn managed_body(
         if let Some(sum) = parse_summary(raw) {
             sections.push(format!("## {stem} (context)\n\n{sum}"));
         }
+    }
+    let mem_bullets: Vec<String> = memories
+        .iter()
+        .filter_map(|(_, raw)| {
+            parse_frontmatter_str(raw, "description")
+                .or_else(|| {
+                    body_after_frontmatter(raw)
+                        .lines()
+                        .map(|l| l.trim())
+                        .find(|l| !l.is_empty())
+                        .map(|s| s.to_string())
+                })
+                .filter(|s| !s.is_empty())
+                .map(|fact| format!("- {fact}"))
+        })
+        .collect();
+    if !mem_bullets.is_empty() {
+        sections.push(format!("## Memory\n\n{}", mem_bullets.join("\n")));
     }
     if sections.is_empty() {
         return None;
@@ -369,6 +388,7 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
     let agents = read_dir_md(&canon_dir(repo_root).join("agents"))?;
     let contexts = read_dir_md(&canon_dir(repo_root).join("context"))?;
     let commands = read_dir_md(&canon_dir(repo_root).join("commands"))?;
+    let memories = read_dir_md(&canon_dir(repo_root).join("memory"))?;
     let mcp_servers = crate::mcp::read_mcp_servers(repo_root)?;
     let mut skills: Vec<(String, String, String)> = Vec::new();
     for i in &manifest.installed {
@@ -382,6 +402,7 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         && contexts.is_empty()
         && commands.is_empty()
         && mcp_servers.is_empty()
+        && memories.is_empty()
     {
         return Ok(ProjectionStatus {
             executors: TOOLS
@@ -416,7 +437,7 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         files.push(("pi", repo_root.join(".pi/prompts").join(format!("{stem}.md")), content));
     }
 
-    let body = managed_body(None, &agents, &skills, &contexts);
+    let body = managed_body(None, &agents, &skills, &contexts, &memories);
 
     let mut checks: std::collections::BTreeMap<&str, Vec<Check>> = std::collections::BTreeMap::new();
     for (tool, path, expected) in &files {
@@ -479,6 +500,7 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     let agents = read_dir_md(&canon_dir(repo_root).join("agents"))?;
     let contexts = read_dir_md(&canon_dir(repo_root).join("context"))?;
     let commands = read_dir_md(&canon_dir(repo_root).join("commands"))?;
+    let memories = read_dir_md(&canon_dir(repo_root).join("memory"))?;
     let mcp_servers = crate::mcp::read_mcp_servers(repo_root)?;
     let mut skills: Vec<(String, String, String)> = Vec::new(); // (name, version, body)
     for i in &manifest.installed {
@@ -500,7 +522,7 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     }
 
     // Managed-block executors (codex, copilot): one concatenated block.
-    match managed_body(active_agent, &agents, &skills, &contexts) {
+    match managed_body(active_agent, &agents, &skills, &contexts, &memories) {
         None => {
             // `.hermes.md` is stripped only if present (the loop guards on exists).
             for rel in ["AGENTS.md", ".github/copilot-instructions.md", ".hermes.md"] {
@@ -1131,5 +1153,37 @@ mod tests {
             "un-projected managed content must not be masked as Synced by a matching MCP fold"
         );
         assert_eq!(codex.state, ProjState::NotProjected);
+    }
+
+    #[test]
+    fn project_writes_memory_section_into_agents_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        let dir = repo.join(".covenant/canon/memory");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("decision-x.md"), "---\ndescription: We chose X\n---\nbody\n").unwrap();
+        project(repo).unwrap();
+        let agents_md = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();
+        assert!(agents_md.contains("## Memory"), "memory heading present");
+        assert!(agents_md.contains("- We chose X"), "memory bullet present");
+    }
+
+    #[test]
+    fn projection_status_flags_stale_memory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        let dir = repo.join(".covenant/canon/memory");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("decision-x.md"), "---\ndescription: We chose X\n---\nbody\n").unwrap();
+        project(repo).unwrap();
+        // Edit the memory source WITHOUT re-projecting. The managed block in AGENTS.md
+        // still says "We chose X" but the expected block now says "We chose Y" → the
+        // block's START marker is present but its content differs → check_managed → Differ
+        // → codex Stale. (Rewriting AGENTS.md to drop the marker entirely would instead
+        // read as Missing → NotProjected, which is not what we want to assert here.)
+        std::fs::write(dir.join("decision-x.md"), "---\ndescription: We chose Y\n---\nbody\n").unwrap();
+        let st = projection_status(repo).unwrap();
+        let codex = st.executors.iter().find(|e| e.tool == "codex").unwrap();
+        assert_eq!(codex.state, ProjState::Stale);
     }
 }
