@@ -253,6 +253,32 @@ describe("CanonPanel", () => {
     expect(host.textContent).toContain("No MCP servers authored.");
   });
 
+  it("renders a Specs section", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-specs", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({
+      installed: [],
+      agents: [],
+      contexts: [],
+      commands: [],
+      mcp: [],
+      specs: [{ name: "3.1-alpha", title: "3.1 — Alpha" }],
+    });
+    expect(host.textContent).toContain("Specs");
+    expect(host.textContent).toContain("3.1 — Alpha");
+  });
+
+  it("shows the specs empty hint when none", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-specs-empty", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [], specs: [] });
+    expect(host.textContent).toContain("No specs published.");
+  });
+
   it("slugifies a display name to a valid slug", () => {
     expect(slugify("Cleverit SpA")).toBe("cleverit-spa");
     expect(slugify("  Banco de Chile ")).toBe("banco-de-chile");

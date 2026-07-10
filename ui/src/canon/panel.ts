@@ -536,6 +536,23 @@ export class CanonPanel {
       ),
     );
 
+    // ── Specs (surface-only, not projected) ──
+    const specs = this.kindSection(
+      "Specs",
+      s.specs.length,
+      "No specs published.",
+      s.specs.map((sp) =>
+        skillCard({
+          name: sp.name,
+          meta: sp.title,
+          className: "canon-skill-row",
+          fetchPreview: () =>
+            cwd ? canonReadSource(cwd, "spec", sp.name) : Promise.resolve("(no project folder)"),
+          actions: [],
+        }),
+      ),
+    );
+
     // ── Skills (unchanged rows) ──
     const rows: HTMLElement[] = [];
     if (s.installed.length > 0) {
@@ -564,7 +581,7 @@ export class CanonPanel {
     }
     const skills = this.kindSection("Skills", s.installed.length, "No skills installed.", rows);
 
-    this.body.replaceChildren(agents, contexts, commands, mcp, skills);
+    this.body.replaceChildren(agents, contexts, commands, mcp, specs, skills);
   }
 
   /** One rail section: uppercase head, count, rows-or-empty-hint. */
