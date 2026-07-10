@@ -450,7 +450,12 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
             }
             if !crate::mcp::mcp_synced(repo_root, &e.tool, &mcp_servers) {
                 e.state = ProjState::Stale;
-            } else if e.state == ProjState::NotProjected {
+            } else if e.state == ProjState::NotProjected
+                && checks.get(e.tool.as_str()).map_or(true, |v| v.is_empty())
+            {
+                // Only upgrade when NO non-MCP content applies to this tool —
+                // an all-Missing checks set (content exists but un-projected)
+                // must stay NotProjected, not be masked as Synced by a matching MCP.
                 e.state = ProjState::Synced;
             }
         }
@@ -1090,5 +1095,41 @@ mod tests {
         let st = projection_status(repo).unwrap();
         let claude = st.executors.iter().find(|e| e.tool == "claude").unwrap();
         assert_eq!(claude.state, ProjState::Stale);
+    }
+
+    /// Regression: `NotProjected` from `aggregate()` is overloaded — it means
+    /// both "no checks apply" AND "non-MCP content exists but is un-projected".
+    /// The MCP fold's upgrade branch must only fire in the former case, never
+    /// masking pending managed-block content as Synced just because the tool's
+    /// MCP config happens to already match.
+    #[test]
+    fn projection_status_mcp_fold_does_not_mask_unprojected_context() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        // MCP source only — project() projects the MCP config but there is no
+        // managed-block content yet, so AGENTS.md is never written.
+        std::fs::create_dir_all(repo.join(".covenant/canon/mcp")).unwrap();
+        std::fs::write(repo.join(".covenant/canon/mcp/ctx7.json"), r#"{"command":"npx"}"#).unwrap();
+        project(repo).unwrap();
+        assert!(!repo.join("AGENTS.md").exists(), "no managed content yet");
+
+        // Now add un-projected context content (a `summary:` folds into the
+        // managed block) WITHOUT re-running project(). codex's MCP config still
+        // matches, but the context doc was never folded into AGENTS.md.
+        std::fs::create_dir_all(repo.join(".covenant/canon/context")).unwrap();
+        std::fs::write(
+            repo.join(".covenant/canon/context/kyc.md"),
+            "---\nsummary: Mask PII.\n---\nbody\n",
+        )
+        .unwrap();
+
+        let st = projection_status(repo).unwrap();
+        let codex = st.executors.iter().find(|e| e.tool == "codex").unwrap();
+        assert_ne!(
+            codex.state,
+            ProjState::Synced,
+            "un-projected managed content must not be masked as Synced by a matching MCP fold"
+        );
+        assert_eq!(codex.state, ProjState::NotProjected);
     }
 }
