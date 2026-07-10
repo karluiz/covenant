@@ -5,7 +5,7 @@ import { CanonPanel, slugify } from "./panel";
 // panel.ts's compact rail actually makes — registry search, install, and
 // the score/eval Loop dashboards moved to the cockpit (see cockpit tests).
 vi.mock("../api", () => ({
-  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], commands: [], mcp: [] }),
+  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], commands: [], mcp: [], specs: [] }),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
   canonPublish: vi.fn().mockResolvedValue({}),
@@ -40,6 +40,7 @@ describe("CanonPanel", () => {
       contexts: [{ name: "kyc-peru.md", summary: null }],
       commands: [],
       mcp: [],
+      specs: [],
     });
     expect(host.textContent).toContain("kyc-peru");
     expect(host.textContent).toContain("2.1.0");
@@ -54,7 +55,7 @@ describe("CanonPanel", () => {
       groupColor: null,
       groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [], specs: [] });
     expect(host.textContent).toContain("No skills installed.");
   });
 
@@ -100,6 +101,7 @@ describe("CanonPanel", () => {
       contexts: [],
       commands: [],
       mcp: [],
+      specs: [],
     });
     expect(host.querySelector('button[aria-label="Publish to registry"]')).not.toBeNull();
     expect(host.textContent).toContain("kyc-peru");
@@ -113,6 +115,7 @@ describe("CanonPanel", () => {
       contexts: [],
       commands: [],
       mcp: [],
+      specs: [],
     });
     const panel = new CanonPanel({ groupId: "g-eval-btn", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo" });
     await panel.refresh();
@@ -129,6 +132,7 @@ describe("CanonPanel", () => {
       contexts: [],
       commands: [],
       mcp: [],
+      specs: [],
     });
     // Backend signals an empty run via the done note.
     (onCanonEvalProgress as Mock).mockImplementationOnce(
@@ -176,6 +180,7 @@ describe("CanonPanel", () => {
       contexts: [{ name: "kyc", summary: "KYC rules" }],
       commands: [],
       mcp: [],
+      specs: [],
     });
     expect(host.textContent).toContain("Agents");
     expect(host.textContent).toContain("reviewer");
@@ -190,7 +195,7 @@ describe("CanonPanel", () => {
     const panel = new CanonPanel({
       groupId: "g-empty-hints", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [], specs: [] });
     expect(host.textContent).toContain("No agents authored.");
     expect(host.textContent).toContain("No context authored.");
     expect(host.textContent).toContain("No skills installed.");
@@ -207,6 +212,7 @@ describe("CanonPanel", () => {
       contexts: [],
       commands: [{ name: "deploy", description: "Ship it" }],
       mcp: [],
+      specs: [],
     });
     expect(host.textContent).toContain("Commands");
     expect(host.textContent).toContain("deploy");
@@ -217,7 +223,7 @@ describe("CanonPanel", () => {
     const panel = new CanonPanel({
       groupId: "g-commands-empty", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [], specs: [] });
     expect(host.textContent).toContain("No commands authored.");
   });
 
@@ -232,6 +238,7 @@ describe("CanonPanel", () => {
       contexts: [],
       commands: [],
       mcp: [{ name: "ctx7", description: "Context7", transport: "stdio" }],
+      specs: [],
     });
     expect(host.textContent).toContain("MCP");
     expect(host.textContent).toContain("ctx7");
@@ -242,7 +249,7 @@ describe("CanonPanel", () => {
     const panel = new CanonPanel({
       groupId: "g-mcp-empty", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [], specs: [] });
     expect(host.textContent).toContain("No MCP servers authored.");
   });
 

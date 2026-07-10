@@ -1466,12 +1466,18 @@ export interface McpRef {
   transport: string;
 }
 
+export interface SpecRef {
+  name: string;
+  title: string;
+}
+
 export interface CanonStatus {
   installed: InstalledRef[];
   agents: AgentRef[];
   contexts: ContextRef[];
   commands: CommandRef[];
   mcp: McpRef[];
+  specs: SpecRef[];
 }
 
 export async function canonLocalStatus(cwd: string): Promise<CanonStatus> {
@@ -1540,7 +1546,7 @@ export async function canonReadLocal(cwd: string, name: string): Promise<string>
 
 export async function canonReadSource(
   cwd: string,
-  kind: "agent" | "context" | "command" | "mcp" | "skill",
+  kind: "agent" | "context" | "command" | "mcp" | "spec" | "skill",
   name: string,
 ): Promise<string> {
   return invoke<string>("canon_read_source", { cwd, kind, name });
