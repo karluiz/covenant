@@ -198,6 +198,10 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
   align-items: center;
   gap: 9px;
   min-width: 0;
+  /* ponytail: reserve the loaded height (22px mono + 5px×2 pad + 1px×2 border)
+     so the empty/loading state doesn't render short then jump taller. */
+  min-height: 34px;
+  box-sizing: border-box;
   padding: 5px 9px;
   font: inherit;
   color: var(--text-primary, #f5f6f7);
