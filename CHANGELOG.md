@@ -6,6 +6,50 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.3 — Canon CDLC kinds: Commands, MCP, Specs, Memory + polish
+
+### Added
+
+- **Canon now manages the full CDLC surface**: the managed context block and
+  cockpit rail enumerate five kinds beyond skills — **Agents**, **Commands**,
+  **MCP**, **Specs**, and **Memory** — each with its own `ContextKind`
+  enumerator, `CanonStatus` summary, and kind-aware `canon_read_source`
+  command arm (`crates/*/canon`, `ui/src/canon/`). This completes the CDLC
+  roadmap: every context source a repo carries is now surfaced and projectable
+  from one panel.
+
+- **Command projection to executors**: repo commands project to
+  `.claude`, `opencode`, and `pi` native locations, with a Commands nav
+  section in the cockpit and a Commands rail group.
+
+- **MCP server projection with non-destructive merge**: MCP servers project
+  into Claude's `.mcp.json`, Codex's `.codex/config.toml` (TOML merge), and
+  `opencode.json` (local/remote transform), each merge guarded so an
+  unparseable existing config is never clobbered. Fixed a fold that masked
+  un-projected managed content as "Synced" via MCP.
+
+- **Specs and Memory kinds**: Canon enumerates `docs/specs` and
+  `.covenant/canon/memory` facts as their own read-only sections in the rail,
+  cockpit, and managed block.
+
+- **⌘C/⌘V copy-paste in the Structure file tree** (`ui/src/structure/`).
+
+- **Soul picker with spotlight + filmstrip** in the operator creator
+  (`ui/src/settings/operators.ts`).
+
+### Fixed
+
+- **Canon org chip no longer jumps on load**: the org selector rendered a
+  short single-line empty state while the active org loaded, then grew to the
+  monogram + two-line name/role. The chip now reserves its loaded height
+  (`min-height`, `box-sizing: border-box`) so the toolbar stays stable
+  (`ui/src/canon/styles.css`).
+
+- **Operator creator divider consistency**: the modal gained a top hairline
+  facing the bar and every divider converted to `var(--border)` to match
+  Settings; spotlight height fixed with a defined border
+  (`ui/src/settings/operator-creator.css`).
+
 ## v0.9.2 — Traffic-light vertical alignment fix
 
 ### Fixed
