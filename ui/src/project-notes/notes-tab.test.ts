@@ -14,6 +14,11 @@ vi.mock("./api", () => {
       deleteNote: vi.fn(async (id: string) => {
         state.notes = state.notes.filter((n: any) => n.id !== id);
       }),
+      updateNote: vi.fn(async (id: string, body: string) => {
+        const n = state.notes.find((n: any) => n.id === id);
+        if (n) n.body = body;
+        return n ?? null;
+      }),
     },
     __state: state,
   };
@@ -66,5 +71,34 @@ describe("NotesTab", () => {
     (host.querySelector(".pn-note-del") as HTMLButtonElement).click();
     await new Promise((r) => setTimeout(r, 0));
     expect(host.querySelector(".pn-note-card")).toBeNull();
+  });
+
+  it("renders a source line when present, omits it when absent", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "hello", source: "from Claude · tab 2", created_at_unix_ms: Date.now() },
+      { id: "b", group_id: "g1", body: "hello", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    const cards = host.querySelectorAll(".pn-note-card");
+    expect(cards[0].querySelector(".pn-note-source")?.textContent).toBe("from Claude · tab 2");
+    expect(cards[1].querySelector(".pn-note-source")).toBeNull();
+  });
+
+  it("saves an edit via updateNote", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "n1", group_id: "g1", body: "hello", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    (host.querySelector(".pn-note-edit") as HTMLButtonElement).click();
+    const ta = host.querySelector(".pn-note-editor") as HTMLTextAreaElement;
+    ta.value = "edited";
+    (host.querySelector(".pn-note-save") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiMod.projectNotesApi.updateNote).toHaveBeenCalledWith("n1", "edited");
+    expect(host.querySelector(".pn-note-body")?.textContent).toBe("edited");
   });
 });

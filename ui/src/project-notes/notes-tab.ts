@@ -74,6 +74,29 @@ export class NotesTab {
     this.hooks.onChange?.();
   }
 
+  private beginEdit(li: HTMLElement, n: Note): void {
+    if (li.querySelector(".pn-note-editor")) return;
+    const editor = document.createElement("textarea");
+    editor.className = "pn-note-editor";
+    editor.value = n.body;
+    editor.rows = 3;
+    const save = document.createElement("button");
+    save.className = "rail-row-action pn-note-save";
+    save.textContent = "Save";
+    save.addEventListener("click", () => void this.saveEdit(n, editor.value));
+    li.appendChild(editor);
+    li.appendChild(save);
+    editor.focus();
+  }
+
+  private async saveEdit(n: Note, body: string): Promise<void> {
+    const trimmed = body.trim();
+    if (!trimmed || trimmed === n.body) { await this.refresh(); return; }
+    await projectNotesApi.updateNote(n.id, trimmed);
+    await this.refresh();
+    this.hooks.onChange?.();
+  }
+
   private render(): void {
     this.list.replaceChildren();
     const empty = this.notes.length === 0;
@@ -96,12 +119,18 @@ export class NotesTab {
       const stamp = formatRelative(n.created_at_unix_ms);
       li.innerHTML = `
         <div class="pn-note-body"></div>
+        <div class="pn-note-source"></div>
         <div class="rail-meta pn-note-stamp"></div>
+        <button class="rail-row-action pn-note-edit" aria-label="Edit note">${Icons.pencil({ size: 13 })}</button>
         <button class="rail-row-action pn-note-del" aria-label="Delete note">${Icons.trash({ size: 13 })}</button>
       `;
       (li.querySelector(".pn-note-stamp") as HTMLElement).textContent = stamp;
       (li.querySelector(".pn-note-body") as HTMLElement).textContent = n.body;
+      const srcEl = li.querySelector(".pn-note-source") as HTMLElement;
+      if (n.source) srcEl.textContent = n.source;
+      else srcEl.remove();
       li.querySelector(".pn-note-del")!.addEventListener("click", () => this.delete(n));
+      li.querySelector(".pn-note-edit")!.addEventListener("click", () => this.beginEdit(li, n));
       this.list.appendChild(li);
     }
   }
