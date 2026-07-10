@@ -37,11 +37,20 @@ pub struct CommandRef {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct McpRef {
+    pub name: String,
+    pub description: Option<String>,
+    pub transport: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CanonStatus {
     pub installed: Vec<InstalledRef>,
     pub agents: Vec<AgentRef>,
     pub contexts: Vec<ContextRef>,
     pub commands: Vec<CommandRef>,
+    pub mcp: Vec<McpRef>,
 }
 
 /// Install a skill package from a local directory, recording `source_label` as provenance.
@@ -184,11 +193,20 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
             description: u.summary.clone(),
         })
         .collect();
+    let mcp = crate::mcp::read_mcp_servers(repo_root)?
+        .into_iter()
+        .map(|(name, s)| McpRef {
+            description: s.description.clone(),
+            transport: s.transport_kind(),
+            name,
+        })
+        .collect();
     Ok(CanonStatus {
         installed,
         agents,
         contexts,
         commands,
+        mcp,
     })
 }
 
@@ -347,5 +365,19 @@ mod tests {
         std::fs::write(dir.join("ctx7.json"), r#"{"command":"npx"}"#).unwrap();
         let body = read_source(root, ContextKind::Mcp, "ctx7").unwrap();
         assert!(body.contains("npx"));
+    }
+
+    #[test]
+    fn status_lists_mcp_with_transport() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join(".covenant/canon/mcp");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ctx7.json"), r#"{"command":"npx","description":"C7"}"#).unwrap();
+        let s = status(root).unwrap();
+        assert_eq!(s.mcp.len(), 1);
+        assert_eq!(s.mcp[0].name, "ctx7");
+        assert_eq!(s.mcp[0].transport, "stdio");
+        assert_eq!(s.mcp[0].description.as_deref(), Some("C7"));
     }
 }
