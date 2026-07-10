@@ -817,9 +817,11 @@ body.theme-light .op-tg-bubble {
   grid-template-columns: 120px 1fr;
   gap: 22px;
   align-items: center;
-  min-height: 176px;
+  /* Fixed height: taglines run 1–3 lines, so min-height let the card jump
+     between souls. This fits the 3-line worst case and centres shorter ones. */
+  height: 196px;
   padding: 22px;
-  border: 1px solid var(--border, #2a2f37);
+  border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.12);
   border-radius: var(--rail-radius, 6px);
   background: var(--bg-elevated, #181c23);
   overflow: hidden;
