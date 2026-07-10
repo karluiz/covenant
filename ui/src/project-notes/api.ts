@@ -14,13 +14,13 @@ export interface Note {
   id: string;
   group_id: string;
   body: string;
+  source?: string | null;
   created_at_unix_ms: number;
 }
 
 export interface Snapshot {
   commands: Command[];
   notes: Note[];
-  docs: string;
 }
 
 export const projectNotesApi = {
@@ -36,16 +36,13 @@ export const projectNotesApi = {
   reorderCommands: (groupId: string, orderedIds: string[]) =>
     invoke<void>("project_command_reorder", { groupId, orderedIds }),
 
-  appendNote: (groupId: string, body: string) =>
-    invoke<Note>("project_note_append", { groupId, body }),
+  appendNote: (groupId: string, body: string, source?: string) =>
+    invoke<Note>("project_note_append", { groupId, body, source: source ?? null }),
+  updateNote: (id: string, body: string) =>
+    invoke<Note | null>("project_note_update", { id, body }),
   deleteNote: (id: string) => invoke<void>("project_note_delete", { id }),
   listNotes: (groupId: string, limit: number, beforeTs?: number) =>
     invoke<Note[]>("project_note_list", { groupId, limit, beforeTs }),
-
-  getDocs: (groupId: string) =>
-    invoke<string>("project_docs_get", { groupId }),
-  saveDocs: (groupId: string, body: string) =>
-    invoke<void>("project_docs_save", { groupId, body }),
 };
 
 export interface Prompt {
