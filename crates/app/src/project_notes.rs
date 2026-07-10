@@ -42,7 +42,6 @@ pub struct Note {
 pub struct Snapshot {
     pub commands: Vec<Command>,
     pub notes: Vec<Note>, // newest first, capped to 50
-    pub docs: String,
 }
 
 #[derive(Debug, Error)]
@@ -67,6 +66,15 @@ impl Store {
         Self { conn }
     }
 
+    // NOTE: `blocking_lock()` panics if called from inside an async
+    // execution context (only safe within `spawn_blocking`). Tests run as
+    // `#[tokio::test]` async fns, so this accessor must use the async
+    // `.lock().await` path instead.
+    #[cfg(test)]
+    pub async fn conn_for_test(&self) -> tokio::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().await
+    }
+
     fn now_ms() -> i64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
@@ -80,14 +88,26 @@ impl Store {
         let group_id = group_id.to_owned();
         tokio::task::spawn_blocking(move || -> Result<Snapshot> {
             let conn = conn.blocking_lock();
+            // One-time migration: an existing per-group docs blob becomes a Note,
+            // then the docs row is cleared so this never runs twice. Guarded by the
+            // connection mutex, so concurrent opens can't double-insert.
+            let legacy = get_docs(&conn, &group_id)?;
+            if !legacy.trim().is_empty() {
+                let now = Self::now_ms();
+                let id = Ulid::new().to_string();
+                conn.execute(
+                    "INSERT INTO project_notes (id, group_id, body, source, created_at_unix_ms)
+                     VALUES (?1, ?2, ?3, NULL, ?4)",
+                    params![&id, &group_id, &legacy, now],
+                )?;
+                conn.execute(
+                    "DELETE FROM project_docs WHERE group_id = ?1",
+                    params![&group_id],
+                )?;
+            }
             let commands = list_commands(&conn, &group_id)?;
             let notes = list_notes(&conn, &group_id, 50, None)?;
-            let docs = get_docs(&conn, &group_id)?;
-            Ok(Snapshot {
-                commands,
-                notes,
-                docs,
-            })
+            Ok(Snapshot { commands, notes })
         })
         .await
         .map_err(|e| Error::Join(e.to_string()))?
@@ -296,37 +316,6 @@ impl Store {
         .map_err(|e| Error::Join(e.to_string()))?
     }
 
-    pub async fn get_docs(&self, group_id: &str) -> Result<String> {
-        let conn = self.conn.clone();
-        let group_id = group_id.to_owned();
-        tokio::task::spawn_blocking(move || -> Result<String> {
-            let conn = conn.blocking_lock();
-            get_docs(&conn, &group_id)
-        })
-        .await
-        .map_err(|e| Error::Join(e.to_string()))?
-    }
-
-    pub async fn save_docs(&self, group_id: &str, body: &str) -> Result<()> {
-        let conn = self.conn.clone();
-        let group_id = group_id.to_owned();
-        let body = body.to_owned();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let conn = conn.blocking_lock();
-            let now = Self::now_ms();
-            conn.execute(
-                "INSERT INTO project_docs (group_id, body, updated_at_unix_ms)
-                 VALUES (?1, ?2, ?3)
-                 ON CONFLICT(group_id) DO UPDATE SET
-                   body = excluded.body,
-                   updated_at_unix_ms = excluded.updated_at_unix_ms",
-                params![&group_id, &body, now],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| Error::Join(e.to_string()))?
-    }
 }
 
 fn row_to_command(row: &rusqlite::Row<'_>) -> rusqlite::Result<Command> {
@@ -430,6 +419,22 @@ const COMMANDS_BUDGET_PCT: usize = 30;
 const DOCS_BUDGET_PCT: usize = 50;
 // notes get whatever is left
 
+// `Snapshot` no longer carries a `docs` blob (see migration in `snapshot()`),
+// but the reserved context builder still folds in whatever's left in
+// `project_docs` for a group (normally empty post-migration) via the free
+// `get_docs` fn, fetched directly rather than through `Snapshot`.
+#[allow(dead_code)]
+async fn fetch_docs(store: &Store, group_id: &str) -> Result<String> {
+    let conn = store.conn.clone();
+    let group_id = group_id.to_owned();
+    tokio::task::spawn_blocking(move || -> Result<String> {
+        let conn = conn.blocking_lock();
+        get_docs(&conn, &group_id)
+    })
+    .await
+    .map_err(|e| Error::Join(e.to_string()))?
+}
+
 #[allow(dead_code)]
 pub async fn build_context(
     store: &Store,
@@ -438,13 +443,13 @@ pub async fn build_context(
     budget_tokens: usize,
 ) -> Result<String> {
     let snapshot = store.snapshot(group_id).await?;
-    Ok(render_context(&snapshot, group_label, budget_tokens))
+    let docs = fetch_docs(store, group_id).await?;
+    Ok(render_context(&snapshot, &docs, group_label, budget_tokens))
 }
 
 #[allow(dead_code)]
-fn render_context(snapshot: &Snapshot, group_label: &str, budget_tokens: usize) -> String {
-    if snapshot.commands.is_empty() && snapshot.notes.is_empty() && snapshot.docs.trim().is_empty()
-    {
+fn render_context(snapshot: &Snapshot, docs: &str, group_label: &str, budget_tokens: usize) -> String {
+    if snapshot.commands.is_empty() && snapshot.notes.is_empty() && docs.trim().is_empty() {
         return String::new();
     }
 
@@ -463,7 +468,7 @@ fn render_context(snapshot: &Snapshot, group_label: &str, budget_tokens: usize) 
         out.push('\n');
     }
 
-    let docs_block = render_docs(&snapshot.docs, docs_budget);
+    let docs_block = render_docs(docs, docs_budget);
     let docs_used = docs_block.len();
     if !docs_block.is_empty() {
         out.push_str("## Project Docs\n");
@@ -677,23 +682,6 @@ pub async fn project_note_list(
         .map_err(map_err)
 }
 
-#[tauri::command]
-pub async fn project_docs_get(
-    store: State<'_, Store>,
-    group_id: String,
-) -> std::result::Result<String, String> {
-    store.get_docs(&group_id).await.map_err(map_err)
-}
-
-#[tauri::command]
-pub async fn project_docs_save(
-    store: State<'_, Store>,
-    group_id: String,
-    body: String,
-) -> std::result::Result<(), String> {
-    store.save_docs(&group_id, &body).await.map_err(map_err)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -771,17 +759,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn docs_upsert() {
-        let s = fresh_store();
-        let g = "g1";
-        assert_eq!(s.get_docs(g).await.unwrap(), "");
-        s.save_docs(g, "# Hello").await.unwrap();
-        assert_eq!(s.get_docs(g).await.unwrap(), "# Hello");
-        s.save_docs(g, "# Hello v2").await.unwrap();
-        assert_eq!(s.get_docs(g).await.unwrap(), "# Hello v2");
-    }
-
-    #[tokio::test]
     async fn snapshot_isolated_per_group() {
         let s = fresh_store();
         s.append_note("g1", "x", None).await.unwrap();
@@ -797,7 +774,7 @@ mod tests {
     #[test]
     fn render_context_empty_returns_empty() {
         let snap = Snapshot::default();
-        assert_eq!(render_context(&snap, "X", 2000), "");
+        assert_eq!(render_context(&snap, "", "X", 2000), "");
     }
 
     #[test]
@@ -820,9 +797,8 @@ mod tests {
                 source: None,
                 created_at_unix_ms: now,
             }],
-            docs: "# Hello".into(),
         };
-        let out = render_context(&snap, "COVENANT", 2000);
+        let out = render_context(&snap, "# Hello", "COVENANT", 2000);
         assert!(out.contains("# Project: COVENANT"));
         assert!(out.contains("## Saved Commands"));
         assert!(out.contains("npm run dev"));
@@ -838,12 +814,30 @@ mod tests {
             + &"x".repeat(20_000)
             + "\n## Heading B\n"
             + &"y".repeat(20_000);
-        let snap = Snapshot {
-            docs: big,
-            ..Default::default()
-        };
-        let out = render_context(&snap, "P", 200); // tiny budget
+        let snap = Snapshot::default();
+        let out = render_context(&snap, &big, "P", 200); // tiny budget
         assert!(out.contains("[truncated — see full docs in panel]"));
+    }
+
+    #[tokio::test]
+    async fn docs_migrates_into_a_note_once() {
+        let s = fresh_store();
+        // Seed a legacy docs blob directly.
+        {
+            let conn = s.conn_for_test().await;
+            conn.execute(
+                "INSERT INTO project_docs (group_id, body, updated_at_unix_ms) VALUES ('g1','# legacy doc',1)",
+                [],
+            ).unwrap();
+        }
+        let snap = s.snapshot("g1").await.unwrap();
+        assert!(snap.notes.iter().any(|n| n.body == "# legacy doc" && n.source.is_none()));
+        // Idempotent: second snapshot does not create a duplicate.
+        let snap2 = s.snapshot("g1").await.unwrap();
+        assert_eq!(
+            snap2.notes.iter().filter(|n| n.body == "# legacy doc").count(),
+            1
+        );
     }
 
     #[test]
@@ -863,7 +857,7 @@ mod tests {
             notes,
             ..Default::default()
         };
-        let out = render_context(&snap, "P", 5000);
+        let out = render_context(&snap, "", "P", 5000);
         let count = out.matches("- [").count();
         assert_eq!(count, 20);
     }

@@ -4852,8 +4852,6 @@ pub fn run() {
             project_notes::project_note_delete,
             project_notes::project_note_list,
             project_notes::project_note_update,
-            project_notes::project_docs_get,
-            project_notes::project_docs_save,
             prompts::prompt_list,
             prompts::prompt_create,
             prompts::prompt_update,
