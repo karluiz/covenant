@@ -167,6 +167,85 @@ pub(crate) fn project_mcp_opencode(
     merge_json_servers(&repo_root.join("opencode.json"), "mcp", &canon)
 }
 
+fn codex_value(srv: &McpServer) -> toml::Value {
+    let mut t = toml::map::Map::new();
+    if srv.is_remote() {
+        if let Some(u) = &srv.url {
+            t.insert("url".into(), toml::Value::String(u.clone()));
+        }
+    } else {
+        if let Some(c) = &srv.command {
+            t.insert("command".into(), toml::Value::String(c.clone()));
+        }
+        if !srv.args.is_empty() {
+            t.insert(
+                "args".into(),
+                toml::Value::Array(
+                    srv.args
+                        .iter()
+                        .map(|a| toml::Value::String(a.clone()))
+                        .collect(),
+                ),
+            );
+        }
+        if !srv.env.is_empty() {
+            let e: toml::map::Map<String, toml::Value> = srv
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), toml::Value::String(v.clone())))
+                .collect();
+            t.insert("env".into(), toml::Value::Table(e));
+        }
+    }
+    toml::Value::Table(t)
+}
+
+// ponytail: toml::Value round-trip loses comments/formatting in the user's
+// config.toml (data preserved). Upgrade to `toml_edit` if comment retention matters.
+pub(crate) fn project_mcp_codex(
+    repo_root: &Path,
+    servers: &[(String, McpServer)],
+) -> Result<(), CanonError> {
+    let path = repo_root.join(".codex/config.toml");
+    let mut root: toml::Value = if path.exists() {
+        // Never clobber an existing config we can't parse (a stray typo in the
+        // user's config.toml must not destroy it) — leave it untouched.
+        match toml::from_str(&std::fs::read_to_string(&path)?) {
+            Ok(v) => v,
+            Err(_) => return Ok(()),
+        }
+    } else {
+        toml::Value::Table(Default::default())
+    };
+    let table = root
+        .as_table_mut()
+        .ok_or_else(|| CanonError::InvalidPackage("config.toml root is not a table".into()))?;
+    let servers_tbl = table
+        .entry("mcp_servers".to_string())
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    let map = servers_tbl
+        .as_table_mut()
+        .ok_or_else(|| CanonError::InvalidPackage("mcp_servers is not a table".into()))?;
+    let stale: Vec<String> = map
+        .keys()
+        .filter(|k| k.starts_with("canon-"))
+        .cloned()
+        .collect();
+    for k in stale {
+        map.remove(&k);
+    }
+    for (name, srv) in servers {
+        map.insert(format!("canon-{name}"), codex_value(srv));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let out =
+        toml::to_string_pretty(&root).map_err(|e| CanonError::InvalidPackage(e.to_string()))?;
+    std::fs::write(&path, out)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +353,65 @@ mod tests {
         assert_eq!(c["type"], "local");
         assert_eq!(c["command"], serde_json::json!(["npx", "-y"]));
         assert_eq!(c["enabled"], true);
+    }
+
+    #[test]
+    fn project_mcp_codex_merges_preserving_user_table() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        std::fs::create_dir_all(repo.join(".codex")).unwrap();
+        // Pre-existing user config: a user mcp server + an unrelated table.
+        std::fs::write(
+            repo.join(".codex/config.toml"),
+            "[mcp_servers.mine]\ncommand = \"my-server\"\n\n[model]\nname = \"gpt\"\n",
+        )
+        .unwrap();
+        let servers = vec![(
+            "ctx7".to_string(),
+            McpServer {
+                command: Some("npx".into()),
+                args: vec!["-y".into()],
+                ..Default::default()
+            },
+        )];
+        project_mcp_codex(repo, &servers).unwrap();
+
+        let v: toml::Value =
+            toml::from_str(&std::fs::read_to_string(repo.join(".codex/config.toml")).unwrap())
+                .unwrap();
+        let servers_tbl = v["mcp_servers"].as_table().unwrap();
+        assert!(servers_tbl.contains_key("mine"), "user server preserved");
+        assert_eq!(servers_tbl["canon-ctx7"]["command"].as_str(), Some("npx"));
+        assert_eq!(
+            v["model"]["name"].as_str(),
+            Some("gpt"),
+            "unrelated table preserved"
+        );
+    }
+
+    #[test]
+    fn project_mcp_codex_unparseable_existing_file_is_untouched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        std::fs::create_dir_all(repo.join(".codex")).unwrap();
+        let invalid = "[bad toml";
+        std::fs::write(repo.join(".codex/config.toml"), invalid).unwrap();
+        let servers = vec![(
+            "ctx7".to_string(),
+            McpServer {
+                command: Some("npx".into()),
+                ..Default::default()
+            },
+        )];
+
+        let result = project_mcp_codex(repo, &servers);
+        assert!(result.is_ok(), "must not error on unparseable file");
+
+        let contents = std::fs::read_to_string(repo.join(".codex/config.toml")).unwrap();
+        assert_eq!(
+            contents, invalid,
+            "unparseable user file must not be clobbered"
+        );
     }
 
     #[test]
