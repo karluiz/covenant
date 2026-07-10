@@ -13,13 +13,16 @@ export interface PanelOpts {
   groupLabel: string;
   /** Optional group accent color — drives the left-edge bar and title dot. */
   groupColor?: string | null;
-  /** This group's project folder; scopes the drafts tab per group. */
+  /** This group's project folder. Retained but currently unused — scoped
+   *  the drafts tab per group before it was removed in v2. */
   groupRootDir?: string | null;
   defaultTab?: PanelTab;
   onClose?: () => void;
-  /** Resume a Spec Creator draft by id (called from drafts tab). */
+  /** Resume a Spec Creator draft by id. Retained but currently unused — was
+   *  called from the drafts tab, which was removed in v2. */
   onOpenDraft?: (draftId: string) => void;
-  /** Start a new AI-assisted spec (called from drafts tab). */
+  /** Start a new AI-assisted spec. Retained but currently unused — was
+   *  called from the drafts tab, which was removed in v2. */
   onNewSpec?: () => void;
 }
 
@@ -212,6 +215,7 @@ export class ProjectNotesPanel {
       nav.appendChild(gl);
       for (const item of g.items) {
         const b = document.createElement("button");
+        b.type = "button";
         b.className = "canon-cockpit-nav-btn";
         b.textContent = item.label;
         b.addEventListener("click", () => select(item.key, item.label, item.desc));
@@ -221,7 +225,9 @@ export class ProjectNotesPanel {
     }
 
     const close = document.createElement("button");
+    close.type = "button";
     close.className = "canon-cockpit-close";
+    close.setAttribute("aria-label", "Close (Esc)");
     close.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
     close.addEventListener("click", () => this.collapseExpanded());
 

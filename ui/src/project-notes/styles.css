@@ -87,26 +87,6 @@ body.theme-true-dark .pn-panel {
 body.tabbar-left .pn-panel {
   top: 38px;
 }
-/* Fullscreen mode still has to clear the status bar — `inset` sets
-   bottom:0, so override it here. */
-.pn-panel.pn-fullscreen {
-  bottom: calc(var(--statusbar-h) + 1px);
-}
-
-.pn-panel.pn-fullscreen {
-  position: fixed;
-  /* Fullscreen means the app content area, not the custom macOS titlebar. */
-  inset: 38px 0 0 0;
-  width: 100vw;
-  height: auto;
-  max-width: none;
-  border-left: none;
-  border-top: none;
-  z-index: 80;
-}
-body.tabbar-left .pn-panel.pn-fullscreen {
-  top: 38px;
-}
 
 .pn-body {
   flex: 1 1 auto;
@@ -114,10 +94,8 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   overflow: auto;
   padding: 12px;
 }
-/* List tabs run rail-* rows edge-to-edge; docs keeps the padded surface.
-   Single-class selector so `.pn-fullscreen .pn-body` still wins in fullscreen. */
+/* List tabs run rail-* rows edge-to-edge; docs keeps the padded surface. */
 .pn-body--flush { padding: 0; }
-.pn-fullscreen .pn-body { padding: 24px 80px; }
 
 /* ── Section labels (split layout) ───────────────────────────────── */
 .pn-section-label {

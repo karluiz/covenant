@@ -92,7 +92,11 @@ export class NotesTab {
   private async saveEdit(n: Note, body: string): Promise<void> {
     const trimmed = body.trim();
     if (!trimmed || trimmed === n.body) { await this.refresh(); return; }
-    await projectNotesApi.updateNote(n.id, trimmed);
+    try {
+      await projectNotesApi.updateNote(n.id, trimmed);
+    } catch (err) {
+      console.error("note update failed", err);
+    }
     await this.refresh();
     this.hooks.onChange?.();
   }

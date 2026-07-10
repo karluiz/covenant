@@ -87,23 +87,28 @@ impl Store {
         let conn = self.conn.clone();
         let group_id = group_id.to_owned();
         tokio::task::spawn_blocking(move || -> Result<Snapshot> {
-            let conn = conn.blocking_lock();
+            let mut conn = conn.blocking_lock();
             // One-time migration: an existing per-group docs blob becomes a Note,
             // then the docs row is cleared so this never runs twice. Guarded by the
-            // connection mutex, so concurrent opens can't double-insert.
+            // connection mutex, so concurrent opens can't double-insert. The insert
+            // and delete run inside a transaction so a crash between them can't
+            // leave the migration half-done (which would re-migrate and duplicate
+            // the note on the next open).
             let legacy = get_docs(&conn, &group_id)?;
             if !legacy.trim().is_empty() {
                 let now = Self::now_ms();
                 let id = Ulid::new().to_string();
-                conn.execute(
+                let tx = conn.transaction()?;
+                tx.execute(
                     "INSERT INTO project_notes (id, group_id, body, source, created_at_unix_ms)
                      VALUES (?1, ?2, ?3, NULL, ?4)",
                     params![&id, &group_id, &legacy, now],
                 )?;
-                conn.execute(
+                tx.execute(
                     "DELETE FROM project_docs WHERE group_id = ?1",
                     params![&group_id],
                 )?;
+                tx.commit()?;
             }
             let commands = list_commands(&conn, &group_id)?;
             let notes = list_notes(&conn, &group_id, 50, None)?;
