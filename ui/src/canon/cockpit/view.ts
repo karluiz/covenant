@@ -30,7 +30,7 @@ import { openCreateOrgExperience } from "../create-org/view";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 
-export type SectionKey = "org" | "members" | "agents" | "commands" | "mcp" | "spec" | "skills" | "registry" | "context" | "loop";
+export type SectionKey = "org" | "members" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
 
 export interface CanonCockpitOpts {
   groupId: string;
@@ -64,6 +64,7 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "commands", label: "Commands" },
   { key: "mcp", label: "MCP" },
   { key: "spec", label: "Specs" },
+  { key: "memory", label: "Memory" },
   { key: "skills", label: "Skills" },
   { key: "registry", label: "Registry" },
   { key: "context", label: "Context" },
@@ -78,6 +79,7 @@ const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   commands: ["Commands", "Slash commands projected to your executors."],
   mcp: ["MCP", "Model Context Protocol servers projected to your executors."],
   spec: ["Specs", "Task-anchor specs published in this repo (docs/specs)."],
+  memory: ["Memory", "Durable facts this group carries into every executor's managed block."],
   skills: ["Skills", "Skills installed in this group, projected to your executors."],
   registry: ["Registry", "Browse and install skills shared across the organization."],
   context: ["Context", "Repo-mined context this group carries into every session."],
@@ -164,6 +166,7 @@ export class CanonCockpitView {
       : key === "commands" ? this.renderCommandsSection()
       : key === "mcp" ? this.renderMcpSection()
       : key === "spec" ? this.renderSpecSection()
+      : key === "memory" ? this.renderMemorySection()
       : key === "skills" ? this.renderSkillsSection()
       : key === "registry" ? this.renderRegistrySection()
       : key === "context" ? this.renderContextSection()
@@ -611,6 +614,48 @@ export class CanonCockpitView {
     return el;
   }
 
+  // ── Memory section ───────────────────────────────────────────────────
+
+  private renderMemorySection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-memory";
+    const cwd = this.opts.groupRootDir;
+
+    if (!cwd) {
+      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage memory."));
+      return el;
+    }
+
+    const list = document.createElement("div");
+    list.className = "canon-cockpit-memory-list";
+    list.appendChild(this.note("Loading…"));
+    el.appendChild(list);
+
+    void canonLocalStatus(cwd)
+      .then((status) => {
+        list.replaceChildren();
+        if (status.memory.length === 0) {
+          list.appendChild(this.note("No memories authored yet."));
+          return;
+        }
+        for (const m of status.memory) {
+          list.appendChild(skillCard({
+            name: m.name,
+            meta: m.description ?? "memory",
+            className: "canon-skill-row",
+            fetchPreview: () => canonReadSource(cwd, "memory", m.name),
+            actions: [],
+          }));
+        }
+      })
+      .catch((e) => {
+        list.replaceChildren();
+        list.appendChild(this.note(`Failed to load memory: ${this.friendlyError(e)}`));
+      });
+
+    return el;
+  }
+
   // ── Skills section ────────────────────────────────────────────────────
 
   private renderSkillsSection(): HTMLElement {
@@ -829,7 +874,7 @@ export class CanonCockpitView {
     if (cwd && active) {
       const orgSlug = active.slug;
       void Promise.all([
-        canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [], commands: [], mcp: [], specs: [] }) as CanonStatus),
+        canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] }) as CanonStatus),
         canonSearch(orgSlug, null).catch(() => [] as PkgMeta[]),
       ]).then(([status, pkgs]) => {
         const registrySkills = status.installed.filter((i) => i.source.startsWith("registry:"));

@@ -502,6 +502,23 @@ export class CanonPanel {
       ),
     );
 
+    // ── Memory (persistent recall, folded into the managed block) ──
+    const memory = this.kindSection(
+      "Memory",
+      s.memory.length,
+      "No memories authored.",
+      s.memory.map((m) =>
+        skillCard({
+          name: m.name,
+          meta: m.description ?? "memory",
+          className: "canon-skill-row",
+          fetchPreview: () =>
+            cwd ? canonReadSource(cwd, "memory", m.name) : Promise.resolve("(no project folder)"),
+          actions: [],
+        }),
+      ),
+    );
+
     // ── Commands ──
     const commands = this.kindSection(
       "Commands",
@@ -581,7 +598,7 @@ export class CanonPanel {
     }
     const skills = this.kindSection("Skills", s.installed.length, "No skills installed.", rows);
 
-    this.body.replaceChildren(agents, contexts, commands, mcp, specs, skills);
+    this.body.replaceChildren(agents, contexts, memory, commands, mcp, specs, skills);
   }
 
   /** One rail section: uppercase head, count, rows-or-empty-hint. */

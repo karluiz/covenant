@@ -52,6 +52,13 @@ pub struct SpecRef {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MemoryRef {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CanonStatus {
     pub installed: Vec<InstalledRef>,
     pub agents: Vec<AgentRef>,
@@ -59,6 +66,7 @@ pub struct CanonStatus {
     pub commands: Vec<CommandRef>,
     pub mcp: Vec<McpRef>,
     pub specs: Vec<SpecRef>,
+    pub memory: Vec<MemoryRef>,
 }
 
 /// Install a skill package from a local directory, recording `source_label` as provenance.
@@ -213,6 +221,14 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
         .into_iter()
         .map(|(name, title)| SpecRef { name, title })
         .collect();
+    let memory = units
+        .iter()
+        .filter(|u| u.kind == crate::ContextKind::Memory)
+        .map(|u| MemoryRef {
+            name: u.name.clone(),
+            description: u.summary.clone(),
+        })
+        .collect();
     Ok(CanonStatus {
         installed,
         agents,
@@ -220,6 +236,7 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
         commands,
         mcp,
         specs,
+        memory,
     })
 }
 
@@ -392,6 +409,18 @@ mod tests {
     }
 
     #[test]
+    fn read_source_reads_memory_from_canon_dir() {
+        use crate::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join(".covenant/canon/memory");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("decision-x.md"), "MEM BODY").unwrap();
+        let body = read_source(root, ContextKind::Memory, "decision-x").unwrap();
+        assert_eq!(body, "MEM BODY");
+    }
+
+    #[test]
     fn status_lists_mcp_with_transport() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
@@ -415,5 +444,18 @@ mod tests {
         assert_eq!(s.specs.len(), 1);
         assert_eq!(s.specs[0].name, "3.1-alpha");
         assert_eq!(s.specs[0].title, "3.1 — Alpha");
+    }
+
+    #[test]
+    fn status_lists_memory_with_description() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join(".covenant/canon/memory");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pref-z.md"), "---\ndescription: User prefers Z\n---\nbody\n").unwrap();
+        let s = status(root).unwrap();
+        assert_eq!(s.memory.len(), 1);
+        assert_eq!(s.memory[0].name, "pref-z");
+        assert_eq!(s.memory[0].description.as_deref(), Some("User prefers Z"));
     }
 }
