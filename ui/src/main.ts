@@ -85,7 +85,7 @@ import { zoom } from "./zoom";
 import { OperatorPicker } from "./operator/picker";
 import { mountSpecChat } from "./spec-chat/index";
 import { getPiPanel } from "./executors/pi/panel";
-import { ProjectNotesPanel } from "./project-notes/panel";
+import { ProjectNotesPanel, type PanelTab } from "./project-notes/panel";
 import { CanonPanel } from "./canon/panel";
 import "./canon/miner/miner.css";
 import { ContextMinerView } from "./canon/miner/view";
@@ -1406,7 +1406,7 @@ async function boot(): Promise<void> {
     groupId: string;
     groupLabel: string;
     groupColor: string | null;
-    defaultTab?: "commands" | "notes" | "docs" | "drafts";
+    defaultTab?: PanelTab;
   } | null = null;
 
   // Imperative "close Project Notes" hook for any external caller; the panel's
@@ -1421,7 +1421,7 @@ async function boot(): Promise<void> {
     groupId: string,
     groupLabel: string,
     groupColor: string | null,
-    opts?: { defaultTab?: "commands" | "notes" | "docs" | "drafts" },
+    opts?: { defaultTab?: PanelTab },
   ): void {
     pendingNotesArgs = { groupId, groupLabel, groupColor, defaultTab: opts?.defaultTab };
     rail.open("notes");
@@ -1551,7 +1551,7 @@ async function boot(): Promise<void> {
       if (openRoot === repoRoot) {
         const g = manager.activeGroup();
         if (g && g.id === openGroupId) {
-          requestProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
+          requestProjectNotes(g.id, g.name, g.color ?? null);
         }
       }
     }
@@ -2489,12 +2489,12 @@ async function boot(): Promise<void> {
       manager.swapActivePanes();
       return;
     }
-    // ⌘⇧D → open ProjectNotesPanel for the active group on the drafts tab.
+    // ⌘⇧D → open ProjectNotesPanel for the active group.
     if (e.metaKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
       const g = manager.activeGroup();
       if (g) {
         e.preventDefault();
-        requestProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
+        requestProjectNotes(g.id, g.name, g.color ?? null);
       }
       return;
     }

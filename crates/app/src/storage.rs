@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS project_notes (
     id                 TEXT PRIMARY KEY,
     group_id           TEXT NOT NULL,
     body               TEXT NOT NULL,
+    source             TEXT,
     created_at_unix_ms INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_project_notes_group_created
@@ -819,6 +820,9 @@ impl Storage {
             }
             tx.commit()?;
         }
+        // Project Notes v2: capture provenance ("from Claude · tab 2"). NULL for
+        // pre-v2 notes and hand-written ones.
+        let _ = conn.execute("ALTER TABLE project_notes ADD COLUMN source TEXT", []);
         tracing::info!(path = %path.display(), "storage opened");
         Ok(Self {
             inner: Arc::new(Mutex::new(conn)),
