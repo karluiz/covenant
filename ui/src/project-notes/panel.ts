@@ -1,4 +1,5 @@
 import "./styles.css";
+import "../canon/cockpit/cockpit.css";
 import { CommandsTab } from "./commands-tab";
 import { NotesTab } from "./notes-tab";
 import { PromptsTab } from "./prompts-tab";
@@ -43,7 +44,7 @@ export class ProjectNotesPanel {
   private body: HTMLElement;
   private tabButtons: Record<PanelTab, HTMLButtonElement>;
   private currentTab: PanelTab;
-  private fullscreen = false;
+  private expandRoot: HTMLElement | null = null;
 
   constructor(private opts: PanelOpts) {
     this.currentTab = opts.defaultTab ?? readLastTab(opts.groupId);
@@ -133,6 +134,7 @@ export class ProjectNotesPanel {
   }
 
   close(): void {
+    this.collapseExpanded();
     document.removeEventListener("keydown", this.onKey);
     this.root.remove();
     this.opts.onClose?.();
@@ -145,12 +147,99 @@ export class ProjectNotesPanel {
   }
 
   toggleFullscreen(): void {
-    this.fullscreen = !this.fullscreen;
-    this.root.classList.toggle("pn-fullscreen", this.fullscreen);
+    if (this.expandRoot) { this.collapseExpanded(); return; }
+    this.openExpanded();
+  }
+
+  private collapseExpanded(): void {
+    this.expandRoot?.remove();
+    this.expandRoot = null;
+    document.body.classList.remove("canon-cockpit-open");
+  }
+
+  private openExpanded(): void {
+    const groups: { label: string; items: { key: PanelTab; label: string; desc: string }[] }[] = [
+      { label: "Library", items: [
+        { key: "commands", label: "Commands", desc: "Shell snippets you run in this project." },
+        { key: "prompts",  label: "Prompts",  desc: "Reusable prompts you send to an agent." },
+      ]},
+      { label: "Knowledge", items: [
+        { key: "notes", label: "Notes", desc: "Things worth keeping — captures and your own notes." },
+      ]},
+    ];
+
+    const root = document.createElement("div");
+    root.className = "canon-cockpit";
+
+    const nav = document.createElement("nav");
+    nav.className = "canon-cockpit-nav";
+    const navTitle = document.createElement("div");
+    navTitle.className = "canon-cockpit-nav-title";
+    navTitle.textContent = `${this.opts.groupLabel} — COVENANT`;
+    nav.appendChild(navTitle);
+
+    const content = document.createElement("section");
+    content.className = "canon-cockpit-content";
+
+    const buttons: Partial<Record<PanelTab, HTMLButtonElement>> = {};
+    const select = (key: PanelTab, label: string, desc: string): void => {
+      for (const b of nav.querySelectorAll(".canon-cockpit-nav-btn")) b.classList.remove("is-active");
+      buttons[key]?.classList.add("is-active");
+      const wrap = document.createElement("div");
+      wrap.className = "canon-cockpit-section-wrap";
+      const head = document.createElement("header");
+      head.className = "canon-cockpit-sec-head";
+      const h = document.createElement("h2");
+      h.className = "canon-cockpit-sec-title";
+      h.textContent = label;
+      const p = document.createElement("p");
+      p.className = "canon-cockpit-sec-desc";
+      p.textContent = desc;
+      head.append(h, p);
+      const body = document.createElement("div");
+      body.className = "pn-body pn-body--flush";
+      if (key === "commands") new CommandsTab({ groupId: this.opts.groupId }).mount(body);
+      else if (key === "prompts") new PromptsTab({ groupId: this.opts.groupId }).mount(body);
+      else new NotesTab({ groupId: this.opts.groupId }).mount(body);
+      wrap.append(head, body);
+      content.replaceChildren(wrap);
+    };
+
+    for (const g of groups) {
+      const gl = document.createElement("div");
+      gl.className = "canon-cockpit-grouplabel";
+      gl.textContent = g.label;
+      nav.appendChild(gl);
+      for (const item of g.items) {
+        const b = document.createElement("button");
+        b.className = "canon-cockpit-nav-btn";
+        b.textContent = item.label;
+        b.addEventListener("click", () => select(item.key, item.label, item.desc));
+        buttons[item.key] = b;
+        nav.appendChild(b);
+      }
+    }
+
+    const close = document.createElement("button");
+    close.className = "canon-cockpit-close";
+    close.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
+    close.addEventListener("click", () => this.collapseExpanded());
+
+    root.append(nav, content, close);
+    document.body.appendChild(root);
+    document.body.classList.add("canon-cockpit-open");
+    this.expandRoot = root;
+    // Open on the tab the rail currently shows (falls back to commands).
+    const first = (["commands", "prompts", "notes"] as PanelTab[]).includes(this.currentTab)
+      ? this.currentTab : "commands";
+    const found = groups.flatMap(g => g.items).find(i => i.key === first)!;
+    select(found.key, found.label, found.desc);
   }
 
   private onKey = (e: KeyboardEvent): void => {
-    if (e.key === "Escape") this.close();
+    if (e.key !== "Escape") return;
+    if (this.expandRoot) this.collapseExpanded();
+    else this.close();
   };
 
   private updateTabUI(): void {

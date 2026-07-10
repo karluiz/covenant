@@ -81,10 +81,16 @@ describe("ProjectNotesPanel", () => {
     expect(host.querySelector(".pn-panel")).toBeNull();
   });
 
-  it("toggles fullscreen class", () => {
-    const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "G1" }).mount(host);
-    p.toggleFullscreen();
-    expect(host.querySelector(".pn-panel.pn-fullscreen")).not.toBeNull();
+  it("expands into a canon-cockpit shell with grouped nav", () => {
+    const host = document.createElement("div");
+    const p = new ProjectNotesPanel({ groupId: "g", groupLabel: "G" }).mount(host);
+    (host.querySelector('[aria-label="Toggle fullscreen"]') as HTMLButtonElement).click();
+    const shell = document.querySelector(".canon-cockpit");
+    expect(shell).not.toBeNull();
+    expect(shell!.querySelectorAll(".canon-cockpit-grouplabel").length).toBe(2); // LIBRARY, KNOWLEDGE
+    expect(shell!.querySelectorAll(".canon-cockpit-nav-btn").length).toBe(3);    // Commands, Prompts, Notes
+    p.close();
+    (document.querySelector(".canon-cockpit") as HTMLElement | null)?.remove();
   });
 
   it("renders the prompts tab when selected", () => {
