@@ -1091,54 +1091,107 @@ function getSoulEditor(h: ModalHandle): SoulEditor {
   return stamped.__soulEditor;
 }
 
-/// Force a full modal re-render. `openOperatorModal` owns the actual
-/// `render()` closure (it preserves scroll); we re-invoke it by clearing
-/// and rebuilding from the handle. We expose it via a stamped function on
-/// the element to avoid threading `render` through every renderer.
-function rerenderModal(h: ModalHandle): void {
-  const fn = (h.el as HTMLElement & { __rerender?: () => void }).__rerender;
-  if (fn) fn();
-}
-
 // ── Archetype gallery (create mode): seeds the editor with a soul ───────────
-function renderArchetypeGallery(onPick: (raw: string) => void): HTMLElement {
+// Spotlight + filmstrip. One soul featured large (portrait, quote, voice,
+// escalate threshold); a strip below switches which. The strip is built ONCE
+// and a click only repaints the spotlight + toggles selection locally, then
+// seeds the editor via onPick — no modal rerender, so no chrome-teardown /
+// avatar-reload flicker.
+
+// Cached so re-entering the section doesn't refetch / flash an empty spotlight.
+let ARCHETYPE_CACHE: ArchetypeView[] | null = null;
+
+function renderArchetypeGallery(
+  onPick: (raw: string) => void,
+  currentRaw: string,
+): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "op-archetypes";
+  wrap.className = "op-archetypes op-arch-spotlight";
   const title = document.createElement("div");
   title.className = "op-modal-label";
   title.textContent = "Start from a soul";
   wrap.append(title);
-  const grid = document.createElement("div");
-  grid.className = "op-archetype-grid";
-  wrap.append(grid);
 
-  const blank = document.createElement("button");
-  blank.type = "button";
-  blank.className = "op-archetype-card op-archetype-blank";
-  blank.textContent = "＋ Blank";
-  blank.addEventListener("click", () => onPick(BLANK_SOUL));
-  grid.append(blank);
+  const spot = document.createElement("div");
+  spot.className = "op-spot";
+  const strip = document.createElement("div");
+  strip.className = "op-strip";
+  wrap.append(spot, strip);
 
-  void operatorListArchetypes().then((list: ArchetypeView[]) => {
-    for (const a of list ?? []) {
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "op-archetype-card";
-      if (a.color) card.style.setProperty("--operator-color", a.color);
-      const name = document.createElement("div");
-      name.className = "op-archetype-name";
-      name.textContent = a.name;
-      const tag = document.createElement("div");
-      tag.className = "op-archetype-tagline";
-      tag.textContent = a.tagline;
-      card.append(name, tag);
-      card.addEventListener("click", () => onPick(a.raw));
-      grid.append(card);
-    }
-  }).catch((e) => {
-    console.warn("operator_list_archetypes failed", e);
-  });
+  // Repaint ONLY the featured card. Cheap enough that the single big avatar
+  // (already cached from the strip) doesn't visibly reload.
+  const paintSpot = (a: ArchetypeView) => {
+    spot.style.setProperty("--sig", a.color ?? "#8b929b");
+    const voice = a.voice ? `<span class="op-spot-voice">${escHtml(a.voice)}</span>` : "";
+    const foot = [
+      a.escalate_threshold != null
+        ? `<span>escalate <b>${a.escalate_threshold.toFixed(2)}</b></span>`
+        : "",
+      a.tag ? `<span>·${escHtml(a.tag)}</span>` : "",
+    ].join("");
+    spot.innerHTML = `
+      <div class="op-spot-av">${renderAvatarHtml(a.avatar ?? "🟣", 120)}</div>
+      <div class="op-spot-body">
+        <div class="op-spot-name">${escHtml(a.name)}${voice}</div>
+        <p class="op-spot-quote">“${escHtml(a.tagline)}”</p>
+        <div class="op-spot-foot">${foot}</div>
+      </div>`;
+  };
+
+  const build = (list: ArchetypeView[]) => {
+    if (!list.length) return;
+    // Selection follows the current draft; unmatched (fresh / blank) previews
+    // the first soul without marking any archetype thumb committed.
+    let selIdx = list.findIndex((a) => a.raw === currentRaw);
+    const blankSel = currentRaw === BLANK_SOUL;
+    paintSpot(list[selIdx >= 0 ? selIdx : 0]);
+
+    strip.innerHTML = "";
+    const thumbs: HTMLButtonElement[] = [];
+    // thumbIdx addresses the button (incl. Blank); listIdx (-1 for Blank)
+    // addresses the soul to feature. Blank keeps the last preview in the spot.
+    const select = (thumbIdx: number, listIdx: number, raw: string) => {
+      thumbs.forEach((t, k) => t.classList.toggle("is-sel", k === thumbIdx));
+      if (listIdx >= 0) paintSpot(list[listIdx]);
+      onPick(raw);
+    };
+    list.forEach((s, j) => {
+      const t = document.createElement("button");
+      t.type = "button";
+      t.className = "op-thumb";
+      if (s.color) t.style.setProperty("--sig", s.color);
+      if (j === selIdx) t.classList.add("is-sel");
+      t.innerHTML = `<span class="op-thumb-av">${renderAvatarHtml(s.avatar ?? "🟣", 34)}</span>` +
+        `<span class="op-thumb-name">${escHtml(s.name.replace(/^The /, ""))}</span>`;
+      t.addEventListener("click", () => select(j, j, s.raw));
+      thumbs.push(t);
+      strip.append(t);
+    });
+    const blankIdx = list.length;
+    const blank = document.createElement("button");
+    blank.type = "button";
+    blank.className = "op-thumb op-thumb-blank";
+    if (blankSel) blank.classList.add("is-sel");
+    blank.innerHTML = `<span class="op-thumb-av">＋</span><span class="op-thumb-name">Blank</span>`;
+    blank.addEventListener("click", () => select(blankIdx, -1, BLANK_SOUL));
+    thumbs.push(blank);
+    strip.append(blank);
+  };
+
+  if (ARCHETYPE_CACHE) build(ARCHETYPE_CACHE);
+  else {
+    void operatorListArchetypes().then((list: ArchetypeView[]) => {
+      ARCHETYPE_CACHE = list ?? [];
+      build(ARCHETYPE_CACHE);
+    }).catch((e) => {
+      console.warn("operator_list_archetypes failed", e);
+    });
+  }
   return wrap;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ── Editor: rich identity/behaviour controls (left) + the soul prose &
@@ -1270,6 +1323,24 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       const sectionHost = h.el.querySelector<HTMLElement>(".op-section");
       if (sectionHost) mountSectionInner(sectionHost, h.state.activeSection);
     }
+  }
+
+  // Seed the whole soul from a raw file (archetype pick) WITHOUT re-mounting
+  // the active section — the spotlight repaints itself locally, so a full
+  // rerender here would only cause the flicker (chrome teardown + avatar
+  // reload) we're avoiding. Refreshes state, view, live source and chip.
+  async function seedFromRaw(raw: string): Promise<void> {
+    h.state.soulRaw = raw;
+    src.value = raw;
+    try {
+      const v = await operatorSoulParse(raw);
+      if (v) { view = v; errLine.textContent = v.validation_error ?? ""; }
+    } catch (e) {
+      errLine.textContent = `Parse failed: ${e}`;
+    }
+    setBodyValue(view.body ?? "");
+    const chipHost = h.el.querySelector<HTMLElement>(".op-hero-chip");
+    if (chipHost) mountChipInner(chipHost);
   }
 
   function paintIdentity(controls: HTMLElement): void {
@@ -1651,10 +1722,7 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     host.innerHTML = "";
     if (section === "start") {
       host.append(
-        renderArchetypeGallery((raw) => {
-          h.state.soulRaw = raw;
-          rerenderModal(h);
-        }),
+        renderArchetypeGallery((raw) => { void seedFromRaw(raw); }, h.state.soulRaw),
       );
       return;
     }

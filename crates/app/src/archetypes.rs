@@ -41,6 +41,10 @@ pub struct ArchetypeView {
     pub color: Option<String>,
     /// First non-heading, non-empty line of the body, for the gallery card.
     pub tagline: String,
+    pub voice: Option<String>,
+    pub escalate_threshold: Option<f32>,
+    /// First tag, surfaced as a micro-chip in the spotlight.
+    pub tag: Option<String>,
 }
 
 pub fn list() -> Vec<ArchetypeView> {
@@ -62,6 +66,9 @@ pub fn list() -> Vec<ArchetypeView> {
                 avatar: soul.frontmatter.avatar,
                 color: soul.frontmatter.color,
                 tagline,
+                voice: soul.frontmatter.voice,
+                escalate_threshold: soul.frontmatter.escalate_threshold,
+                tag: soul.frontmatter.tags.into_iter().next(),
             })
         })
         .collect()

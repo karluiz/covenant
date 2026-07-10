@@ -1,6 +1,6 @@
 ---
 name: The Guardian
-avatar: pack2:guardian
+avatar: pack2:martin
 color: "#5ad19a"
 model: claude-sonnet-4-6
 voice: terse

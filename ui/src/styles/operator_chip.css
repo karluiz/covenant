@@ -808,13 +808,123 @@ body.theme-light .op-tg-bubble {
 
 /* ── SOUL.md operator editor (archetype gallery + split editor) ─────────── */
 .op-archetypes { margin-top: 14px; margin-bottom: 18px; }
-.op-archetypes > .op-modal-label { margin-bottom: 10px; }
-.op-archetype-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.op-archetype-card { text-align: left; padding: 10px 12px; border: 1px solid var(--border, #2a2f37);
-  border-radius: 8px; background: var(--surface, #14181e); cursor: pointer; color: inherit; font: inherit; }
-.op-archetype-card:hover { border-color: var(--operator-color, #7aa2ff); }
-.op-archetype-name { font-weight: 600; font-size: 13px; }
-.op-archetype-tagline { font-size: 11px; opacity: .7; margin-top: 4px; }
+.op-archetypes > .op-modal-label { margin-bottom: 12px; }
+
+/* ── Spotlight: one soul featured large ─────────────────────────────────── */
+.op-spot {
+  position: relative;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 22px;
+  align-items: center;
+  min-height: 176px;
+  padding: 22px;
+  border: 1px solid var(--border, #2a2f37);
+  border-radius: var(--rail-radius, 6px);
+  background: var(--bg-elevated, #181c23);
+  overflow: hidden;
+}
+/* Signature-color ambient wash — derived via color-mix so it degrades to
+   neutral when a soul carries no colour. */
+.op-spot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(420px 240px at 12% 20%,
+    color-mix(in srgb, var(--sig, #8b929b) 15%, transparent), transparent 70%);
+  pointer-events: none;
+}
+.op-spot-av {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--sig, #8b929b) 30%, var(--border, #2a2f37));
+  background: radial-gradient(circle at 50% 30%,
+    color-mix(in srgb, var(--sig, #8b929b) 32%, transparent), transparent 72%),
+    var(--bg-overlay, #1c2029);
+}
+.op-spot-av .op-avatar-pixel { width: 118%; height: 118%; object-fit: contain; margin-top: 12px; }
+.op-spot-body { position: relative; min-width: 0; }
+.op-spot-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #f5f6f7);
+}
+.op-spot-voice {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--sig, #8b929b) 82%, #fff);
+  border: 1px solid color-mix(in srgb, var(--sig, #8b929b) 34%, transparent);
+  background: color-mix(in srgb, var(--sig, #8b929b) 10%, transparent);
+}
+.op-spot-quote {
+  margin: 12px 0 0;
+  max-width: 52ch;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text-primary, #f5f6f7);
+  opacity: 0.9;
+}
+.op-spot-foot {
+  display: flex;
+  gap: 18px;
+  margin-top: 16px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-secondary, #8b929b);
+}
+.op-spot-foot b { color: var(--text-primary, #f5f6f7); font-weight: 600; }
+
+/* ── Filmstrip ──────────────────────────────────────────────────────────── */
+.op-strip { display: flex; gap: 8px; margin-top: 12px; }
+.op-thumb {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 6px 8px;
+  font: inherit;
+  color: var(--text-secondary, #8b929b);
+  border: 1px solid var(--border, #2a2f37);
+  border-radius: var(--rail-radius, 6px);
+  background: var(--bg-elevated, #181c23);
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+.op-thumb-av {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--border, #2a2f37);
+  background: radial-gradient(circle at 50% 30%,
+    color-mix(in srgb, var(--sig, #8b929b) 24%, transparent), transparent 70%),
+    var(--bg-overlay, #1c2029);
+}
+.op-thumb-av .op-avatar-pixel { width: 120%; height: 120%; object-fit: contain; margin-top: 5px; }
+.op-thumb-name { font-size: 10.5px; white-space: nowrap; }
+.op-thumb-blank .op-thumb-av { font-size: 18px; color: var(--text-tertiary, #5c626c); background: var(--bg-overlay, #1c2029); }
+.op-thumb:hover { border-color: rgba(var(--ink-rgb), 0.18); background: var(--bg-overlay, #1c2029); }
+.op-thumb.is-sel {
+  border-color: color-mix(in srgb, var(--sig, #8b929b) 60%, transparent);
+  background: color-mix(in srgb, var(--sig, #8b929b) 10%, transparent);
+}
+.op-thumb.is-sel .op-thumb-name { color: var(--text-primary, #f5f6f7); }
 
 .op-soul-section {
   border: 1px solid var(--border, #2a2f37);
