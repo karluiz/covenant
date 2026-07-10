@@ -7339,64 +7339,30 @@ export class TabManager {
         },
       },
       {
-        // Grows into an executor picker when claude/codex land.
-        label: "Start Copilot in ACP mode",
+        label: "Start ACP",
         badge: "NEW",
         icon: Icons.sparkles(),
-        onClick: () => {
-          if (group.collapsed) this.toggleGroupCollapsed(group.id);
-          void this.createAcpTab({
-            groupId: group.id,
-            color: group.color,
-            cwd: group.rootDir ?? this.activeCwd(),
-          });
-        },
-      },
-      {
-        // pi via the community pi-acp adapter (npx fallback if not on PATH).
-        label: "Start pi in ACP mode",
-        badge: "BETA",
-        icon: Icons.sparkles(),
-        onClick: () => {
-          if (group.collapsed) this.toggleGroupCollapsed(group.id);
-          void this.createAcpTab({
-            groupId: group.id,
-            color: group.color,
-            cwd: group.rootDir ?? this.activeCwd(),
-            executor: "pi",
-          });
-        },
-      },
-      {
-        // claude via the official claude-agent-acp adapter (isolated
-        // CLAUDE_CONFIG_DIR prepared backend-side).
-        label: "Start Claude in ACP mode",
-        badge: "BETA",
-        icon: Icons.sparkles(),
-        onClick: () => {
-          if (group.collapsed) this.toggleGroupCollapsed(group.id);
-          void this.createAcpTab({
-            groupId: group.id,
-            color: group.color,
-            cwd: group.rootDir ?? this.activeCwd(),
-            executor: "claude",
-          });
-        },
-      },
-      {
-        // opencode's first-party ACP server (`opencode acp`).
-        label: "Start OpenCode in ACP mode",
-        badge: "BETA",
-        icon: Icons.sparkles(),
-        onClick: () => {
-          if (group.collapsed) this.toggleGroupCollapsed(group.id);
-          void this.createAcpTab({
-            groupId: group.id,
-            color: group.color,
-            cwd: group.rootDir ?? this.activeCwd(),
-            executor: "opencode",
-          });
-        },
+        submenu: (
+          [
+            { executor: undefined, label: "Copilot", badge: "NEW" },
+            { executor: "pi", label: "pi", badge: "BETA" },
+            { executor: "claude", label: "Claude", badge: "BETA" },
+            { executor: "opencode", label: "OpenCode", badge: "BETA" },
+          ] as const
+        ).map((e) => ({
+          label: e.label,
+          badge: e.badge,
+          icon: Icons.sparkles(),
+          onClick: () => {
+            if (group.collapsed) this.toggleGroupCollapsed(group.id);
+            void this.createAcpTab({
+              groupId: group.id,
+              color: group.color,
+              cwd: group.rootDir ?? this.activeCwd(),
+              ...(e.executor ? { executor: e.executor } : {}),
+            });
+          },
+        })),
       },
       { divider: true },
       {
