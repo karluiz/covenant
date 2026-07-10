@@ -15,6 +15,7 @@ pub enum ContextKind {
     Context,
     Command,
     Mcp,
+    Spec,
     Skill,
 }
 
@@ -26,6 +27,7 @@ impl ContextKind {
             Self::Context => "context",
             Self::Command => "commands",
             Self::Mcp => "mcp",
+            Self::Spec => "docs/specs",
             Self::Skill => "skills",
         }
     }
@@ -37,9 +39,49 @@ impl ContextKind {
             Self::Context => "Context",
             Self::Command => "Command",
             Self::Mcp => "Mcp",
+            Self::Spec => "Spec",
             Self::Skill => "Skill",
         }
     }
+}
+
+/// Enumerate published specs under `<repo_root>/docs/specs/*.md` as (stem, title).
+/// Spec is the one kind whose source is the repo root, not `.covenant/canon/`.
+/// Skips subdirs (drafts/, assets/) via the extension check and `_`-prefixed
+/// files (e.g. `_template.md`). Title = first Markdown heading, else the stem.
+pub(crate) fn read_specs(repo_root: &Path) -> Result<Vec<(String, String)>, CanonError> {
+    let dir = repo_root.join("docs/specs");
+    let mut out: Vec<(String, String)> = Vec::new();
+    if !dir.exists() {
+        return Ok(out);
+    }
+    for entry in std::fs::read_dir(&dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("md") {
+            continue;
+        }
+        let stem = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        if stem.starts_with('_') {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path)?;
+        let title = spec_title(&raw).unwrap_or_else(|| stem.clone());
+        out.push((stem, title));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
+}
+
+/// First Markdown heading line, hashes + whitespace stripped. `None` if none.
+fn spec_title(md: &str) -> Option<String> {
+    md.lines()
+        .map(|l| l.trim())
+        .find(|l| l.starts_with('#'))
+        .map(|l| l.trim_start_matches('#').trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,6 +133,15 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             summary: srv.description.clone(),
             name,
             projectable: true,
+            packageable: false,
+        });
+    }
+    for (name, title) in read_specs(repo_root)? {
+        out.push(ContextUnit {
+            kind: ContextKind::Spec,
+            summary: Some(title),
+            name,
+            projectable: false,
             packageable: false,
         });
     }
@@ -166,6 +217,40 @@ mod tests {
         assert_eq!(cmd.summary.as_deref(), Some("Ship the current branch"));
         assert!(!cmd.packageable);
         assert!(cmd.projectable);
+    }
+
+    #[test]
+    fn list_context_includes_spec_not_projectable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("docs/specs")).unwrap();
+        std::fs::write(root.join("docs/specs/3.1-alpha.md"), "# 3.1 — Alpha\n").unwrap();
+        let units = list_context(root).unwrap();
+        let spec = units.iter().find(|u| u.kind == ContextKind::Spec).unwrap();
+        assert_eq!(spec.name, "3.1-alpha");
+        assert_eq!(spec.summary.as_deref(), Some("3.1 — Alpha"));
+        assert!(!spec.projectable);
+        assert!(!spec.packageable);
+    }
+
+    #[test]
+    fn read_specs_lists_published_excluding_template_and_subdirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join("docs/specs");
+        std::fs::create_dir_all(dir.join("drafts")).unwrap();
+        std::fs::write(dir.join("3.1-alpha.md"), "# 3.1 — Alpha\n\nbody").unwrap();
+        std::fs::write(dir.join("3.2-beta.md"), "no heading here").unwrap();
+        std::fs::write(dir.join("_template.md"), "# Template\n").unwrap();
+        std::fs::write(dir.join("drafts/wip.md"), "# WIP\n").unwrap();
+
+        let specs = read_specs(root).unwrap();
+        // _template excluded, drafts/ excluded → 2 specs, sorted.
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].0, "3.1-alpha");
+        assert_eq!(specs[0].1, "3.1 — Alpha"); // first heading, hashes stripped
+        assert_eq!(specs[1].0, "3.2-beta");
+        assert_eq!(specs[1].1, "3.2-beta"); // no heading → stem fallback
     }
 
     #[test]

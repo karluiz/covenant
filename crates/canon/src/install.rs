@@ -150,11 +150,11 @@ pub fn read_source(repo_root: &Path, kind: ContextKind, name: &str) -> Result<St
     if !valid_pkg_name(name) {
         return Err(CanonError::InvalidPackage(format!("invalid name: {name:?}")));
     }
-    let base = canon_dir(repo_root).join(kind.dir());
     let path = match kind {
-        ContextKind::Skill => base.join(name).join("SKILL.md"),
-        ContextKind::Mcp => base.join(format!("{name}.json")),
-        _ => base.join(format!("{name}.md")),
+        ContextKind::Spec => repo_root.join("docs/specs").join(format!("{name}.md")),
+        ContextKind::Skill => canon_dir(repo_root).join(kind.dir()).join(name).join("SKILL.md"),
+        ContextKind::Mcp => canon_dir(repo_root).join(kind.dir()).join(format!("{name}.json")),
+        _ => canon_dir(repo_root).join(kind.dir()).join(format!("{name}.md")),
     };
     Ok(std::fs::read_to_string(path)?)
 }
@@ -353,6 +353,17 @@ mod tests {
         assert_eq!(read_source(root, ContextKind::Agent, "reviewer").unwrap(), "PERSONA BODY");
         assert_eq!(read_source(root, ContextKind::Context, "kyc").unwrap(), "CTX BODY");
         assert!(read_source(root, ContextKind::Agent, "../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn read_source_reads_spec_from_docs_specs() {
+        use crate::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("docs/specs")).unwrap();
+        std::fs::write(root.join("docs/specs/3.1-alpha.md"), "SPEC BODY").unwrap();
+        let body = read_source(root, ContextKind::Spec, "3.1-alpha").unwrap();
+        assert_eq!(body, "SPEC BODY");
     }
 
     #[test]
