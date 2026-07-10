@@ -82,8 +82,14 @@ pub(crate) fn merge_json_servers(
     canon: &[(String, serde_json::Value)],
 ) -> Result<(), CanonError> {
     let mut root: serde_json::Value = if path.exists() {
-        serde_json::from_str(&std::fs::read_to_string(path)?)
-            .unwrap_or_else(|_| serde_json::json!({}))
+        let raw = std::fs::read_to_string(path)?;
+        match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            // The file exists but isn't valid JSON: never clobber it. Leave
+            // it untouched and no-op — projection_status will report this
+            // file as not-synced until the user fixes it.
+            Err(_) => return Ok(()),
+        }
     } else {
         serde_json::json!({})
     };
@@ -208,5 +214,29 @@ mod tests {
         let m = v["mcpServers"].as_object().unwrap();
         assert!(m.contains_key("mine"));
         assert!(!m.contains_key("canon-old"), "stale canon server removed");
+    }
+
+    #[test]
+    fn project_mcp_claude_unparseable_existing_file_is_untouched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        let invalid = "{ not valid json,";
+        std::fs::write(repo.join(".mcp.json"), invalid).unwrap();
+        let servers = vec![(
+            "ctx7".to_string(),
+            McpServer {
+                command: Some("npx".into()),
+                ..Default::default()
+            },
+        )];
+
+        let result = project_mcp_claude(repo, &servers);
+        assert!(result.is_ok(), "must not error on unparseable file");
+
+        let contents = std::fs::read_to_string(repo.join(".mcp.json")).unwrap();
+        assert_eq!(
+            contents, invalid,
+            "unparseable user file must not be clobbered"
+        );
     }
 }
