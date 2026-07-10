@@ -30,7 +30,7 @@ import { openCreateOrgExperience } from "../create-org/view";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 
-export type SectionKey = "org" | "members" | "agents" | "commands" | "mcp" | "skills" | "registry" | "context" | "loop";
+export type SectionKey = "org" | "members" | "agents" | "commands" | "mcp" | "spec" | "skills" | "registry" | "context" | "loop";
 
 export interface CanonCockpitOpts {
   groupId: string;
@@ -63,6 +63,7 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "agents", label: "Agents" },
   { key: "commands", label: "Commands" },
   { key: "mcp", label: "MCP" },
+  { key: "spec", label: "Specs" },
   { key: "skills", label: "Skills" },
   { key: "registry", label: "Registry" },
   { key: "context", label: "Context" },
@@ -76,6 +77,7 @@ const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   agents: ["Agents", "Operator personas projected to your executors."],
   commands: ["Commands", "Slash commands projected to your executors."],
   mcp: ["MCP", "Model Context Protocol servers projected to your executors."],
+  spec: ["Specs", "Task-anchor specs published in this repo (docs/specs)."],
   skills: ["Skills", "Skills installed in this group, projected to your executors."],
   registry: ["Registry", "Browse and install skills shared across the organization."],
   context: ["Context", "Repo-mined context this group carries into every session."],
@@ -161,6 +163,7 @@ export class CanonCockpitView {
       : key === "agents" ? this.renderAgentsSection()
       : key === "commands" ? this.renderCommandsSection()
       : key === "mcp" ? this.renderMcpSection()
+      : key === "spec" ? this.renderSpecSection()
       : key === "skills" ? this.renderSkillsSection()
       : key === "registry" ? this.renderRegistrySection()
       : key === "context" ? this.renderContextSection()
@@ -561,6 +564,48 @@ export class CanonCockpitView {
       .catch((e) => {
         list.replaceChildren();
         list.appendChild(this.note(`Failed to load MCP servers: ${this.friendlyError(e)}`));
+      });
+
+    return el;
+  }
+
+  // ── Specs section ────────────────────────────────────────────────────
+
+  private renderSpecSection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-spec";
+    const cwd = this.opts.groupRootDir;
+
+    if (!cwd) {
+      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to see specs."));
+      return el;
+    }
+
+    const list = document.createElement("div");
+    list.className = "canon-cockpit-spec-list";
+    list.appendChild(this.note("Loading…"));
+    el.appendChild(list);
+
+    void canonLocalStatus(cwd)
+      .then((status) => {
+        list.replaceChildren();
+        if (status.specs.length === 0) {
+          list.appendChild(this.note("No specs published yet."));
+          return;
+        }
+        for (const sp of status.specs) {
+          list.appendChild(skillCard({
+            name: sp.name,
+            meta: sp.title,
+            className: "canon-skill-row",
+            fetchPreview: () => canonReadSource(cwd, "spec", sp.name),
+            actions: [],
+          }));
+        }
+      })
+      .catch((e) => {
+        list.replaceChildren();
+        list.appendChild(this.note(`Failed to load specs: ${this.friendlyError(e)}`));
       });
 
     return el;
