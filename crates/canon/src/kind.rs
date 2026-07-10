@@ -13,6 +13,7 @@ use std::path::Path;
 pub enum ContextKind {
     Agent,
     Context,
+    Memory,
     Command,
     Mcp,
     Spec,
@@ -26,6 +27,7 @@ impl ContextKind {
         match self {
             Self::Agent => "agents",
             Self::Context => "context",
+            Self::Memory => "memory",
             Self::Command => "commands",
             Self::Mcp => "mcp",
             Self::Spec => "docs/specs",
@@ -38,6 +40,7 @@ impl ContextKind {
         match self {
             Self::Agent => "Agent",
             Self::Context => "Context",
+            Self::Memory => "Memory",
             Self::Command => "Command",
             Self::Mcp => "Mcp",
             Self::Spec => "Spec",
@@ -114,6 +117,15 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
         out.push(ContextUnit {
             kind: ContextKind::Context,
             summary: parse_summary(&raw),
+            name,
+            projectable: true,
+            packageable: false,
+        });
+    }
+    for (name, raw) in read_dir_md(&base.join("memory"))? {
+        out.push(ContextUnit {
+            kind: ContextKind::Memory,
+            summary: parse_frontmatter_str(&raw, "description").or_else(|| parse_summary(&raw)),
             name,
             projectable: true,
             packageable: false,
@@ -252,6 +264,26 @@ mod tests {
         assert_eq!(specs[0].1, "3.1 — Alpha"); // first heading, hashes stripped
         assert_eq!(specs[1].0, "3.2-beta");
         assert_eq!(specs[1].1, "3.2-beta"); // no heading → stem fallback
+    }
+
+    #[test]
+    fn list_context_includes_memory_with_description() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join(".covenant/canon/memory");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("decision-x.md"),
+            "---\ndescription: We chose X on 2026-07-10\n---\nlonger body\n",
+        )
+        .unwrap();
+
+        let units = list_context(root).unwrap();
+        let mem = units.iter().find(|u| u.kind == ContextKind::Memory).unwrap();
+        assert_eq!(mem.name, "decision-x");
+        assert_eq!(mem.summary.as_deref(), Some("We chose X on 2026-07-10"));
+        assert!(mem.projectable);
+        assert!(!mem.packageable);
     }
 
     #[test]

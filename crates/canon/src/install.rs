@@ -392,6 +392,18 @@ mod tests {
     }
 
     #[test]
+    fn read_source_reads_memory_from_canon_dir() {
+        use crate::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join(".covenant/canon/memory");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("decision-x.md"), "MEM BODY").unwrap();
+        let body = read_source(root, ContextKind::Memory, "decision-x").unwrap();
+        assert_eq!(body, "MEM BODY");
+    }
+
+    #[test]
     fn status_lists_mcp_with_transport() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
