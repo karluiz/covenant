@@ -206,6 +206,33 @@ describe("CanonPanel", () => {
     expect(host.textContent).toContain("No skills installed.");
   });
 
+  it("renders a Memory section", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-memory", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({
+      installed: [],
+      agents: [],
+      contexts: [],
+      memory: [{ name: "decision-x", description: "We chose X" }],
+      commands: [],
+      mcp: [],
+      specs: [],
+    });
+    expect(host.textContent).toContain("Memory");
+    expect(host.textContent).toContain("decision-x");
+  });
+
+  it("shows the memory empty hint when none", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-memory-empty", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
+    expect(host.textContent).toContain("No memories authored.");
+  });
+
   it("renders a Commands section", () => {
     const host = document.createElement("div");
     const panel = new CanonPanel({
