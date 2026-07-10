@@ -221,6 +221,31 @@ describe("CanonPanel", () => {
     expect(host.textContent).toContain("No commands authored.");
   });
 
+  it("renders an Mcp section", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-mcp", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({
+      installed: [],
+      agents: [],
+      contexts: [],
+      commands: [],
+      mcp: [{ name: "ctx7", description: "Context7", transport: "stdio" }],
+    });
+    expect(host.textContent).toContain("MCP");
+    expect(host.textContent).toContain("ctx7");
+  });
+
+  it("shows the mcp empty hint when none", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-mcp-empty", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({ installed: [], agents: [], contexts: [], commands: [], mcp: [] });
+    expect(host.textContent).toContain("No MCP servers authored.");
+  });
+
   it("slugifies a display name to a valid slug", () => {
     expect(slugify("Cleverit SpA")).toBe("cleverit-spa");
     expect(slugify("  Banco de Chile ")).toBe("banco-de-chile");

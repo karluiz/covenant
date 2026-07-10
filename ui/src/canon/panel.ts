@@ -519,6 +519,23 @@ export class CanonPanel {
       ),
     );
 
+    // ── Mcp ──
+    const mcp = this.kindSection(
+      "MCP",
+      s.mcp.length,
+      "No MCP servers authored.",
+      s.mcp.map((m) =>
+        skillCard({
+          name: m.name,
+          meta: m.description ?? m.transport,
+          className: "canon-skill-row",
+          fetchPreview: () =>
+            cwd ? canonReadSource(cwd, "mcp", m.name) : Promise.resolve("(no project folder)"),
+          actions: [],
+        }),
+      ),
+    );
+
     // ── Skills (unchanged rows) ──
     const rows: HTMLElement[] = [];
     if (s.installed.length > 0) {
@@ -547,7 +564,7 @@ export class CanonPanel {
     }
     const skills = this.kindSection("Skills", s.installed.length, "No skills installed.", rows);
 
-    this.body.replaceChildren(agents, contexts, commands, skills);
+    this.body.replaceChildren(agents, contexts, commands, mcp, skills);
   }
 
   /** One rail section: uppercase head, count, rows-or-empty-hint. */
