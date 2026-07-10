@@ -136,6 +136,37 @@ pub(crate) fn project_mcp_claude(
     merge_json_servers(&repo_root.join(".mcp.json"), "mcpServers", &canon)
 }
 
+fn opencode_value(srv: &McpServer) -> serde_json::Value {
+    if srv.is_remote() {
+        serde_json::json!({
+            "type": "remote",
+            "url": srv.url,
+            "headers": srv.headers,
+            "enabled": true,
+        })
+    } else {
+        let mut command = vec![srv.command.clone().unwrap_or_default()];
+        command.extend(srv.args.clone());
+        serde_json::json!({
+            "type": "local",
+            "command": command,
+            "environment": srv.env,
+            "enabled": true,
+        })
+    }
+}
+
+pub(crate) fn project_mcp_opencode(
+    repo_root: &Path,
+    servers: &[(String, McpServer)],
+) -> Result<(), CanonError> {
+    let canon: Vec<(String, serde_json::Value)> = servers
+        .iter()
+        .map(|(n, s)| (n.clone(), opencode_value(s)))
+        .collect();
+    merge_json_servers(&repo_root.join("opencode.json"), "mcp", &canon)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,6 +245,35 @@ mod tests {
         let m = v["mcpServers"].as_object().unwrap();
         assert!(m.contains_key("mine"));
         assert!(!m.contains_key("canon-old"), "stale canon server removed");
+    }
+
+    #[test]
+    fn project_mcp_opencode_transforms_and_preserves() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        std::fs::write(
+            repo.join("opencode.json"),
+            r#"{"mcp":{"mine":{"type":"local","command":["x"]}}}"#,
+        )
+        .unwrap();
+        let servers = vec![(
+            "ctx7".to_string(),
+            McpServer {
+                command: Some("npx".into()),
+                args: vec!["-y".into()],
+                ..Default::default()
+            },
+        )];
+        project_mcp_opencode(repo, &servers).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(repo.join("opencode.json")).unwrap())
+                .unwrap();
+        let m = v["mcp"].as_object().unwrap();
+        assert!(m.contains_key("mine"), "user server preserved");
+        let c = &m["canon-ctx7"];
+        assert_eq!(c["type"], "local");
+        assert_eq!(c["command"], serde_json::json!(["npx", "-y"]));
+        assert_eq!(c["enabled"], true);
     }
 
     #[test]
