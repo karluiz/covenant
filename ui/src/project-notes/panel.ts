@@ -1,13 +1,11 @@
 import "./styles.css";
 import { CommandsTab } from "./commands-tab";
 import { NotesTab } from "./notes-tab";
-import { DocsTab } from "./docs-tab";
-import { DraftsTab } from "./drafts-tab";
 import { PromptsTab } from "./prompts-tab";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 
-export type PanelTab = "commands" | "prompts" | "notes" | "docs" | "drafts";
+export type PanelTab = "commands" | "prompts" | "notes";
 
 export interface PanelOpts {
   groupId: string;
@@ -29,7 +27,7 @@ const LAST_TAB_STORAGE_KEY = "covenant.project-notes.last-tab";
 function readLastTab(groupId: string): PanelTab {
   try {
     const raw = localStorage.getItem(`${LAST_TAB_STORAGE_KEY}:${groupId}`);
-    if (raw === "commands" || raw === "prompts" || raw === "notes" || raw === "docs" || raw === "drafts") return raw;
+    if (raw === "commands" || raw === "prompts" || raw === "notes") return raw;
   } catch {}
   return "commands";
 }
@@ -106,7 +104,7 @@ export class ProjectNotesPanel {
     const tabs = document.createElement("div");
     tabs.className = "rail-tabs";
     this.tabButtons = {} as Record<PanelTab, HTMLButtonElement>;
-    for (const t of ["commands", "prompts", "notes", "docs", "drafts"] as PanelTab[]) {
+    for (const t of ["commands", "prompts", "notes"] as PanelTab[]) {
       const b = document.createElement("button");
       b.className = "rail-tab";
       b.textContent = t;
@@ -160,22 +158,13 @@ export class ProjectNotesPanel {
       this.tabButtons[t].classList.toggle("is-active", t === this.currentTab);
     }
     this.body.replaceChildren();
-    this.body.classList.toggle("pn-body--flush", this.currentTab !== "docs");
+    this.body.classList.add("pn-body--flush");
     if (this.currentTab === "commands") {
       new CommandsTab({ groupId: this.opts.groupId }).mount(this.body);
     } else if (this.currentTab === "prompts") {
       new PromptsTab({ groupId: this.opts.groupId }).mount(this.body);
-    } else if (this.currentTab === "notes") {
-      new NotesTab({ groupId: this.opts.groupId }).mount(this.body);
-    } else if (this.currentTab === "docs") {
-      void new DocsTab({ groupId: this.opts.groupId }).mount(this.body);
     } else {
-      new DraftsTab({
-        groupId: this.opts.groupId,
-        groupRootDir: this.opts.groupRootDir ?? null,
-        onOpenDraft: (id) => this.opts.onOpenDraft?.(id),
-        onNewSpec: () => this.opts.onNewSpec?.(),
-      }).mount(this.body);
+      new NotesTab({ groupId: this.opts.groupId }).mount(this.body);
     }
   }
 
