@@ -315,7 +315,6 @@ impl Store {
         .await
         .map_err(|e| Error::Join(e.to_string()))?
     }
-
 }
 
 fn row_to_command(row: &rusqlite::Row<'_>) -> rusqlite::Result<Command> {
@@ -448,7 +447,12 @@ pub async fn build_context(
 }
 
 #[allow(dead_code)]
-fn render_context(snapshot: &Snapshot, docs: &str, group_label: &str, budget_tokens: usize) -> String {
+fn render_context(
+    snapshot: &Snapshot,
+    docs: &str,
+    group_label: &str,
+    budget_tokens: usize,
+) -> String {
     if snapshot.commands.is_empty() && snapshot.notes.is_empty() && docs.trim().is_empty() {
         return String::new();
     }
@@ -831,11 +835,18 @@ mod tests {
             ).unwrap();
         }
         let snap = s.snapshot("g1").await.unwrap();
-        assert!(snap.notes.iter().any(|n| n.body == "# legacy doc" && n.source.is_none()));
+        assert!(snap
+            .notes
+            .iter()
+            .any(|n| n.body == "# legacy doc" && n.source.is_none()));
         // Idempotent: second snapshot does not create a duplicate.
         let snap2 = s.snapshot("g1").await.unwrap();
         assert_eq!(
-            snap2.notes.iter().filter(|n| n.body == "# legacy doc").count(),
+            snap2
+                .notes
+                .iter()
+                .filter(|n| n.body == "# legacy doc")
+                .count(),
             1
         );
     }
