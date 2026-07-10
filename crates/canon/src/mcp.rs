@@ -246,6 +246,74 @@ pub(crate) fn project_mcp_codex(
     Ok(())
 }
 
+/// Project all Canon MCP servers into claude/opencode/codex configs.
+pub(crate) fn project_mcp(
+    repo_root: &Path,
+    servers: &[(String, McpServer)],
+) -> Result<(), CanonError> {
+    project_mcp_claude(repo_root, servers)?;
+    project_mcp_opencode(repo_root, servers)?;
+    project_mcp_codex(repo_root, servers)?;
+    Ok(())
+}
+
+/// True iff `tool`'s on-disk config carries exactly the `canon-*` MCP servers
+/// that projection would currently write. Compares the parsed `canon-*` subset,
+/// ignoring the user's own servers and other config.
+pub(crate) fn mcp_synced(repo_root: &Path, tool: &str, servers: &[(String, McpServer)]) -> bool {
+    fn canon_json(path: &Path, top_key: &str) -> BTreeMap<String, serde_json::Value> {
+        let mut out = BTreeMap::new();
+        if let Ok(txt) = std::fs::read_to_string(path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+                if let Some(m) = v.get(top_key).and_then(|s| s.as_object()) {
+                    for (k, val) in m {
+                        if k.starts_with("canon-") {
+                            out.insert(k.clone(), val.clone());
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+    match tool {
+        "claude" => {
+            let expected: BTreeMap<String, serde_json::Value> = servers
+                .iter()
+                .map(|(n, s)| (format!("canon-{n}"), claude_value(s)))
+                .collect();
+            canon_json(&repo_root.join(".mcp.json"), "mcpServers") == expected
+        }
+        "opencode" => {
+            let expected: BTreeMap<String, serde_json::Value> = servers
+                .iter()
+                .map(|(n, s)| (format!("canon-{n}"), opencode_value(s)))
+                .collect();
+            canon_json(&repo_root.join("opencode.json"), "mcp") == expected
+        }
+        "codex" => {
+            let expected: BTreeMap<String, toml::Value> = servers
+                .iter()
+                .map(|(n, s)| (format!("canon-{n}"), codex_value(s)))
+                .collect();
+            let mut actual = BTreeMap::new();
+            if let Ok(txt) = std::fs::read_to_string(repo_root.join(".codex/config.toml")) {
+                if let Ok(v) = toml::from_str::<toml::Value>(&txt) {
+                    if let Some(m) = v.get("mcp_servers").and_then(|s| s.as_table()) {
+                        for (k, val) in m {
+                            if k.starts_with("canon-") {
+                                actual.insert(k.clone(), val.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            actual == expected
+        }
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -369,6 +369,7 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
     let agents = read_dir_md(&canon_dir(repo_root).join("agents"))?;
     let contexts = read_dir_md(&canon_dir(repo_root).join("context"))?;
     let commands = read_dir_md(&canon_dir(repo_root).join("commands"))?;
+    let mcp_servers = crate::mcp::read_mcp_servers(repo_root)?;
     let mut skills: Vec<(String, String, String)> = Vec::new();
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
@@ -376,7 +377,12 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
     }
 
     // No sources at all → nothing is projected anywhere.
-    if agents.is_empty() && skills.is_empty() && contexts.is_empty() && commands.is_empty() {
+    if agents.is_empty()
+        && skills.is_empty()
+        && contexts.is_empty()
+        && commands.is_empty()
+        && mcp_servers.is_empty()
+    {
         return Ok(ProjectionStatus {
             executors: TOOLS
                 .iter()
@@ -425,13 +431,30 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         .or_default()
         .push(check_managed(&repo_root.join(".github/copilot-instructions.md"), body.as_deref()));
 
-    let executors = TOOLS
+    let mut executors: Vec<ExecutorStatus> = TOOLS
         .iter()
         .map(|t| ExecutorStatus {
             tool: t.to_string(),
             state: aggregate(checks.get(t).map(|v| v.as_slice()).unwrap_or(&[])),
         })
         .collect();
+
+    // MCP is projected only to claude/opencode/codex, as a structured config
+    // merge. Downgrade a tool to Stale when its canon-* MCP servers don't match;
+    // upgrade a not-projected tool to Synced when MCP is its only (matching)
+    // source. Never falsely downgrade for an absent managed block.
+    if !mcp_servers.is_empty() {
+        for e in executors.iter_mut() {
+            if !matches!(e.tool.as_str(), "claude" | "opencode" | "codex") {
+                continue;
+            }
+            if !crate::mcp::mcp_synced(repo_root, &e.tool, &mcp_servers) {
+                e.state = ProjState::Stale;
+            } else if e.state == ProjState::NotProjected {
+                e.state = ProjState::Synced;
+            }
+        }
+    }
 
     Ok(ProjectionStatus { executors, source_edited_unix: newest_source_mtime(repo_root) })
 }
@@ -451,6 +474,7 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     let agents = read_dir_md(&canon_dir(repo_root).join("agents"))?;
     let contexts = read_dir_md(&canon_dir(repo_root).join("context"))?;
     let commands = read_dir_md(&canon_dir(repo_root).join("commands"))?;
+    let mcp_servers = crate::mcp::read_mcp_servers(repo_root)?;
     let mut skills: Vec<(String, String, String)> = Vec::new(); // (name, version, body)
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
@@ -465,6 +489,7 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     project_agents(repo_root, &agents)?;
     project_context_skills(repo_root, &contexts)?;
     project_commands(repo_root, &commands)?;
+    crate::mcp::project_mcp(repo_root, &mcp_servers)?;
     for (name, _v, body) in &skills {
         write_skill_dirs(repo_root, name, &ensure_frontmatter(name, body))?;
     }
@@ -1048,6 +1073,20 @@ mod tests {
         project(repo).unwrap();
         // Tamper the projected claude command → claude must read stale.
         std::fs::write(repo.join(".claude/commands/deploy.md"), "tampered\n").unwrap();
+        let st = projection_status(repo).unwrap();
+        let claude = st.executors.iter().find(|e| e.tool == "claude").unwrap();
+        assert_eq!(claude.state, ProjState::Stale);
+    }
+
+    #[test]
+    fn projection_status_flags_stale_mcp() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        std::fs::create_dir_all(repo.join(".covenant/canon/mcp")).unwrap();
+        std::fs::write(repo.join(".covenant/canon/mcp/ctx7.json"), r#"{"command":"npx"}"#).unwrap();
+        project(repo).unwrap();
+        // Tamper the projected Claude MCP config.
+        std::fs::write(repo.join(".mcp.json"), r#"{"mcpServers":{"canon-ctx7":{"command":"TAMPERED"}}}"#).unwrap();
         let st = projection_status(repo).unwrap();
         let claude = st.executors.iter().find(|e| e.tool == "claude").unwrap();
         assert_eq!(claude.state, ProjState::Stale);
