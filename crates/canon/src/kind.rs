@@ -1,6 +1,7 @@
 //! The context-kind contract: the enumerable classes Canon carries into an
-//! executor's context. Skill is the only packageable kind today; Spec /
-//! Memory join in later sub-projects.
+//! executor's context — Agent, Context, Memory, Command, Mcp, Spec, Skill (the
+//! full CDLC roadmap). Skill is the only packageable kind; Spec is surface-only
+//! (repo-root `docs/specs`, not projected).
 
 use crate::manifest::{canon_dir, read_manifest};
 use crate::project::{parse_frontmatter_str, parse_summary, read_dir_md};
