@@ -20,7 +20,8 @@ pub enum ContextKind {
 }
 
 impl ContextKind {
-    /// Source subdirectory under `.covenant/canon/`.
+    /// Source subdirectory under `.covenant/canon/` — EXCEPT `Spec`, whose
+    /// `"docs/specs"` is repo-root-relative (read_source special-cases it).
     pub fn dir(&self) -> &'static str {
         match self {
             Self::Agent => "agents",
