@@ -92,6 +92,7 @@ import { attachFileDrop } from "../structure/file-drop";
 import { StructureEditor } from "../structure/editor";
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
+import { brandIconSvg } from "../icons/brands";
 import { ContextMenu, COLOR_SWATCHES, COLOR_SWATCHES_PASTEL, type MenuItem } from "../menu/context-menu";
 import { openNewSuperpowersTopicModal, type MissionPageOpts, type PageResult } from "../mission/page";
 import { createGroupShell } from "./group-shell";
@@ -1542,20 +1543,25 @@ export class TabManager {
           });
           sub.appendChild(sb);
         }
+        // Set `position: fixed` BEFORE measuring: a static block fills the body
+        // (viewport width), which made offsetWidth ~= innerWidth and flipped the
+        // flyout to the left edge. Fixed shrinks it to content first.
+        sub.style.position = "fixed";
         document.body.appendChild(sub);
         flyout = sub;
-        // Place to the right of the parent row; flip left if it overflows.
+        // Anchor to the parent menu in LAYOUT px — the same space the menu is
+        // positioned in (offsetLeft/Top and style.left share one coord system).
         const zf = zoom.level();
-        const r = btn.getBoundingClientRect();
         const sw = sub.offsetWidth;
         const sh = sub.offsetHeight;
         const vwf = window.innerWidth / zf;
         const vhf = window.innerHeight / zf;
-        let sleft = r.right / zf;
-        if (sleft + sw + 8 > vwf) sleft = r.left / zf - sw;
+        const menuLeft = menu.offsetLeft;
+        let sleft = menuLeft + menu.offsetWidth;
+        if (sleft + sw + 8 > vwf) sleft = menuLeft - sw;
         sleft = Math.max(8, sleft);
-        const stop = Math.max(8, Math.min(r.top / zf, vhf - 8 - sh));
-        sub.style.position = "fixed";
+        const rowTop = menu.offsetTop + btn.offsetTop - menu.scrollTop;
+        const stop = Math.max(8, Math.min(rowTop, vhf - 8 - sh));
         sub.style.left = `${sleft}px`;
         sub.style.top = `${stop}px`;
       });
@@ -1656,7 +1662,7 @@ export class TabManager {
       ).map((e) => ({
         label: e.label,
         badge: e.badge,
-        icon: Icons.sparkles(),
+        icon: brandIconSvg(e.executor ?? "copilot", 16) ?? Icons.sparkles(),
         action: () =>
           void this.createAcpTab({
             groupId,

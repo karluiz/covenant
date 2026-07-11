@@ -25,14 +25,19 @@ function makeNode(p: Pill): HTMLElement {
   return tmp.firstElementChild as HTMLElement;
 }
 
-export function mountRender(stack: HTMLElement, store: StackStore): void {
+export function mountRender(stack: HTMLElement, store: StackStore): () => void {
   const nodes = new Map<string, NodeState>();
   let overflowEl: HTMLElement | null = null;
 
   const update = () => {
     const pills = store.pills();
-    const visible = pills.slice(0, MAX_VISIBLE);
-    const overflow = pills.length - visible.length;
+    // Notch / Dynamic-Island modes hang from the physical notch: only ever
+    // show the single top pill there — a stacked second card reads as a
+    // broken duplicate dangling in mid-air. Corner modes still stack.
+    const corner = document.body.dataset.corner;
+    const notchMode = corner === "notch" || corner === "notch-mini";
+    const visible = pills.slice(0, notchMode ? 1 : MAX_VISIBLE);
+    const overflow = notchMode ? 0 : pills.length - visible.length;
     const seen = new Set<string>();
 
     // Reconcile pills in order.
@@ -109,4 +114,5 @@ export function mountRender(stack: HTMLElement, store: StackStore): void {
     else if (pill.compact) store.expandSticky(sid);
   });
   update();
+  return update;
 }

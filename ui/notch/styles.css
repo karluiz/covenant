@@ -212,6 +212,9 @@ body[data-corner="notch"] .stack {
 }
 body[data-corner="notch"] .pill.expanded,
 body[data-corner="notch"] .pill.compact {
+  /* border-box so horizontal padding counts inside max-width — the island
+     can never grow past its cap no matter how giant the target path is. */
+  box-sizing: border-box;
   background: #000;
   /* Kill the inherited blur/saturate so the fill is truly #000 (matches the
      physical notch as closely as a lit pixel can). */

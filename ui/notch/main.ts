@@ -20,7 +20,7 @@ const tabColorFor = (sid: string) => TAB_COLORS[hash(sid) % TAB_COLORS.length];
 
 const store = new StackStore();
 const stack = document.getElementById("stack") as HTMLElement;
-mountRender(stack, store);
+const rerender = mountRender(stack, store);
 
 // Resting glyph: in notch modes the HUD is a permanent extension of the
 // physical notch, so show a quiet resting dot whenever there's no active
@@ -78,6 +78,8 @@ type NotchReady = { corner: NotchCorner; sound_on_done: boolean; theme?: NotchTh
 const applyCorner = (corner: NotchCorner) => {
   document.body.dataset.corner = corner;
   syncRest();
+  // Re-render: the visible-pill cap depends on the corner (notch modes show 1).
+  rerender();
 };
 const applyTheme = (theme: NotchTheme) => {
   // `system` intentionally leaves both classes off so CSS can follow

@@ -24,6 +24,21 @@
   background: #6dd29a;
   box-shadow: 0 0 6px rgba(109, 210, 154, 0.6);
 }
+/* Brand-logo variants of the identity marker (chip + popover + rail).
+   The SVG inherits the row's brand color via currentColor. */
+.spawns-chip__brand,
+.spawns-popover__item .brand,
+.spawns-md-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.spawns-chip__brand svg,
+.spawns-popover__item .brand svg,
+.spawns-md-brand svg {
+  display: block;
+}
 .spawns-chip__caret {
   color: #8a93a0;
   margin-left: 2px;
@@ -57,7 +72,7 @@
   width: 240px;
   background: var(--bg-overlay, rgba(20, 24, 30, 0.85));
   border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
-  border-radius: 10px;
+  border-radius: 0;
   padding: 6px;
   z-index: 2000;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);

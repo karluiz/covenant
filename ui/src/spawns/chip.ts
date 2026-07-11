@@ -1,5 +1,6 @@
 import type { SpawnSpec } from "./types";
 import { Icons } from "../icons";
+import { brandIconSvg } from "../icons/brands";
 import { attachTooltip } from "../tooltip/tooltip";
 import { spawnShortcutLabel, acpExecutorFor } from "./shortcuts";
 
@@ -15,21 +16,42 @@ const BRAND_COLORS: Record<string, string> = {
   copilot: "#79c0ff",
   opencode: "#b794f4",
   pi: "#f0a050",
+  hermes: "#7ee0a0",
   gemini: "#5fb3c4",
   ollama: "#a78bfa",
 };
 
+/// Resolve the brand key (claude/codex/…) an executor maps to, matching
+/// spec.id first, then command basename, then label — so a custom
+/// "claude-2" spawn still gets the Claude glyph. Null when unknown.
+function brandKey(spec: SpawnSpec | undefined): string | null {
+  if (!spec) return null;
+  const probes = [
+    spec.id.toLowerCase(),
+    (spec.command || "").split("/").pop()?.toLowerCase() ?? "",
+    (spec.label || "").toLowerCase(),
+  ];
+  for (const p of probes) {
+    for (const key of Object.keys(BRAND_COLORS)) {
+      if (p.includes(key)) return key;
+    }
+  }
+  return null;
+}
+
 function brandColor(spec: SpawnSpec | undefined): string {
-  if (!spec) return "#6dd29a";
-  const id = spec.id.toLowerCase();
-  for (const key of Object.keys(BRAND_COLORS)) {
-    if (id.includes(key)) return BRAND_COLORS[key]!;
-  }
-  const cmd = (spec.command || "").split("/").pop()?.toLowerCase() ?? "";
-  for (const key of Object.keys(BRAND_COLORS)) {
-    if (cmd.includes(key)) return BRAND_COLORS[key]!;
-  }
-  return "#6dd29a";
+  const key = brandKey(spec);
+  return key ? BRAND_COLORS[key]! : "#6dd29a";
+}
+
+/// Brand glyph for the executor, or a colored dot fallback when we have
+/// no logo for it (custom spawns, gemini/ollama). Tinted via currentColor.
+function brandGlyph(spec: SpawnSpec | undefined, cls: string, size: number): string {
+  const color = brandColor(spec);
+  const key = brandKey(spec);
+  const svg = key ? brandIconSvg(key, size) : null;
+  if (svg) return `<span class="${cls}" style="color:${color};">${svg}</span>`;
+  return `<span class="dot" style="background:${color};box-shadow:0 0 6px ${color}99;"></span>`;
 }
 
 export interface SpawnsChipDeps {
@@ -70,7 +92,7 @@ export class SpawnsChip {
     const color = brandColor(bound);
     btn.style.setProperty("--spawn-accent", color);
     btn.innerHTML = `
-      <span class="spawns-chip__dot" style="background:${color};box-shadow:0 0 6px ${color}99;"></span>
+      ${brandGlyph(bound, "spawns-chip__brand", 13)}
       <span class="spawns-chip__label">${escHtml(bound?.label ?? "Spawn")}</span>
       <span class="spawns-chip__caret"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
       <span class="spawns-chip__run" role="button" aria-label="Run ${escHtml(bound?.label ?? "executor")}">${Icons.play({ size: 10 })}</span>
@@ -126,7 +148,7 @@ export class SpawnsChip {
           const kbd = spawnShortcutLabel(i);
           return `
         <button class="spawns-popover__item${s.id === boundId ? " is-active" : ""}" data-id="${s.id}" type="button" style="--spawn-accent:${c};">
-          <span class="dot" style="background:${c};box-shadow:0 0 6px ${c}99;"></span>
+          ${brandGlyph(s, "brand", 15)}
           <span class="label">${escHtml(s.label)}</span>
           ${s.acp && acpExecutorFor(s) ? `<span class="spawn-acp-badge">ACP</span>` : ""}
           ${kbd ? `<span class="spawn-kbd">${kbd}</span>` : ""}

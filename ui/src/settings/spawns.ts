@@ -2,6 +2,7 @@ import type { SpawnSpec } from "../spawns/types";
 import { listSpawns, upsertSpawn, deleteSpawn } from "../spawns/api";
 import { CustomSelect } from "../ui/select";
 import { spawnShortcutLabel, acpExecutorFor } from "../spawns/shortcuts";
+import { brandIconSvg } from "../icons/brands";
 
 /// Known executor presets. Picking one fills in defaults for any
 /// fields the user hasn't customised yet. "Custom" leaves the row
@@ -104,6 +105,23 @@ const BRAND_COLORS: Record<string, string> = {
 };
 const brandColor = (label: string): string => BRAND_COLORS[label] ?? "#8a93a0";
 
+/// Brand glyph for a rail/header row: the vendor logo tinted with its
+/// brand color, or a colored rounded-square dot when we have no logo.
+function brandBadge(label: string): HTMLSpanElement {
+  const el = document.createElement("span");
+  const color = brandColor(label);
+  const svg = brandIconSvg(label, 14);
+  if (svg) {
+    el.className = "spawns-md-brand";
+    el.style.color = color;
+    el.innerHTML = svg;
+  } else {
+    el.className = "spawns-md-dot";
+    el.style.background = color;
+  }
+  return el;
+}
+
 function emptySpec(): SpawnSpec {
   const id =
     typeof crypto !== "undefined" && crypto.randomUUID
@@ -155,12 +173,10 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
 
     const head = document.createElement("div");
     head.className = "spawns-md-head";
-    const dot = document.createElement("span");
-    dot.className = "spawns-md-dot";
-    dot.style.background = brandColor(spec.label);
+    const badge = brandBadge(spec.label);
     const spacer = document.createElement("span");
     spacer.className = "spawns-md-spacer";
-    head.append(dot, brandSelect.element, spacer);
+    head.append(badge, brandSelect.element, spacer);
 
     if (spec.default) {
       const badge = document.createElement("span");
@@ -369,13 +385,11 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
       item.type = "button";
       item.className =
         "spawns-md-item" + (spec.id === selectedId ? " is-selected" : "");
-      const dot = document.createElement("span");
-      dot.className = "spawns-md-dot";
-      dot.style.background = brandColor(spec.label);
+      const badge = brandBadge(spec.label);
       const label = document.createElement("span");
       label.className = "spawns-md-item-label";
       label.textContent = spec.label;
-      item.append(dot, label);
+      item.append(badge, label);
       if (spec.default) {
         const star = document.createElement("span");
         star.className = "spawns-md-star";
