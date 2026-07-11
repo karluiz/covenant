@@ -8038,6 +8038,11 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .s
 body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
     background: #000000;
 }
+/* On true black the #1a1a1a left border reads as a hard grey seam.
+   Drop to a barely-there neutral lift (rule 4 — no accent tints). */
+body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+    border-left-color: rgba(var(--ink-rgb), 0.05);
+}
 .tab-pane:has(.editor-host:not([hidden])):has(.blocks-collapsed) > .editor-host {
     right: 28px;
 }
@@ -8602,7 +8607,10 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .s
     min-width: 0;
     min-height: 0;
     overflow: auto;
-    background: rgb(13 16 21 / var(--surface-alpha));
+    /* Inherit the body surface (slate in themed dark, #000 under the
+       True Dark override) instead of hardcoding its own navy — a second
+       hardcoded surface read as a navy block the theme override missed. */
+    background: transparent;
 }
 .structure-editor-preview[hidden] {
     display: none;

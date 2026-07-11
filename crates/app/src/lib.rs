@@ -1247,7 +1247,8 @@ async fn list_superpowers_missions(
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("md"))
         .collect();
-    entries.sort_by_key(|e| e.file_name());
+    // Filenames are date-prefixed (YYYY-MM-DD-slug.md); newest spec first.
+    entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
     for entry in entries {
         let path = entry.path();
         let body = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
