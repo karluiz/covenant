@@ -139,7 +139,7 @@ body[data-corner="top-left"] .stack {
   min-width: 0;
   overflow: hidden;
 }
-.pill.expanded .col > span { min-width: 0; overflow: hidden; }
+.pill.expanded .col > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pill.expanded .ico {
   width: 22px;
   height: 22px;
@@ -247,6 +247,18 @@ body[data-corner="notch"] .pill .verb,
 body[data-corner="notch"] .pill .target { color: #e5e7eb; }
 body[data-corner="notch"] .pill .tabchip {
   color: color-mix(in srgb, var(--tab, #7c5cff) 78%, #ffffff);
+}
+/* Only the topmost pill hangs from the notch. Stacked cards below it are
+   free-floating rounded islands — no notch-clearing top pad, no flat top,
+   accent on top instead of bottom — so they don't look like broken
+   duplicates dangling in mid-air. */
+body[data-corner="notch"] .pill.expanded:not(:first-child),
+body[data-corner="notch"] .pill.compact:not(:first-child),
+body[data-corner="notch"] .pill.compact:not(:first-child):hover {
+  border-radius: 14px;
+  border-bottom: 0;
+  border-top: 2px solid var(--tab, #7c5cff);
+  padding: 9px 14px 7px 12px;
 }
 @keyframes notchDrop {
   from { opacity: 0; transform: translateY(-10px); }

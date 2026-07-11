@@ -3716,13 +3716,19 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
     // drawSelection). Route ⌘A through the frontend instead, same as ⌘W/⌘T,
     // so the focused surface (editor / input / terminal) handles it.
     let select_all = MenuItem::with_id(app, "select-all", "Select All", true, Some("CmdOrCtrl+A"))?;
+    // Custom Undo/Redo — the predefined items fire WebKit's native `undo:`/
+    // `redo:`, which drive WebKit's own contentEditable edit history and never
+    // reach CodeMirror's history (CM6 manages its own). Route ⌘Z / ⌘⇧Z through
+    // the frontend instead, same as ⌘A above, so the focused surface undoes.
+    let undo = MenuItem::with_id(app, "undo", "Undo", true, Some("CmdOrCtrl+Z"))?;
+    let redo = MenuItem::with_id(app, "redo", "Redo", true, Some("CmdOrCtrl+Shift+Z"))?;
     let edit_menu = Submenu::with_items(
         app,
         "Edit",
         true,
         &[
-            &PredefinedMenuItem::undo(app, None)?,
-            &PredefinedMenuItem::redo(app, None)?,
+            &undo,
+            &redo,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::cut(app, None)?,
             &PredefinedMenuItem::copy(app, None)?,
@@ -3780,6 +3786,12 @@ pub fn run() {
                 }
                 "select-all" => {
                     let _ = app.emit("menu://select-all", ());
+                }
+                "undo" => {
+                    let _ = app.emit("menu://undo", ());
+                }
+                "redo" => {
+                    let _ = app.emit("menu://redo", ());
                 }
                 "copy-pairing-token" => {
                     // Copy from the Rust side via `pbcopy`. Doing it in the

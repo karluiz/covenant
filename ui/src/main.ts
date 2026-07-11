@@ -17,7 +17,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EditorView } from "@codemirror/view";
-import { selectAll as cmSelectAll } from "@codemirror/commands";
+import { selectAll as cmSelectAll, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
 
 import { dismissBootSplash } from "./boot-splash";
 import { slideRail } from "./blocks/rail-slide";
@@ -862,7 +862,12 @@ async function boot(): Promise<void> {
   if (projectNotesBtn) {
     projectNotesBtn.innerHTML = Icons.clipboard({ size: 14 });
     attachTooltip(projectNotesBtn, "Project notes");
-    projectNotesBtn.addEventListener("click", () => rail.toggle("notes"));
+    // Notes are per-group; the button is disabled on ungrouped tabs (see
+    // syncProjectNotesAvail). Guard the handler too so a stray click can't
+    // drop the user onto the Blocks rail behind the unmountable overlay.
+    projectNotesBtn.addEventListener("click", () => {
+      if (manager.activeGroup()) rail.toggle("notes");
+    });
   }
   if (teammateBtn) {
     teammateBtn.innerHTML = Icons.messageCircle({ size: 14 });
@@ -1111,6 +1116,25 @@ async function boot(): Promise<void> {
       document.getSelection()?.selectAllChildren(el);
     }
   });
+  // ⌘Z / ⌘⇧Z route through the native menu (see build_app_menu) so the
+  // focused surface undoes: CodeMirror uses its own history; inputs/textareas
+  // use WebKit's native undo; terminals have no undo.
+  const routeUndoRedo = (cm: (v: EditorView) => boolean, native: "undo" | "redo") => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el?.closest(".xterm")) return;
+    const cmDom = el?.closest<HTMLElement>(".cm-editor");
+    const view = cmDom ? EditorView.findFromDOM(cmDom) : null;
+    if (view) {
+      cm(view);
+      view.focus();
+      return;
+    }
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el?.isContentEditable) {
+      document.execCommand(native);
+    }
+  };
+  void listen("menu://undo", () => routeUndoRedo(cmUndo, "undo"));
+  void listen("menu://redo", () => routeUndoRedo(cmRedo, "redo"));
   // The copy happens in Rust (pbcopy) because navigator.clipboard rejects with
   // "Document is not focused" when fired from a native menu click. We only
   // surface the result here.
@@ -1349,9 +1373,18 @@ async function boot(): Promise<void> {
   manager.onAnyTabContextChange = (cwd) => {
     if (cwd) void ensureDetectorForRepo(cwd);
   };
+  // Project Notes is a per-group surface — dim + disable the titlebar button
+  // when the active tab isn't in a group, so a click can't silently drop the
+  // user onto the Blocks rail behind the (unmountable) notes overlay. Native
+  // `[disabled]` reuses the existing `.titlebar-icon-btn:disabled` dim style.
+  const syncProjectNotesAvail = (): void => {
+    projectNotesBtn?.toggleAttribute("disabled", manager.activeGroup() === null);
+  };
+  syncProjectNotesAvail();
   manager.onActiveTabChange = (info) => {
     statusBar.setActiveTab(info);
     syncBrowserActive();
+    syncProjectNotesAvail();
   };
   // Tell the vitals aggregator which session's snapshot should drive
   // the status-bar cluster. Other sessions' summariser / fix-proposer

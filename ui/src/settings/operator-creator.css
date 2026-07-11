@@ -26,6 +26,10 @@
 .op-creator header {
   display: flex; align-items: center; gap: 12px; padding: 12px 18px;
   border-bottom: 1px solid var(--border);
+  /* ponytail: pin so the row doesn't grow when the hero chip swaps a
+     ~15px emoji placeholder for a 28px pixel-avatar (chip total 32px +
+     24px header padding + 1px border = 57) on soul select. */
+  min-height: 60px; box-sizing: border-box;
 }
 .op-creator header .brand {
   font-weight: 600; color: #e6e8f0;

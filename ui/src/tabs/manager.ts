@@ -1441,7 +1441,16 @@ export class TabManager {
     const z = zoom.level();
     // Position is set after append (below) once the menu is measurable.
 
+    // Only one submenu flyout open at a time; tracked so dismiss + the
+    // outside-click guard account for it (it lives on document.body, not
+    // inside `menu`, to escape the menu's overflow clip).
+    let flyout: HTMLElement | null = null;
+    const closeFlyout = () => {
+      flyout?.remove();
+      flyout = null;
+    };
     const dismiss = () => {
+      closeFlyout();
       menu.remove();
       document.removeEventListener("click", outsideClick, true);
       document.removeEventListener("keydown", onKey);
@@ -1464,6 +1473,91 @@ export class TabManager {
       btn.addEventListener("click", () => {
         dismiss();
         action();
+      });
+      menu.appendChild(btn);
+    };
+    // A parent row that opens a right-side flyout of sub-items on click.
+    // Mirrors the ContextMenu component's submenu (chevron + click-to-open)
+    // but reuses this bespoke menu's styling.
+    const addSubmenu = (
+      label: string,
+      items: { label: string; action: () => void; badge?: string; icon?: string }[],
+      icon?: string,
+      badge?: string,
+    ): void => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pane-context-menu-item";
+      if (icon) {
+        const iconEl = document.createElement("span");
+        iconEl.className = "pane-context-menu-item-icon";
+        iconEl.innerHTML = icon;
+        btn.appendChild(iconEl);
+      }
+      const labelEl = document.createElement("span");
+      labelEl.className = "pane-context-menu-item-label";
+      labelEl.textContent = label;
+      btn.appendChild(labelEl);
+      if (badge) {
+        const b = document.createElement("span");
+        b.className = "pane-context-menu-item-badge";
+        b.textContent = badge;
+        btn.appendChild(b);
+      }
+      const chev = document.createElement("span");
+      chev.className = "pane-context-menu-item-chevron";
+      chev.textContent = "›";
+      btn.appendChild(chev);
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (flyout) {
+          closeFlyout();
+          return;
+        }
+        const sub = document.createElement("div");
+        sub.className = "pane-context-menu";
+        for (const it of items) {
+          const sb = document.createElement("button");
+          sb.type = "button";
+          sb.className = "pane-context-menu-item";
+          if (it.icon) {
+            const ie = document.createElement("span");
+            ie.className = "pane-context-menu-item-icon";
+            ie.innerHTML = it.icon;
+            sb.appendChild(ie);
+          }
+          const sl = document.createElement("span");
+          sl.className = "pane-context-menu-item-label";
+          sl.textContent = it.label;
+          sb.appendChild(sl);
+          if (it.badge) {
+            const bd = document.createElement("span");
+            bd.className = "pane-context-menu-item-badge";
+            bd.textContent = it.badge;
+            sb.appendChild(bd);
+          }
+          sb.addEventListener("click", () => {
+            dismiss();
+            it.action();
+          });
+          sub.appendChild(sb);
+        }
+        document.body.appendChild(sub);
+        flyout = sub;
+        // Place to the right of the parent row; flip left if it overflows.
+        const zf = zoom.level();
+        const r = btn.getBoundingClientRect();
+        const sw = sub.offsetWidth;
+        const sh = sub.offsetHeight;
+        const vwf = window.innerWidth / zf;
+        const vhf = window.innerHeight / zf;
+        let sleft = r.right / zf;
+        if (sleft + sw + 8 > vwf) sleft = r.left / zf - sw;
+        sleft = Math.max(8, sleft);
+        const stop = Math.max(8, Math.min(r.top / zf, vhf - 8 - sh));
+        sub.style.position = "fixed";
+        sub.style.left = `${sleft}px`;
+        sub.style.top = `${stop}px`;
       });
       menu.appendChild(btn);
     };
@@ -1547,6 +1641,34 @@ export class TabManager {
       addItem("Start agent", () => run(sessionId), Icons.sparkles());
     }
 
+    // Start an ACP chat tab in this tab's group. Mirrors the group menu's
+    // executor submenu (Copilot default, others gated by acpExecutorFor at
+    // spawn time).
+    addSubmenu(
+      "Start ACP",
+      (
+        [
+          { executor: undefined, label: "Copilot", badge: "NEW" },
+          { executor: "pi", label: "pi", badge: "BETA" },
+          { executor: "claude", label: "Claude", badge: "BETA" },
+          { executor: "opencode", label: "OpenCode", badge: "BETA" },
+        ] as const
+      ).map((e) => ({
+        label: e.label,
+        badge: e.badge,
+        icon: Icons.sparkles(),
+        action: () =>
+          void this.createAcpTab({
+            groupId,
+            color: tab.color,
+            cwd: pane?.cwd ?? this.activeCwd(),
+            ...(e.executor ? { executor: e.executor } : {}),
+          }),
+      })),
+      Icons.sparkles(),
+      "NEW",
+    );
+
     // Split actions (only when the feature is on / a split exists). Splits
     // spawn PTY panes — meaningless on acp/pi/browser tabs, so hide them.
     if (flag && isSingle && tab.kind === "shell") {
@@ -1626,7 +1748,9 @@ export class TabManager {
 
     // Dismiss on outside click or Escape.
     const outsideClick = (ev: MouseEvent) => {
-      if (!menu.contains(ev.target as Node)) dismiss();
+      const t = ev.target as Node;
+      if (menu.contains(t) || flyout?.contains(t)) return;
+      dismiss();
     };
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === "Escape") dismiss();
@@ -3281,15 +3405,16 @@ export class TabManager {
             term.write(chunk);
             if (tabRef.current?.pane.hidden) tabRef.current.wroteWhileHidden = true;
             // Belt-and-suspenders: if a TUI exits without disabling mouse
-            // tracking we may not get a prompt_start (no shell integration, or
-            // the event arrives later). Detect the stuck state right after
-            // xterm processes the chunk — mouse tracking still on while back
-            // on the normal buffer means the app forgot to clean up.
+            // tracking OR focus reporting we may not get a prompt_start (no
+            // shell integration, or the event arrives later). Detect the stuck
+            // state right after xterm processes the chunk — either mode still on
+            // while back on the normal buffer means the app forgot to clean up.
             if (
-              term.modes.mouseTrackingMode !== "none" &&
+              (term.modes.mouseTrackingMode !== "none" ||
+                term.modes.sendFocusMode) &&
               term.buffer.active.type === "normal"
             ) {
-              term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+              term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l");
             }
           },
           onSessionEvent: (event) => {
@@ -3343,16 +3468,18 @@ export class TabManager {
               recall?.notifyPromptStart();
               promptHint.reset();
               cdPicker.reset();
-              // A TUI that crashed/was killed can leave mouse tracking enabled;
-              // every mouse move then leaks SGR reports (e.g. `65;66;25M`) into
-              // the prompt. Mouse-using TUIs live on the alt buffer, so tracking
-              // still on at a normal-buffer prompt is stuck state — clear it by
-              // writing the DECRSTs to xterm (updates its mode; not sent to PTY).
+              // A TUI that crashed/was killed can leave mouse tracking or focus
+              // reporting enabled; every mouse move then leaks SGR reports (e.g.
+              // `65;66;25M`) and every focus change leaks `^[[I`/`^[[O` into the
+              // prompt. These TUIs live on the alt buffer, so either mode still
+              // on at a normal-buffer prompt is stuck state — clear it by writing
+              // the DECRSTs to xterm (updates its mode; not sent to PTY).
               if (
-                term.modes.mouseTrackingMode !== "none" &&
+                (term.modes.mouseTrackingMode !== "none" ||
+                  term.modes.sendFocusMode) &&
                 term.buffer.active.type === "normal"
               ) {
-                term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+                term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l");
               }
               if (initialCmdPending !== null) {
                 const cmd = initialCmdPending;

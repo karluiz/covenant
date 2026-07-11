@@ -125,8 +125,10 @@ export class NotesTab {
         <div class="pn-note-body"></div>
         <div class="pn-note-source"></div>
         <div class="rail-meta pn-note-stamp"></div>
-        <button class="rail-row-action pn-note-edit" aria-label="Edit note">${Icons.pencil({ size: 13 })}</button>
-        <button class="rail-row-action pn-note-del" aria-label="Delete note">${Icons.trash({ size: 13 })}</button>
+        <div class="rail-row-actions">
+          <button class="rail-row-action pn-note-edit" aria-label="Edit note">${Icons.pencil({ size: 13 })}</button>
+          <button class="rail-row-action pn-note-del" aria-label="Delete note">${Icons.trash({ size: 13 })}</button>
+        </div>
       `;
       (li.querySelector(".pn-note-stamp") as HTMLElement).textContent = stamp;
       (li.querySelector(".pn-note-body") as HTMLElement).textContent = n.body;
