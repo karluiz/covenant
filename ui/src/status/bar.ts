@@ -1757,6 +1757,9 @@ const MISSION_VIEW_KIND_KEY = "covenant.mission-viewer.view-kind";
 
 class MissionViewerModal {
   private overlay: HTMLElement | null = null;
+  /// Disposer for the breadcrumb's full-path tooltip. renderHeader runs
+  /// on every toggle, so we tear the old listener down before re-arming.
+  private pathTooltipDispose: (() => void) | null = null;
   /// Source of truth for the on-disk file. Updated on showContent and
   /// after a successful save (we trust the backend's returned mtime).
   private mission: MissionInfo | null = null;
@@ -1830,6 +1833,8 @@ class MissionViewerModal {
   close(): void {
     if (!this.overlay) return;
     this.resetFind();
+    this.pathTooltipDispose?.();
+    this.pathTooltipDispose = null;
     this.overlay.remove();
     this.overlay = null;
     this.mission = null;
@@ -1911,7 +1916,13 @@ class MissionViewerModal {
   private renderHeader(): void {
     if (!this.overlay || !this.mission) return;
     const pathEl = this.overlay.querySelector<HTMLElement>(".mission-viewer-path");
-    if (pathEl) pathEl.textContent = this.mission.path;
+    if (pathEl) {
+      // Compact breadcrumb: last few segments, filename emphasized. The
+      // full path was too heavy in the header — it lives on the tooltip.
+      pathEl.innerHTML = specBreadcrumb(this.mission.path);
+      this.pathTooltipDispose?.();
+      this.pathTooltipDispose = attachTooltip(pathEl, compactPath(this.mission.path));
+    }
 
     const actions = this.overlay.querySelector<HTMLElement>(".mission-viewer-actions");
     if (!actions) return;
@@ -2342,6 +2353,23 @@ function worktreeLabel(wt: GitWorktreeSummary): string {
 
 function compactPath(path: string): string {
   return path.replace(/^\/Users\/[^/]+/, "~");
+}
+
+/// Header breadcrumb for a spec path: the last 3 segments, `/`-joined,
+/// filename emphasized, with a leading `…/` when the path was trimmed.
+/// Full path is on the tooltip. Output is trusted (each segment escaped).
+function specBreadcrumb(path: string): string {
+  const segs = path.split("/").filter(Boolean);
+  const shown = segs.slice(-3);
+  const trimmed = segs.length > shown.length;
+  const sep = `<span class="mv-crumb-sep">/</span>`;
+  const crumbs = shown
+    .map((s, i) => {
+      const leaf = i === shown.length - 1;
+      return `<span class="mv-crumb${leaf ? " is-leaf" : ""}">${escapeHtml(s)}</span>`;
+    })
+    .join(sep);
+  return (trimmed ? `<span class="mv-crumb-sep">…</span>${sep}` : "") + crumbs;
 }
 
 function escapeHtml(s: string): string {

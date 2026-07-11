@@ -7324,19 +7324,46 @@ button.status-segment.status-aom.status-aom-warn:hover {
     min-width: 0;
 }
 
+/* Eyebrow, not a heading — the human title lives in the spec's own
+   H1 in the body. Small, uppercase, quiet, with an accent tick. */
 .mission-viewer-title {
     margin: 0;
-    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10px;
     font-weight: 600;
-    color: var(--fg, #d6d8db);
-    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--muted);
+}
+.mission-viewer-title::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    background: var(--accent, #7aa2f7);
+    flex-shrink: 0;
 }
 
+/* Compact breadcrumb — replaces the full absolute path. Trailing
+   segments only; the whole path is on the hover tooltip. */
 .mission-viewer-path {
-    font-size: 11px;
+    font-size: 11.5px;
     color: var(--muted);
     user-select: text;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 460px;
+    cursor: default;
+}
+.mv-crumb-sep {
+    color: color-mix(in srgb, var(--muted) 55%, transparent);
+    margin: 0 5px;
+}
+.mv-crumb.is-leaf {
+    color: var(--fg, #d6d8db);
+    font-weight: 500;
 }
 
 .mission-viewer-close {
@@ -7539,6 +7566,94 @@ mark.mv-find-hit.is-active {
     font-family: inherit !important;
     white-space: normal !important;
     color: var(--text-primary);
+    /* Reading treatment — airier than the raw source view. Prose is
+       held to a comfortable measure; code blocks and tables below opt
+       back out to full width. */
+    font-size: 13px;
+    line-height: 1.68;
+    max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+/* First heading is the spec's own H1 — give it real presence, since
+   the modal header is now just a quiet eyebrow + breadcrumb. */
+.mission-viewer-rendered h1 {
+    font-size: 22px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 2px 0 14px;
+}
+.mission-viewer-rendered h2 {
+    font-size: 15px;
+    margin: 26px 0 8px;
+    padding-top: 16px;
+    padding-bottom: 0;
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+}
+.mission-viewer-rendered h2:first-child {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+}
+.mission-viewer-rendered h3 {
+    margin-top: 20px;
+    font-size: 11px;
+}
+.mission-viewer-rendered p,
+.mission-viewer-rendered li {
+    color: var(--text-secondary, var(--muted));
+}
+.mission-viewer-rendered p { margin: 10px 0; }
+.mission-viewer-rendered strong { color: var(--fg, #d6d8db); }
+
+/* Code blocks read as terminal panes — full-bleed, darker ground,
+   accent-tinted left edge. Sharp corners per the house style. */
+.mission-viewer-rendered pre {
+    margin: 14px 0;
+    padding: 12px 14px;
+    background: color-mix(in srgb, #000 42%, var(--bg-panel, #10141c));
+    border: 1px solid var(--border);
+    border-left: 2px solid color-mix(in srgb, var(--accent, #7aa2f7) 55%, var(--border));
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* Rendered markdown tables — none existed before; the spec's behavior
+   matrix needs a real grid. Scoped globally to .markdown-body (safe,
+   additive) so the changelog viewer benefits too. */
+.markdown-body table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 14px 0;
+    font-size: 12.5px;
+    border: 1px solid var(--border);
+}
+.markdown-body th,
+.markdown-body td {
+    text-align: left;
+    padding: 8px 11px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+.markdown-body th {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-weight: 600;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--fg, #d6d8db) 5%, transparent);
+}
+.markdown-body td {
+    color: var(--text-secondary, var(--muted));
+}
+.markdown-body tr:last-child td {
+    border-bottom: none;
+}
+.markdown-body td + td,
+.markdown-body th + th {
+    border-left: 1px solid var(--border);
 }
 
 /* Edit-mode textarea — same monospace metrics as the read view. */
@@ -7994,7 +8109,10 @@ body.structure-dragging * {
 .editor-host {
     height: 100%;
     background: var(--bg-panel);
-    border-left: 1px solid var(--border);
+    /* No border-left: the overlay opens at the pane's left edge, flush
+       against the vertical tabbar which already carries a border-right.
+       A border here stacks with the tabbar's, reading as one thick/bright
+       seam instead of the single subtle divider on the right side. */
     display: flex;
     overflow: hidden;
 }
@@ -8037,11 +8155,6 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host,
 body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
 body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
     background: #000000;
-}
-/* On true black the #1a1a1a left border reads as a hard grey seam.
-   Drop to a barely-there neutral lift (rule 4 — no accent tints). */
-body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
-    border-left-color: rgba(var(--ink-rgb), 0.05);
 }
 .tab-pane:has(.editor-host:not([hidden])):has(.blocks-collapsed) > .editor-host {
     right: 28px;
