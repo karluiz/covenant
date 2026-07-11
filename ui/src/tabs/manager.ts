@@ -2503,21 +2503,26 @@ export class TabManager {
     return this.tabs.length > 0;
   }
 
-  /// "AOM is alive" proactive step: when AOM transitions on, every
-  /// tab with a mission attached AND no user-set name gets renamed
-  /// to a slug derived from the mission file. Pure derived rename —
-  /// no model call, no backend hop. Makes the tab bar instantly
-  /// readable ("docs-hub", "mission-tracking") instead of a wall of
-  /// "zsh 1, zsh 2, zsh 3". User-set names are NEVER overwritten.
+  /// "AOM is alive" proactive step: when AOM transitions on, every tab
+  /// with a mission attached AND no user-set name gets its AUTO title
+  /// (defaultTitle) seeded from a slug derived from the mission file.
+  /// The seed is readable immediately ("docs-hub", "mission-tracking")
+  /// and is then overwritten by live title inference (title_suggested),
+  /// so the tab keeps evolving. A user-set customName is NEVER touched.
   applyMissionTabNames(): void {
     let touched = false;
     for (const tab of this.tabs) {
       const mission = activePane(tab).mission;
       if (!mission) continue;
+      // A name the user set by hand always wins — don't seed over it.
       if (tab.customName && tab.customName.trim().length > 0) continue;
       const slug = slugFromMissionPath(mission.path);
       if (!slug) continue;
-      tab.customName = slug;
+      // ponytail: seed the auto slot, not customName — inference owns
+      // defaultTitle and yields to customName, so precedence is free.
+      // May briefly regress an already-inferred title to the slug at
+      // AOM-enable; the next titler tick corrects it.
+      tab.defaultTitle = slug;
       touched = true;
     }
     if (touched) {
@@ -3184,6 +3189,10 @@ export class TabManager {
   /// undefined and the shell starts in `$HOME`.
   async createTab(opts?: {
     customName?: string | null;
+    /// Auto-slot seed for the tab name, shown until the first inferred
+    /// title arrives (title_suggested overwrites it). Unlike customName,
+    /// it does NOT pin — use this for derived names (task title, etc.).
+    defaultTitle?: string | null;
     color?: string | null;
     groupId?: string | null;
     cwd?: string | null;
@@ -4259,7 +4268,7 @@ export class TabManager {
     const tab: Tab = {
       id,
       kind: "shell",
-      defaultTitle: cwdBasename(initialCwd),
+      defaultTitle: opts?.defaultTitle?.trim() || cwdBasename(initialCwd),
       customName: opts?.customName ?? null,
       color: opts?.color ?? null,
       groupId: opts?.groupId ?? null,
