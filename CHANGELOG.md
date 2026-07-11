@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.5 — Mission viewer breadcrumb header + reading treatment
+
+### Changed
+
+- **Mission viewer header + prose**: Replaced the full absolute path in the
+  mission viewer with a compact breadcrumb (last 3 segments, filename
+  emphasized, full path on hover tooltip) under a quiet uppercase eyebrow
+  title. Gave the rendered spec body a proper reading treatment — comfortable
+  measure, emphasized H1, terminal-pane code blocks, and real markdown tables.
+  Dropped the redundant `editor-host` left border that stacked with the tabbar
+  seam. `ui/src/status/bar.ts`, `ui/src/styles.css`.
+
+### Fixed
+
+- **Operator-derived tab names keep evolving**: Mission-slug and task-title
+  names now seed the auto title slot (`defaultTitle`) instead of pinning
+  `customName`, so live title inference keeps updating the tab while user-set
+  names still win. `ui/src/tabs/manager.ts`, `ui/src/main.ts`.
+
+- **Superpowers missions sort newest-first**: Mission list now orders by the
+  newest filename (date prefix) instead of alphabetically. `crates/app/src/lib.rs`.
+
 ## v0.9.4 — Project Notes v2 + terminal focus-mode fix
 
 ### Added
