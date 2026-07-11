@@ -732,7 +732,9 @@ async function boot(): Promise<void> {
     const groupId = overrides?.groupId ?? group?.id ?? null;
     const color = overrides?.color ?? group?.color ?? null;
     const tab = await manager.createTab({
-      customName: `${task.title.slice(0, 32)}`,
+      // Auto-slot seed, not a pin: the tab shows the task title until
+      // live inference produces an activity label, then evolves.
+      defaultTitle: task.title.slice(0, 32),
       cwd,
       groupId,
       color,
