@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.6 — ACP pane-menu flyout fix + executor brand icons
+
+### Added
+
+- **Executor brand icons in the Start ACP flyout**: The Copilot / pi / Claude
+  / OpenCode rows now render their real brand marks via `brandIconSvg` instead
+  of the generic sparkle glyph, matching how executors are shown elsewhere in
+  the app. `ui/src/tabs/manager.ts`.
+
+### Fixed
+
+- **Start ACP submenu positioned off-screen**: The nested executor flyout
+  measured its width while still `position: static`, so it filled the viewport
+  (~1100px), tripped the overflow-flip test, and slammed to the left screen
+  edge detached from the menu. It now sets `position: fixed` before measuring
+  and anchors in layout px off the parent menu, so it opens flush beside the
+  Start ACP row. `ui/src/tabs/manager.ts`.
+
 ## v0.9.5 — Mission viewer breadcrumb header + reading treatment
 
 ### Changed
