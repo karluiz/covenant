@@ -6,6 +6,47 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.4 — Project Notes v2 + terminal focus-mode fix
+
+### Added
+
+- **Project Notes v2**: the project panel collapses to three tabs —
+  **Commands**, **Prompts**, **Notes** — with the old docs surface migrated
+  into an editable Notes stream. Notes are editable cards carrying a provenance
+  line, capturable straight from a terminal selection via an **Add to notes**
+  context-menu action, and the expanded view now reuses the Canon cockpit shell
+  (`ui/src/project-notes/`, `crates/*/project_notes.rs`).
+
+- **CDLC Context Lift**: the Canon eval Loop gains an A/B baseline arm that
+  measures a context's effectiveness — `EvalResult.baseline_pass`, Context Lift
+  rows, and a per-item verdict surfaced in the Loop (`crates/*/canon`,
+  `ui/src/canon/`).
+
+- **Single "Start ACP" submenu**: the per-executor ACP launchers collapse into
+  one tab-menu submenu (`ui/src/tabs/`).
+
+### Changed
+
+- **Custom Undo/Redo menu routing**: ⌘Z / ⌘⇧Z now route through the frontend
+  (`menu://undo` / `menu://redo`) so CodeMirror's own history drives undo
+  instead of WebKit's contentEditable edit history, which never reached CM6
+  (`crates/app/src/lib.rs`, `ui/src/main.ts`).
+
+- **Notes row actions grouped** into a `.rail-row-actions` container to match
+  the shared rail chrome (`ui/src/project-notes/notes-tab.ts`).
+
+### Fixed
+
+- **Stuck terminal focus/mouse mode**: when a TUI exits without disabling focus
+  reporting (`?1004`) or mouse tracking, the terminal no longer leaks
+  `^[[I`/`^[[O` focus events and SGR mouse reports into the bare prompt. The
+  self-heal guard now also fires on `sendFocusMode` and clears `?1004`
+  alongside the mouse modes (`ui/src/tabs/manager.ts`).
+
+- **Trash confirm modal honors theme**: the Structure editor's delete
+  confirmation now uses the True Dark neutral treatment instead of an
+  accent-tinted surface (`ui/src/structure/`).
+
 ## v0.9.3 — Canon CDLC kinds: Commands, MCP, Specs, Memory + polish
 
 ### Added
