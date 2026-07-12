@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.7 — Fixed-width Dynamic Island + titlebar capsule fit
+
+### Fixed
+
+- **Dynamic Island notch grew with content**: The island pill in
+  `data-corner="notch"` mode sized between a 190px floor and a 320px cap, so
+  long session titles or breadcrumbs widened it mid-activity. It is now pinned
+  to a fixed 190px (floor = ceiling); overflowing text ellipsizes inside the
+  pill instead of resizing it. `ui/notch/styles.css`.
+
+- **Update capsule shed labels on viewport width, not real space**: The
+  titlebar center is now a `minmax(0, 1fr)` grid track with
+  `container-type: inline-size`, and the update capsule's degradation
+  ("What's new ›", then the "UPDATE" word) is driven by container queries on
+  the actual gap between the icon clusters instead of `max-width` viewport
+  breakpoints — the icon row had outgrown the old fixed ~310px reserve and the
+  capsule could overlap it. `ui/src/styles.css`.
+
+- **De-flaked `pwsh_echo_round_trip` Windows smoke test**: Cold pwsh start on
+  loaded CI runners exceeded the 6s budget, and a blind single write could
+  land before pwsh was ready and get dropped. Budget bumped to 30s with the
+  command re-sent every 3s until observed — this is what failed the v0.9.6
+  Windows release and blocked `latest.json`. `crates/pty/tests/windows_smoke.rs`.
+
 ## v0.9.6 — ACP pane-menu flyout fix + executor brand icons
 
 ### Added
