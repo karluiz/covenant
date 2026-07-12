@@ -59,6 +59,14 @@ export function stateSpine(state: string): string {
   }
 }
 
+/// Display label for a run state. "running"/"failed" are shorter and read
+/// better than the raw API tokens at pill size; the rest just de-snake.
+export function stateLabel(state: string): string {
+  if (state === "in_progress") return "running";
+  if (state === "failure") return "failed";
+  return state.replace(/_/g, " ");
+}
+
 function relTime(iso: string): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
@@ -458,6 +466,9 @@ export function renderBeacon(
 
         // Meta strip: state pill + fixed slots on ONE line — the actor is
         // the only flexible slot, so it truncates first instead of wrapping.
+        // No "·" separators: gap spacing + per-slot color already segment
+        // the bits, and at rail width three middots cost the whole actor
+        // (leaving an orphan dot when it collapsed to zero).
         const meta = document.createElement("div");
         meta.className = "rail-meta is-strip";
         const dotColor = stateDotColor(run.state);
@@ -465,16 +476,12 @@ export function renderBeacon(
         pill.className = `rail-pill is-${
           dotColor === "busy" ? "busy" : dotColor === "bad" ? "fail" : dotColor === "ok" ? "ok" : "idle"
         }`;
-        pill.textContent = run.state.replace(/_/g, " ");
+        pill.textContent = stateLabel(run.state);
         meta.append(pill);
         const addBit = (text: string, cls = ""): void => {
-          const sep = document.createElement("span");
-          sep.className = "rail-meta-sep";
-          sep.textContent = "·";
           const bit = document.createElement("span");
           bit.className = `rail-meta-bit${cls ? ` ${cls}` : ""}`;
           bit.textContent = text;
-          if (meta.childElementCount > 1) meta.append(sep);
           meta.append(bit);
         };
         if (run.run_number) addBit(`#${run.run_number}`);

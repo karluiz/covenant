@@ -11,26 +11,29 @@
 .rail-meta.is-strip {
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* the gap IS the separator — middots cost ~50px at rail width, which is
+     exactly the actor's slot */
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   /* shared .rail-meta wraps — the strip's whole point is that it never does */
   flex-wrap: nowrap;
+  /* align under the run name (18px chev column + 6px gap) */
+  padding-left: 24px;
 }
 .rail-pill {
   flex: none;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
-  padding: 1.5px 6px;
-  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 .rail-pill.is-busy { color: var(--running); background: color-mix(in srgb, var(--running) 12%, transparent); }
 .rail-pill.is-ok   { color: var(--ok);      background: color-mix(in srgb, var(--ok) 12%, transparent); }
 .rail-pill.is-fail { color: var(--fail);    background: color-mix(in srgb, var(--fail) 12%, transparent); }
 .rail-pill.is-idle { color: var(--text-tertiary); background: rgba(var(--ink-rgb), 0.06); }
-.rail-meta-sep { flex: none; color: var(--text-tertiary); font-size: 10px; }
 .rail-meta-bit { flex: none; color: var(--fg-dim); font-size: 11px; }
 .rail-meta-bit.is-ref { color: var(--accent); }
 .rail-meta-bit.is-actor { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

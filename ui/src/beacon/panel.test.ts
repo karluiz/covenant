@@ -403,11 +403,13 @@ describe("run detail expansion", () => {
     renderBeacon(root, okState, undefined, undefined, undefined, detail());
     const pill = root.querySelector(".rail-pill");
     expect(pill).not.toBeNull();
-    expect(pill?.textContent).toBe("in progress");
+    expect(pill?.textContent).toBe("running");
     expect(pill?.classList.contains("is-busy")).toBe(true);
     // ref is accent-tagged, actor is the truncating slot
     expect(root.querySelector(".rail-meta .is-ref")?.textContent).toBe("main");
     expect(root.querySelector(".rail-meta .is-actor")?.textContent).toBe("karluiz");
+    // gap does the separating — no middot spans to orphan when actor clips
+    expect(root.querySelector(".rail-meta-sep")).toBeNull();
   });
 
   const taxJobs: BeaconJob[] = [
