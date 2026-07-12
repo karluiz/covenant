@@ -33,8 +33,13 @@ export class CommandPalette {
   private overlay: HTMLElement | null = null;
   private inputEl: HTMLInputElement | null = null;
   private listEl: HTMLElement | null = null;
+  private tilesEl: HTMLElement | null = null;
+  private censusEl: HTMLElement | null = null;
   private query = "";
   private flat: PaletteItem[] = [];
+  /// MRU top-5 workspaces, always available as ⌘1–5 targets even
+  /// while a query filters the visible sections.
+  private tiles: PaletteItem[] = [];
   private cursor = 0;
 
   constructor(
@@ -68,7 +73,10 @@ export class CommandPalette {
     this.overlay = null;
     this.inputEl = null;
     this.listEl = null;
+    this.tilesEl = null;
+    this.censusEl = null;
     this.flat = [];
+    this.tiles = [];
     this.cursor = 0;
   }
 
@@ -83,12 +91,23 @@ export class CommandPalette {
     card.className = "command-palette-card";
     card.innerHTML = `
       <div class="command-palette-input-row">
-        <span class="command-palette-label">⌘⌥T</span>
+        <span class="cp-caret">›</span>
         <input type="text" class="command-palette-input"
                placeholder="Search workspaces, tabs, actions…"
                autocomplete="off" spellcheck="false" />
+        <span class="cp-kbd">⌘⌥T</span>
       </div>
+      <div class="cp-tiles" role="listbox"></div>
       <div class="command-palette-list" role="listbox"></div>
+      <div class="cp-footer">
+        <span class="cp-census"></span>
+        <span class="cp-hints">
+          <span class="cp-hint"><span class="cp-kbd">↑↓</span>navigate</span>
+          <span class="cp-hint"><span class="cp-kbd">↵</span>open</span>
+          <span class="cp-hint"><span class="cp-kbd">⌘1–5</span>workspace</span>
+          <span class="cp-hint"><span class="cp-kbd">esc</span>close</span>
+        </span>
+      </div>
     `;
     overlay.appendChild(card);
     this.mountHost.appendChild(overlay);
@@ -96,6 +115,8 @@ export class CommandPalette {
     this.overlay = overlay;
     this.inputEl = card.querySelector<HTMLInputElement>(".command-palette-input")!;
     this.listEl = card.querySelector<HTMLElement>(".command-palette-list")!;
+    this.tilesEl = card.querySelector<HTMLElement>(".cp-tiles")!;
+    this.censusEl = card.querySelector<HTMLElement>(".cp-census")!;
 
     this.inputEl.addEventListener("input", () => {
       this.query = this.inputEl?.value ?? "";
@@ -135,6 +156,14 @@ export class CommandPalette {
       if (pick) void this.execute(pick);
       return;
     }
+    if (e.metaKey && !e.altKey && e.key >= "1" && e.key <= "5") {
+      const tile = this.tiles[Number(e.key) - 1];
+      if (tile) {
+        e.preventDefault();
+        void this.execute(tile);
+      }
+      return;
+    }
   }
 
   private move(delta: number): void {
@@ -152,17 +181,53 @@ export class CommandPalette {
   }
 
   private refresh(): void {
-    const sections = buildSections(this.query, {
+    const ctx = {
       workspaces: this.manager.list(),
       tabs: this.manager.listAllTabs(),
       actions: this.actions,
       activeWorkspaceId: this.manager.activeId_(),
-      switchWorkspace: (id) => this.manager.switchTo(id),
-      activateTab: (idx) => this.tabManager.activateByIndex(idx),
-    });
-    this.flat = flattenSections(sections);
+      switchWorkspace: (id: string) => this.manager.switchTo(id),
+      activateTab: (idx: number) => this.tabManager.activateByIndex(idx),
+    };
+    const browsing = this.query.trim() === "";
+    const sections = buildSections(this.query, ctx);
+    // Browsing: workspaces render as the ⌘1–5 tile strip, not list rows,
+    // so the arrow cursor walks Recent → Tabs only. A query folds them
+    // back into the ranked list.
+    this.tiles = browsing ? sections.workspaces : buildSections("", ctx).workspaces;
+    this.flat = browsing
+      ? [...sections.recent, ...sections.tabs]
+      : flattenSections(sections);
     if (this.cursor >= this.flat.length) this.cursor = 0;
-    this.renderList(sections);
+    this.renderTiles(browsing);
+    this.renderList(browsing ? { ...sections, workspaces: [] } : sections);
+    if (this.censusEl) {
+      const ws = ctx.workspaces.length;
+      const tabs = ctx.tabs.length;
+      this.censusEl.textContent = `${ws} ${ws === 1 ? "workspace" : "workspaces"} · ${tabs} ${tabs === 1 ? "tab" : "tabs"}`;
+    }
+  }
+
+  private renderTiles(browsing: boolean): void {
+    if (!this.tilesEl) return;
+    this.tilesEl.hidden = !browsing || this.tiles.length === 0;
+    if (this.tilesEl.hidden) return;
+    this.tilesEl.innerHTML = this.tiles
+      .map((w, i) => {
+        const gc = w.color ? ` style="--gc:${escapeHtml(w.color)}"` : "";
+        return `
+        <div class="cp-tile${w.current ? " current" : ""}" role="option" data-tile="${i}"${gc}>
+          <div class="cp-tile-name">${escapeHtml(w.title)}</div>
+          <div class="cp-tile-meta"><span class="cp-tile-sub">${escapeHtml(w.subtitle ?? "")}</span><span class="cp-tile-kbd">⌘${i + 1}</span></div>
+        </div>`;
+      })
+      .join("");
+    this.tilesEl.querySelectorAll<HTMLElement>(".cp-tile").forEach((el) => {
+      el.addEventListener("click", () => {
+        const pick = this.tiles[Number(el.dataset.tile ?? "0")];
+        if (pick) void this.execute(pick);
+      });
+    });
   }
 
   private renderList(sections: Sections): void {
@@ -178,7 +243,7 @@ export class CommandPalette {
     for (const key of order) {
       const items = sections[key];
       if (items.length === 0) continue;
-      html += `<div class="command-palette-section-header">${SECTION_TITLES[key]}</div>`;
+      html += `<div class="command-palette-section-header"><span>${SECTION_TITLES[key]}</span><span class="cp-count">${items.length}</span></div>`;
       for (const item of items) {
         html += this.itemHtml(item, flatIdx);
         flatIdx++;
@@ -202,23 +267,23 @@ export class CommandPalette {
 
   private itemHtml(item: PaletteItem, idx: number): string {
     const active = idx === this.cursor ? " active" : "";
-    const dot =
-      item.kind === "action"
-        ? `<span class="cp-icon">${escapeHtml(item.icon ?? "▸")}</span>`
-        : `<span class="cp-dot" style="background:${item.color ? escapeHtml(item.color) : "var(--chip-dot, #888)"}"></span>`;
+    const gc = item.color ? ` style="--gc:${escapeHtml(item.color)}"` : "";
+    const icon =
+      item.kind === "action" ? `<span class="cp-icon">${escapeHtml(item.icon ?? "▸")}</span>` : "";
     const groupPart = item.subtitleGroup
-      ? `${item.subtitle ? " › " : ""}<span class="cp-sub-group">${escapeHtml(item.subtitleGroup)}</span>`
+      ? `${item.subtitle ? `<span class="cp-sub-sep">·</span>` : ""}<span class="cp-sub-group">${escapeHtml(item.subtitleGroup)}</span>`
       : "";
     const sub =
       item.subtitle || item.subtitleGroup
         ? `<span class="cp-sub">${item.subtitle ? escapeHtml(item.subtitle) : ""}${groupPart}</span>`
         : "";
     const badge = item.current ? `<span class="cp-current">current</span>` : "";
+    const verb = item.kind === "workspace" ? "switch" : item.kind === "action" ? "run" : "open";
     return `
-      <div class="command-palette-item${active}" role="option" data-index="${idx}">
-        ${dot}
-        <span class="cp-main"><span class="cp-title">${escapeHtml(item.title)}</span>${badge}</span>
+      <div class="command-palette-item${active}" role="option" data-index="${idx}"${gc}>
+        <span class="cp-main">${icon}<span class="cp-title">${escapeHtml(item.title)}</span>${badge}</span>
         ${sub}
+        <span class="cp-enter">↵ ${verb}</span>
       </div>`;
   }
 

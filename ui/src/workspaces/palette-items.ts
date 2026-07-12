@@ -82,7 +82,7 @@ function tabItem(r: TabRow, ctx: BuildCtx, score: number): PaletteItem {
     kind: "tab",
     id: `${r.workspaceId}:${r.tabIndex}`,
     title: r.title,
-    subtitle: r.workspaceName ? `in ${r.workspaceName}` : undefined,
+    subtitle: r.workspaceName || undefined,
     subtitleGroup: r.groupName ?? undefined,
     color: r.groupColor ?? r.workspaceColor,
     current: r.workspaceActive && r.isActiveTabInWorkspace,

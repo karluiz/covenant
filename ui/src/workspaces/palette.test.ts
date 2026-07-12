@@ -38,13 +38,23 @@ describe("CommandPalette", () => {
     p.close();
   });
 
-  it("empty query shows workspace section ordered by recency", () => {
+  it("empty query shows workspaces as a tile strip ordered by recency", () => {
     const { p } = mk();
     p.open();
-    const titles = [...document.querySelectorAll(".command-palette-item .cp-title")].map((e) => e.textContent);
-    expect(titles).toContain("alpha");
-    expect(titles).toContain("beta");
+    const names = [...document.querySelectorAll(".cp-tile .cp-tile-name")].map((e) => e.textContent);
+    expect(names).toEqual(["alpha", "beta"]);
+    const listTitles = [...document.querySelectorAll(".command-palette-item .cp-title")].map((e) => e.textContent);
+    expect(listTitles).not.toContain("alpha");
     p.close();
+  });
+
+  it("⌘digit switches to the Nth most-recent workspace", () => {
+    const { p, m } = mk();
+    p.open();
+    const input = document.querySelector<HTMLInputElement>(".command-palette-input")!;
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true }));
+    expect(m.switchTo).toHaveBeenCalledWith("b");
+    expect(document.querySelector(".command-palette-overlay")).toBeFalsy();
   });
 
   it("typing filters and Enter runs the selected item", () => {

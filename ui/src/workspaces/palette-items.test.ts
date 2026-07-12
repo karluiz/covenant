@@ -99,7 +99,7 @@ describe("buildSections", () => {
   it("tab items expose the group name separately for uppercase CSS rendering", () => {
     const tabs = [row({ workspaceName: "pandoras", groupName: "fReelance", title: "data", tabIndex: 0 })];
     const s = buildSections("data", { workspaces: [], tabs, actions: [], activeWorkspaceId: "ws-1" });
-    expect(s.tabs[0].subtitle).toBe("in pandoras");
+    expect(s.tabs[0].subtitle).toBe("pandoras");
     expect(s.tabs[0].subtitleGroup).toBe("fReelance");
   });
 

@@ -5403,32 +5403,146 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 }
 .command-palette-list {
   overflow-y: auto;
-  padding: 4px;
+  padding: 4px 6px 6px;
+}
+.command-palette-input-row .cp-caret {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: var(--accent);
+}
+.cp-kbd {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  background: rgba(var(--ink-rgb), 0.06);
+  border: 1px solid rgba(var(--ink-rgb), 0.1);
+  padding: 1.5px 5px;
+  white-space: nowrap;
+}
+/* Workspace tile strip — browse mode only; click / ⌘1–5 targets. */
+.cp-tiles {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  padding: 10px 10px 4px;
+}
+.cp-tiles[hidden] {
+  display: none;
+}
+.cp-tile {
+  position: relative;
+  min-width: 0;
+  padding: 8px 10px 8px 12px;
+  background: rgba(var(--ink-rgb), 0.03);
+  border: 1px solid rgba(var(--ink-rgb), 0.06);
+  cursor: pointer;
+  transition: background 0.12s ease-out, border-color 0.12s ease-out;
+}
+.cp-tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--gc, rgba(var(--ink-rgb), 0.35));
+  opacity: 0.55;
+  transition: opacity 0.12s ease-out;
+}
+.cp-tile:hover {
+  background: rgba(var(--ink-rgb), 0.07);
+}
+.cp-tile:hover::before {
+  opacity: 1;
+}
+.cp-tile.current {
+  background: color-mix(in srgb, var(--gc, #8b929b) 9%, transparent);
+  border-color: color-mix(in srgb, var(--gc, #8b929b) 32%, transparent);
+}
+.cp-tile.current::before {
+  opacity: 1;
+}
+.cp-tile-name {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-tile.current .cp-tile-name {
+  color: color-mix(in srgb, var(--gc, #8b929b) 65%, var(--text-primary));
+}
+.cp-tile-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 5px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 9.5px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cp-tile-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cp-tile-kbd {
+  flex: none;
+}
+.cp-tile.current .cp-tile-sub {
+  color: color-mix(in srgb, var(--gc, #8b929b) 50%, var(--text-secondary));
 }
 .command-palette-section-header {
-  font-size: 10px;
-  letter-spacing: 0.06em;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.45;
-  padding: 8px 8px 4px;
+  color: var(--text-tertiary);
+  padding: 10px 10px 4px;
+}
+.command-palette-section-header .cp-count {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  opacity: 0.7;
 }
 .command-palette-item {
+  position: relative;
   display: grid;
-  grid-template-columns: 14px 1fr auto;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 12px;
+  padding: 6px 10px 6px 14px;
   border-radius: 0;
   cursor: pointer;
+  transition: background 0.12s ease-out;
 }
-.command-palette-item.active,
+/* Group-color spine — the rail language; lit only on the active row. */
+.command-palette-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--gc, var(--accent));
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
 .command-palette-item:hover {
+  background: rgba(var(--ink-rgb), 0.05);
+}
+.command-palette-item.active {
   background: rgba(var(--ink-rgb), 0.08);
 }
-.command-palette-item .cp-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+.command-palette-item.active::before {
+  opacity: 1;
 }
 .command-palette-item .cp-icon {
   font-size: 12px;
@@ -5442,6 +5556,8 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
   min-width: 0;
 }
 .command-palette-item .cp-title {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5449,22 +5565,60 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 .command-palette-item .cp-current {
   flex: none;
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 2px 7px;
-  border-radius: 0;
-  color: color-mix(in srgb, var(--accent, #7aa2f7) 60%, white 40%);
-  background: color-mix(in srgb, var(--accent, #7aa2f7) 22%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent, #7aa2f7) 45%, transparent);
+  color: color-mix(in srgb, var(--gc, var(--accent)) 60%, var(--text-secondary));
 }
 .command-palette-item .cp-sub {
-  font-size: 11px;
-  opacity: 0.55;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.command-palette-item .cp-sub-sep {
+  opacity: 0.5;
+  padding: 0 3px;
 }
 .command-palette-item .cp-sub-group {
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--gc, #8b929b) 55%, var(--text-secondary));
+}
+.command-palette-item .cp-enter {
+  display: none;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.command-palette-item.active .cp-enter {
+  display: inline;
+}
+.command-palette-item.active .cp-sub {
+  display: none;
+}
+.cp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-top: 1px solid rgba(var(--ink-rgb), 0.08);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 9.5px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.cp-hints {
+  display: flex;
+  gap: 12px;
+  overflow: hidden;
+}
+.cp-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .command-palette-empty {
   padding: 14px;
