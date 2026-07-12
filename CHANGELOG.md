@@ -6,6 +6,44 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.8 — Beacon run detail + live release indicator + unified spec viewer
+
+### Added
+
+- **Beacon runs expand into jobs and steps**: Clicking a workflow run in the
+  Beacon rail now unfolds its jobs inline, each with per-step status, timing,
+  and live progress for in-flight runs. Backed by a new `beacon_run_jobs`
+  Tauri command (`crates/app/src/beacon.rs`) that fetches jobs + steps for a
+  run; rendering in `ui/src/beacon/panel.ts`.
+
+- **Titlebar Beacon icon is now a live release indicator**: The Beacon
+  titlebar button reflects the latest release workflow state — busy while a
+  run is in flight, failure and success states on completion, acknowledged on
+  open. New `ui/src/beacon/indicator.ts` wired at boot in `ui/src/main.ts`.
+
+### Changed
+
+- **One markdown renderer for every surface**: The changelog panel, ACP chat
+  prose, mission viewer, Set spec picker preview, canon reader, and structure
+  preview all render through a single `ui/src/ui/markdown.ts` (ordered lists
+  and GFM table alignment included); the per-surface renderers
+  (`release/markdown.ts`, `mission/preview.ts`) are gone. The spec viewer's
+  reading treatment (720px measure, section dividers, terminal-pane code
+  blocks) is now a shared `.markdown-doc` class, so the Set spec picker
+  preview and canon reader look identical to the full-screen spec viewer.
+
+### Fixed
+
+- **Beacon review fixes**: expanded runs no longer get stuck on "loading"
+  when the jobs fetch fails, the titlebar indicator resumes polling after a
+  finished run, and acknowledging a failure no longer re-arms on the next
+  poll. `ui/src/beacon/indicator.ts`, `ui/src/beacon/panel.ts`.
+
+- **Tooltips clamp correctly under CSS zoom**: Tooltip placement now clamps
+  against the layout viewport (`window.inner*` divided by zoom) instead of
+  visual-viewport pixels, so tooltips near screen edges no longer overflow or
+  jump when the UI is zoomed. `ui/src/tooltip/tooltip.ts`.
+
 ## v0.9.7 — Fixed-width Dynamic Island + titlebar capsule fit
 
 ### Fixed
