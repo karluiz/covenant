@@ -296,7 +296,7 @@ describe("run detail expansion", () => {
     const stepNames = [...root.querySelectorAll(".rail-step-name")].map((e) => e.textContent);
     expect(stepNames).toEqual(["Checkout", "Notarize"]);
     // Chevron marks the open state.
-    expect(root.querySelector(".rail-chevron.is-open")).not.toBeNull();
+    expect(root.querySelector(".rail-chev.is-open")).not.toBeNull();
   });
 
   it("renders loading and error detail states", () => {

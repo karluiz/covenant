@@ -2,8 +2,10 @@
    system (ui/src/styles.css); this file holds only the run-detail
    (jobs/steps) tree and the titlebar live-indicator states. */
 
-.rail-chevron { display: inline-flex; flex: none; color: var(--text-tertiary); transition: transform 120ms ease; }
-.rail-chevron.is-open { transform: rotate(90deg); }
+/* Base .rail-chev (size/color/transition) is shared chrome in styles.css;
+   Beacon rows open per-row rather than per-group, so only the open-state
+   selector lives here. */
+.rail-row .rail-chev.is-open { transform: rotate(90deg); }
 
 .rail-jobs { display: flex; flex-direction: column; gap: 2px; padding: 2px 10px 8px 24px; }
 .rail-job-line, .rail-step { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -27,6 +29,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rail-chevron { transition: none; }
   #titlebar-beacon.is-busy svg { animation: none; }
 }

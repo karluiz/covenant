@@ -26,6 +26,12 @@ describe("aggregateRuns", () => {
     expect(aggregateRuns([r(10, "failure")], 9, false).agg).toBe("fail");
   });
 
+  it("an older, already-seen failure does NOT re-flag after a newer ack", () => {
+    // Run 10 was acked; run 9 (older) is still failing and now sits first
+    // in the most-recently-updated ordering — it must stay quiet.
+    expect(aggregateRuns([r(9, "failure"), r(10, "success")], 10, false).agg).toBe("quiet");
+  });
+
   it("busy → all green transitions to ok (flash), then quiet", () => {
     expect(aggregateRuns([r(1, "success")], null, true).agg).toBe("ok");
     expect(aggregateRuns([r(1, "success")], null, false).agg).toBe("quiet");
@@ -80,6 +86,16 @@ describe("BeaconIndicator", () => {
     const ind = new BeaconIndicator(btn, () => "/repo");
     ind.feed(okState([r(1, "in_progress")]));
     ind.feed({ kind: "not_authed" } as BeaconState);
+    expect(btn.className).toBe("");
+  });
+
+  it("cwd change via feed() resets busy-edge state — no spurious ok flash", () => {
+    let cwd = "/repo-a";
+    const ind = new BeaconIndicator(btn, () => cwd);
+    ind.feed(okState([r(1, "in_progress")])); // repo A busy
+    cwd = "/repo-b"; // tab switch while panel open
+    ind.feed(okState([r(2, "success")])); // repo B all green
+    expect(btn.classList.contains("is-ok")).toBe(false);
     expect(btn.className).toBe("");
   });
 });

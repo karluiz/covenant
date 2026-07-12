@@ -279,7 +279,7 @@ export function renderBeacon(
       }
       for (const run of state.runs) {
         const clickable = isHttpUrl(run.url);
-        const expanded = !!detail && run.id !== 0 && detail.expanded.has(run.id);
+        const expanded = !!detail && detail.expanded.has(run.id);
         const row = document.createElement("div");
         row.className = "rail-row";
         row.setAttribute("data-spine", stateSpine(run.state));
@@ -288,7 +288,7 @@ export function renderBeacon(
         line.className = "rail-row-line";
         if (detail) {
           const chev = document.createElement("span");
-          chev.className = `rail-chevron${expanded ? " is-open" : ""}`;
+          chev.className = `rail-chev${expanded ? " is-open" : ""}`;
           chev.innerHTML = Icons.chevronRight({ size: 12 });
           line.append(chev);
         }
@@ -343,7 +343,9 @@ export function renderBeacon(
         if (clickable) {
           const openBtn = document.createElement("button");
           openBtn.type = "button";
-          openBtn.className = "rail-row-action";
+          // is-neutral: bare .rail-row-action hovers danger-red (cancel/rerun);
+          // opening GitHub is benign navigation.
+          openBtn.className = "rail-row-action is-neutral";
           openBtn.setAttribute("aria-label", "Open on GitHub");
           openBtn.innerHTML = Icons.externalLink({ size: 13 });
           attachTooltip(openBtn, "Open on GitHub");
@@ -401,6 +403,7 @@ export class BeaconPanel {
   /// Run-detail expansion state — survives the 25s poll re-render.
   private expanded = new Set<number>();
   private jobsCache = new Map<number, RunDetailState>();
+  private jobsInflight = new Set<number>();
   private lastState: BeaconState | null = null;
 
   constructor(
@@ -496,6 +499,9 @@ export class BeaconPanel {
       this.renderState(state);
     } catch (e) {
       if (gen !== this.generation) return;
+      // Feed the indicator too — while the panel is open its own poll is
+      // paused, and a silent error path would freeze a stale busy/fail icon.
+      this.opts.onState?.({ kind: "error", message: String(e) });
       renderBeacon(this.body, { kind: "error", message: String(e) }, undefined, {
         onRetry: () => this.render(),
         onReconnect: this.opts.onReconnect,
@@ -550,14 +556,21 @@ export class BeaconPanel {
   private async refreshJobs(runId: number): Promise<void> {
     const cwd = this.selectedPath ?? this.baseCwd;
     if (!cwd) return;
-    const gen = this.generation;
+    // No generation guard here: the poll bumps generation every 25s, which
+    // would drop a manual expand's in-flight result and strand the row on
+    // "Loading jobs…" (non-busy runs are never re-fetched). Staleness is
+    // handled by `expanded` membership — cwd changes clear it.
+    if (this.jobsInflight.has(runId)) return;
+    this.jobsInflight.add(runId);
     try {
       const jobs = await beaconRunJobs(cwd, runId);
-      if (gen !== this.generation || !this.expanded.has(runId)) return;
+      if (!this.expanded.has(runId)) return;
       this.jobsCache.set(runId, { kind: "jobs", jobs });
     } catch (e) {
-      if (gen !== this.generation || !this.expanded.has(runId)) return;
+      if (!this.expanded.has(runId)) return;
       this.jobsCache.set(runId, { kind: "error", message: String(e) });
+    } finally {
+      this.jobsInflight.delete(runId);
     }
     if (this.lastState) this.renderState(this.lastState);
   }
