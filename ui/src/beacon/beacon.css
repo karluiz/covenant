@@ -36,7 +36,17 @@
 .rail-pill.is-idle { color: var(--text-tertiary); background: rgba(var(--ink-rgb), 0.06); }
 .rail-meta-bit { flex: none; color: var(--fg-dim); font-size: 11px; }
 .rail-meta-bit.is-ref { color: var(--accent); }
-.rail-meta-bit.is-actor { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Actor sits on the RIGHT edge, mirroring the relative time above it — the
+   strip fills both edges instead of piling left and dying mid-row. It still
+   shrinks/ellipsizes first when the row is genuinely too narrow. */
+.rail-meta-bit.is-actor {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+  color: var(--text-tertiary);
+}
 
 /* ── Jobs/steps taxonomy ────────────────────────────────────────────── */
 .rail-jobs { padding: 0 0 8px; }
