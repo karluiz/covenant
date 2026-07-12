@@ -615,7 +615,11 @@ export class CanonPanel {
         .then((summary) => {
           for (const es of summary) {
             const card = skillCardByName.get(es.skill);
-            card?.querySelector(".canon-card-head")?.appendChild(liftBadgeEl(liftClass(es)));
+            const head = card?.querySelector(".canon-card-head");
+            // Insert the chip before the action cluster (preview/expand/publish)
+            // so it sits next to the name/meta, not off at the far-right edge —
+            // `.canon-preview-btn` carries `margin-left:auto`, which pushes it there.
+            head?.insertBefore(liftBadgeEl(liftClass(es)), head.querySelector(".canon-preview-btn"));
           }
         })
         .catch(() => {});
