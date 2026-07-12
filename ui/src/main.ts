@@ -60,6 +60,7 @@ import { TaskerPanel } from "./tasker/panel";
 import { mountResourcesPanel } from "./resources/panel";
 import "./beacon/beacon.css";
 import { BeaconPanel } from "./beacon/panel";
+import { BeaconIndicator } from "./beacon/indicator";
 import "./somnus/somnus.css";
 import { SomnusPanel } from "./somnus/panel";
 import { resourcesSetActive, resourcesSampleNow, onResourcesUpdate } from "./api";
@@ -901,23 +902,32 @@ async function boot(): Promise<void> {
     taskerBtn.addEventListener("click", () => rail.toggle("tasker"));
   }
 
-  // Beacon sidebar — GitHub deployment status for the active repo.
+  // Beacon sidebar — GitHub Actions status for the active repo. The
+  // titlebar icon doubles as a live indicator (busy pulse / failure flag),
+  // fed by its own 45s poll while the panel is closed and by the panel's
+  // 25s poll while it's open.
   const beaconPanelHost = requireEl<HTMLElement>("beacon-panel");
+  const beaconIndicator = beaconBtn
+    ? new BeaconIndicator(beaconBtn, () => manager.activeCwd())
+    : null;
   const beaconPanel = new BeaconPanel(beaconPanelHost, {
     getCwd: () => manager.activeCwd(),
     onClose: () => rail.toggle("beacon"),
     onReconnect: () => void settingsRef.panel?.open("covenant"),
+    onState: (s) => beaconIndicator?.feed(s),
   });
   const closeBeaconPanel = (): void => {
     if (!document.body.classList.contains("sidebar-view-beacon")) return;
     document.body.classList.remove("sidebar-view-beacon");
     beaconPanelHost.classList.add("hidden");
     beaconPanel.close();
+    beaconIndicator?.setPanelOpen(false);
   };
   const openBeaconPanel = (): void => {
     document.body.classList.add("sidebar-view-beacon");
     beaconPanelHost.classList.remove("hidden");
     beaconPanel.render();
+    beaconIndicator?.setPanelOpen(true);
   };
 
   if (beaconBtn) {
@@ -925,6 +935,7 @@ async function boot(): Promise<void> {
     attachTooltip(beaconBtn, "Beacon");
     beaconBtn.addEventListener("click", () => rail.toggle("beacon"));
   }
+  beaconIndicator?.start();
 
   // Somnus sidebar — REST client (composer + history).
   const somnusPanelHost = requireEl<HTMLElement>("somnus-panel");

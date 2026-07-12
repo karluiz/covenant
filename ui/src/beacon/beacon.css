@@ -15,6 +15,18 @@
 .rail-jobs-loading, .rail-jobs-error { font-size: 11px; color: var(--text-tertiary); }
 .rail-jobs-error { color: var(--fail); }
 
+/* Titlebar live-release indicator (BeaconIndicator drives the classes). */
+#titlebar-beacon.is-busy { color: var(--running); opacity: 1; }
+#titlebar-beacon.is-busy svg { animation: beacon-pulse 1.6s ease-in-out infinite; }
+#titlebar-beacon.is-fail { color: var(--fail); opacity: 1; }
+#titlebar-beacon.is-ok { color: var(--ok); opacity: 1; }
+
+@keyframes beacon-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rail-chevron { transition: none; }
+  #titlebar-beacon.is-busy svg { animation: none; }
 }
