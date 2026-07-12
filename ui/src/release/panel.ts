@@ -7,7 +7,7 @@
 // seen version in localStorage and pop the modal with a "What's new
 // in vX" header when it differs from `__APP_VERSION__`.
 
-import { renderMarkdown } from "./markdown";
+import { renderMarkdown } from "../ui/markdown";
 
 const LAST_SEEN_KEY = "covenant.release.last-seen-version";
 

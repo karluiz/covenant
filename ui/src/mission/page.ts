@@ -4,7 +4,7 @@ import type { DraftSummary, PublishedSpec } from "../drafts/api";
 import { listSuperpowersMissions, specAuthorListDrafts, type MissionRef } from "../api";
 import type { SuperpowersMissionEntry, SpecDraftSummary } from "../api";
 import { Icons } from "../icons";
-import { renderMarkdown } from "./preview";
+import { renderMarkdown } from "../ui/markdown";
 
 export type SelectedRef =
   | { source: "card"; path: string }
@@ -527,7 +527,7 @@ export class MissionPage {
     const truncatedNote = this.previewTruncated
       ? `<div class="mission-page-preview-truncated">⚠ Truncated (file > 200 KB)</div>`
       : "";
-    main.innerHTML = `${truncatedNote}<article class="mission-page-preview-body">${renderMarkdown(this.previewBody)}</article>`;
+    main.innerHTML = `${truncatedNote}<article class="mission-page-preview-body markdown-body markdown-doc">${renderMarkdown(this.previewBody)}</article>`;
     return main;
   }
 

@@ -2,7 +2,7 @@ import "./styles.css";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
-import { renderMarkdown } from "../mission/preview";
+import { renderMarkdown } from "../ui/markdown";
 import type { CanonStatus, Org, CanonEvalProgress } from "../api";
 import {
   canonLocalStatus, canonMyOrgs, canonPublish,
@@ -87,7 +87,7 @@ export function openMarkdownReader(
       </div>
       <button type="button" class="canon-reader-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
     </header>
-    <article class="canon-reader-body mission-page-preview-body">Loading…</article>`;
+    <article class="canon-reader-body mission-page-preview-body markdown-body markdown-doc">Loading…</article>`;
   (overlay.querySelector(".canon-reader-title") as HTMLElement).textContent = title;
   const statsEl = overlay.querySelector(".canon-reader-stats") as HTMLElement;
   if (stats && stats.length) statsEl.textContent = stats.join("  ·  ");

@@ -1,16 +1,24 @@
-// Tiny markdown renderer scoped to what CHANGELOG.md needs:
+// The one markdown renderer. Every surface that shows rendered markdown
+// (changelog, ACP agent prose, mission viewer, spec picker preview, canon
+// reader) goes through here — do not fork per-surface renderers again.
+//
+// Scope:
 //   # / ## / ### / #### headings
-//   bullet lists (`-` or `*`)
+//   bullet lists (`-` or `*`) and ordered lists (1. 2. …)
 //   inline `code`, **bold**, *italic*
 //   bare links [text](url)
 //   horizontal rules (---)
-//   GFM tables (| a | b | + |---|---| separator)
+//   GFM tables (| a | b | + |---|:--:| separator, alignment honored)
+//   fenced code (``` or ~~~, optional lang → `lang-<x>` class)
 //   paragraphs separated by blank lines
 //
-// We deliberately avoid pulling in a full markdown library — the format
-// of our changelog is tightly controlled by us, and a 60-line custom
+// We deliberately avoid pulling in a full markdown library — the inputs
+// are our own specs/changelogs plus agent prose, and a small custom
 // parser saves ~20 KB and one more dep to keep in sync. If the format
 // ever needs images or footnotes, swap to `marked`.
+//
+// Output is safe to drop into innerHTML — text is escaped before
+// formatting, and the only HTML produced is from our own templates.
 
 const ESCAPE_RE = /[&<>"']/g;
 const ESCAPE_MAP: Record<string, string> = {
@@ -41,8 +49,8 @@ function inline(s: string): string {
   return out;
 }
 
-// ponytail: alignment colons (:---:) are accepted but ignored; escaped
-// pipes (\|) inside cells are not supported. Add if agent output hits it.
+// ponytail: escaped pipes (\|) inside cells are not supported. Add if
+// agent output hits it.
 const TABLE_SEP_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/;
 
 /// Split `| a | b |` into trimmed cell strings, tolerating missing
@@ -56,13 +64,23 @@ function splitRow(line: string): string[] {
     .map((c) => c.trim());
 }
 
-/// Render a markdown string to HTML. Output is safe to drop into
-/// innerHTML — text is escaped before formatting, and the only
-/// HTML produced is from our own template strings.
+type Align = "left" | "center" | "right" | "";
+function alignOf(sepCell: string): Align {
+  const l = sepCell.startsWith(":");
+  const r = sepCell.endsWith(":");
+  if (l && r) return "center";
+  if (r) return "right";
+  if (l) return "left";
+  return "";
+}
+function alignAttr(a: Align | undefined): string {
+  return a ? ` style="text-align:${a}"` : "";
+}
+
 export function renderMarkdown(src: string): string {
   const lines = src.split(/\r?\n/);
   const out: string[] = [];
-  let inList = false;
+  let list: "ul" | "ol" | null = null;
   let inPara: string[] = [];
 
   const flushPara = (): void => {
@@ -71,9 +89,16 @@ export function renderMarkdown(src: string): string {
     inPara = [];
   };
   const closeList = (): void => {
-    if (inList) {
-      out.push("</ul>");
-      inList = false;
+    if (list) {
+      out.push(`</${list}>`);
+      list = null;
+    }
+  };
+  const openList = (kind: "ul" | "ol"): void => {
+    if (list !== kind) {
+      closeList();
+      out.push(`<${kind}>`);
+      list = kind;
     }
   };
 
@@ -126,6 +151,7 @@ export function renderMarkdown(src: string): string {
       flushPara();
       closeList();
       const header = splitRow(line);
+      const aligns = splitRow(lines[i + 1]).map(alignOf);
       const rows: string[][] = [];
       i += 2; // skip header + separator
       while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
@@ -133,11 +159,16 @@ export function renderMarkdown(src: string): string {
         i++;
       }
       i--; // the for-loop's i++ steps past the last row
-      const thead = `<thead><tr>${header.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>`;
-      const tbody = rows
-        .map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`)
+      const ths = header
+        .map((c, k) => `<th${alignAttr(aligns[k])}>${inline(c)}</th>`)
         .join("");
-      out.push(`<table>${thead}<tbody>${tbody}</tbody></table>`);
+      const tbody = rows
+        .map(
+          (r) =>
+            `<tr>${header.map((_, k) => `<td${alignAttr(aligns[k])}>${inline(r[k] ?? "")}</td>`).join("")}</tr>`,
+        )
+        .join("");
+      out.push(`<table><thead><tr>${ths}</tr></thead><tbody>${tbody}</tbody></table>`);
       continue;
     }
 
@@ -151,11 +182,16 @@ export function renderMarkdown(src: string): string {
     const li = line.match(/^[-*]\s+(.*)$/);
     if (li) {
       flushPara();
-      if (!inList) {
-        out.push("<ul>");
-        inList = true;
-      }
+      openList("ul");
       out.push(`<li>${inline(li[1])}</li>`);
+      continue;
+    }
+
+    const oli = line.match(/^\d+\.\s+(.*)$/);
+    if (oli) {
+      flushPara();
+      openList("ol");
+      out.push(`<li>${inline(oli[1])}</li>`);
       continue;
     }
 

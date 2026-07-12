@@ -7565,10 +7565,16 @@ mark.mv-find-hit.is-active {
 .mission-viewer-rendered {
     font-family: inherit !important;
     white-space: normal !important;
+}
+
+/* Document reading treatment — the "spec viewer" look. Shared by every
+   full-document markdown surface (mission viewer, spec picker preview,
+   canon reader). Pair with .markdown-body, which owns inline formatting;
+   this class owns measure, rhythm, and section chrome. */
+.markdown-doc {
     color: var(--text-primary);
-    /* Reading treatment — airier than the raw source view. Prose is
-       held to a comfortable measure; code blocks and tables below opt
-       back out to full width. */
+    /* Airier than a raw source view. Prose is held to a comfortable
+       measure; code blocks and tables below opt back out to full width. */
     font-size: 13px;
     line-height: 1.68;
     max-width: 720px;
@@ -7578,13 +7584,13 @@ mark.mv-find-hit.is-active {
 
 /* First heading is the spec's own H1 — give it real presence, since
    the modal header is now just a quiet eyebrow + breadcrumb. */
-.mission-viewer-rendered h1 {
+.markdown-doc h1 {
     font-size: 22px;
     line-height: 1.2;
     letter-spacing: -0.01em;
     margin: 2px 0 14px;
 }
-.mission-viewer-rendered h2 {
+.markdown-doc h2 {
     font-size: 15px;
     margin: 26px 0 8px;
     padding-top: 16px;
@@ -7592,25 +7598,25 @@ mark.mv-find-hit.is-active {
     border-top: 1px solid var(--border);
     border-bottom: none;
 }
-.mission-viewer-rendered h2:first-child {
+.markdown-doc h2:first-child {
     border-top: none;
     padding-top: 0;
     margin-top: 0;
 }
-.mission-viewer-rendered h3 {
+.markdown-doc h3 {
     margin-top: 20px;
     font-size: 11px;
 }
-.mission-viewer-rendered p,
-.mission-viewer-rendered li {
+.markdown-doc p,
+.markdown-doc li {
     color: var(--text-secondary, var(--muted));
 }
-.mission-viewer-rendered p { margin: 10px 0; }
-.mission-viewer-rendered strong { color: var(--fg, #d6d8db); }
+.markdown-doc p { margin: 10px 0; }
+.markdown-doc strong { color: var(--fg, #d6d8db); }
 
 /* Code blocks read as terminal panes — full-bleed, darker ground,
    accent-tinted left edge. Sharp corners per the house style. */
-.mission-viewer-rendered pre {
+.markdown-doc pre {
     margin: 14px 0;
     padding: 12px 14px;
     background: color-mix(in srgb, #000 42%, var(--bg-panel, #10141c));
@@ -9708,7 +9714,8 @@ body.theme-light .structure-confirm-cancel {
     margin: 6px 0;
 }
 
-.markdown-body ul {
+.markdown-body ul,
+.markdown-body ol {
     margin: 6px 0 12px;
     padding-left: 20px;
 }
@@ -12946,47 +12953,8 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
   font-size: 13px;
 }
 .mission-page-preview-truncated { color: rgb(220 200 140); font-size: 11px; margin-bottom: 12px; }
-.mission-page-preview-body h1 { font-size: 18px; margin: 0 0 12px 0; }
-.mission-page-preview-body h2 { font-size: 15px; margin: 18px 0 8px 0; color: var(--fg-dim); }
-.mission-page-preview-body h3 { font-size: 13px; margin: 14px 0 6px 0; color: var(--fg-dim); }
-.mission-page-preview-body p { margin: 0 0 10px 0; line-height: 1.5; }
-.mission-page-preview-body ul { padding-left: 20px; margin: 0 0 10px 0; }
-.mission-page-preview-body ol { padding-left: 22px; margin: 0 0 10px 0; }
-.mission-page-preview-body li { margin: 2px 0; }
-/* GFM tables — sharp-cornered, hairline grid, sticky-feel header band. */
-.mission-page-preview-body table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 16px 0 20px;
-  font-size: 12.5px;
-  line-height: 1.45;
-  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.12);
-}
-.mission-page-preview-body thead th {
-  text-align: left;
-  font-weight: 600;
-  color: var(--text-primary, #f5f6f7);
-  background: rgb(var(--ink-rgb, 255 255 255) / 0.05);
-  border-bottom: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.18);
-  white-space: nowrap;
-}
-.mission-page-preview-body th,
-.mission-page-preview-body td {
-  padding: 8px 12px;
-  vertical-align: top;
-  border-right: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.06);
-  border-bottom: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.06);
-}
-.mission-page-preview-body th:last-child,
-.mission-page-preview-body td:last-child { border-right: 0; }
-.mission-page-preview-body tbody tr:last-child td { border-bottom: 0; }
-.mission-page-preview-body tbody tr:hover { background: rgb(var(--ink-rgb, 255 255 255) / 0.03); }
-.mission-page-preview-body td code {
-  white-space: nowrap;
-}
-.mission-page-preview-body code { font-family: var(--mono); font-size: 12px; background: rgb(255 255 255 / 0.06); padding: 1px 4px; border-radius: 0; }
-.mission-page-preview-body pre { background: rgb(0 0 0 / 0.3); border: 1px solid rgb(255 255 255 / 0.06); padding: 10px 12px; border-radius: 0; overflow-x: auto; }
-.mission-page-preview-body pre code { background: none; padding: 0; }
+/* .mission-page-preview-body typography comes from the shared
+   .markdown-body + .markdown-doc classes on the same element. */
 
 .mission-page-footer {
   display: flex;
@@ -15583,9 +15551,7 @@ body.theme-light .mission-page-section > summary,
 body.theme-light .mission-page-id,
 body.theme-light .mission-page-spec-goal,
 body.theme-light .mission-page-empty,
-body.theme-light .mission-page-preview-empty,
-body.theme-light .mission-page-preview-body h2,
-body.theme-light .mission-page-preview-body h3 {
+body.theme-light .mission-page-preview-empty {
     color: var(--muted);
 }
 body.theme-light .mission-page-spec,
@@ -15636,15 +15602,6 @@ body.theme-light .mission-page-newmodal-actions button {
 }
 body.theme-light .mission-page-preview-truncated {
     color: #9a6a18;
-}
-body.theme-light .mission-page-preview-body code {
-    background: rgba(0, 0, 0, 0.05);
-    color: var(--text-primary);
-}
-body.theme-light .mission-page-preview-body pre {
-    background: rgba(0, 0, 0, 0.04);
-    border-color: var(--border);
-    color: var(--text-primary);
 }
 body.theme-light .mission-page-newmodal {
     background: #fff;

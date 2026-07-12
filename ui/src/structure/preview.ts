@@ -11,7 +11,7 @@
 //   2. Add a branch in `previewKindForPath`.
 //   3. Add a factory call in StructureEditor.
 
-import { renderMarkdown } from "../release/markdown";
+import { renderMarkdown } from "../ui/markdown";
 import { htmlPreviewSrcdoc } from "./brainstorm-frame";
 
 export type PreviewKind =

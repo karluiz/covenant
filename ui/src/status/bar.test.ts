@@ -29,7 +29,7 @@ vi.mock("../score/chip", () => ({
   })),
 }));
 
-vi.mock("../release/markdown", () => ({
+vi.mock("../ui/markdown", () => ({
   renderMarkdown: vi.fn((s: string) => s),
 }));
 

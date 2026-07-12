@@ -42,7 +42,7 @@ import {
 } from "../api";
 import { Icons } from "../icons";
 import { brandIconSvg, telegramIconSvg } from "../icons/brands";
-import { renderMarkdown } from "../release/markdown";
+import { renderMarkdown } from "../ui/markdown";
 import { highlightMatches, clearMarks } from "./find-highlight";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
@@ -1995,7 +1995,7 @@ class MissionViewerModal {
       body.appendChild(empty);
     } else if (this.viewKind === "rendered") {
       const wrap = document.createElement("div");
-      wrap.className = "mission-viewer-content mission-viewer-rendered markdown-body";
+      wrap.className = "mission-viewer-content mission-viewer-rendered markdown-body markdown-doc";
       wrap.innerHTML = renderMarkdown(this.content);
       body.appendChild(wrap);
     } else {

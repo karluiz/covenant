@@ -50,7 +50,7 @@ import type {
 } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
 import { Icons } from "../../icons";
-import { renderMarkdown } from "../../release/markdown";
+import { renderMarkdown } from "../../ui/markdown";
 
 /// Coarse relative time for the /resume picker ("3h ago", "2d ago").
 /// Exported for tests.
