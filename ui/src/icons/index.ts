@@ -273,6 +273,13 @@ export const Icons = {
   chevronsUpDown: (o?: IconOptions): string =>
     svg(`<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>`, o),
 
+  /** External link — arrow escaping a box. Beacon "open on GitHub". */
+  externalLink: (o?: IconOptions): string =>
+    svg(
+      `<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/>`,
+      o,
+    ),
+
   /** Panel-left — toggle left sidebar (Lucide-style). */
   panelLeft: (o?: IconOptions): string =>
     svg(`<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>`, o),

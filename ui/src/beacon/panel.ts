@@ -1,5 +1,12 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { beaconWorkflowRuns, beaconRerunWorkflow, beaconCancelWorkflow, type BeaconState } from "../api";
+import {
+  beaconWorkflowRuns,
+  beaconRerunWorkflow,
+  beaconCancelWorkflow,
+  beaconRunJobs,
+  type BeaconState,
+  type BeaconJob,
+} from "../api";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 
@@ -38,7 +45,7 @@ export function stateDotColor(state: string): string {
 }
 
 /// Map a run state to a rail-row `data-spine` value (ok|run|fail|idle).
-function stateSpine(state: string): string {
+export function stateSpine(state: string): string {
   switch (stateDotColor(state)) {
     case "ok":
       return "ok";
@@ -61,6 +68,86 @@ function relTime(iso: string): string {
   const h = Math.round(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
+}
+
+/// "41s" / "3m10s" / "1h5m". Open-ended spans (running) measure to `now`.
+export function fmtDuration(startIso: string | null, endIso: string | null, now = Date.now()): string {
+  if (!startIso) return "";
+  const start = Date.parse(startIso);
+  if (Number.isNaN(start)) return "";
+  const end = endIso ? Date.parse(endIso) : now;
+  if (Number.isNaN(end)) return "";
+  const s = Math.max(0, Math.round((end - start) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m${s % 60 ? `${s % 60}s` : ""}`;
+  const h = Math.floor(m / 60);
+  return `${h}h${m % 60 ? `${m % 60}m` : ""}`;
+}
+
+export type RunDetailState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "jobs"; jobs: BeaconJob[] };
+
+export type RunDetail = {
+  expanded: ReadonlySet<number>;
+  jobs: ReadonlyMap<number, RunDetailState>;
+  onToggle: (runId: number) => void;
+};
+
+/// Jobs/steps detail block appended under an expanded run row.
+function renderJobs(state: RunDetailState): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "rail-jobs";
+  if (state.kind === "loading") {
+    const el = document.createElement("div");
+    el.className = "rail-jobs-loading";
+    el.textContent = "Loading jobs…";
+    wrap.append(el);
+    return wrap;
+  }
+  if (state.kind === "error") {
+    const el = document.createElement("div");
+    el.className = "rail-jobs-error";
+    el.textContent = state.message.replace(/^github:\s*/i, "");
+    wrap.append(el);
+    return wrap;
+  }
+  for (const job of state.jobs) {
+    const line = document.createElement("div");
+    line.className = "rail-job-line";
+    const dot = document.createElement("span");
+    dot.className = `rail-dot is-${stateSpine(job.state)}`;
+    const name = document.createElement("span");
+    name.className = "rail-job-name";
+    name.textContent = job.name;
+    const dur = document.createElement("span");
+    dur.className = "rail-job-dur";
+    dur.textContent = fmtDuration(job.started_at, job.completed_at);
+    line.append(dot, name, dur);
+    wrap.append(line);
+    if (job.steps.length) {
+      const steps = document.createElement("div");
+      steps.className = "rail-steps";
+      for (const step of job.steps) {
+        const row = document.createElement("div");
+        row.className = "rail-step";
+        const sdot = document.createElement("span");
+        sdot.className = `rail-dot is-${stateSpine(step.state)}`;
+        const sname = document.createElement("span");
+        sname.className = "rail-step-name";
+        sname.textContent = step.name;
+        const sdur = document.createElement("span");
+        sdur.className = "rail-step-dur";
+        sdur.textContent = fmtDuration(step.started_at, step.completed_at);
+        row.append(sdot, sname, sdur);
+        steps.append(row);
+      }
+      wrap.append(steps);
+    }
+  }
+  return wrap;
 }
 
 function notice(text: string, cls = ""): HTMLElement {
@@ -139,6 +226,7 @@ export function renderBeacon(
   onPick?: (path: string) => void,
   errorActions?: { onRetry?: () => void; onReconnect?: () => void },
   runActions?: { onRerun?: (runId: number) => void; onCancel?: (runId: number) => void },
+  detail?: RunDetail,
 ): void {
   root.replaceChildren();
   switch (state.kind) {
@@ -191,31 +279,19 @@ export function renderBeacon(
       }
       for (const run of state.runs) {
         const clickable = isHttpUrl(run.url);
+        const expanded = !!detail && run.id !== 0 && detail.expanded.has(run.id);
         const row = document.createElement("div");
         row.className = "rail-row";
         row.setAttribute("data-spine", stateSpine(run.state));
-        if (clickable) {
-          row.setAttribute("role", "link");
-          row.setAttribute("tabindex", "0");
-          row.addEventListener("click", () => {
-            void openUrl(run.url!).catch((e) =>
-              console.error("beacon openUrl failed", e),
-            );
-          });
-          row.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              void openUrl(run.url!).catch((err) =>
-                console.error("beacon openUrl failed", err),
-              );
-            }
-          });
-        } else {
-          // Non-interactive row: don't imply it's clickable.
-          row.style.cursor = "default";
-        }
 
         const line = document.createElement("div");
         line.className = "rail-row-line";
+        if (detail) {
+          const chev = document.createElement("span");
+          chev.className = `rail-chevron${expanded ? " is-open" : ""}`;
+          chev.innerHTML = Icons.chevronRight({ size: 12 });
+          line.append(chev);
+        }
         const name = document.createElement("span");
         name.className = "rail-name";
         name.textContent = run.name || "(workflow)";
@@ -237,6 +313,46 @@ export function renderBeacon(
         meta.textContent = bits.join(" · ");
         row.append(line, meta);
 
+        // Row interaction: expand/collapse when detail is wired; otherwise
+        // (legacy callers without detail) fall back to opening the URL.
+        const openRun = () =>
+          void openUrl(run.url!).catch((e) => console.error("beacon openUrl failed", e));
+        if (detail && run.id) {
+          row.setAttribute("role", "button");
+          row.setAttribute("tabindex", "0");
+          row.setAttribute("aria-expanded", String(expanded));
+          row.addEventListener("click", () => detail.onToggle(run.id));
+          row.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") detail.onToggle(run.id);
+          });
+        } else if (clickable) {
+          row.setAttribute("role", "link");
+          row.setAttribute("tabindex", "0");
+          row.addEventListener("click", openRun);
+          row.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") openRun();
+          });
+        } else {
+          // Non-interactive row: don't imply it's clickable.
+          row.style.cursor = "default";
+        }
+
+        // Action cluster: ↗ open-on-GitHub + re-run/cancel.
+        const actions = document.createElement("div");
+        actions.className = "rail-row-actions";
+        if (clickable) {
+          const openBtn = document.createElement("button");
+          openBtn.type = "button";
+          openBtn.className = "rail-row-action";
+          openBtn.setAttribute("aria-label", "Open on GitHub");
+          openBtn.innerHTML = Icons.externalLink({ size: 13 });
+          attachTooltip(openBtn, "Open on GitHub");
+          openBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openRun();
+          });
+          actions.append(openBtn);
+        }
         if (runActions && run.id) {
           const busy = stateDotColor(run.state) === "busy";
           const action = document.createElement("button");
@@ -259,10 +375,14 @@ export function renderBeacon(
               runActions.onRerun?.(run.id);
             });
           }
-          row.appendChild(action);
+          actions.append(action);
         }
+        if (actions.childElementCount) row.appendChild(actions);
 
         root.appendChild(row);
+        if (expanded) {
+          root.appendChild(renderJobs(detail!.jobs.get(run.id) ?? { kind: "loading" }));
+        }
       }
       return;
     }
@@ -278,6 +398,10 @@ export class BeaconPanel {
   /// chosen under — if cwd changes (tab switch / cd), the drill-down resets.
   private selectedPath: string | null = null;
   private baseCwd: string | null = null;
+  /// Run-detail expansion state — survives the 25s poll re-render.
+  private expanded = new Set<number>();
+  private jobsCache = new Map<number, RunDetailState>();
+  private lastState: BeaconState | null = null;
 
   constructor(
     host: HTMLElement,
@@ -285,6 +409,8 @@ export class BeaconPanel {
       getCwd: () => string | null;
       onClose: () => void;
       onReconnect?: () => void;
+      /// Fired after every successful poll — feeds the titlebar indicator.
+      onState?: (state: BeaconState) => void;
     },
   ) {
     this.root = document.createElement("div");
@@ -337,10 +463,12 @@ export class BeaconPanel {
   private async fetch(): Promise<void> {
     const gen = ++this.generation;
     const base = this.opts.getCwd();
-    // cwd moved → drop any sub-repo drill-down.
+    // cwd moved → drop any sub-repo drill-down and run-detail state.
     if (base !== this.baseCwd) {
       this.baseCwd = base;
       this.selectedPath = null;
+      this.expanded.clear();
+      this.jobsCache.clear();
     }
     const cwd = this.selectedPath ?? base;
     if (!cwd) {
@@ -351,23 +479,21 @@ export class BeaconPanel {
     try {
       const state = await beaconWorkflowRuns(cwd);
       if (gen !== this.generation) return; // superseded
-      renderBeacon(
-        this.body,
-        state,
-        (path) => {
-          this.selectedPath = path;
-          void this.fetch();
-        },
-        { onRetry: () => this.render(), onReconnect: this.opts.onReconnect },
-        {
-          onRerun: (runId) => void this.runAction(() => beaconRerunWorkflow(cwd, runId)),
-          onCancel: (runId) => {
-            if (!confirm("Cancel this workflow run?")) return;
-            void this.runAction(() => beaconCancelWorkflow(cwd, runId));
-          },
-        },
-      );
-      if (this.selectedPath) this.prependBack();
+      this.lastState = state;
+      this.opts.onState?.(state);
+      if (state.kind === "ok") {
+        // Drop expansion state for runs that no longer exist.
+        const ids = new Set(state.runs.map((r) => r.id));
+        for (const id of [...this.expanded]) if (!ids.has(id)) this.expanded.delete(id);
+        for (const id of [...this.jobsCache.keys()]) if (!ids.has(id)) this.jobsCache.delete(id);
+        // Live-refresh jobs for expanded, still-running runs on each poll.
+        for (const r of state.runs) {
+          if (this.expanded.has(r.id) && stateDotColor(r.state) === "busy") {
+            void this.refreshJobs(r.id);
+          }
+        }
+      }
+      this.renderState(state);
     } catch (e) {
       if (gen !== this.generation) return;
       renderBeacon(this.body, { kind: "error", message: String(e) }, undefined, {
@@ -376,6 +502,64 @@ export class BeaconPanel {
       });
       if (this.selectedPath) this.prependBack();
     }
+  }
+
+  /// Render `state` with all callbacks + run-detail wiring. Reused by the
+  /// poll (fetch) and by local expansion toggles/job refreshes.
+  private renderState(state: BeaconState): void {
+    const cwd = this.selectedPath ?? this.baseCwd;
+    renderBeacon(
+      this.body,
+      state,
+      (path) => {
+        this.selectedPath = path;
+        void this.fetch();
+      },
+      { onRetry: () => this.render(), onReconnect: this.opts.onReconnect },
+      {
+        onRerun: (runId) => {
+          if (!cwd) return;
+          void this.runAction(() => beaconRerunWorkflow(cwd, runId));
+        },
+        onCancel: (runId) => {
+          if (!cwd) return;
+          if (!confirm("Cancel this workflow run?")) return;
+          void this.runAction(() => beaconCancelWorkflow(cwd, runId));
+        },
+      },
+      {
+        expanded: this.expanded,
+        jobs: this.jobsCache,
+        onToggle: (runId) => this.toggleRun(runId),
+      },
+    );
+    if (this.selectedPath) this.prependBack();
+  }
+
+  private toggleRun(runId: number): void {
+    if (this.expanded.has(runId)) {
+      this.expanded.delete(runId);
+    } else {
+      this.expanded.add(runId);
+      if (!this.jobsCache.has(runId)) this.jobsCache.set(runId, { kind: "loading" });
+      void this.refreshJobs(runId);
+    }
+    if (this.lastState) this.renderState(this.lastState);
+  }
+
+  private async refreshJobs(runId: number): Promise<void> {
+    const cwd = this.selectedPath ?? this.baseCwd;
+    if (!cwd) return;
+    const gen = this.generation;
+    try {
+      const jobs = await beaconRunJobs(cwd, runId);
+      if (gen !== this.generation || !this.expanded.has(runId)) return;
+      this.jobsCache.set(runId, { kind: "jobs", jobs });
+    } catch (e) {
+      if (gen !== this.generation || !this.expanded.has(runId)) return;
+      this.jobsCache.set(runId, { kind: "error", message: String(e) });
+    }
+    if (this.lastState) this.renderState(this.lastState);
   }
 
   /// Rerun/cancel a run, then refresh the list. On failure, surface the

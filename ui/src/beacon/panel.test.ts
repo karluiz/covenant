@@ -6,8 +6,9 @@ const { openUrl } = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }));
 
-import { renderBeacon, renderLoading, stateDotColor, isHttpUrl } from "./panel";
-import type { BeaconState } from "../api";
+import { renderBeacon, renderLoading, stateDotColor, isHttpUrl, fmtDuration } from "./panel";
+import type { RunDetail, RunDetailState } from "./panel";
+import type { BeaconState, BeaconJob } from "../api";
 
 describe("renderLoading", () => {
   it("renders a loading notice", () => {
@@ -209,5 +210,108 @@ describe("renderBeacon", () => {
     expect(link?.getAttribute("role")).toBe("link");
     expect(link?.getAttribute("tabindex")).toBe("0");
     expect(link?.getAttribute("href")).toBeNull();
+  });
+
+  it("opens the run URL via the ↗ action button", () => {
+    openUrl.mockClear();
+    renderBeacon(root, {
+      kind: "ok",
+      repo: "o/r",
+      runs: [run({ url: "https://github.com/o/r/actions/runs/9" })],
+    });
+    const btn = root.querySelector<HTMLButtonElement>('[aria-label="Open on GitHub"]');
+    expect(btn).not.toBeNull();
+    btn!.click();
+    expect(openUrl).toHaveBeenCalledWith("https://github.com/o/r/actions/runs/9");
+  });
+});
+
+describe("fmtDuration", () => {
+  it("formats seconds, minutes, hours", () => {
+    const t0 = "2026-07-12T18:00:00Z";
+    expect(fmtDuration(t0, "2026-07-12T18:00:41Z")).toBe("41s");
+    expect(fmtDuration(t0, "2026-07-12T18:03:10Z")).toBe("3m10s");
+    expect(fmtDuration(t0, "2026-07-12T19:05:00Z")).toBe("1h5m");
+  });
+
+  it("uses `now` for still-running spans and empties on bad input", () => {
+    const t0 = "2026-07-12T18:00:00Z";
+    const now = Date.parse("2026-07-12T18:00:30Z");
+    expect(fmtDuration(t0, null, now)).toBe("30s");
+    expect(fmtDuration(null, null)).toBe("");
+    expect(fmtDuration("garbage", null)).toBe("");
+  });
+});
+
+describe("run detail expansion", () => {
+  let root: HTMLElement;
+  beforeEach(() => {
+    root = document.createElement("div");
+    openUrl.mockClear();
+  });
+
+  const jobs: BeaconJob[] = [
+    {
+      id: 101,
+      name: "build-sign-notarize",
+      state: "in_progress",
+      started_at: "2026-07-12T18:00:00Z",
+      completed_at: null,
+      steps: [
+        { name: "Checkout", state: "success", started_at: "2026-07-12T18:00:01Z", completed_at: "2026-07-12T18:00:03Z" },
+        { name: "Notarize", state: "in_progress", started_at: "2026-07-12T18:03:00Z", completed_at: null },
+      ],
+    },
+  ];
+
+  const okState: BeaconState = {
+    kind: "ok",
+    repo: "o/r",
+    runs: [run({ id: 7, name: "Release macOS", state: "in_progress", url: "https://github.com/o/r/actions/runs/7" })],
+  };
+
+  const detail = (over: Partial<RunDetail> = {}): RunDetail => ({
+    expanded: new Set<number>(),
+    jobs: new Map<number, RunDetailState>(),
+    onToggle: vi.fn(),
+    ...over,
+  });
+
+  it("row click toggles expansion instead of opening the URL", () => {
+    const d = detail();
+    renderBeacon(root, okState, undefined, undefined, undefined, d);
+    (root.querySelector(".rail-row") as HTMLElement).click();
+    expect(d.onToggle).toHaveBeenCalledWith(7);
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("renders job and step rows when expanded", () => {
+    const d = detail({
+      expanded: new Set([7]),
+      jobs: new Map<number, RunDetailState>([[7, { kind: "jobs", jobs }]]),
+    });
+    renderBeacon(root, okState, undefined, undefined, undefined, d);
+    const jobNames = [...root.querySelectorAll(".rail-job-name")].map((e) => e.textContent);
+    expect(jobNames).toEqual(["build-sign-notarize"]);
+    const stepNames = [...root.querySelectorAll(".rail-step-name")].map((e) => e.textContent);
+    expect(stepNames).toEqual(["Checkout", "Notarize"]);
+    // Chevron marks the open state.
+    expect(root.querySelector(".rail-chevron.is-open")).not.toBeNull();
+  });
+
+  it("renders loading and error detail states", () => {
+    const dLoading = detail({
+      expanded: new Set([7]),
+      jobs: new Map<number, RunDetailState>([[7, { kind: "loading" }]]),
+    });
+    renderBeacon(root, okState, undefined, undefined, undefined, dLoading);
+    expect(root.querySelector(".rail-jobs-loading")).not.toBeNull();
+
+    const dErr = detail({
+      expanded: new Set([7]),
+      jobs: new Map<number, RunDetailState>([[7, { kind: "error", message: "github: boom" }]]),
+    });
+    renderBeacon(root, okState, undefined, undefined, undefined, dErr);
+    expect(root.querySelector(".rail-jobs-error")?.textContent).toContain("boom");
   });
 });
