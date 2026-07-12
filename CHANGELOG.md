@@ -6,6 +6,41 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.9 — Canon rail redesign + Context Lift badges + Beacon run taxonomy
+
+### Added
+
+- **Context Lift → Adapt in Canon**: each installed skill now carries a lift
+  badge in the rail (`+N earning` / `N not earning` / `no baseline`), so the
+  measurement lives where you act — publish what earns its tokens, review the
+  prune candidates. The Loop's group verdict now names the ≤0-lift skills
+  instead of just counting them. Shared classifier in
+  `ui/src/canon/cockpit/lift.ts` (`liftClass`), rail chip fill in
+  `ui/src/canon/panel.ts`.
+- **Beacon run-detail taxonomy**: the Beacon run view gained a meta pill strip,
+  ceremony folds, a spine, a per-job progress dashboard, and auto-expand on
+  failure — a far richer read of a GitHub Actions run
+  (`ui/src/beacon/panel.ts`, `ui/src/beacon/beacon.css`).
+
+### Changed
+
+- **Canon rail inventory redesign**: the right-rail Canon panel was rebuilt as a
+  compact inventory — a census strip (one count cell per kind), flat rows with a
+  hover-revealed action dock, and a filter box that appears past 8 items. The
+  whole row opens the reader; Publish / Run-evals live in the hover dock
+  (`ui/src/canon/panel.ts`, `ui/src/canon/styles.css`).
+
+### Fixed
+
+- **Beacon meta strip wrapping**: the run meta pill strip must override the
+  shared `.rail-meta` flex-wrap so pills stay on one line (`ui/src/beacon/beacon.css`).
+- **Rail filter padding**: the Canon rail's filter box now shares the rows'
+  horizontal inset (`--rail-pad-x`) instead of sitting flush against the edge
+  (`ui/src/canon/styles.css`).
+- **Lift badge placement**: the skill lift chip renders next to the name, not
+  past the action buttons (`.canon-preview-btn`'s `margin-left:auto` was pushing
+  it to the far right) (`ui/src/canon/panel.ts`).
+
 ## v0.9.8 — Beacon run detail + live release indicator + unified spec viewer
 
 ### Added
