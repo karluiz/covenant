@@ -95,8 +95,6 @@ body.theme-true-dark .canon-skill-row:hover,
 body.theme-true-dark .canon-search-result:hover {
   background: linear-gradient(180deg, #1d1d21, #151518);
 }
-/* recede the section hairlines so the cards read first */
-body.theme-true-dark .canon-body h3::after { opacity: 0.4; }
 /* translucent-black code bg vanishes on pure black — go opaque */
 body.theme-true-dark .canon-preview { background: #0c0c0e; }
 /* adoption bars: lit-from-the-right gradient + soft glow instead of a slab */
@@ -386,35 +384,110 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
 
 
 /* ── Body ── */
+/* Full-bleed: the census strip, folds and rows carry their own padding, so
+   the body reads as one continuous flat surface (rail homologation). */
 .canon-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 4px 12px 16px;
+  padding: 0 0 16px;
 }
 
-/* Section headings with a trailing hairline */
-.canon-body h3 {
+/* ── Census strip: the whole inventory in one glance ──
+   3-column count grid; the 7th cell (Skills, the primary kind) spans the
+   full bottom row. Zero counts sit dim and inert; populated cells light up
+   and jump to their fold. */
+.canon-census {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--canon-line);
+}
+.canon-census-cell {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 12px 6px;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-right: 1px solid var(--canon-line);
+  border-bottom: 1px solid var(--canon-line);
+  border-radius: 0;
+  cursor: default;
+}
+.canon-census-cell:nth-child(3n),
+.canon-census-cell:last-child { border-right: 0; }
+.canon-census-cell:last-child {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: baseline;
   gap: 8px;
-  margin: 16px 0 8px;
+  border-bottom: 0;
+}
+.canon-census-cell.has { cursor: pointer; }
+.canon-census-cell.has:hover { background: var(--canon-lift-1); }
+.canon-census-n {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: 15px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary, #5c626c);
+}
+.canon-census-cell.has .canon-census-n { color: var(--text-primary, #f5f6f7); }
+.canon-census-k {
+  font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--muted, #6c7280);
+  color: var(--text-tertiary, #5c626c);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.canon-body h3::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--canon-line);
-  opacity: 0.6;
-}
+.canon-census-cell.has .canon-census-k { color: var(--muted, #6c7280); }
 
-.canon-skills > p,
+/* One hint line replaces the per-kind "No X authored." wall */
+.canon-authored-hint {
+  padding: 9px 12px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted, #6c7280);
+  border-bottom: 1px solid var(--canon-line);
+}
+.canon-authored-hint button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--canon-accent, var(--accent, #7aa2f7));
+  cursor: pointer;
+}
+.canon-authored-hint button:hover { text-decoration: underline; }
+
+/* ── Inventory rows (shared .rail-row taxonomy + Canon specifics) ── */
+.canon-row { cursor: pointer; }
+/* spec index: mono accent prefix, fixed width so titles align */
+.canon-idx {
+  flex: none;
+  min-width: 30px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--canon-accent, var(--accent, #7aa2f7));
+}
+/* slug/meta line: single-line ellipsis (shared .rail-meta wraps by default) */
+.canon-row .rail-meta {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.canon-meta-indent { padding-left: 38px; }
+/* hover dock sits over the row's right edge; keep it on the panel surface */
+.canon-row .rail-row-actions { background: var(--sidebar-bg, #1a1c21); }
+body.theme-true-dark .canon-row .rail-row-actions { background: #000; }
+
 .canon-loop > p {
   margin: 0 0 4px;
   font-size: 12px;

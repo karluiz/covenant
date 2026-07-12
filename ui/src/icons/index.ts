@@ -91,6 +91,10 @@ export const Icons = {
       o,
     ),
 
+  /** Search — magnifier for filter inputs. Lucide `search`. */
+  search: (o?: IconOptions): string =>
+    svg(`<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`, o),
+
   /** Maximize — expand / fullscreen. */
   maximize: (o?: IconOptions): string =>
     svg(

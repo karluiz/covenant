@@ -21,10 +21,10 @@ vi.mock("../notifications/toast", () => ({
 }));
 
 describe("CanonPanel", () => {
-  // Compact rail summary: skill count + a compact card list. Context files
-  // and the registry/adoption/eval dashboards now render in the cockpit
-  // (see cockpit/view.test.ts's Context/Loop section suites).
-  it("renders installed skills with a compact count", () => {
+  // Compact rail summary: census strip (one count cell per kind) + folds for
+  // populated kinds only. Registry/adoption/eval dashboards live in the
+  // cockpit (see cockpit/view.test.ts's Context/Loop section suites).
+  it("renders installed skills with version meta and a census count", () => {
     const host = document.createElement("div");
     const panel = new CanonPanel({
       groupId: "g1",
@@ -45,10 +45,28 @@ describe("CanonPanel", () => {
     });
     expect(host.textContent).toContain("kyc-peru");
     expect(host.textContent).toContain("2.1.0");
-    expect(host.textContent).toContain("1 skill installed");
+    const cells = [...host.querySelectorAll(".canon-census-cell")];
+    const skills = cells.find((c) => c.textContent?.includes("Skills"));
+    expect(skills?.querySelector(".canon-census-n")?.textContent).toBe("1");
   });
 
-  it("shows fallback when no skills installed", () => {
+  it("renders a census strip with one cell per kind", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-census",
+      groupLabel: "Empty Group",
+      groupColor: null,
+      groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
+    const cells = [...host.querySelectorAll(".canon-census-cell")];
+    expect(cells.length).toBe(7);
+    for (const label of ["Agents", "Context", "Memory", "Commands", "MCP", "Specs", "Skills"]) {
+      expect(cells.some((c) => c.textContent?.includes(label))).toBe(true);
+    }
+  });
+
+  it("collapses empty kinds into a single hint instead of per-kind sections", () => {
     const host = document.createElement("div");
     const panel = new CanonPanel({
       groupId: "g2",
@@ -57,7 +75,10 @@ describe("CanonPanel", () => {
       groupRootDir: "/repo",
     }).mount(host);
     panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
-    expect(host.textContent).toContain("No skills installed.");
+    expect(host.textContent).not.toContain("No agents authored.");
+    expect(host.textContent).not.toContain("No skills installed.");
+    expect(host.querySelectorAll(".rail-group").length).toBe(0);
+    expect(host.textContent).toContain("Nothing authored yet");
   });
 
   it("shows the panel root when groupRootDir is absent", () => {
@@ -195,15 +216,66 @@ describe("CanonPanel", () => {
     expect(host.textContent).toContain("kyc-peru");
   });
 
-  it("shows empty hints when a kind is absent", () => {
+  it("renders only populated kinds as folds", () => {
     const host = document.createElement("div");
     const panel = new CanonPanel({
-      groupId: "g-empty-hints", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+      groupId: "g-folds", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
-    expect(host.textContent).toContain("No agents authored.");
-    expect(host.textContent).toContain("No context authored.");
-    expect(host.textContent).toContain("No skills installed.");
+    panel.renderStatus({
+      installed: [],
+      agents: [{ name: "reviewer" }],
+      contexts: [],
+      memory: [],
+      commands: [],
+      mcp: [],
+      specs: [{ name: "3.1-alpha", title: "3.1 — Alpha" }],
+    });
+    expect(host.querySelectorAll(".rail-group").length).toBe(2);
+    expect(host.textContent).toContain("reviewer");
+  });
+
+  it("fold header toggles its rows", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-fold-toggle", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const head = host.querySelector<HTMLButtonElement>(".rail-group-head")!;
+    const rows = host.querySelector<HTMLElement>(".canon-group-rows")!;
+    expect(rows.hidden).toBe(false);
+    head.click();
+    expect(rows.hidden).toBe(true);
+    head.click();
+    expect(rows.hidden).toBe(false);
+  });
+
+  it("shows a filter once items exceed the threshold and narrows rows", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-filter", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    const many = Array.from({ length: 9 }, (_, i) => ({ name: `3.${i + 1}-spec-${i + 1}`, title: `3.${i + 1} — Spec ${i + 1}` }));
+    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: many });
+    const input = host.querySelector<HTMLInputElement>(".rail-search input");
+    expect(input).not.toBeNull();
+    input!.value = "spec-7";
+    input!.dispatchEvent(new Event("input"));
+    const visible = [...host.querySelectorAll<HTMLElement>(".canon-row")].filter((r) => !r.hidden);
+    expect(visible.length).toBe(1);
+    expect(visible[0].textContent).toContain("3.7");
+  });
+
+  it("hides the filter below the threshold", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-no-filter", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    expect(host.querySelector(".rail-search")).toBeNull();
   });
 
   it("renders a Memory section", () => {
@@ -224,15 +296,6 @@ describe("CanonPanel", () => {
     expect(host.textContent).toContain("decision-x");
   });
 
-  it("shows the memory empty hint when none", () => {
-    const host = document.createElement("div");
-    const panel = new CanonPanel({
-      groupId: "g-memory-empty", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
-    }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
-    expect(host.textContent).toContain("No memories authored.");
-  });
-
   it("renders a Commands section", () => {
     const host = document.createElement("div");
     const panel = new CanonPanel({
@@ -249,15 +312,6 @@ describe("CanonPanel", () => {
     });
     expect(host.textContent).toContain("Commands");
     expect(host.textContent).toContain("deploy");
-  });
-
-  it("shows the commands empty hint when none", () => {
-    const host = document.createElement("div");
-    const panel = new CanonPanel({
-      groupId: "g-commands-empty", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
-    }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
-    expect(host.textContent).toContain("No commands authored.");
   });
 
   it("renders an Mcp section", () => {
@@ -278,15 +332,6 @@ describe("CanonPanel", () => {
     expect(host.textContent).toContain("ctx7");
   });
 
-  it("shows the mcp empty hint when none", () => {
-    const host = document.createElement("div");
-    const panel = new CanonPanel({
-      groupId: "g-mcp-empty", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
-    }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
-    expect(host.textContent).toContain("No MCP servers authored.");
-  });
-
   it("renders a Specs section", () => {
     const host = document.createElement("div");
     const panel = new CanonPanel({
@@ -302,16 +347,10 @@ describe("CanonPanel", () => {
       specs: [{ name: "3.1-alpha", title: "3.1 — Alpha" }],
     });
     expect(host.textContent).toContain("Specs");
-    expect(host.textContent).toContain("3.1 — Alpha");
-  });
-
-  it("shows the specs empty hint when none", () => {
-    const host = document.createElement("div");
-    const panel = new CanonPanel({
-      groupId: "g-specs-empty", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
-    }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
-    expect(host.textContent).toContain("No specs published.");
+    const row = host.querySelector<HTMLElement>(".canon-row")!;
+    expect(row.querySelector(".canon-idx")?.textContent).toBe("3.1");
+    expect(row.querySelector(".rail-name")?.textContent).toBe("Alpha");
+    expect(row.querySelector(".rail-meta")?.textContent).toContain("3.1-alpha");
   });
 
   it("slugifies a display name to a valid slug", () => {

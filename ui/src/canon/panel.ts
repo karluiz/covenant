@@ -190,6 +190,43 @@ export function iconButton(svg: string, label: string, onClick: () => void): HTM
 const CANON_CHEVRON =
   '<svg viewBox="0 0 12 12" width="10" height="10" fill="none" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+/** Right-pointing chevron for fold headers — `.rail-chev` rotates it 90° open. */
+const FOLD_CHEVRON =
+  '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+/** Hover-revealed row action for the shared `.rail-row-actions` dock. */
+function railAction(svg: string, label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "rail-row-action is-neutral";
+  b.innerHTML = svg;
+  b.setAttribute("aria-label", label);
+  attachTooltip(b, label);
+  b.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
+  return b;
+}
+
+/** Split a spec slug like "3.1-master-operator-mission" into a mono index and
+ *  a readable title: the frontmatter title with its redundant index prefix
+ *  stripped, else the de-slugged remainder of the name. */
+export function specParts(name: string, title: string): { idx: string; label: string } {
+  const idx = /^\d+(?:\.\d+)*/.exec(name)?.[0] ?? "";
+  const fromTitle = title.replace(/^\s*\d+(?:\.\d+)*\s*[—–:-]*\s*/, "").trim();
+  if (fromTitle) return { idx, label: fromTitle };
+  const rest = name.slice(idx.length).replace(/^-+/, "").replace(/-+/g, " ").trim();
+  return { idx, label: rest ? rest[0].toUpperCase() + rest.slice(1) : name };
+}
+
+/** One row of the rail inventory, materialized by railRow(). */
+interface RailRowSpec {
+  idx?: string;
+  title: string;
+  meta?: string;
+  /** Extra hover actions (Publish / Run evals); the Open action is implicit. */
+  actions?: HTMLButtonElement[];
+  onOpen: () => void;
+}
+
 /** The signature device: a sharp initials tile carrying the org's identity
  *  color, reused in the chip and every menu row. Color lives in CSS via the
  *  --mono-h custom property so light/dark can tune tone. */
@@ -460,162 +497,191 @@ export class CanonPanel {
     }
   }
 
-  /** Compact summary: an installed-skill count + a compact card list.
-   *  Registry search, adoption/inference/eval dashboards, and context-file
-   *  management now live in the full-screen cockpit (see cockpit/view.ts) —
-   *  open it via the expand button in the head for those. */
+  /** Compact rail inventory: a census strip (one count cell per kind), then a
+   *  fold per POPULATED kind only — empty kinds never render a section, the
+   *  census is their single trace. Registry search, adoption/inference/eval
+   *  dashboards, and context-file management live in the full-screen cockpit
+   *  (see cockpit/view.ts) — open it via the expand button for those. */
   renderStatus(s: CanonStatus): void {
     this.body.replaceChildren();
     const cwd = this.opts.groupRootDir ?? null;
+    const readSource = (kind: Parameters<typeof canonReadSource>[1], name: string) => () =>
+      cwd ? canonReadSource(cwd, kind, name) : Promise.resolve("(no project folder)");
 
-    // ── Agents ──
-    const agents = this.kindSection(
-      "Agents",
-      s.agents.length,
-      "No agents authored.",
-      s.agents.map((a) =>
-        skillCard({
-          name: a.name,
-          meta: "agent",
-          className: "canon-skill-row",
-          fetchPreview: () =>
-            cwd ? canonReadSource(cwd, "agent", a.name) : Promise.resolve("(no project folder)"),
-          actions: [],
-        }),
-      ),
-    );
-
-    // ── Context ──
-    const contexts = this.kindSection(
-      "Context",
-      s.contexts.length,
-      "No context authored.",
-      s.contexts.map((c) =>
-        skillCard({
-          name: c.name,
-          meta: c.summary ?? "context",
-          className: "canon-skill-row",
-          fetchPreview: () =>
-            cwd ? canonReadSource(cwd, "context", c.name) : Promise.resolve("(no project folder)"),
-          actions: [],
-        }),
-      ),
-    );
-
-    // ── Memory (persistent recall, folded into the managed block) ──
-    const memory = this.kindSection(
-      "Memory",
-      s.memory.length,
-      "No memories authored.",
-      s.memory.map((m) =>
-        skillCard({
-          name: m.name,
-          meta: m.description ?? "memory",
-          className: "canon-skill-row",
-          fetchPreview: () =>
-            cwd ? canonReadSource(cwd, "memory", m.name) : Promise.resolve("(no project folder)"),
-          actions: [],
-        }),
-      ),
-    );
-
-    // ── Commands ──
-    const commands = this.kindSection(
-      "Commands",
-      s.commands.length,
-      "No commands authored.",
-      s.commands.map((c) =>
-        skillCard({
-          name: c.name,
-          meta: c.description ?? "command",
-          className: "canon-skill-row",
-          fetchPreview: () =>
-            cwd ? canonReadSource(cwd, "command", c.name) : Promise.resolve("(no project folder)"),
-          actions: [],
-        }),
-      ),
-    );
-
-    // ── Mcp ──
-    const mcp = this.kindSection(
-      "MCP",
-      s.mcp.length,
-      "No MCP servers authored.",
-      s.mcp.map((m) =>
-        skillCard({
-          name: m.name,
-          meta: m.description ?? m.transport,
-          className: "canon-skill-row",
-          fetchPreview: () =>
-            cwd ? canonReadSource(cwd, "mcp", m.name) : Promise.resolve("(no project folder)"),
-          actions: [],
-        }),
-      ),
-    );
-
-    // ── Specs (surface-only, not projected) ──
-    const specs = this.kindSection(
-      "Specs",
-      s.specs.length,
-      "No specs published.",
-      s.specs.map((sp) =>
-        skillCard({
-          name: sp.name,
-          meta: sp.title,
-          className: "canon-skill-row",
-          fetchPreview: () =>
-            cwd ? canonReadSource(cwd, "spec", sp.name) : Promise.resolve("(no project folder)"),
-          actions: [],
-        }),
-      ),
-    );
-
-    // ── Skills (unchanged rows) ──
-    const rows: HTMLElement[] = [];
-    if (s.installed.length > 0) {
-      const count = document.createElement("p");
-      count.className = "canon-skills-count";
-      count.textContent = `${s.installed.length} ${s.installed.length === 1 ? "skill" : "skills"} installed`;
-      rows.push(count);
-    }
-    for (const i of s.installed) {
+    const skillSpecs: RailRowSpec[] = s.installed.map((i) => {
       const actions: HTMLButtonElement[] = [];
       if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
-        actions.push(iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => void this.publish(i.name)));
+        actions.push(railAction(Icons.upload({ size: 13 }), "Publish to registry", () => void this.publish(i.name)));
       }
-      const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => void this.runEvals(i.name, runBtn));
+      const runBtn = railAction(Icons.play({ size: 13 }), "Run evals", () => void this.runEvals(i.name, runBtn));
       actions.push(runBtn);
-      rows.push(
-        skillCard({
-          name: i.name,
-          meta: `${i.version} · ${i.source}`,
-          className: "canon-skill-row",
-          fetchPreview: () => (cwd ? canonReadLocal(cwd, i.name) : Promise.resolve("(no project folder)")),
-          actions,
-          stats: [`v${i.version}`, i.source],
-        }),
-      );
-    }
-    const skills = this.kindSection("Skills", s.installed.length, "No skills installed.", rows);
+      const fetch = () => (cwd ? canonReadLocal(cwd, i.name) : Promise.resolve("(no project folder)"));
+      return {
+        title: i.name,
+        meta: `v${i.version} · ${i.source}`,
+        actions,
+        onOpen: () => openMarkdownReader(i.name, fetch, [`v${i.version}`, i.source]),
+      };
+    });
 
-    this.body.replaceChildren(agents, contexts, memory, commands, mcp, specs, skills);
+    const kinds: { label: string; rows: RailRowSpec[] }[] = [
+      { label: "Agents", rows: s.agents.map((a) => ({ title: a.name, meta: "agent", onOpen: () => openMarkdownReader(a.name, readSource("agent", a.name)) })) },
+      { label: "Context", rows: s.contexts.map((c) => ({ title: c.name, meta: c.summary ?? "context", onOpen: () => openMarkdownReader(c.name, readSource("context", c.name)) })) },
+      { label: "Memory", rows: s.memory.map((m) => ({ title: m.name, meta: m.description ?? "memory", onOpen: () => openMarkdownReader(m.name, readSource("memory", m.name)) })) },
+      { label: "Commands", rows: s.commands.map((c) => ({ title: c.name, meta: c.description ?? "command", onOpen: () => openMarkdownReader(c.name, readSource("command", c.name)) })) },
+      { label: "MCP", rows: s.mcp.map((m) => ({ title: m.name, meta: m.description ?? m.transport, onOpen: () => openMarkdownReader(m.name, readSource("mcp", m.name)) })) },
+      { label: "Specs", rows: s.specs.map((sp) => {
+        const { idx, label } = specParts(sp.name, sp.title);
+        return { idx, title: label, meta: sp.name, onOpen: () => openMarkdownReader(sp.title, readSource("spec", sp.name)) };
+      }) },
+      { label: "Skills", rows: skillSpecs },
+    ];
+
+    // ── Census strip: the whole inventory in one glance ──
+    const folds = new Map<string, HTMLElement>();
+    const census = document.createElement("div");
+    census.className = "canon-census";
+    for (const k of kinds) {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = k.rows.length > 0 ? "canon-census-cell has" : "canon-census-cell";
+      cell.disabled = k.rows.length === 0;
+      const n = document.createElement("span");
+      n.className = "canon-census-n";
+      n.textContent = String(k.rows.length);
+      const l = document.createElement("span");
+      l.className = "canon-census-k";
+      l.textContent = k.label;
+      cell.append(n, l);
+      cell.addEventListener("click", () => {
+        const sec = folds.get(k.label);
+        if (!sec) return;
+        const head = sec.querySelector<HTMLButtonElement>(".rail-group-head");
+        if (head && !head.classList.contains("open")) head.click();
+        sec.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      });
+      census.appendChild(cell);
+    }
+    this.body.appendChild(census);
+
+    // ── One hint replaces the per-kind "No X authored." wall ──
+    const authoredCount = s.agents.length + s.contexts.length + s.memory.length
+      + s.commands.length + s.mcp.length + s.installed.length;
+    if (authoredCount === 0) {
+      const hint = document.createElement("div");
+      hint.className = "canon-authored-hint";
+      hint.append("Nothing authored yet");
+      if (this.opts.onExpand) {
+        hint.append(" — ");
+        const cta = document.createElement("button");
+        cta.type = "button";
+        cta.textContent = "open the cockpit";
+        cta.addEventListener("click", () => this.opts.onExpand?.());
+        hint.append(cta, " to author.");
+      } else {
+        hint.append(".");
+      }
+      this.body.appendChild(hint);
+    }
+
+    // ── Filter (only once the list is worth filtering) ──
+    const allRows: { el: HTMLElement; hay: string; fold: HTMLElement }[] = [];
+    const total = kinds.reduce((n, k) => n + k.rows.length, 0);
+    let search: HTMLInputElement | null = null;
+    if (total > 8) {
+      const wrap = document.createElement("div");
+      wrap.className = "rail-search";
+      wrap.innerHTML = Icons.search({ size: 14 });
+      search = document.createElement("input");
+      search.type = "search";
+      search.placeholder = "Filter…";
+      wrap.appendChild(search);
+      this.body.appendChild(wrap);
+    }
+
+    // ── Folds: populated kinds only ──
+    for (const k of kinds) {
+      if (k.rows.length === 0) continue;
+      const sec = document.createElement("section");
+      sec.className = "rail-group canon-group";
+      const head = document.createElement("button");
+      head.type = "button";
+      head.className = "rail-group-head open";
+      head.setAttribute("aria-expanded", "true");
+      const chev = document.createElement("span");
+      chev.className = "rail-chev";
+      chev.innerHTML = FOLD_CHEVRON;
+      const gname = document.createElement("span");
+      gname.className = "rail-gname";
+      gname.textContent = k.label;
+      const gcount = document.createElement("span");
+      gcount.className = "rail-gcount";
+      gcount.textContent = String(k.rows.length);
+      head.append(chev, gname, gcount);
+      const rowsWrap = document.createElement("div");
+      rowsWrap.className = "canon-group-rows";
+      for (const r of k.rows) {
+        const el = this.railRow(r);
+        allRows.push({ el, hay: `${r.idx ?? ""} ${r.title} ${r.meta ?? ""}`.toLowerCase(), fold: sec });
+        rowsWrap.appendChild(el);
+      }
+      head.addEventListener("click", () => {
+        const open = head.classList.toggle("open");
+        head.setAttribute("aria-expanded", String(open));
+        rowsWrap.hidden = !open;
+      });
+      sec.append(head, rowsWrap);
+      folds.set(k.label, sec);
+      this.body.appendChild(sec);
+    }
+
+    search?.addEventListener("input", () => {
+      const q = search!.value.trim().toLowerCase();
+      for (const r of allRows) r.el.hidden = q !== "" && !r.hay.includes(q);
+      for (const sec of folds.values()) {
+        sec.hidden = allRows.filter((r) => r.fold === sec).every((r) => r.el.hidden);
+      }
+    });
   }
 
-  /** One rail section: uppercase head, count, rows-or-empty-hint. */
-  private kindSection(title: string, count: number, emptyHint: string, rows: HTMLElement[]): HTMLElement {
-    const sec = document.createElement("section");
-    sec.className = "canon-skills";
-    const h = document.createElement("h3");
-    h.textContent = title;
-    sec.appendChild(h);
-    if (count === 0) {
-      const p = document.createElement("p");
-      p.textContent = emptyHint;
-      sec.appendChild(p);
-    } else {
-      for (const r of rows) sec.appendChild(r);
+  /** One flat inventory row: optional mono index + title, a mono meta line,
+   *  and a hover-revealed action dock. The whole row opens the reader. */
+  private railRow(r: RailRowSpec): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "rail-row canon-row";
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    const line = document.createElement("div");
+    line.className = "rail-row-line";
+    if (r.idx) {
+      const idx = document.createElement("span");
+      idx.className = "canon-idx";
+      idx.textContent = r.idx;
+      line.appendChild(idx);
     }
-    return sec;
+    const name = document.createElement("span");
+    name.className = "rail-name";
+    name.textContent = r.title;
+    line.appendChild(name);
+    row.appendChild(line);
+    if (r.meta) {
+      const meta = document.createElement("div");
+      meta.className = r.idx ? "rail-meta canon-meta-indent" : "rail-meta";
+      meta.textContent = r.meta;
+      row.appendChild(meta);
+    }
+    const acts = document.createElement("div");
+    acts.className = "rail-row-actions";
+    acts.append(...(r.actions ?? []), railAction(Icons.maximize({ size: 13 }), "Open", r.onOpen));
+    row.appendChild(acts);
+    row.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".rail-row-actions")) return;
+      r.onOpen();
+    });
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target === row) r.onOpen();
+    });
+    return row;
   }
 
   private async runEvals(skill: string, btn: HTMLButtonElement): Promise<void> {
