@@ -7,9 +7,11 @@ import type { CanonStatus, Org, CanonEvalProgress } from "../api";
 import {
   canonLocalStatus, canonMyOrgs, canonPublish,
   canonReadLocal, canonReadSource, canonExport, canonRunEvals, onCanonEvalProgress,
+  canonEvalSummary,
 } from "../api";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
+import { liftClass, type LiftBadge } from "./cockpit/lift";
 // Re-exported so existing consumers (cockpit, tests) keep importing from
 // "../panel"; the definitions live in ./org to avoid a panel↔create-org cycle.
 export { slugify, orgInitials, orgHue } from "./org";
@@ -184,6 +186,14 @@ export function iconButton(svg: string, label: string, onClick: () => void): HTM
   attachTooltip(b, label);
   b.addEventListener("click", onClick);
   return b;
+}
+
+/** A small lift chip for a skill row — `canon-lift-badge lift-<kind>` + short text. */
+export function liftBadgeEl(b: LiftBadge): HTMLSpanElement {
+  const el = document.createElement("span");
+  el.className = `canon-lift-badge lift-${b.kind}`;
+  el.textContent = b.text;
+  return el;
 }
 
 /** A downward chevron for the org chip — trusted static markup. */
@@ -578,6 +588,7 @@ export class CanonPanel {
       count.textContent = `${s.installed.length} ${s.installed.length === 1 ? "skill" : "skills"} installed`;
       rows.push(count);
     }
+    const skillCardByName = new Map<string, HTMLElement>();
     for (const i of s.installed) {
       const actions: HTMLButtonElement[] = [];
       if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
@@ -585,18 +596,30 @@ export class CanonPanel {
       }
       const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => void this.runEvals(i.name, runBtn));
       actions.push(runBtn);
-      rows.push(
-        skillCard({
-          name: i.name,
-          meta: `${i.version} · ${i.source}`,
-          className: "canon-skill-row",
-          fetchPreview: () => (cwd ? canonReadLocal(cwd, i.name) : Promise.resolve("(no project folder)")),
-          actions,
-          stats: [`v${i.version}`, i.source],
-        }),
-      );
+      const card = skillCard({
+        name: i.name,
+        meta: `${i.version} · ${i.source}`,
+        className: "canon-skill-row",
+        fetchPreview: () => (cwd ? canonReadLocal(cwd, i.name) : Promise.resolve("(no project folder)")),
+        actions,
+        stats: [`v${i.version}`, i.source],
+      });
+      skillCardByName.set(i.name, card);
+      rows.push(card);
     }
     const skills = this.kindSection("Skills", s.installed.length, "No skills installed.", rows);
+
+    // Lift → Adapt: badge each skill row with its context-lift once evals resolve.
+    if (cwd && skillCardByName.size > 0) {
+      void canonEvalSummary(cwd)
+        .then((summary) => {
+          for (const es of summary) {
+            const card = skillCardByName.get(es.skill);
+            card?.querySelector(".canon-card-head")?.appendChild(liftBadgeEl(liftClass(es)));
+          }
+        })
+        .catch(() => {});
+    }
 
     this.body.replaceChildren(agents, contexts, memory, commands, mcp, specs, skills);
   }
