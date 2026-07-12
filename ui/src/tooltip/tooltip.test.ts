@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { attachTooltip } from "./tooltip";
+import { attachTooltip, computeTooltipPos } from "./tooltip";
 
 function mockRect(el: HTMLElement, r: { left: number; top: number; width: number; height: number }): void {
   el.getBoundingClientRect = () =>
@@ -109,5 +109,41 @@ describe("attachTooltip stuck-tooltip watchdog", () => {
     target.remove();
     vi.advanceTimersByTime(100);
     expect(tooltipHost()?.classList.contains("is-visible")).toBe(false);
+  });
+});
+
+describe("computeTooltipPos", () => {
+  const rect = (left: number, top: number, w: number, h: number) => ({
+    left,
+    top,
+    width: w,
+    bottom: top + h,
+  });
+
+  test("centers above the target at zoom 1", () => {
+    const p = computeTooltipPos(rect(500, 300, 40, 20), 100, 30, 1, 1200, 800);
+    expect(p.below).toBe(false);
+    expect(p.left).toBe(500 + 20 - 50); // target center minus half tooltip
+    expect(p.top).toBe(300 - 30 - 8);
+  });
+
+  test("flips below when there is no room above", () => {
+    const p = computeTooltipPos(rect(500, 10, 40, 20), 100, 30, 1, 1200, 800);
+    expect(p.below).toBe(true);
+    expect(p.top).toBe(30 + 8);
+  });
+
+  test("clamps to the right edge at zoom 1", () => {
+    const p = computeTooltipPos(rect(1180, 300, 20, 20), 120, 30, 1, 1200, 800);
+    expect(p.left + 120).toBeLessThanOrEqual(1200 - 8);
+  });
+
+  test("clamps to the LAYOUT viewport under zoom > 1", () => {
+    // Visual viewport 1200px at zoom 1.5 → layout viewport is 800px.
+    // A target hugging the visual right edge (rect in visual px).
+    const p = computeTooltipPos(rect(1160, 300, 30, 20), 120, 30, 1.5, 1200, 800);
+    // Tooltip must fit inside the 800px layout viewport, not the 1200px visual one.
+    expect(p.left + 120).toBeLessThanOrEqual(1200 / 1.5 - 8);
+    expect(p.left).toBeGreaterThanOrEqual(8);
   });
 });

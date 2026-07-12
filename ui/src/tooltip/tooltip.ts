@@ -3,6 +3,8 @@
 // is positioned above the hovered target, with a 350ms open delay so
 // it never gets in the way of a quick mouse-by.
 
+import { zoom } from "../zoom";
+
 export type TooltipContent =
   | string
   | {
@@ -80,27 +82,47 @@ function renderContent(content: TooltipContent): string {
   return parts.join("");
 }
 
+/// Pure clamp math in LAYOUT px. `rect` comes from getBoundingClientRect(),
+/// which WebKit reports in visual (zoomed) px, while the fixed tooltip's
+/// left/top are layout px — so everything is divided by the zoom level
+/// (same semantics as the pane-menu fix, manager.ts / 970e45b).
+export function computeTooltipPos(
+  rect: { top: number; bottom: number; left: number; width: number },
+  tw: number,
+  th: number,
+  z: number,
+  visualVw: number,
+  visualVh: number,
+): { top: number; left: number; below: boolean } {
+  const rTop = rect.top / z;
+  const rBottom = rect.bottom / z;
+  const rLeft = rect.left / z;
+  const rWidth = rect.width / z;
+  const vw = visualVw / z;
+  const vh = visualVh / z;
+  // Prefer above; flip below if not enough room
+  const below = rTop < th + EDGE_PAD + 8;
+  let top = below ? rBottom + 8 : rTop - th - 8;
+  let left = rLeft + rWidth / 2 - tw / 2;
+  if (left < EDGE_PAD) left = EDGE_PAD;
+  if (left + tw > vw - EDGE_PAD) left = vw - EDGE_PAD - tw;
+  if (top < EDGE_PAD) top = EDGE_PAD;
+  if (top + th > vh - EDGE_PAD) top = vh - EDGE_PAD - th;
+  return { top, left, below };
+}
+
 function position(target: HTMLElement): void {
   const el = ensureHost();
   const rect = target.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
   // Measure
   el.style.visibility = "hidden";
   el.style.display = "block";
   const tw = el.offsetWidth;
   const th = el.offsetHeight;
-  // Prefer above; flip below if not enough room
-  let placeBelow = rect.top < th + EDGE_PAD + 8;
-  let top = placeBelow ? rect.bottom + 8 : rect.top - th - 8;
-  let left = rect.left + rect.width / 2 - tw / 2;
-  if (left < EDGE_PAD) left = EDGE_PAD;
-  if (left + tw > vw - EDGE_PAD) left = vw - EDGE_PAD - tw;
-  if (top < EDGE_PAD) top = EDGE_PAD;
-  if (top + th > vh - EDGE_PAD) top = vh - EDGE_PAD - th;
-  el.style.top = `${Math.round(top)}px`;
-  el.style.left = `${Math.round(left)}px`;
-  el.classList.toggle("ck-tooltip--below", placeBelow);
+  const pos = computeTooltipPos(rect, tw, th, zoom.level(), window.innerWidth, window.innerHeight);
+  el.style.top = `${Math.round(pos.top)}px`;
+  el.style.left = `${Math.round(pos.left)}px`;
+  el.classList.toggle("ck-tooltip--below", pos.below);
   el.style.visibility = "";
 }
 
