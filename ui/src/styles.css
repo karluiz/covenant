@@ -14458,18 +14458,15 @@ body.has-update-banner #app-titlebar-brand { display: none; }
    spaces it; the standalone margin would double it. */
 .update-banner .rc-presence-dot { margin-left: 0; }
 
-/* Responsive: the capsule is absolute-centered, so as the window narrows
-   it marches toward the left tab strip and the right icon row. Shed the
-   lowest-priority pieces first. "What's new ›" is redundant (the version
-   chip opens the same modal), so it goes first; the "UPDATE" word next.
-   Dot + version + Install + dismiss always survive.
-   ponytail: viewport breakpoints as a proxy for the middle gap — the
-   titlebar spans the full window; container query if left/right ever
-   grow independently. */
-@media (max-width: 900px) {
+/* Responsive: the capsule is centered in the gap between the icon clusters.
+   As that gap tightens, shed the lowest-priority pieces first. "What's new ›"
+   is redundant (the version chip opens the same modal), so it goes first; the
+   "UPDATE" word next. Dot + version + Install + dismiss always survive.
+   Container queries measure the gap itself (see #app-titlebar-center). */
+@container titlebar-center (max-width: 260px) {
   .update-banner__whatsnew { display: none; }
 }
-@media (max-width: 720px) {
+@container titlebar-center (max-width: 200px) {
   .update-banner__label { display: none; }
   .update-banner { gap: 6px; padding-right: 2px; }
 }
@@ -14984,7 +14981,9 @@ body.theme-light .boot-splash-meta-dot {
     background: var(--sidebar-bg);
     border-bottom: 1px solid var(--border);
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    /* minmax(0,·) so the middle track can shrink to 0 and its content clips,
+       instead of forcing the row wider / shoving the icon clusters. */
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     user-select: none;
     -webkit-app-region: drag;
@@ -15002,10 +15001,10 @@ body.theme-light .boot-splash-meta-dot {
     /* Drag inherits from #app-titlebar; only buttons opt out via no-drag. */
 }
 #app-titlebar-center {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
+    grid-column: 2;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     text-align: center;
     color: var(--text, #d5d9de);
     font-size: 11px;
@@ -15013,15 +15012,18 @@ body.theme-light .boot-splash-meta-dot {
     letter-spacing: 0.18em;
     font-family: var(--ui-font, -apple-system, system-ui, sans-serif);
     pointer-events: none;
-    /* Window-centered (not grid-centered) so left/right asymmetry doesn't
-       shove it off-center — but that means nothing bounds it, so it
-       overflows into the icon row as the window narrows. Reserve ~310px
-       per side and clip; content that outgrows the reserve (brand, capsule)
-       degrades below instead of overlapping.
-       ponytail: fixed reserve, not measured — the regions are near-constant
-       width; revisit if the right icon row grows. */
-    max-width: calc(100vw - 620px);
+    /* Grid-centered in the gap between the left/right clusters (the icon row
+       outgrew the old fixed ~310px reserve, so window-centering shoved the
+       capsule into it). The minmax(0,1fr) track clips this to the free space;
+       the capsule collapses its own labels below (see media queries).
+       ponytail: brand sits at gap-center, not true window-center — reads as
+       balanced against the visible content, revisit only if that looks off. */
+    min-width: 0;
     overflow: hidden;
+    /* Query the gap directly so the capsule sheds labels on the real free
+       space, not a viewport proxy (the icon clusters grow independently). */
+    container-type: inline-size;
+    container-name: titlebar-center;
 }
 #app-titlebar-brand {
     color: var(--text, #d5d9de);
