@@ -15,6 +15,8 @@
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  /* shared .rail-meta wraps — the strip's whole point is that it never does */
+  flex-wrap: nowrap;
 }
 .rail-pill {
   flex: none;
