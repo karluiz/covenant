@@ -231,9 +231,10 @@ body[data-corner="notch"] .pill.compact {
   padding: 34px 22px 7px 12px; /* top clears the notch / menu bar strip */
   animation: notchDrop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-/* Give the Dynamic Island real body — a fixed-ish width instead of hugging
-   the text, so it reads as an island under the notch, not a thin pill. */
-body[data-corner="notch"] .pill.expanded { min-width: 190px; max-width: 320px; }
+/* Give the Dynamic Island real body — a FIXED width (the old 190px floor is
+   now also the ceiling) so the island never grows with content; long text
+   ellipsizes inside instead of widening the pill. */
+body[data-corner="notch"] .pill.expanded { width: 190px; min-width: 190px; max-width: 190px; }
 /* Keep the breadcrumb on one line so the pill sizes to its natural width
    instead of wrapping and going too narrow. */
 body[data-corner="notch"] .pill.expanded .tabchip { white-space: nowrap; }
