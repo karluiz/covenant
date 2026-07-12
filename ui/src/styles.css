@@ -5633,11 +5633,22 @@ body.theme-light {
   --cp-card-border: rgba(0, 0, 0, 0.1);
   --cp-card-sheen: rgba(255, 255, 255, 0.7);
 }
+/* The palette input is a bare field inside the card — exempt it from the
+   global light-theme `input { background: #fff }` reset. */
+body.theme-light .command-palette-input {
+  background: transparent;
+}
 body.theme-true-dark {
   --cp-scrim: rgba(0, 0, 0, 0.62);
   --cp-card-bg: rgba(10, 10, 11, 0.66);
   --cp-card-border: rgba(255, 255, 255, 0.07);
   --cp-card-sheen: rgba(255, 255, 255, 0.025);
+}
+/* True Dark: elevated surfaces take neutral lifts, never group tints.
+   The spine and name keep the group identity. */
+body.theme-true-dark .cp-tile.current {
+  background: #0e0e0e;
+  border-color: rgba(255, 255, 255, 0.14);
 }
 /* Rename prompt — single-input card in the palette language. */
 .workspace-rename-card {
