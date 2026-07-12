@@ -2342,6 +2342,11 @@ async fn beacon_cancel_workflow(cwd: String, run_id: u64) -> Result<(), String> 
 }
 
 #[tauri::command]
+async fn beacon_run_jobs(cwd: String, run_id: u64) -> Result<Vec<beacon::Job>, String> {
+    beacon::run_jobs(cwd, run_id).await
+}
+
+#[tauri::command]
 async fn canon_local_status(cwd: String) -> Result<karl_canon::CanonStatus, String> {
     let repo = std::path::PathBuf::from(cwd);
     tokio::task::spawn_blocking(move || karl_canon::status(&repo))
@@ -4748,6 +4753,7 @@ pub fn run() {
             beacon_workflow_runs,
             beacon_rerun_workflow,
             beacon_cancel_workflow,
+            beacon_run_jobs,
             somnus::somnus_send,
             somnus::somnus_history,
             somnus::somnus_history_delete,

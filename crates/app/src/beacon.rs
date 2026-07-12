@@ -35,6 +35,28 @@ pub struct SubRepo {
     pub repo: String,
 }
 
+/// One job of a workflow run, with its steps — the expandable detail
+/// behind a Beacon run row.
+#[derive(Debug, Clone, Serialize)]
+pub struct Job {
+    pub id: u64,
+    pub name: String,
+    /// Collapsed state token (see `run_state`).
+    pub state: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub steps: Vec<Step>,
+}
+
+/// One step of a job.
+#[derive(Debug, Clone, Serialize)]
+pub struct Step {
+    pub name: String,
+    pub state: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+}
+
 /// Tagged so the frontend can switch on `kind`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -143,6 +165,61 @@ pub async fn cancel_workflow_run(cwd: String, run_id: u64) -> Result<(), String>
     let client = reqwest::Client::new();
     let url = format!("https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/cancel");
     gh_post(&client, &token, &url).await
+}
+
+/// Parse the GitHub jobs-for-run payload into UI-shaped jobs. Queued jobs
+/// omit `steps`; in-flight steps have null conclusion/completed_at.
+pub fn parse_jobs(v: &serde_json::Value) -> Vec<Job> {
+    let Some(arr) = v.get("jobs").and_then(|j| j.as_array()) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|j| {
+            let id = j.get("id")?.as_u64()?;
+            let steps = j
+                .get("steps")
+                .and_then(|s| s.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|s| Step {
+                            name: s.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                            state: run_state(
+                                s.get("status").and_then(|x| x.as_str()).unwrap_or(""),
+                                s.get("conclusion").and_then(|x| x.as_str()),
+                            ),
+                            started_at: s.get("started_at").and_then(|x| x.as_str()).map(str::to_string),
+                            completed_at: s.get("completed_at").and_then(|x| x.as_str()).map(str::to_string),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(Job {
+                id,
+                name: j.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                state: run_state(
+                    j.get("status").and_then(|x| x.as_str()).unwrap_or(""),
+                    j.get("conclusion").and_then(|x| x.as_str()),
+                ),
+                started_at: j.get("started_at").and_then(|x| x.as_str()).map(str::to_string),
+                completed_at: j.get("completed_at").and_then(|x| x.as_str()).map(str::to_string),
+                steps,
+            })
+        })
+        .collect()
+}
+
+/// Jobs + steps for one workflow run.
+pub async fn run_jobs(cwd: String, run_id: u64) -> Result<Vec<Job>, String> {
+    let (owner, repo, token) = owner_repo_token(&cwd).await?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("http client init failed: {e}"))?;
+    let url = format!(
+        "https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?per_page=50"
+    );
+    let body = gh_get(&client, &token, &url).await?;
+    Ok(parse_jobs(&body))
 }
 
 fn short_sha(sha: &str) -> String {
@@ -350,5 +427,56 @@ mod tests {
             let want = want.map(|(o, r)| (o.to_string(), r.to_string()));
             assert_eq!(got, want, "input={input:?}");
         }
+    }
+
+    #[test]
+    fn parses_jobs_payload_with_steps() {
+        let v: serde_json::Value = serde_json::json!({
+            "jobs": [
+                {
+                    "id": 101,
+                    "name": "build-sign-notarize",
+                    "status": "in_progress",
+                    "conclusion": null,
+                    "started_at": "2026-07-12T18:00:00Z",
+                    "completed_at": null,
+                    "steps": [
+                        { "name": "Checkout", "status": "completed", "conclusion": "success",
+                          "started_at": "2026-07-12T18:00:01Z", "completed_at": "2026-07-12T18:00:03Z" },
+                        { "name": "Notarize", "status": "in_progress", "conclusion": null,
+                          "started_at": "2026-07-12T18:03:00Z", "completed_at": null }
+                    ]
+                },
+                {
+                    "id": 102,
+                    "name": "update-cask",
+                    "status": "queued",
+                    "conclusion": null,
+                    "started_at": null,
+                    "completed_at": null
+                    // queued jobs omit "steps" entirely
+                }
+            ]
+        });
+        let jobs = parse_jobs(&v);
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].id, 101);
+        assert_eq!(jobs[0].state, "in_progress");
+        assert_eq!(jobs[0].completed_at, None);
+        assert_eq!(jobs[0].steps.len(), 2);
+        assert_eq!(jobs[0].steps[0].state, "success");
+        assert_eq!(jobs[0].steps[1].state, "in_progress");
+        assert_eq!(jobs[0].steps[1].completed_at, None);
+        assert_eq!(jobs[1].state, "queued");
+        assert!(jobs[1].steps.is_empty());
+    }
+
+    #[test]
+    fn parse_jobs_tolerates_garbage() {
+        assert!(parse_jobs(&serde_json::json!({})).is_empty());
+        assert!(parse_jobs(&serde_json::json!({ "jobs": "nope" })).is_empty());
+        // A job missing its id is skipped, not a panic.
+        let v = serde_json::json!({ "jobs": [ { "name": "x" } ] });
+        assert!(parse_jobs(&v).is_empty());
     }
 }

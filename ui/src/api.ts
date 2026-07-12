@@ -1387,6 +1387,26 @@ export async function beaconCancelWorkflow(cwd: string, runId: number): Promise<
   return invoke<void>("beacon_cancel_workflow", { cwd, runId });
 }
 
+export type BeaconStep = {
+  name: string;
+  state: string; // success | failure | in_progress | queued | ...
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type BeaconJob = {
+  id: number;
+  name: string;
+  state: string;
+  started_at: string | null;
+  completed_at: string | null;
+  steps: BeaconStep[];
+};
+
+export async function beaconRunJobs(cwd: string, runId: number): Promise<BeaconJob[]> {
+  return invoke<BeaconJob[]>("beacon_run_jobs", { cwd, runId });
+}
+
 // Somnus — REST client sidebar -----------------------------------------
 
 export type SomnusRequest = {
