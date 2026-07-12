@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, type Mock } from "vitest";
-import { CanonPanel, slugify } from "./panel";
+import { CanonPanel, liftBadgeEl, slugify } from "./panel";
+import { liftClass } from "./cockpit/lift";
 
 // Mock the api module so tests don't invoke Tauri IPC. Only the calls
 // panel.ts's compact rail actually makes — registry search, install, and
@@ -13,6 +14,7 @@ vi.mock("../api", () => ({
   canonReadSource: vi.fn().mockResolvedValue(""),
   canonExport: vi.fn().mockResolvedValue(undefined),
   canonRunEvals: vi.fn().mockResolvedValue(undefined),
+  canonEvalSummary: vi.fn().mockResolvedValue([]),
   onCanonEvalProgress: vi.fn().mockResolvedValue(() => {}),
 }));
 
@@ -357,5 +359,19 @@ describe("CanonPanel", () => {
     expect(slugify("Cleverit SpA")).toBe("cleverit-spa");
     expect(slugify("  Banco de Chile ")).toBe("banco-de-chile");
     expect(slugify("--weird__name--")).toBe("weird-name");
+  });
+});
+
+describe("liftBadgeEl", () => {
+  it("builds a not-earning chip for negative lift", () => {
+    const el = liftBadgeEl(liftClass({ skill: "x", passed: 5, total: 10, baseline_passed: 7, baseline_total: 10 }));
+    expect(el.className).toContain("canon-lift-badge");
+    expect(el.className).toContain("lift-not-earning");
+    expect(el.textContent).toContain("not earning");
+  });
+  it("builds an earning chip for positive lift", () => {
+    const el = liftBadgeEl(liftClass({ skill: "x", passed: 8, total: 10, baseline_passed: 6, baseline_total: 10 }));
+    expect(el.className).toContain("lift-earning");
+    expect(el.textContent).toContain("+20");
   });
 });

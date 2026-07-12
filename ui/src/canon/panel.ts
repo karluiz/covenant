@@ -7,7 +7,9 @@ import type { CanonStatus, Org, CanonEvalProgress } from "../api";
 import {
   canonLocalStatus, canonMyOrgs, canonPublish,
   canonReadLocal, canonReadSource, canonExport, canonRunEvals, onCanonEvalProgress,
+  canonEvalSummary,
 } from "../api";
+import { liftClass, type LiftBadge } from "./cockpit/lift";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
 // Re-exported so existing consumers (cockpit, tests) keep importing from
@@ -225,6 +227,16 @@ interface RailRowSpec {
   /** Extra hover actions (Publish / Run evals); the Open action is implicit. */
   actions?: HTMLButtonElement[];
   onOpen: () => void;
+  /** Skill name for lift-badge fill; only set on skill rows. */
+  liftName?: string;
+}
+
+/** A small lift chip for a skill row — `canon-lift-badge lift-<kind>` + short text. */
+export function liftBadgeEl(b: LiftBadge): HTMLSpanElement {
+  const el = document.createElement("span");
+  el.className = `canon-lift-badge lift-${b.kind}`;
+  el.textContent = b.text;
+  return el;
 }
 
 /** The signature device: a sharp initials tile carrying the org's identity
@@ -521,6 +533,7 @@ export class CanonPanel {
         meta: `v${i.version} · ${i.source}`,
         actions,
         onOpen: () => openMarkdownReader(i.name, fetch, [`v${i.version}`, i.source]),
+        liftName: i.name,
       };
     });
 
@@ -539,6 +552,7 @@ export class CanonPanel {
 
     // ── Census strip: the whole inventory in one glance ──
     const folds = new Map<string, HTMLElement>();
+    const skillRowByName = new Map<string, HTMLElement>();
     const census = document.createElement("div");
     census.className = "canon-census";
     for (const k of kinds) {
@@ -622,6 +636,7 @@ export class CanonPanel {
       rowsWrap.className = "canon-group-rows";
       for (const r of k.rows) {
         const el = this.railRow(r);
+        if (r.liftName) skillRowByName.set(r.liftName, el);
         allRows.push({ el, hay: `${r.idx ?? ""} ${r.title} ${r.meta ?? ""}`.toLowerCase(), fold: sec });
         rowsWrap.appendChild(el);
       }
@@ -633,6 +648,19 @@ export class CanonPanel {
       sec.append(head, rowsWrap);
       folds.set(k.label, sec);
       this.body.appendChild(sec);
+    }
+
+    // Lift → Adapt: badge each skill row with its context-lift once evals resolve.
+    // The chip sits in the name line (next to the skill), not past the actions.
+    if (cwd && skillRowByName.size > 0) {
+      void canonEvalSummary(cwd)
+        .then((summary) => {
+          for (const es of summary) {
+            const row = skillRowByName.get(es.skill);
+            row?.querySelector(".rail-row-line")?.appendChild(liftBadgeEl(liftClass(es)));
+          }
+        })
+        .catch(() => {});
     }
 
     search?.addEventListener("input", () => {

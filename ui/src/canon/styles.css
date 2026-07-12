@@ -780,3 +780,16 @@ body.tabbar-left .canon-reader { top: 38px; }
 }
 .canon-bar-fill.is-ok { background: var(--ok, #9ece6a); }
 .canon-meter.lift-neg .canon-bar-fill { background: var(--warn, #e0af68); }
+
+/* Skill-row lift chip — actionable earning/not-earning/unmeasured verdict. */
+.canon-lift-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 0;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+.canon-lift-badge.lift-earning { color: var(--good, #3fb950); border-color: rgba(63, 185, 80, 0.4); }
+.canon-lift-badge.lift-not-earning { color: #e5534b; border-color: rgba(229, 83, 75, 0.4); }
+.canon-lift-badge.lift-unmeasured { color: var(--fg-dim); }
