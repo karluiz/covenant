@@ -6,6 +6,7 @@ import {
   beaconRunJobs,
   type BeaconState,
   type BeaconJob,
+  type BeaconStep,
 } from "../api";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
@@ -77,12 +78,47 @@ export function fmtDuration(startIso: string | null, endIso: string | null, now 
   if (Number.isNaN(start)) return "";
   const end = endIso ? Date.parse(endIso) : now;
   if (Number.isNaN(end)) return "";
-  const s = Math.max(0, Math.round((end - start) / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m${s % 60 ? `${s % 60}s` : ""}`;
-  const h = Math.floor(m / 60);
-  return `${h}h${m % 60 ? `${m % 60}m` : ""}`;
+  return fmtSeconds(Math.max(0, Math.round((end - start) / 1000)));
+}
+
+/// GitHub ceremony detection for the fold heuristic. Setup ceremony only
+/// counts as a LEADING run (a mid-workflow "Run actions/…" is real work);
+/// post ceremony only as a TRAILING run.
+const isSetupStep = (n: string) => n.startsWith("Set up ") || n.startsWith("Run actions/");
+const isPostStep = (n: string) => n.startsWith("Post ") || n === "Complete job";
+
+export type StepGroups = {
+  setup: BeaconStep[];
+  work: BeaconStep[];
+  post: BeaconStep[];
+  /// A group containing a failed step must render inline — failures never hide.
+  setupFoldable: boolean;
+  postFoldable: boolean;
+};
+
+/// Split a job's steps into ceremony (setup/post) and signal (work).
+export function groupSteps(steps: BeaconStep[]): StepGroups {
+  let i = 0;
+  while (i < steps.length && isSetupStep(steps[i].name)) i++;
+  let j = steps.length;
+  while (j > i && isPostStep(steps[j - 1].name)) j--;
+  const setup = steps.slice(0, i);
+  const work = steps.slice(i, j);
+  const post = steps.slice(j);
+  const clean = (arr: BeaconStep[]) =>
+    arr.length > 0 && !arr.some((s) => stateDotColor(s.state) === "bad");
+  return { setup, work, post, setupFoldable: clean(setup), postFoldable: clean(post) };
+}
+
+/// Failed runs the panel should auto-expand (once per run id per session) so
+/// a red beacon click lands directly on the wound.
+export function failedRunsToOpen(
+  runs: { id: number; state: string }[],
+  alreadyOpened: ReadonlySet<number>,
+): number[] {
+  return runs
+    .filter((r) => r.id && stateDotColor(r.state) === "bad" && !alreadyOpened.has(r.id))
+    .map((r) => r.id);
 }
 
 export type RunDetailState =
@@ -93,11 +129,118 @@ export type RunDetailState =
 export type RunDetail = {
   expanded: ReadonlySet<number>;
   jobs: ReadonlyMap<number, RunDetailState>;
+  /// Open ceremony folds, keyed "runId:jobId:setup|post".
+  folds: ReadonlySet<string>;
   onToggle: (runId: number) => void;
+  onToggleFold: (key: string) => void;
 };
 
-/// Jobs/steps detail block appended under an expanded run row.
-function renderJobs(state: RunDetailState): HTMLElement {
+/// Visual mode of one step. "busy"-colored states split: only a genuinely
+/// running step is "now"; queued/waiting/pending are "pend" (hollow, dim).
+function stepMode(step: BeaconStep): "ok" | "fail" | "now" | "pend" | "idle" {
+  const c = stateDotColor(step.state);
+  if (c === "bad") return "fail";
+  if (step.state === "in_progress") return "now";
+  if (c === "busy") return "pend";
+  return c === "ok" ? "ok" : "idle";
+}
+
+function stepGlyph(mode: ReturnType<typeof stepMode>): HTMLElement {
+  const g = document.createElement("span");
+  g.className = "rail-glyph";
+  switch (mode) {
+    case "ok":
+      g.innerHTML = `<span class="rail-sg is-ok">✓</span>`;
+      break;
+    case "fail":
+      g.innerHTML = `<span class="rail-sg is-fail">✕</span>`;
+      break;
+    case "now":
+      g.innerHTML = `<span class="rail-dot is-run rail-pulse"></span>`;
+      break;
+    default:
+      g.innerHTML = `<span class="rail-ring"></span>`;
+  }
+  return g;
+}
+
+function sumSeconds(steps: BeaconStep[]): number {
+  let t = 0;
+  for (const s of steps) {
+    if (!s.started_at || !s.completed_at) continue;
+    const a = Date.parse(s.started_at);
+    const b = Date.parse(s.completed_at);
+    if (!Number.isNaN(a) && !Number.isNaN(b)) t += Math.max(0, (b - a) / 1000);
+  }
+  return Math.round(t);
+}
+
+function fmtSeconds(s: number): string {
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m${s % 60 ? `${s % 60}s` : ""}`;
+  const h = Math.floor(m / 60);
+  return `${h}h${m % 60 ? `${m % 60}m` : ""}`;
+}
+
+function renderStep(step: BeaconStep): HTMLElement {
+  const mode = stepMode(step);
+  const row = document.createElement("div");
+  row.className = "rail-step";
+  if (mode === "now") row.classList.add("is-now");
+  if (mode === "fail") row.classList.add("is-fail-step");
+  if (mode === "pend" || mode === "idle") row.classList.add("is-pend");
+  const name = document.createElement("span");
+  name.className = "rail-step-name";
+  name.textContent = step.name;
+  const dur = document.createElement("span");
+  dur.className = "rail-step-dur";
+  const d = step.started_at ? fmtDuration(step.started_at, step.completed_at) : "";
+  dur.textContent = d || "—";
+  if (mode === "now") dur.classList.add("is-live");
+  row.append(stepGlyph(mode), name, dur);
+  return row;
+}
+
+/// One dim summary row for a ceremony group (setup/post); click unfolds.
+function renderFold(
+  key: string,
+  kind: "setup" | "post",
+  steps: BeaconStep[],
+  open: boolean,
+  onToggle: (key: string) => void,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "rail-fold";
+  row.setAttribute("role", "button");
+  row.setAttribute("tabindex", "0");
+  row.setAttribute("aria-expanded", String(open));
+  const glyph = document.createElement("span");
+  glyph.className = "rail-glyph rail-fold-chev";
+  glyph.textContent = open ? "▾" : "▸";
+  const name = document.createElement("span");
+  name.className = "rail-fold-name";
+  name.textContent = `${kind} · ${steps.length} step${steps.length === 1 ? "" : "s"}`;
+  const dur = document.createElement("span");
+  dur.className = "rail-step-dur";
+  const total = sumSeconds(steps);
+  dur.textContent = total > 0 ? fmtSeconds(total) : "—";
+  row.append(glyph, name, dur);
+  const toggle = (e: Event) => {
+    e.stopPropagation();
+    onToggle(key);
+  };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") toggle(e);
+  });
+  return row;
+}
+
+/// Jobs/steps detail block appended under an expanded run row: job header
+/// with done-counter + progress bar, then the step taxonomy with ceremony
+/// folds (setup/post) collapsed by default.
+function renderJobs(runId: number, state: RunDetailState, detail: RunDetail): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "rail-jobs";
   if (state.kind === "loading") {
@@ -115,36 +258,49 @@ function renderJobs(state: RunDetailState): HTMLElement {
     return wrap;
   }
   for (const job of state.jobs) {
-    const line = document.createElement("div");
-    line.className = "rail-job-line";
-    const dot = document.createElement("span");
-    dot.className = `rail-dot is-${stateSpine(job.state)}`;
+    const spine = stateSpine(job.state);
+    const head = document.createElement("div");
+    head.className = "rail-job-head";
+    const glyph = document.createElement("span");
+    glyph.className = "rail-glyph";
+    glyph.innerHTML = `<span class="rail-dot is-${spine}${spine === "run" ? " rail-pulse" : ""}"></span>`;
     const name = document.createElement("span");
     name.className = "rail-job-name";
     name.textContent = job.name;
+    const count = document.createElement("span");
+    count.className = "rail-job-count";
+    const done = job.steps.filter((s) => s.completed_at != null).length;
+    count.textContent = job.steps.length ? `${done}/${job.steps.length}` : "";
     const dur = document.createElement("span");
     dur.className = "rail-job-dur";
     dur.textContent = fmtDuration(job.started_at, job.completed_at);
-    line.append(dot, name, dur);
-    wrap.append(line);
+    if (spine === "run") dur.classList.add("is-live");
+    head.append(glyph, name, count, dur);
+    wrap.append(head);
+
     if (job.steps.length) {
-      const steps = document.createElement("div");
-      steps.className = "rail-steps";
-      for (const step of job.steps) {
-        const row = document.createElement("div");
-        row.className = "rail-step";
-        const sdot = document.createElement("span");
-        sdot.className = `rail-dot is-${stateSpine(step.state)}`;
-        const sname = document.createElement("span");
-        sname.className = "rail-step-name";
-        sname.textContent = step.name;
-        const sdur = document.createElement("span");
-        sdur.className = "rail-step-dur";
-        sdur.textContent = fmtDuration(step.started_at, step.completed_at);
-        row.append(sdot, sname, sdur);
-        steps.append(row);
-      }
-      wrap.append(steps);
+      const bar = document.createElement("div");
+      bar.className = `rail-job-bar${spine === "ok" ? " is-done" : spine === "fail" ? " is-fail" : ""}`;
+      const fill = document.createElement("i");
+      fill.style.width = `${Math.round((done / job.steps.length) * 100)}%`;
+      bar.append(fill);
+      wrap.append(bar);
+
+      const g = groupSteps(job.steps);
+      const emit = (kind: "setup" | "post", steps: BeaconStep[], foldable: boolean) => {
+        if (!steps.length) return;
+        if (!foldable) {
+          for (const s of steps) wrap.append(renderStep(s));
+          return;
+        }
+        const key = `${runId}:${job.id}:${kind}`;
+        const open = detail.folds.has(key);
+        wrap.append(renderFold(key, kind, steps, open, detail.onToggleFold));
+        if (open) for (const s of steps) wrap.append(renderStep(s));
+      };
+      emit("setup", g.setup, g.setupFoldable);
+      for (const s of g.work) wrap.append(renderStep(s));
+      emit("post", g.post, g.postFoldable);
     }
   }
   return wrap;
@@ -300,17 +456,31 @@ export function renderBeacon(
         when.textContent = relTime(run.updated_at);
         line.append(name, when);
 
+        // Meta strip: state pill + fixed slots on ONE line — the actor is
+        // the only flexible slot, so it truncates first instead of wrapping.
         const meta = document.createElement("div");
-        meta.className = "rail-meta";
-        const runLabel = run.run_number ? `#${run.run_number}` : "";
-        const bits = [
-          run.state.replace(/_/g, " "),
-          runLabel,
-          run.branch,
-          run.sha,
-          run.actor,
-        ].filter(Boolean) as string[];
-        meta.textContent = bits.join(" · ");
+        meta.className = "rail-meta is-strip";
+        const dotColor = stateDotColor(run.state);
+        const pill = document.createElement("span");
+        pill.className = `rail-pill is-${
+          dotColor === "busy" ? "busy" : dotColor === "bad" ? "fail" : dotColor === "ok" ? "ok" : "idle"
+        }`;
+        pill.textContent = run.state.replace(/_/g, " ");
+        meta.append(pill);
+        const addBit = (text: string, cls = ""): void => {
+          const sep = document.createElement("span");
+          sep.className = "rail-meta-sep";
+          sep.textContent = "·";
+          const bit = document.createElement("span");
+          bit.className = `rail-meta-bit${cls ? ` ${cls}` : ""}`;
+          bit.textContent = text;
+          if (meta.childElementCount > 1) meta.append(sep);
+          meta.append(bit);
+        };
+        if (run.run_number) addBit(`#${run.run_number}`);
+        if (run.branch) addBit(run.branch, "is-ref");
+        if (run.sha) addBit(run.sha);
+        if (run.actor) addBit(run.actor, "is-actor");
         row.append(line, meta);
 
         // Row interaction: expand/collapse when detail is wired; otherwise
@@ -383,7 +553,9 @@ export function renderBeacon(
 
         root.appendChild(row);
         if (expanded) {
-          root.appendChild(renderJobs(detail!.jobs.get(run.id) ?? { kind: "loading" }));
+          root.appendChild(
+            renderJobs(run.id, detail!.jobs.get(run.id) ?? { kind: "loading" }, detail!),
+          );
         }
       }
       return;
@@ -404,6 +576,10 @@ export class BeaconPanel {
   private expanded = new Set<number>();
   private jobsCache = new Map<number, RunDetailState>();
   private jobsInflight = new Set<number>();
+  /// Open ceremony folds ("runId:jobId:setup|post").
+  private folds = new Set<string>();
+  /// Failed runs already auto-expanded this session — user collapse wins after.
+  private autoOpenedFails = new Set<number>();
   private lastState: BeaconState | null = null;
 
   constructor(
@@ -472,6 +648,8 @@ export class BeaconPanel {
       this.selectedPath = null;
       this.expanded.clear();
       this.jobsCache.clear();
+      this.folds.clear();
+      this.autoOpenedFails.clear();
     }
     const cwd = this.selectedPath ?? base;
     if (!cwd) {
@@ -489,6 +667,18 @@ export class BeaconPanel {
         const ids = new Set(state.runs.map((r) => r.id));
         for (const id of [...this.expanded]) if (!ids.has(id)) this.expanded.delete(id);
         for (const id of [...this.jobsCache.keys()]) if (!ids.has(id)) this.jobsCache.delete(id);
+        for (const key of [...this.folds]) {
+          if (!ids.has(Number(key.split(":")[0]))) this.folds.delete(key);
+        }
+        // A newly-failed run auto-expands once, landing the user on the wound.
+        for (const id of failedRunsToOpen(state.runs, this.autoOpenedFails)) {
+          this.autoOpenedFails.add(id);
+          if (!this.expanded.has(id)) {
+            this.expanded.add(id);
+            if (!this.jobsCache.has(id)) this.jobsCache.set(id, { kind: "loading" });
+            void this.refreshJobs(id);
+          }
+        }
         // Live-refresh jobs for expanded, still-running runs on each poll.
         for (const r of state.runs) {
           if (this.expanded.has(r.id) && stateDotColor(r.state) === "busy") {
@@ -536,7 +726,13 @@ export class BeaconPanel {
       {
         expanded: this.expanded,
         jobs: this.jobsCache,
+        folds: this.folds,
         onToggle: (runId) => this.toggleRun(runId),
+        onToggleFold: (key) => {
+          if (this.folds.has(key)) this.folds.delete(key);
+          else this.folds.add(key);
+          if (this.lastState) this.renderState(this.lastState);
+        },
       },
     );
     if (this.selectedPath) this.prependBack();

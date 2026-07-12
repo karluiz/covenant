@@ -6,9 +6,91 @@ const { openUrl } = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }));
 
-import { renderBeacon, renderLoading, stateDotColor, isHttpUrl, fmtDuration } from "./panel";
+import {
+  renderBeacon,
+  renderLoading,
+  stateDotColor,
+  isHttpUrl,
+  fmtDuration,
+  groupSteps,
+  failedRunsToOpen,
+} from "./panel";
 import type { RunDetail, RunDetailState } from "./panel";
-import type { BeaconState, BeaconJob } from "../api";
+import type { BeaconState, BeaconJob, BeaconStep } from "../api";
+
+const step = (name: string, over: Partial<BeaconStep> = {}): BeaconStep => ({
+  name,
+  state: "success",
+  started_at: "2026-07-12T18:00:00Z",
+  completed_at: "2026-07-12T18:00:10Z",
+  ...over,
+});
+
+describe("groupSteps", () => {
+  it("folds a LEADING run of Set up/Run actions steps as setup", () => {
+    const g = groupSteps([
+      step("Set up job"),
+      step("Run actions/checkout@v4"),
+      step("Install Tauri system dependencies"),
+      step("Run pty + blocks tests"),
+    ]);
+    expect(g.setup.map((s) => s.name)).toEqual(["Set up job", "Run actions/checkout@v4"]);
+    expect(g.work.map((s) => s.name)).toEqual([
+      "Install Tauri system dependencies",
+      "Run pty + blocks tests",
+    ]);
+    expect(g.post).toEqual([]);
+    expect(g.setupFoldable).toBe(true);
+  });
+
+  it("folds trailing Post/Complete job steps as post; mid-list Run actions stays work", () => {
+    const g = groupSteps([
+      step("Set up job"),
+      step("Build"),
+      step("Run actions/upload-artifact@v4"),
+      step("Post Setup Node"),
+      step("Post Run actions/checkout@v4"),
+      step("Complete job"),
+    ]);
+    expect(g.setup.map((s) => s.name)).toEqual(["Set up job"]);
+    expect(g.work.map((s) => s.name)).toEqual(["Build", "Run actions/upload-artifact@v4"]);
+    expect(g.post.map((s) => s.name)).toEqual([
+      "Post Setup Node",
+      "Post Run actions/checkout@v4",
+      "Complete job",
+    ]);
+    expect(g.postFoldable).toBe(true);
+  });
+
+  it("a failed step inside a group makes it non-foldable — failures never hide", () => {
+    const g = groupSteps([
+      step("Set up job", { state: "failure" }),
+      step("Build"),
+    ]);
+    expect(g.setup.length).toBe(1);
+    expect(g.setupFoldable).toBe(false);
+  });
+
+  it("all-work list passes through", () => {
+    const g = groupSteps([step("Build"), step("Test")]);
+    expect(g.setup).toEqual([]);
+    expect(g.post).toEqual([]);
+    expect(g.work.length).toBe(2);
+    expect(g.setupFoldable).toBe(false);
+    expect(g.postFoldable).toBe(false);
+  });
+});
+
+describe("failedRunsToOpen", () => {
+  const r = (id: number, state: string) => ({ id, state });
+  it("returns failed run ids not yet auto-opened", () => {
+    expect(failedRunsToOpen([r(1, "failure"), r(2, "success"), r(3, "timed_out")], new Set())).toEqual([1, 3]);
+    expect(failedRunsToOpen([r(1, "failure")], new Set([1]))).toEqual([]);
+  });
+  it("ignores busy runs and id 0", () => {
+    expect(failedRunsToOpen([r(0, "failure"), r(2, "in_progress")], new Set())).toEqual([]);
+  });
+});
 
 describe("renderLoading", () => {
   it("renders a loading notice", () => {
@@ -273,7 +355,9 @@ describe("run detail expansion", () => {
   const detail = (over: Partial<RunDetail> = {}): RunDetail => ({
     expanded: new Set<number>(),
     jobs: new Map<number, RunDetailState>(),
+    folds: new Set<string>(),
     onToggle: vi.fn(),
+    onToggleFold: vi.fn(),
     ...over,
   });
 
@@ -313,5 +397,105 @@ describe("run detail expansion", () => {
     });
     renderBeacon(root, okState, undefined, undefined, undefined, dErr);
     expect(root.querySelector(".rail-jobs-error")?.textContent).toContain("boom");
+  });
+
+  it("renders the run state as a pill in a single-line meta strip", () => {
+    renderBeacon(root, okState, undefined, undefined, undefined, detail());
+    const pill = root.querySelector(".rail-pill");
+    expect(pill).not.toBeNull();
+    expect(pill?.textContent).toBe("in progress");
+    expect(pill?.classList.contains("is-busy")).toBe(true);
+    // ref is accent-tagged, actor is the truncating slot
+    expect(root.querySelector(".rail-meta .is-ref")?.textContent).toBe("main");
+    expect(root.querySelector(".rail-meta .is-actor")?.textContent).toBe("karluiz");
+  });
+
+  const taxJobs: BeaconJob[] = [
+    {
+      id: 101,
+      name: "build",
+      state: "in_progress",
+      started_at: "2026-07-12T18:00:00Z",
+      completed_at: null,
+      steps: [
+        { name: "Set up job", state: "success", started_at: "2026-07-12T18:00:00Z", completed_at: "2026-07-12T18:00:01Z" },
+        { name: "Run actions/checkout@v4", state: "success", started_at: "2026-07-12T18:00:01Z", completed_at: "2026-07-12T18:00:03Z" },
+        { name: "Build Tauri bundles", state: "in_progress", started_at: "2026-07-12T18:00:03Z", completed_at: null },
+        { name: "Upload to release", state: "queued", started_at: null, completed_at: null },
+        { name: "Post Run actions/checkout@v4", state: "queued", started_at: null, completed_at: null },
+      ],
+    },
+  ];
+
+  const taxDetail = (folds = new Set<string>()) =>
+    detail({
+      expanded: new Set([7]),
+      jobs: new Map<number, RunDetailState>([[7, { kind: "jobs", jobs: taxJobs }]]),
+      folds,
+    });
+
+  it("job header shows done/total counter and a progress bar", () => {
+    renderBeacon(root, okState, undefined, undefined, undefined, taxDetail());
+    expect(root.querySelector(".rail-job-count")?.textContent).toBe("2/5");
+    const bar = root.querySelector<HTMLElement>(".rail-job-bar i");
+    expect(bar).not.toBeNull();
+    expect(bar!.style.width).toBe("40%");
+  });
+
+  it("ceremony steps fold to a summary row; clicking it fires onToggleFold", () => {
+    const d = taxDetail();
+    renderBeacon(root, okState, undefined, undefined, undefined, d);
+    const folds = [...root.querySelectorAll(".rail-fold")];
+    expect(folds.length).toBe(2); // setup + post
+    expect(folds[0].textContent).toContain("setup · 2 steps");
+    expect(folds[1].textContent).toContain("post · 1 step");
+    // folded ceremony steps are not rendered as step rows
+    const stepNames = [...root.querySelectorAll(".rail-step-name")].map((e) => e.textContent);
+    expect(stepNames).toEqual(["Build Tauri bundles", "Upload to release"]);
+    (folds[0] as HTMLElement).click();
+    expect(d.onToggleFold).toHaveBeenCalledWith("7:101:setup");
+  });
+
+  it("an open fold renders its steps inline", () => {
+    renderBeacon(root, okState, undefined, undefined, undefined, taxDetail(new Set(["7:101:setup"])));
+    const stepNames = [...root.querySelectorAll(".rail-step-name")].map((e) => e.textContent);
+    expect(stepNames).toEqual([
+      "Set up job",
+      "Run actions/checkout@v4",
+      "Build Tauri bundles",
+      "Upload to release",
+    ]);
+  });
+
+  it("marks the running step as .is-now and pending durations as em-dash", () => {
+    renderBeacon(root, okState, undefined, undefined, undefined, taxDetail());
+    const now = root.querySelector(".rail-step.is-now .rail-step-name");
+    expect(now?.textContent).toBe("Build Tauri bundles");
+    const stepsAll = [...root.querySelectorAll(".rail-step")];
+    const pendDur = stepsAll[stepsAll.length - 1]?.querySelector(".rail-step-dur");
+    expect(pendDur?.textContent).toBe("—");
+  });
+
+  it("marks a failed step with .is-fail-step and never folds its group", () => {
+    const failJobs: BeaconJob[] = [
+      {
+        id: 102,
+        name: "manifest",
+        state: "failure",
+        started_at: "2026-07-12T18:00:00Z",
+        completed_at: "2026-07-12T18:01:00Z",
+        steps: [
+          { name: "Set up job", state: "failure", started_at: "2026-07-12T18:00:00Z", completed_at: "2026-07-12T18:00:05Z" },
+          { name: "Compose latest.json", state: "skipped", started_at: null, completed_at: null },
+        ],
+      },
+    ];
+    const d = detail({
+      expanded: new Set([7]),
+      jobs: new Map<number, RunDetailState>([[7, { kind: "jobs", jobs: failJobs }]]),
+    });
+    renderBeacon(root, okState, undefined, undefined, undefined, d);
+    expect(root.querySelector(".rail-fold")).toBeNull(); // failed setup can't fold
+    expect(root.querySelector(".rail-step.is-fail-step .rail-step-name")?.textContent).toBe("Set up job");
   });
 });
