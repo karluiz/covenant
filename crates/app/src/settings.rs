@@ -17,6 +17,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use karl_agent::acp::policy::AcpTrust;
 use karl_agent::provider::ProviderKind;
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +47,29 @@ pub struct ProviderEntry {
     pub azure_api_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub azure_deployment: Option<String>,
+}
+
+/// Launch configuration for one interactive ACP executor
+/// ("claude" | "copilot" | "opencode" | "pi"). Missing entries fall back
+/// to `Settings::acp_executor`'s per-executor defaults.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AcpExecutorConfig {
+    #[serde(default)]
+    pub trust: AcpTrust,
+    /// Default model for new sessions (claude: isolated settings.json;
+    /// others: best-effort session/set_model after session/new).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Thinking budget in tokens — claude only (MAX_THINKING_TOKENS).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_tokens: Option<u32>,
+    /// Extra env for the adapter process; applied LAST so it can
+    /// override trust-derived entries (e.g. OPENCODE_PERMISSION).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<(String, String)>,
+    /// Extra CLI args appended after the adapter's own args.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -341,6 +365,10 @@ pub struct Settings {
     /// `ui/src/lsp/manager.ts`.
     #[serde(default)]
     pub code_intelligence: CodeIntelligenceConfig,
+
+    /// Per-executor ACP launch config (Settings → Harnesses → ACP agents).
+    #[serde(default)]
+    pub acp_executors: HashMap<String, AcpExecutorConfig>,
 }
 
 /// Settings → "Code intelligence" section. `enabled` gates whether the
@@ -428,6 +456,15 @@ impl Default for CloudSyncConfig {
 impl Settings {
     pub fn familiars_active(&self) -> bool {
         self.familiars_enabled
+    }
+
+    pub fn acp_executor(&self, executor: &str) -> AcpExecutorConfig {
+        self.acp_executors.get(executor).cloned().unwrap_or_else(|| AcpExecutorConfig {
+            // Copilot ACP tabs have always launched --allow-all-tools;
+            // keep that status quo until the user says otherwise.
+            trust: if executor == "copilot" { AcpTrust::Yolo } else { AcpTrust::Balanced },
+            ..AcpExecutorConfig::default()
+        })
     }
 }
 
@@ -735,6 +772,7 @@ impl Default for Settings {
             onboarding_completed: false,
             onboarding_version: 0,
             code_intelligence: CodeIntelligenceConfig::default(),
+            acp_executors: HashMap::new(),
         }
     }
 }
@@ -1512,6 +1550,41 @@ mod tab_style_tests {
             "\"glass\""
         );
         assert_eq!(serde_json::to_string(&TabStyle::Crt).unwrap(), "\"crt\"");
+    }
+}
+
+#[cfg(test)]
+mod acp_executor_tests {
+    use super::*;
+
+    #[test]
+    fn acp_executor_defaults() {
+        let s: Settings = serde_json::from_str("{}").expect("empty settings parse");
+        // Unconfigured copilot preserves the historical hard-coded
+        // --allow-all-tools behavior; everyone else starts Balanced.
+        assert_eq!(s.acp_executor("copilot").trust, AcpTrust::Yolo);
+        assert_eq!(s.acp_executor("claude").trust, AcpTrust::Balanced);
+        assert_eq!(s.acp_executor("pi").trust, AcpTrust::Balanced);
+    }
+
+    #[test]
+    fn acp_executor_roundtrip() {
+        let json = r#"{ "acp_executors": { "claude": {
+            "trust": "yolo", "model": "claude-sonnet-4.6",
+            "thinking_tokens": 8192,
+            "env": [["FOO", "bar"]], "args": ["--hide-claude-auth"]
+        } } }"#;
+        let s: Settings = serde_json::from_str(json).expect("parse");
+        let c = s.acp_executor("claude");
+        assert_eq!(c.trust, AcpTrust::Yolo);
+        assert_eq!(c.model.as_deref(), Some("claude-sonnet-4.6"));
+        assert_eq!(c.thinking_tokens, Some(8192));
+        assert_eq!(c.env, vec![("FOO".to_string(), "bar".to_string())]);
+        assert_eq!(c.args, vec!["--hide-claude-auth".to_string()]);
+        // Round-trips through save format.
+        let back: Settings =
+            serde_json::from_str(&serde_json::to_string(&s).expect("ser")).expect("de");
+        assert_eq!(back.acp_executor("claude").trust, AcpTrust::Yolo);
     }
 }
 
