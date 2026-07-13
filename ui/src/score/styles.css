@@ -102,7 +102,7 @@
 
 .covenant-page {
   padding: 4px 0 32px;
-  color: #d6e2e6;
+  color: var(--text-primary);
   font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.45;
@@ -116,26 +116,25 @@
   flex-wrap: wrap;
 }
 .cov-chip {
-  font-size: 11px;
+  font-size: var(--fs-meta);
   padding: 5px 10px;
-  border: 1px solid #243036;
-  border-radius: 6px;
-  color: #6c8088;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--muted);
   cursor: pointer;
-  background: #131a1e;
+  background: transparent;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-family: inherit;
   line-height: 1;
 }
-.cov-chip:hover { color: #d6e2e6; border-color: #324048; }
+.cov-chip:hover { color: var(--text-primary); border-color: rgba(var(--ink-rgb), 0.2); }
 .cov-chip.active {
-  color: #5eead4;
-  border-color: #1f4a44;
-  background: rgba(94,234,212,0.06);
+  color: var(--num);
+  border-color: color-mix(in srgb, var(--num) 30%, transparent);
 }
-.cov-chip .x { color: #4a5b63; margin-left: 2px; }
+.cov-chip .x { color: var(--text-tertiary); margin-left: 4px; }
 
 /* Stat cards */
 .cov-stats {
@@ -145,54 +144,46 @@
   margin-bottom: 22px;
 }
 .cov-stat {
-  background: #131a1e;
-  border: 1px solid #1c252b;
-  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0;
   padding: 14px 16px;
 }
-.cov-stat .v {
-  font-size: 24px;
-  color: #5eead4;
-  letter-spacing: 0.5px;
-  font-weight: 500;
-}
-.cov-stat .l {
-  font-size: 9px;
-  color: #6c8088;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  margin-top: 2px;
-}
-.cov-stat .delta { font-size: 10px; color: #22c55e; margin-left: 6px; }
+.cov-stat .v { font-size: 26px; color: var(--num); font-weight: 500; font-variant-numeric: tabular-nums; }
+.cov-stat .l { font-size: var(--fs-micro); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.cov-stat--hero .v { font-size: 40px; }
+.cov-stat-delta.is-up { color: var(--ok); }
+.cov-stat-delta.is-down { color: var(--muted); }
 
 /* Section card */
 .cov-card {
-  background: #131a1e;
-  border: 1px solid #1c252b;
-  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0;
   padding: 16px 18px;
   margin-bottom: 14px;
 }
 .cov-card h4 {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: #6c8088;
-  margin: 0 0 12px;
-  font-weight: 600;
+  font-size: var(--fs-title); font-weight: 600; letter-spacing: var(--ls-title);
+  text-transform: uppercase; color: rgba(var(--ink-rgb), 0.42); margin: 0 0 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.cov-card h4 .hint { font-size: 9px; color: #4a5b63; text-transform: none; letter-spacing: 0.3px; }
+.cov-card h4 .hint { font-size: var(--fs-micro); color: var(--text-tertiary); text-transform: none; letter-spacing: normal; margin-left: 6px; }
 .cov-card-foot {
   font-size: 10px;
-  color: #4a5b63;
+  color: var(--text-tertiary);
   margin-top: 8px;
 }
 
 /* Heatmap */
-.cov-heatmap-card { }
+.cov-heatmap-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 16px 18px;
+}
 .cov-heatmap {
   display: grid;
   grid-template-rows: repeat(7, minmax(0, 1fr));
@@ -227,17 +218,8 @@
   gap: 4px;
   margin-top: 8px;
   font-size: 9px;
-  color: #6c8088;
+  color: var(--muted);
 }
-
-/* Two-column layout */
-.cov-two {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-.cov-two .cov-card { margin-bottom: 0; }
 
 /* Bar chart rows */
 .bar-row {
@@ -408,21 +390,21 @@
   justify-content: space-between;
   width: 100%;
   box-sizing: border-box;
-  background: linear-gradient(90deg, rgba(94,234,212,0.04), transparent);
-  border: 1px solid #1f4a44;
-  border-radius: 10px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--num) 4%, transparent), transparent);
+  border: 1px solid color-mix(in srgb, var(--num) 30%, transparent);
+  border-radius: 0;
   padding: 14px 18px;
   gap: 12px;
 }
-.cov-sync .l { font-size: 11px; color: #6c8088; }
-.cov-sync .l b { color: #d6e2e6; display: block; margin-bottom: 2px; font-weight: 500; font-size: 13px; }
-.cov-sync-status { font-size: 11px; color: #6c8088; }
+.cov-sync .l { font-size: 11px; color: var(--muted); }
+.cov-sync .l b { color: var(--text-primary); display: block; margin-bottom: 2px; font-weight: 500; font-size: 13px; }
+.cov-sync-status { font-size: 11px; color: var(--muted); }
 .cov-sync-reauth { margin-top: 8px; }
 .covenant-page .btn {
-  background: #5eead4;
-  color: #04201c;
+  background: var(--num);
+  color: #0b0d10;
   border: 0;
-  border-radius: 6px;
+  border-radius: 0;
   padding: 8px 14px;
   font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
   font-size: 12px;
@@ -431,15 +413,15 @@
 }
 .covenant-page .btn.ghost {
   background: transparent;
-  color: #6c8088;
-  border: 1px solid #243036;
+  color: var(--muted);
+  border: 1px solid var(--border);
 }
 .covenant-page .btn:hover { opacity: 0.85; }
-.covenant-page .btn.ghost:hover { color: #d6e2e6; border-color: #324048; }
+.covenant-page .btn.ghost:hover { color: var(--text-primary); border-color: rgba(var(--ink-rgb), 0.2); }
 
 /* Empty state */
 .cov-empty {
-  color: #4a5b63;
+  color: var(--text-tertiary);
   font-size: 11px;
   padding: 12px 0;
   text-align: center;
