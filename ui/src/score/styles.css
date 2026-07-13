@@ -461,15 +461,15 @@ body.theme-light .score-legend { color: var(--muted); }
 
 body.theme-light .covenant-page { color: var(--text-primary); }
 body.theme-light .cov-chip {
-    background: rgba(0, 0, 0, 0.03);
+    background: rgba(var(--ink-rgb), 0.03);
     border-color: var(--border);
     color: var(--muted);
 }
 body.theme-light .cov-chip:hover { color: var(--text-primary); border-color: var(--border); }
 body.theme-light .cov-chip.active {
-    color: #0a8f7d;
-    border-color: rgba(94, 234, 212, 0.5);
-    background: rgba(94, 234, 212, 0.1);
+    color: var(--num);
+    border-color: color-mix(in srgb, var(--num) 30%, transparent);
+    background: color-mix(in srgb, var(--num) 12%, transparent);
 }
 body.theme-light .cov-chip .x { color: var(--muted); }
 
@@ -478,9 +478,8 @@ body.theme-light .cov-card {
     background: var(--bg-panel);
     border-color: var(--border);
 }
-body.theme-light .cov-stat .v { color: #0a8f7d; }
+body.theme-light .cov-stat .v { color: var(--num); }
 body.theme-light .cov-stat .l { color: var(--muted); }
-body.theme-light .cov-stat .delta { color: #2f9e44; }
 body.theme-light .cov-card h4 { color: var(--muted); }
 body.theme-light .cov-card h4 .hint,
 body.theme-light .cov-card-foot { color: var(--muted); }
@@ -534,15 +533,15 @@ body.theme-light .session .nums { color: var(--muted); }
 body.theme-light .session .nums b { color: #0a8f7d; }
 
 body.theme-light .cov-sync {
-    background: linear-gradient(90deg, rgba(94, 234, 212, 0.08), transparent);
-    border-color: rgba(94, 234, 212, 0.5);
+    background: color-mix(in srgb, var(--num) 8%, transparent);
+    border-color: color-mix(in srgb, var(--num) 30%, transparent);
 }
 body.theme-light .cov-sync .l { color: var(--muted); }
 body.theme-light .cov-sync .l b { color: var(--text-primary); }
 body.theme-light .cov-sync-status { color: var(--muted); }
 body.theme-light .covenant-page .btn {
-    background: #14a88c;
-    color: #ffffff;
+    background: var(--num);
+    color: #0c0e12;
 }
 body.theme-light .covenant-page .btn.ghost {
     background: #ffffff;
@@ -773,14 +772,15 @@ body.theme-true-dark {
 body.theme-true-dark .cov-stat,
 body.theme-true-dark .cov-card,
 body.theme-true-dark .cov-chip { background: var(--cov-surface); border-color: var(--cov-line); }
-body.theme-true-dark .cov-chip:hover { border-color: #2c2c2f; color: #d6e2e6; }
+body.theme-true-dark .cov-chip:hover { border-color: var(--border); color: var(--text-primary); }
 body.theme-true-dark .cov-chip.active {
-  color: var(--cov-teal); border-color: var(--cov-teal-dim);
-  background: rgba(69, 196, 178, 0.06);
+  color: var(--num); border-color: color-mix(in srgb, var(--num) 30%, transparent);
+  background: color-mix(in srgb, var(--num) 10%, transparent);
 }
 
+body.theme-true-dark .cov-stat .v { color: var(--num); }
+
 /* Calm the bright teal accents that vibrate on pure black */
-body.theme-true-dark .cov-stat .v,
 body.theme-true-dark .branch .b-meta b,
 body.theme-true-dark .session .what .repo,
 body.theme-true-dark .session .nums b,
@@ -788,7 +788,6 @@ body.theme-true-dark .bar-row .name:hover,
 body.theme-true-dark .bar-row.active .name,
 body.theme-true-dark .lb-row:hover .lb-gname,
 body.theme-true-dark .lb-more { color: var(--cov-teal); }
-body.theme-true-dark .cov-stat .delta { color: #3ba35b; }
 
 /* Heatmap: neutral empty cells, keep the data ramp, drop the l4 glow.
    The empty-cell rule below is (0,2,1) specificity and would otherwise
@@ -814,12 +813,12 @@ body.theme-true-dark .session { border-top-color: var(--cov-line); }
 
 /* Sync card + buttons */
 body.theme-true-dark .cov-sync {
-  background: linear-gradient(90deg, rgba(69, 196, 178, 0.05), transparent);
-  border-color: var(--cov-teal-dim);
+  background: color-mix(in srgb, var(--num) 6%, transparent);
+  border-color: color-mix(in srgb, var(--num) 28%, transparent);
 }
-body.theme-true-dark .covenant-page .btn { background: var(--cov-teal); color: #04201c; }
+body.theme-true-dark .covenant-page .btn { background: var(--num); color: #0c0e12; }
 body.theme-true-dark .covenant-page .btn.ghost { color: var(--muted); border-color: var(--cov-line); }
-body.theme-true-dark .covenant-page .btn.ghost:hover { color: #d6e2e6; border-color: #2c2c2f; }
+body.theme-true-dark .covenant-page .btn.ghost:hover { color: var(--text-primary); border-color: var(--border); }
 
 /* Leaderboard controls + input */
 body.theme-true-dark .lb-ctl { background: var(--cov-surface); border-color: var(--cov-line); }
