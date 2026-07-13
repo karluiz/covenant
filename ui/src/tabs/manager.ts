@@ -270,6 +270,10 @@ interface Tab {
   /// Stored as a closure so it can capture the per-tab `showSplitter`
   /// helper without forcing every caller to know the dance.
   openEditor?: (path: string, opts?: { line?: number }) => void;
+  /// Switch this tab's sidebar rail between Blocks/Files/Recall — the
+  /// same closure the per-tab nav buttons call, exposed so external
+  /// flows (CLI/Finder file-open) can reveal the Files tree.
+  setSidebarView?: (view: "blocks" | "structure" | "recall") => void;
   /// Pi-specific — set when `kind === "pi"`. Subscribes to the Pi RPC
   /// event stream and renders the chat panel inside `pane`.
   piView?: PiChatView;
@@ -4293,6 +4297,7 @@ export class TabManager {
       structure,
       editor,
       openEditor,
+      setSidebarView: switchSidebar,
       wroteWhileHidden: true,
       sidebarView: "blocks",
       disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose, promptHint, cdPicker],
@@ -6327,40 +6332,51 @@ export class TabManager {
 
   // ─── Group ops ──────────────────────────────────────
 
-  /// `covenant <path>` / Finder "Open With" entry point. A directory
-  /// focuses the existing group rooted there (or creates one named
-  /// after its basename); a file opens in the active tab's editor,
-  /// spawning a shell tab in the file's directory first when needed.
+  /// `covenant <path>` / Finder "Open With" entry point. Directory or
+  /// file, the anchor is the same: a group rooted at the directory
+  /// (the file's parent for files), named after its basename, with a
+  /// shell tab inside. Files additionally open in the tab's editor
+  /// with the Files sidebar showing the surrounding folder — the
+  /// "double-click a .md" experience.
   async openCliPath(path: string, isDirectory: boolean): Promise<void> {
-    if (isDirectory) {
-      for (const [gid, g] of this.groups) {
-        if (g.rootDir !== path) continue;
-        const firstIdx = this.memberIndices(gid)[0];
-        if (firstIdx !== undefined) {
-          this.activate(this.tabs[firstIdx].id);
-        } else {
-          await this.createTab({ groupId: gid, cwd: path });
-        }
-        return;
+    const dir = isDirectory ? path : path.slice(0, path.lastIndexOf("/")) || "/";
+
+    let groupId: string | null = null;
+    for (const [gid, g] of this.groups) {
+      if (g.rootDir === dir) {
+        groupId = gid;
+        break;
       }
-      const id = crypto.randomUUID();
-      this.groups.set(id, {
-        id,
-        name: cwdBasename(path),
+    }
+    if (!groupId) {
+      groupId = crypto.randomUUID();
+      this.groups.set(groupId, {
+        id: groupId,
+        name: cwdBasename(dir),
         color: null,
         collapsed: false,
-        rootDir: path,
+        rootDir: dir,
         canonOrg: null,
       });
-      await this.createTab({ groupId: id, cwd: path });
       this.scheduleSave();
-      return;
     }
-    const dir = path.slice(0, path.lastIndexOf("/")) || "/";
-    let tab = this.tabs.find((t) => t.id === this.activeId && t.kind !== "pi") ?? null;
-    if (!tab?.openEditor) tab = await this.createTab({ cwd: dir });
-    if (!tab) return;
-    this.activate(tab.id);
+
+    // Reuse a member tab when one can serve the request (any member for
+    // a directory; one with an editor for a file), else spawn a shell
+    // tab in the group.
+    const memberIdx = this.memberIndices(groupId).find(
+      (i) => isDirectory || this.tabs[i]?.openEditor !== undefined,
+    );
+    let tab = memberIdx !== undefined ? this.tabs[memberIdx] : null;
+    if (tab) {
+      this.activate(tab.id);
+    } else {
+      tab = await this.createTab({ groupId, cwd: dir });
+    }
+    if (!tab || isDirectory) return;
+
+    tab.setSidebarView?.("structure");
+    void tab.structure?.setCwd(dir);
     tab.openEditor?.(path);
   }
 
