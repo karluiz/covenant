@@ -855,3 +855,80 @@
   transform: translateY(1px);
 }
 .acp-chat-cancel[hidden] { display: none; }
+
+/* ---- Background consoles — execute calls that left a process alive ---- */
+/* Chip variant in the exit-chip slot: amber, pulsing dot. Mutates back
+   to a normal `exit N` chip if a later update carries the shell_exit. */
+.acp-exit-chip[data-bg="true"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: color-mix(in srgb, var(--running) 14%, transparent);
+  color: var(--running);
+  border: 1px solid color-mix(in srgb, var(--running) 30%, transparent);
+}
+.acp-exit-chip[data-bg="true"]::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--running);
+  animation: acp-bg-pulse 1.6s ease-in-out infinite;
+}
+@keyframes acp-bg-pulse {
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acp-exit-chip[data-bg="true"]::before,
+  .acp-live-dot { animation: none; }
+}
+/* Disclaimer row inside the tool body. */
+.acp-bg-note {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: color-mix(in srgb, var(--running) 70%, var(--text-secondary));
+  background: color-mix(in srgb, var(--running) 6%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--running) 55%, transparent);
+}
+.acp-bg-shellid {
+  margin-left: auto;
+  color: var(--text-tertiary, var(--text-secondary));
+  white-space: nowrap;
+}
+/* Census strip above the composer — only mounted while consoles live. */
+.acp-live-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  flex: 0 0 auto;
+  border-top: 1px solid color-mix(in srgb, var(--running) 25%, transparent);
+  background: color-mix(in srgb, var(--running) 5%, transparent);
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: color-mix(in srgb, var(--running) 70%, var(--text-secondary));
+}
+.acp-live-strip[hidden] { display: none; }
+.acp-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--running);
+  flex: none;
+  animation: acp-bg-pulse 1.6s ease-in-out infinite;
+}
+.acp-live-count {
+  color: var(--running);
+  white-space: nowrap;
+}
+.acp-live-cmds {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

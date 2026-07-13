@@ -213,6 +213,12 @@ export interface AcpStreamState {
   /// pi-acp reports a clean empty end_turn) — surfaced as a notice
   /// instead of pure silence. Reset by the view on each send.
   turnHadOutput: boolean;
+  /// Set once any tool update in the session carries a typed
+  /// `shell_exit`. Only after that does a completed execute WITHOUT one
+  /// mean "the adapter left the console running" — for adapters that
+  /// never emit `shell_exit`, absence carries no signal and no execute
+  /// is ever flagged as a background console.
+  sawShellExit: boolean;
 }
 
 export function createAcpStreamState(): AcpStreamState {
@@ -223,6 +229,7 @@ export function createAcpStreamState(): AcpStreamState {
     inFlight: false,
     commands: [],
     turnHadOutput: false,
+    sawShellExit: false,
   };
 }
 
@@ -403,6 +410,7 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
         }
       } else if (isToolUpdate(u)) {
         state.turnHadOutput = true;
+        if (exitCodeOf(u.rawOutput) !== null) state.sawShellExit = true;
         upsertTool(state, {
           toolCallId: u.toolCallId,
           title: u.title,
@@ -589,6 +597,12 @@ export class AcpChatView {
   private jumpBtn!: HTMLButtonElement;
 
   private readonly toolDoms: Map<string, ToolCardDom> = new Map();
+  private liveStripEl: HTMLElement | null = null;
+  /// toolCallId → when the console was first seen running in background
+  /// (for the strip's age readout). Membership itself derives from
+  /// `state.tools` on every strip render.
+  private readonly bgSince: Map<string, number> = new Map();
+  private liveStripTimer: number | null = null;
   private readonly permDoms: Map<string, PermCardDom> = new Map();
 
   private slashEl!: HTMLElement;
@@ -633,6 +647,10 @@ export class AcpChatView {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (this.liveStripTimer !== null) {
+      window.clearInterval(this.liveStripTimer);
+      this.liveStripTimer = null;
+    }
     document.removeEventListener("mousedown", this.closeModelMenuOnOutsideClick);
     if (this.unlisten) {
       try {
@@ -710,6 +728,7 @@ export class AcpChatView {
           </ul>
         </div>
       </div>
+      <div class="acp-live-strip" hidden></div>
       <form class="acp-chat-input" autocomplete="off">
         <div class="acp-slash-menu" role="listbox" hidden></div>
         <div class="acp-slash-menu acp-mention-menu" role="listbox" hidden></div>
@@ -746,6 +765,7 @@ export class AcpChatView {
       else this.closeModelMenu();
     });
     this.renderMeta();
+    this.liveStripEl = requireChild(this.host, ".acp-live-strip");
     this.messagesEl = requireChild(this.host, ".acp-chat-messages");
     this.messagesEl.addEventListener(
       "scroll",
@@ -1476,7 +1496,10 @@ export class AcpChatView {
     dom.chipEl.dataset.kind = kind;
     dom.chipEl.textContent = kind;
 
-    const state = statusToState(f.status);
+    const background = isBackgroundConsole(f, this.state.sawShellExit);
+    // A background console reads as still-running even though the tool
+    // call itself completed — the process it spawned is alive.
+    const state = background ? "running" : statusToState(f.status);
     dom.dotEl.dataset.state = state;
     dom.root.dataset.status = state;
 
@@ -1488,9 +1511,22 @@ export class AcpChatView {
       dom.exitEl.hidden = false;
       dom.exitEl.textContent = `exit ${code}`;
       dom.exitEl.dataset.ok = String(code === 0);
+      delete dom.exitEl.dataset.bg;
+    } else if (background) {
+      dom.exitEl.hidden = false;
+      dom.exitEl.textContent = "background";
+      dom.exitEl.dataset.bg = "true";
+      delete dom.exitEl.dataset.ok;
     } else {
       dom.exitEl.hidden = true;
     }
+
+    if (background && !this.bgSince.has(f.toolCallId)) {
+      this.bgSince.set(f.toolCallId, Date.now());
+    } else if (!background) {
+      this.bgSince.delete(f.toolCallId);
+    }
+    this.renderLiveStrip();
 
     dom.bodyEl.innerHTML = "";
     const diffs = diffBlocksOf(f.content);
@@ -1508,6 +1544,15 @@ export class AcpChatView {
         outEl.textContent = out;
         dom.bodyEl.appendChild(outEl);
       }
+      if (background) {
+        const shellId = shellIdOf(f.rawOutput);
+        const note = document.createElement("div");
+        note.className = "acp-bg-note";
+        note.innerHTML =
+          `<span>This console is still running — the agent moved on without waiting for it to exit.</span>` +
+          (shellId !== null ? `<span class="acp-bg-shellid">shellId ${escapeHtml(shellId)}</span>` : "");
+        dom.bodyEl.appendChild(note);
+      }
     } else {
       const out = stripFences(joinContentText(f.content));
       if (out.length > 0) {
@@ -1516,6 +1561,48 @@ export class AcpChatView {
         outEl.textContent = out;
         dom.bodyEl.appendChild(outEl);
       }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Live-console strip — census of background consoles above the composer.
+  // Mounts only while any are alive; unmounts itself at zero.
+  // -------------------------------------------------------------------------
+
+  private renderLiveStrip(): void {
+    const el = this.liveStripEl;
+    if (!el) return;
+    const live: Array<{ command: string | null; shellId: string | null; since: number | undefined }> = [];
+    for (const item of this.state.tools.values()) {
+      if (!isBackgroundConsole(item.fields, this.state.sawShellExit)) continue;
+      live.push({
+        command: commandOf(item.fields.rawInput),
+        shellId: shellIdOf(item.fields.rawOutput),
+        since: this.bgSince.get(item.toolCallId),
+      });
+    }
+    if (live.length === 0) {
+      el.hidden = true;
+      if (this.liveStripTimer !== null) {
+        window.clearInterval(this.liveStripTimer);
+        this.liveStripTimer = null;
+      }
+      return;
+    }
+    const parts = live.map((c) => {
+      const bits = [c.command ?? "console"];
+      if (c.shellId !== null) bits.push(`shellId ${c.shellId}`);
+      if (c.since !== undefined) bits.push(consoleAge(c.since));
+      return bits.join(" · ");
+    });
+    el.innerHTML =
+      `<span class="acp-live-dot"></span>` +
+      `<span class="acp-live-count">${live.length} console${live.length === 1 ? "" : "s"} running</span>` +
+      `<span class="acp-live-cmds">${escapeHtml(parts.join("  ·  "))}</span>`;
+    el.hidden = false;
+    if (this.liveStripTimer === null) {
+      // Age readout only — membership updates arrive with tool events.
+      this.liveStripTimer = window.setInterval(() => this.renderLiveStrip(), 30_000);
     }
   }
 
@@ -1857,6 +1944,43 @@ function fileNameOf(rawInput: unknown): string | null {
   if (!rawInput || typeof rawInput !== "object") return null;
   const name = (rawInput as { fileName?: unknown }).fileName;
   return typeof name === "string" ? name : null;
+}
+
+/// Coarse age readout for the live-console strip: "<1m", "12m", "3h".
+function consoleAge(since: number): string {
+  const m = Math.floor((Date.now() - since) / 60_000);
+  if (m < 1) return "<1m";
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h`;
+}
+
+/// `rawOutput.contents[].shellId` from any typed entry, if present.
+/// Free-text `<shellId: N …>` mentions are NOT parsed — wording varies
+/// per adapter; only the typed field is trusted.
+export function shellIdOf(rawOutput: unknown): string | null {
+  if (!rawOutput || typeof rawOutput !== "object") return null;
+  const contents = (rawOutput as { contents?: unknown }).contents;
+  if (!Array.isArray(contents)) return null;
+  for (const entry of contents) {
+    if (!entry || typeof entry !== "object") continue;
+    const id = (entry as { shellId?: unknown }).shellId;
+    if (typeof id === "string") return id;
+    if (typeof id === "number") return String(id);
+  }
+  return null;
+}
+
+/// An execute tool call that completed WITHOUT a `shell_exit` left its
+/// console running (dev server, watcher). Only meaningful once the
+/// adapter has proven it emits `shell_exit` at all (`sawShellExit`).
+export function isBackgroundConsole(f: AcpToolCallFields, sawShellExit: boolean): boolean {
+  return (
+    sawShellExit &&
+    f.kind === "execute" &&
+    f.status === "completed" &&
+    commandOf(f.rawInput) !== null &&
+    exitCodeOf(f.rawOutput) === null
+  );
 }
 
 /// `rawOutput.contents[].exitCode` where `type === "shell_exit"` — mirrors

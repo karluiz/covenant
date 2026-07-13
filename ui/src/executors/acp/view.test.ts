@@ -23,12 +23,14 @@ vi.mock("../../api", () => ({
 import {
   createAcpStreamState,
   filterSlashCommands,
+  isBackgroundConsole,
   isCommandNoise,
   stripFences,
   markPermAnswered,
   mentionFragmentAt,
   perceptionAuditText,
   reduceAcpEvent,
+  shellIdOf,
   titleFromPrompt,
   type AcpNoticeItem,
   type AcpPermItem,
@@ -332,6 +334,54 @@ describe("reduceAcpEvent", () => {
     const notice = state.items[0] as AcpNoticeItem;
     expect(notice.kind).toBe("notice");
     expect(notice.variant).toBe("dead");
+  });
+});
+
+describe("background consoles", () => {
+  const SHELL_EXIT = { contents: [{ type: "shell_exit", shellId: "7", exitCode: 0, cwd: "/w" }] };
+  const RUN_CMD = { command: "npm run dev" };
+
+  it("sawShellExit flips only when a tool update carries a typed shell_exit", () => {
+    const state = createAcpStreamState();
+    reduceAcpEvent(
+      state,
+      update({ sessionUpdate: "tool_call", toolCallId: "t1", kind: "execute", status: "completed", content: [], rawInput: RUN_CMD }),
+    );
+    expect(state.sawShellExit).toBe(false);
+    reduceAcpEvent(
+      state,
+      update({ sessionUpdate: "tool_call_update", toolCallId: "t2", status: "completed", content: [], rawOutput: SHELL_EXIT }),
+    );
+    expect(state.sawShellExit).toBe(true);
+  });
+
+  it("completed execute without shell_exit is background — but only after the adapter proved it emits shell_exit", () => {
+    const fields = {
+      toolCallId: "t1",
+      title: null,
+      kind: "execute",
+      status: "completed",
+      rawInput: RUN_CMD,
+      rawOutput: undefined,
+      content: [],
+    };
+    expect(isBackgroundConsole(fields, false)).toBe(false);
+    expect(isBackgroundConsole(fields, true)).toBe(true);
+    // Still in flight → not background yet.
+    expect(isBackgroundConsole({ ...fields, status: "in_progress" }, true)).toBe(false);
+    // Non-execute kinds never flag.
+    expect(isBackgroundConsole({ ...fields, kind: "read" }, true)).toBe(false);
+    // No command (edit-style rawInput) never flags.
+    expect(isBackgroundConsole({ ...fields, rawInput: { fileName: "a.ts" } }, true)).toBe(false);
+    // A later shell_exit un-flags it.
+    expect(isBackgroundConsole({ ...fields, rawOutput: SHELL_EXIT }, true)).toBe(false);
+  });
+
+  it("shellIdOf reads only the typed field, string or number, never free text", () => {
+    expect(shellIdOf(SHELL_EXIT)).toBe("7");
+    expect(shellIdOf({ contents: [{ type: "shell_started", shellId: 15 }] })).toBe("15");
+    expect(shellIdOf({ content: "<shellId: 9 running>" })).toBeNull();
+    expect(shellIdOf(undefined)).toBeNull();
   });
 });
 
