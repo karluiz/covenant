@@ -6,6 +6,58 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.14 — covenant CLI .md opener + ACP editor split
+
+### Added
+
+- **`covenant <path>` CLI opener + .md file association**: `covenant .`
+  from any terminal opens the folder as a tab group named after its
+  basename; `covenant file.md` / Finder "Open With" opens the file
+  in-app. A single-instance plugin forwards argv from second launches,
+  `RunEvent::Opened` handles Finder file-opens, and a bundled shim at
+  `Contents/Resources/covenant` is symlinked by the Homebrew cask or the
+  new Settings → Command line install button (`crates/app`,
+  `ui/src/tabs/manager.ts`).
+
+- **Warp-like .md open experience**: opening a file anchors like a
+  folder open — group rooted at the file's parent, a shell tab inside,
+  the editor showing the file, and the Files sidebar revealed on that
+  folder. Tabs gained a per-tab `setSidebarView` so external flows can
+  reveal the Files rail without flipping every tab
+  (`ui/src/tabs/manager.ts`).
+
+- **ACP + tree editor share the screen**: ACP chat tabs now carry the
+  same editor contract as shell tabs (`openEditor`, `structure`,
+  `setSidebarView`), so the titlebar Files button, `covenant file.md`,
+  and search-palette jumps all work inside an ACP tab. The pane lays
+  out chat | editor | file tree as flex columns — unlike shell tabs'
+  overlay, the chat stays visible next to the open file
+  (`ui/src/tabs/manager.ts`, `ui/src/styles.css`).
+
+### Fixed
+
+- **Phantom "consoles running" after ACP resume**: Copilot reports
+  command exits as free text (`<shellId: N completed with exit code X>`)
+  and resumed sessions replay only that text, so every replayed one-shot
+  command was censused as a live background console. The text marker now
+  counts as an exit signal (`ui/src/executors/acp`).
+
+- **Titlebar brand off-center**: COVENANT was centered in the grid gap
+  between icon clusters, and the right cluster outweighs the left. The
+  brand is now pinned absolute at 50% of `#app-titlebar`, with the RC
+  presence dot docked inside the brand span (`ui/src`).
+
+- **Group menu "Start ACP" submenu icons**: the executor entries
+  (Copilot / pi / Claude / OpenCode) hardcoded the sparkles glyph; they
+  now resolve the per-executor brandmark like the pane menu
+  (`ui/src/tabs/manager.ts`).
+
+- **Convergence exit button + spawn editor badge**: the Convergence
+  overlay's exit control is now kbd-only (`Esc`) with an aria-label, and
+  the spawn editor no longer renders a duplicate brand badge next to the
+  brand select (`ui/src/convergence/overlay.ts`,
+  `ui/src/settings/spawns.ts`).
+
 ## v0.9.13 — JWT auto-refresh across marketplace + score sync
 
 ### Fixed
