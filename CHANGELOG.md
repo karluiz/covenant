@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.15 — canon org rename + tooltip zoom fix
+
+### Added
+
+- **Canon: rename an organization from the org menu (owner only)**: owner
+  rows in the org-switcher menu show a hover pencil that opens the shared
+  rename prompt and calls the new `PATCH /orgs/:slug` endpoint. The slug —
+  the org's identity for membership, packages and saved group refs — never
+  changes; only the display name (`ui/src/canon/panel.ts`,
+  `crates/app/src/canon_registry.rs`).
+
+### Fixed
+
+- **Status-bar tooltips floated away from their badges at zoom > 1**:
+  `getBoundingClientRect()` reports layout px in this WKWebView, so the
+  clamp math no longer divides the anchor rect by the zoom level — only
+  the viewport converts from visual px (`ui/src/tooltip/tooltip.ts`).
+
 ## v0.9.14 — covenant CLI .md opener + ACP editor split
 
 ### Added
