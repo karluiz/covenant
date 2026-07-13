@@ -15145,6 +15145,46 @@ body.theme-light .boot-splash-meta-dot {
 }
 .titlebar-icon-btn:disabled { opacity: 0.35; cursor: default; }
 
+/* Zen icons (Settings → Appearance). Titlebar buttons fade out unless
+   the pointer is over the titlebar or a button holds keyboard focus.
+   Only opacity/transform animate — both compositor properties, so the
+   fade runs on the GPU with zero layout/paint. Buttons keep their box
+   (no display/width change), so the hover target never moves. */
+body.zen-icons #app-titlebar :is(.titlebar-icon-btn, .titlebar-sep) {
+    transition:
+        opacity 0.38s cubic-bezier(0.33, 0, 0.2, 1),
+        transform 0.38s cubic-bezier(0.33, 0, 0.2, 1);
+}
+body.zen-icons #app-titlebar:not(:hover):not(:focus-within)
+    :is(.titlebar-icon-btn, .titlebar-sep) {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.94);
+    /* grace period: icons linger 300ms after the pointer leaves, so
+       grazing the bar doesn't strobe them */
+    transition-delay: 0.3s;
+}
+/* Reveal cascades left→right across the right cluster (18ms/child). */
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(2)  { transition-delay: 0.018s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(3)  { transition-delay: 0.036s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(4)  { transition-delay: 0.054s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(5)  { transition-delay: 0.072s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(6)  { transition-delay: 0.09s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(7)  { transition-delay: 0.108s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(8)  { transition-delay: 0.126s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(9)  { transition-delay: 0.144s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(10) { transition-delay: 0.162s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(11) { transition-delay: 0.18s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(12) { transition-delay: 0.198s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(13) { transition-delay: 0.216s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(14) { transition-delay: 0.234s; }
+body.zen-icons #app-titlebar:hover #app-titlebar-right > :nth-child(15) { transition-delay: 0.252s; }
+@media (prefers-reduced-motion: reduce) {
+    body.zen-icons #app-titlebar :is(.titlebar-icon-btn, .titlebar-sep) {
+        transition-duration: 0.01s;
+        transition-delay: 0s !important;
+    }
+}
+
 
 /* Title-bar panel-right toggle: collapses every tab-pane's Blocks/Files
    sidebar away entirely. Overrides per-tab `.blocks-collapsed` (which

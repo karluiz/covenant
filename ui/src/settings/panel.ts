@@ -161,6 +161,8 @@ interface Settings {
   hidden_indicators: string[];
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
+  /// Zen icons — titlebar buttons fade out, reappear on hover. Default false.
+  zen_icons?: boolean;
   /// Floating bottom-right notch overlay showing executor phase pills
   /// (Thinking / Reading / Running / Writing / Done). Default true.
   notch_enabled: boolean;
@@ -349,6 +351,7 @@ export class SettingsPanel {
         },
         hidden_indicators: [],
         status_bar_enabled: true,
+        zen_icons: false,
         notch_enabled: true,
         notch_corner: "bottom-right",
         notch_sound_on_done: true,
@@ -554,6 +557,17 @@ export class SettingsPanel {
             </span>
             <small class="settings-hint">
               Detection is cwd-driven and runs only when the bar is visible.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Zen icons</span>
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="zen_icons" />
+              <span>Hide titlebar icons until you hover the titlebar</span>
+            </span>
+            <small class="settings-hint">
+              Icons fade out for a quieter chrome and cascade back in
+              while the pointer is over the titlebar.
             </small>
           </label>
           <label class="settings-field">
@@ -1315,6 +1329,9 @@ export class SettingsPanel {
     const statusBarEnabled = form.querySelector<HTMLInputElement>(
       'input[name="status_bar_enabled"]',
     )!;
+    const zenIcons = form.querySelector<HTMLInputElement>(
+      'input[name="zen_icons"]',
+    )!;
     const indicatorChecks = form.querySelectorAll<HTMLInputElement>(
       "input[data-indicator-id]",
     );
@@ -1454,6 +1471,12 @@ export class SettingsPanel {
       r.addEventListener("change", previewAppearance),
     );
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
+    zenIcons.checked = this.current.zen_icons ?? false;
+    // Live preview — flip the body class as the user toggles; Save
+    // persists it, onSettingsSaved re-applies the stored value.
+    zenIcons.addEventListener("change", () => {
+      document.body.classList.toggle("zen-icons", zenIcons.checked);
+    });
     const hidden = new Set(this.current.hidden_indicators ?? []);
     indicatorChecks.forEach((cb) => {
       // dataset.indicatorId is safe: we rendered data-indicator-id ourselves above
@@ -1974,7 +1997,7 @@ export class SettingsPanel {
     const SEARCH_KEYWORDS: Record<string, string> = {
       "sec-providers": "api key anthropic openai azure ollama lm studio endpoint llm credentials",
       "sec-models": "model routing default fallback",
-      "sec-appearance": "theme dark light color font opacity accent sidebar folded rail collapsed",
+      "sec-appearance": "theme dark light color font opacity accent sidebar folded rail collapsed zen icons hover",
       "sec-terminal": "shell font cursor scrollback keybindings shortcut hotkey",
       "sec-code-intel": "lsp language server rust-analyzer code intelligence diagnostics autocomplete hover",
       "sec-operators": "operator agent soul persona achievements skills",
@@ -2096,6 +2119,7 @@ export class SettingsPanel {
           .filter((cb) => !cb.checked)
           .map((cb) => cb.dataset.indicatorId!),
         status_bar_enabled: statusBarEnabled.checked,
+        zen_icons: zenIcons.checked,
         notch_enabled: notchEnabled.checked,
         notch_corner: notchCorner.value as Settings["notch_corner"],
         notch_sound_on_done: notchSoundOnDone.checked,

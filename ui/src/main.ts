@@ -495,6 +495,7 @@ async function boot(): Promise<void> {
     initialSettings = await invoke<Settings>("get_settings");
     applyWindowBackground(initialSettings.window?.background ?? "vibrant");
     applyTabbarPosition(initialSettings.tabbar_position ?? "top");
+    document.body.classList.toggle("zen-icons", initialSettings.zen_icons ?? false);
     applyFoldedRailStyle(initialSettings.folded_rail_style ?? "legacy");
     applyPresetTabStyle(initialSettings.window?.tab_style ?? "classic");
     applyCustomTabStyle(initialSettings.experimental?.tab_styles);
@@ -1841,6 +1842,7 @@ async function boot(): Promise<void> {
     applyWindowBackground(next.window?.background ?? "vibrant");
     void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
     applyTabbarPosition(next.tabbar_position ?? "top");
+    document.body.classList.toggle("zen-icons", next.zen_icons ?? false);
     applyFoldedRailStyle(next.folded_rail_style ?? "legacy");
     applyPresetTabStyle(next.window?.tab_style ?? "classic");
     applyCustomTabStyle(next.experimental?.tab_styles);

@@ -288,6 +288,12 @@ pub struct Settings {
     #[serde(default)]
     pub tabbar_position: TabbarPosition,
 
+    /// Zen icons — titlebar icon buttons fade out and only reappear
+    /// while the pointer hovers the titlebar. Purely cosmetic; frontend
+    /// toggles `body.zen-icons`. Default false.
+    #[serde(default)]
+    pub zen_icons: bool,
+
     /// Visual style of the folded left sidebar (the collapsed rail).
     /// Purely cosmetic — the frontend toggles `body.tabbar-rail-<style>`
     /// and the rail component branches its DOM on it. `Legacy` is the
@@ -726,6 +732,7 @@ impl Default for Settings {
             notch_sound_on_done: default_notch_sound_on_done(),
             hidden_indicators: Vec::new(),
             tabbar_position: TabbarPosition::default(),
+            zen_icons: false,
             folded_rail_style: FoldedRailStyle::default(),
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,
