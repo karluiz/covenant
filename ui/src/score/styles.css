@@ -975,3 +975,14 @@ body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f;
 .pulse-mini-stat span { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
 .pulse-open-btn { margin-left: auto; background: var(--bg-panel); border: 1px solid rgba(var(--ink-rgb), 0.1); border-radius: 0; padding: 8px 14px; color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
 .pulse-open-btn:hover { background: rgba(var(--ink-rgb), 0.05); }
+
+/* Est. $ column + total (Pulse models card) */
+.cov-model-table .cov-cost { font-variant-numeric: tabular-nums; text-align: right; color: var(--text-primary); }
+.cov-cost-total {
+  margin-top: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  text-align: right;
+}
+.cov-cost-total b { color: var(--num); font-weight: 600; }

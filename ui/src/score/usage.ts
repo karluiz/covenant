@@ -1,4 +1,5 @@
 import type { AgentCell, ModelCell, ModelSource, SpecBreakdown } from "./api";
+import { estimateCostUsd, fmtCostUsd } from "./pricing";
 
 const AGENT_COLORS: Record<string, string> = {
   claude_code: "#3fb950",
@@ -57,15 +58,28 @@ export function renderModelsCard(
   onToggle: (next: ModelSource) => void,
 ): void {
   const isExternal = source === "external";
-  const rows = cells.map((c) => `
+  // Estimated $ per row from the static price table; unpriced models show
+  // "—" and are excluded from the total (footer flags how many).
+  let totalUsd = 0;
+  let unpriced = 0;
+  const rows = cells.map((c) => {
+    const cost = estimateCostUsd(c);
+    if (cost == null) unpriced++;
+    else totalUsd += cost;
+    return `
     <tr>
       ${isExternal ? `<td>${escapeHtml(c.agent ?? "—")}</td>` : ""}
       <td><code>${escapeHtml(c.model)}</code></td>
       <td>${c.calls}</td>
       <td>${c.input_tokens.toLocaleString()}${c.cache_read ? ` <span class="cov-dim">(${c.cache_read.toLocaleString()} cache)</span>` : ""}</td>
       <td>${c.output_tokens.toLocaleString()}</td>
+      <td class="cov-cost">${fmtCostUsd(cost)}</td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
+  const totalLine = cells.length
+    ? `<div class="cov-cost-total">est. total <b>${fmtCostUsd(totalUsd)}</b>${unpriced ? ` <span class="cov-dim">· ${unpriced} unpriced model${unpriced === 1 ? "" : "s"} excluded</span>` : ""} <span class="cov-dim">· static list rates</span></div>`
+    : "";
   host.innerHTML = `
     <div class="cov-toggle">
       <button type="button" data-src="internal" class="${!isExternal ? "active" : ""}">Covenant</button>
@@ -74,10 +88,11 @@ export function renderModelsCard(
     <table class="cov-model-table">
       <thead><tr>
         ${isExternal ? "<th>Agent</th>" : ""}
-        <th>Model</th><th>Calls</th><th>Input</th><th>Output</th>
+        <th>Model</th><th>Calls</th><th>Input</th><th>Output</th><th>Est. $</th>
       </tr></thead>
-      <tbody>${rows || `<tr><td colspan="${isExternal ? 5 : 4}" class="cov-empty">No usage</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="${isExternal ? 6 : 5}" class="cov-empty">No usage</td></tr>`}</tbody>
     </table>
+    ${totalLine}
   `;
   host.querySelectorAll<HTMLButtonElement>(".cov-toggle button").forEach((b) => {
     b.addEventListener("click", () => onToggle(b.dataset.src as ModelSource));
