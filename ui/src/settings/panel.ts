@@ -175,6 +175,7 @@ interface Settings {
   tabbar_position: TabbarPosition;
   folded_rail_style?: FoldedRailStyle;
   ui_font_family: string | null;
+  discord_presence_enabled?: boolean;
   familiars_enabled: boolean;
   is_premium: boolean;
   telegram?: TelegramSettings;
@@ -354,6 +355,7 @@ export class SettingsPanel {
         notch_sound_on_done: true,
         tabbar_position: "top",
         ui_font_family: null,
+        discord_presence_enabled: false,
         familiars_enabled: false,
         is_premium: false,
         experimental: { split_panes: false, internal_browser: false },
@@ -1154,6 +1156,18 @@ export class SettingsPanel {
             <input type="range" name="notif_email_digest" min="5" max="60" step="5" />
             <small class="settings-hint">Batch notifications within this window to avoid email spam.</small>
           </label>
+          <h4 class="settings-subsection-title">Discord</h4>
+          <label class="settings-field">
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="discord_presence_enabled" />
+              <span>Show Rich Presence on your Discord profile</span>
+            </span>
+            <small class="settings-hint">
+              Publishes workspace name, session count, and whether an
+              operator is running — never commands, paths, or output.
+              Needs the Discord desktop app running.
+            </small>
+          </label>
         </section>
         <section class="settings-section" id="sec-telegram"></section>
         <section class="settings-section" id="sec-cli">
@@ -1346,6 +1360,9 @@ export class SettingsPanel {
     const notchSoundOnDone = form.querySelector<HTMLInputElement>(
       'input[name="notch_sound_on_done"]',
     )!;
+    const discordPresenceEnabled = form.querySelector<HTMLInputElement>(
+      'input[name="discord_presence_enabled"]',
+    )!;
     const tabbarPosRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="tabbar_position"]',
     );
@@ -1490,6 +1507,7 @@ export class SettingsPanel {
       r.checked = r.value === currentTabStyle;
     });
     uiFont.value = this.current.ui_font_family ?? "";
+    discordPresenceEnabled.checked = this.current.discord_presence_enabled ?? false;
     const n: NotificationConfig = this.current.notifications ?? {
       on_operator_escalate: true,
       on_aom_error: true,
@@ -2106,6 +2124,7 @@ export class SettingsPanel {
           (Array.from(foldedRailRadios).find((r) => r.checked)
             ?.value as FoldedRailStyle) || "legacy",
         ui_font_family: uiFont.value.trim() === "" ? null : uiFont.value.trim(),
+        discord_presence_enabled: discordPresenceEnabled.checked,
         familiars_enabled: this.current!.familiars_enabled,
         is_premium: this.current!.is_premium,
         telegram: this.current!.telegram,

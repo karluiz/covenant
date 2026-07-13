@@ -85,6 +85,7 @@ import { CollapsedRail } from "./tabs/collapsed-rail";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
+import { setDiscordPresenceEnabled, startDiscordPresence } from "./presence";
 import { OperatorPicker } from "./operator/picker";
 import { mountSpecChat } from "./spec-chat/index";
 import { getPiPanel } from "./executors/pi/panel";
@@ -1837,6 +1838,7 @@ async function boot(): Promise<void> {
   };
 
   settings.onSaved = (next) => {
+    setDiscordPresenceEnabled(next.discord_presence_enabled ?? false);
     manager.applyTerminalSettings(next.terminal);
     applyWindowBackground(next.window?.background ?? "vibrant");
     void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
@@ -1896,6 +1898,13 @@ async function boot(): Promise<void> {
   installConnectivityBridge();
 
   mountRemotePresenceDot();
+
+  // Discord Rich Presence — 15s diff-checked poll over coarse state
+  // (workspace name, tab count, operator flag). Off by default.
+  startDiscordPresence(
+    () => manager.presenceSnapshot(),
+    initialSettings?.discord_presence_enabled ?? false,
+  );
 
   const aomBanner = new AomBanner(document.body);
   manager.setAomBanner(aomBanner);

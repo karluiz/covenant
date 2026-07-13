@@ -789,6 +789,17 @@ export class TabManager {
     this.emitActiveTab();
   }
 
+  /// Coarse state for Discord Rich Presence: active workspace name,
+  /// visible-tab count, and whether any pane has a live operator.
+  /// Deliberately no commands, cwds, or titles — privacy boundary.
+  presenceSnapshot(): { workspace: string | null; tabs: number; operatorLive: boolean } {
+    return {
+      workspace: this.activeWorkspaceName,
+      tabs: this.tabs.length,
+      operatorLive: this.tabs.some((t) => t.panes.some((p) => p.operatorLive)),
+    };
+  }
+
   /// Workspace integration hooks. The workspace layer injects:
   ///  - `listWorkspaces`: returns the catalog (id+name+active) so the
   ///    group context menu can render a "Move to workspace…" submenu.
