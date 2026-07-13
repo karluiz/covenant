@@ -48,6 +48,7 @@ import type {
   AcpSessionListing,
   DirEntry,
 } from "../../api";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { brandIconSvg } from "../../icons/brands";
 import { Icons } from "../../icons";
 import { renderMarkdown } from "../../ui/markdown";
@@ -628,6 +629,10 @@ export class AcpChatView {
   private lastUserEl: HTMLElement | null = null;
 
   private stickToBottom = true;
+  /// Timestamp of the last programmatic "jump to bottom" — wheel/scroll
+  /// events within a short window after this are residual momentum from
+  /// the jump and must not break `stickToBottom`.
+  private jumpedAt = 0;
 
   constructor(opts: AcpChatViewOptions) {
     this.host = opts.host;
@@ -770,6 +775,10 @@ export class AcpChatView {
     this.messagesEl.addEventListener(
       "scroll",
       () => {
+        // After a programmatic jump, ignore scroll events for a short
+        // window — the jump itself fires scroll, and on trackpads
+        // residual momentum can briefly put us > 48px from the bottom.
+        if (Date.now() - this.jumpedAt < 300) return;
         const el = this.messagesEl;
         this.stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         this.syncJumpChip();
@@ -785,10 +794,19 @@ export class AcpChatView {
     this.messagesEl.addEventListener(
       "wheel",
       (e) => {
-        if (e.deltaY < 0) this.stickToBottom = false;
+        if (e.deltaY < 0 && Date.now() - this.jumpedAt >= 300) this.stickToBottom = false;
       },
       { passive: true },
     );
+    // Intercept clicks on <a> tags rendered by the markdown renderer —
+    // Tauri's webview blocks default navigation, so route through openUrl.
+    this.messagesEl.addEventListener("click", (e) => {
+      const anchor = (e.target as HTMLElement).closest?.("a[href]");
+      if (!anchor) return;
+      e.preventDefault();
+      const href = anchor.getAttribute("href");
+      if (href) void openUrl(href).catch((err) => console.error("openUrl failed", err));
+    });
     this.emptyEl = requireChild(this.host, ".acp-chat-empty");
     this.imageStripEl = requireChild(this.host, ".acp-image-strip");
     this.inputEl = requireChild(this.host, ".acp-chat-textarea") as HTMLTextAreaElement;
@@ -797,6 +815,7 @@ export class AcpChatView {
     this.jumpBtn = requireChild(this.host, ".acp-jump-present") as HTMLButtonElement;
     this.jumpBtn.addEventListener("click", () => {
       this.stickToBottom = true;
+      this.jumpedAt = Date.now();
       this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
       this.syncJumpChip();
     });

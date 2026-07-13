@@ -6,6 +6,7 @@ import { Icons } from "../icons";
 import { BoardView } from "./board";
 import { MarkdownEditor } from "../ui/markdown-editor";
 import { attachTooltip } from "../tooltip/tooltip";
+import { zoom } from "../zoom";
 
 const EXPANDED_PROJECTS_KEY = "covenant.tasker.expanded-projects";
 const VIEW_KEY = "covenant.tasker.view";
@@ -995,14 +996,21 @@ export class TaskerPanel {
   }
 
   private positionDateMenu(anchor: HTMLElement, cal: HTMLElement): void {
+    // All math in LAYOUT px: rects and window.inner* are visual px under the
+    // app's CSS zoom on <html>, so divide by z; offsetWidth/Height are already
+    // layout px (same fix as the pane context menu, 970e45b).
+    const z = zoom.level();
     const r = anchor.getBoundingClientRect();
     const margin = 8;
     const calW = cal.offsetWidth || 232;
     const calH = cal.offsetHeight || 280;
-    let left = r.left;
-    if (left + calW > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - margin - calW);
-    let top = r.bottom + 4;
-    if (top + calH > window.innerHeight - margin) top = Math.max(margin, r.top - 4 - calH);
+    const vw = window.innerWidth / z;
+    const vh = window.innerHeight / z;
+    let left = r.right / z - calW;
+    if (left + calW > vw - margin) left = vw - margin - calW;
+    if (left < margin) left = Math.min(r.left / z, Math.max(margin, vw - margin - calW));
+    let top = r.bottom / z + 4;
+    if (top + calH > vh - margin) top = Math.max(margin, r.top / z - 4 - calH);
     cal.style.left = `${Math.round(left)}px`;
     cal.style.top = `${Math.round(top)}px`;
   }

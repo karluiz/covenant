@@ -338,6 +338,12 @@
 }
 .acp-msg-content a {
   color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.acp-msg-content a:hover {
+  color: color-mix(in srgb, var(--accent) 80%, #ffffff);
 }
 .acp-msg-assistant .acp-msg-content {
   padding: 2px 0;

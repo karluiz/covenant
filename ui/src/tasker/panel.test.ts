@@ -161,7 +161,7 @@ describe("TaskerPanel inline edit", () => {
     openTask(host, tid);
 
     host.querySelector<HTMLButtonElement>(".tasker-chip-due")!.click();
-    const day = document.querySelector<HTMLButtonElement>('.tasker-date-menu .tasker-cal-day[data-date="2026-06-09"]')!;
+    const day = document.querySelector<HTMLButtonElement>(".tasker-date-menu .tasker-cal-day:not(.tasker-cal-out)")!;
     expect(day).toBeTruthy();
     day.click();
     expect(typeof storageOf(panel).getTask(pid, tid).dueDate).toBe("number");
