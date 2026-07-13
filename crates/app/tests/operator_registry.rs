@@ -42,6 +42,9 @@ fn sample(name: &str, is_default: bool) -> Operator {
         github_access: covenant_lib::operator_registry::GithubAccess::default(),
         soul_path: None,
         soul_mtime_unix_ms: 0,
+        acp_enabled: false,
+        perception_enabled: false,
+        org_slug: None,
     }
 }
 

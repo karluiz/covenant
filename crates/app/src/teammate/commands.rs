@@ -1157,6 +1157,7 @@ mod task_lifecycle_tests {
                 github_access: crate::operator_registry::GithubAccess::Off,
                 acp_enabled: false,
                 perception_enabled: false,
+                org_slug: None,
             })
             .await
             .unwrap();
@@ -1353,6 +1354,7 @@ mod task_lifecycle_tests {
             github_access: crate::operator_registry::GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         let zeta = mk("Zeta");
         let kiro = mk("Kiro");

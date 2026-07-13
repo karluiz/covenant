@@ -261,6 +261,7 @@ mod tests {
             github_access: crate::operator_registry::GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         }
     }
 
