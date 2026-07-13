@@ -300,6 +300,19 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
   color: var(--fg-dim, #8b929b);
 }
 .canon-org-menu-row:hover { background: rgb(var(--ink-rgb, 245 246 247) / 0.06); }
+/* Owner-only rename pencil: hidden until the row is hovered/focused. */
+.canon-org-menu-edit {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  color: var(--fg-dim, #8b929b);
+  opacity: 0;
+  cursor: pointer;
+}
+.canon-org-menu-row:hover .canon-org-menu-edit,
+.canon-org-menu-row:focus-visible .canon-org-menu-edit { opacity: 1; }
+.canon-org-menu-edit:hover { color: var(--text-primary, #f5f6f7); }
 .canon-org-menu-row.is-active {
   background: rgb(var(--ink-rgb, 245 246 247) / 0.09);
   border-left-color: var(--canon-accent, var(--accent, #7aa2f7));

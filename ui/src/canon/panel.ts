@@ -5,10 +5,11 @@ import { pushInfoToast } from "../notifications/toast";
 import { renderMarkdown } from "../ui/markdown";
 import type { CanonStatus, Org, CanonEvalProgress } from "../api";
 import {
-  canonLocalStatus, canonMyOrgs, canonPublish,
+  canonLocalStatus, canonMyOrgs, canonPublish, canonRenameOrg,
   canonReadLocal, canonReadSource, canonExport, canonRunEvals, onCanonEvalProgress,
   canonEvalSummary,
 } from "../api";
+import { openRenamePrompt } from "../workspaces/rename-prompt";
 import { liftClass, type LiftBadge } from "./cockpit/lift";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
@@ -409,6 +410,32 @@ export class CanonPanel {
       role.className = "canon-org-menu-role";
       role.textContent = isActive ? "current" : org.role;
       row.append(orgMonogram(org), name, role);
+      // Owner-only display-name edit (the slug is the org's identity and
+      // never changes). A span, not a button — rows are already <button>s.
+      if (org.role === "owner") {
+        const edit = document.createElement("span");
+        edit.className = "canon-org-menu-edit";
+        edit.innerHTML = Icons.pencil({ size: 12 });
+        edit.setAttribute("role", "button");
+        edit.setAttribute("aria-label", "Rename organization");
+        attachTooltip(edit, "Rename organization");
+        edit.addEventListener("click", (e) => {
+          e.stopPropagation();
+          close();
+          openRenamePrompt({
+            label: "Rename org",
+            value: org.name,
+            onCommit: (next) => {
+              if (next === org.name) return;
+              void canonRenameOrg(org.slug, next)
+                .then(() => this.refresh())
+                .then(() => pushInfoToast({ message: `Organization renamed to ${next}` }))
+                .catch((err) => pushInfoToast({ message: `Rename failed: ${String(err)}` }));
+            },
+          });
+        });
+        row.appendChild(edit);
+      }
       row.addEventListener("click", () => {
         this.opts.setActiveOrg?.(org.slug);
         close();
