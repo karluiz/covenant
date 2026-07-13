@@ -39,14 +39,13 @@
   position: relative;
   flex: 0 0 auto;
 }
+/* Bare brandmark — no chip/plate behind it. */
 .acp-chat-logo {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 0;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
   flex: 0 0 auto;
 }
