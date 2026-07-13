@@ -1740,6 +1740,7 @@ async function boot(): Promise<void> {
   const pulseHost = document.createElement("div");
   document.body.appendChild(pulseHost);
   const pulseSurface = new PulseSurface(pulseHost);
+  window.addEventListener("covenant:open-pulse", () => { pulseSurface.open(); });
 
   const openChanges = async (cwdArg?: string): Promise<void> => {
     const cwd = cwdArg ?? manager.activeCwd();

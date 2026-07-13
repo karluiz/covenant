@@ -963,3 +963,11 @@ body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f;
 .pulse-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .pulse-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .cov-card--wide { grid-column: 1 / -1; }
+
+/* Settings Metrics summary strip */
+.pulse-mini { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 4px 0; }
+.pulse-mini-stat { display: flex; flex-direction: column; }
+.pulse-mini-stat b { font-size: 20px; color: var(--num); font-weight: 500; font-variant-numeric: tabular-nums; }
+.pulse-mini-stat span { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.pulse-open-btn { margin-left: auto; background: var(--bg-panel); border: 1px solid rgba(var(--ink-rgb), 0.1); border-radius: 0; padding: 8px 14px; color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.pulse-open-btn:hover { background: rgba(var(--ink-rgb), 0.05); }

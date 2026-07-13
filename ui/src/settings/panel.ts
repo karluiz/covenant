@@ -209,10 +209,15 @@ export class SettingsPanel {
 
   private mountCovenantOnce(): void {
     if (this.covenantMounted) return;
-    const root = document.getElementById("covenant-page-root");
+    const root = document.getElementById("pulse-summary-root");
     if (!root) return;
     this.covenantMounted = true;
-    void import("../score/page").then((m) => m.mountCovenantPage(root));
+    void import("./pulse-summary").then((m) =>
+      m.renderPulseSummary(root, () => {
+        this.close();
+        window.dispatchEvent(new CustomEvent("covenant:open-pulse"));
+      }),
+    );
   }
 
   /// Append the achievements card and the public profile card to the bottom
@@ -1170,7 +1175,7 @@ export class SettingsPanel {
         <section class="settings-section" id="sec-covenant">
           <h3 class="settings-section-title">Metrics</h3>
           <p class="settings-section-desc">Track prompts and commits across your repos.</p>
-          <div id="covenant-page-root"></div>
+          <div id="pulse-summary-root"></div>
         </section>
         <section class="settings-section" id="sec-workspace">
           <h3 class="settings-section-title">Workspace</h3>
