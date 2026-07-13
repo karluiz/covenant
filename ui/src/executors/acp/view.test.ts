@@ -31,6 +31,7 @@ import {
   perceptionAuditText,
   reduceAcpEvent,
   shellIdOf,
+  textExitCodeOf,
   titleFromPrompt,
   type AcpNoticeItem,
   type AcpPermItem,
@@ -341,7 +342,7 @@ describe("background consoles", () => {
   const SHELL_EXIT = { contents: [{ type: "shell_exit", shellId: "7", exitCode: 0, cwd: "/w" }] };
   const RUN_CMD = { command: "npm run dev" };
 
-  it("sawShellExit flips only when a tool update carries a typed shell_exit", () => {
+  it("sawShellExit flips only when a tool update carries an exit signal", () => {
     const state = createAcpStreamState();
     reduceAcpEvent(
       state,
@@ -375,6 +376,35 @@ describe("background consoles", () => {
     expect(isBackgroundConsole({ ...fields, rawInput: { fileName: "a.ts" } }, true)).toBe(false);
     // A later shell_exit un-flags it.
     expect(isBackgroundConsole({ ...fields, rawOutput: SHELL_EXIT }, true)).toBe(false);
+    // Copilot's free-text exit marker in content also un-flags it
+    // (resumed sessions replay only the text, no typed shell_exit).
+    expect(
+      isBackgroundConsole(
+        { ...fields, content: [{ text: "2 problems\n<shellId: 0 completed with exit code 1>" }] },
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("textExitCodeOf parses copilot's free-text exit marker, not running markers", () => {
+    expect(textExitCodeOf([{ text: "<shellId: 0 completed with exit code 1>" }])).toBe(1);
+    expect(textExitCodeOf([{ text: "out" }, { text: "<shellId: 12 completed with exit code 0>" }])).toBe(0);
+    expect(textExitCodeOf([{ text: "<shellId: 9 running>" }])).toBeNull();
+    expect(textExitCodeOf([])).toBeNull();
+  });
+
+  it("a free-text exit marker also flips sawShellExit", () => {
+    const state = createAcpStreamState();
+    reduceAcpEvent(
+      state,
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "t3",
+        status: "completed",
+        content: [{ text: "<shellId: 4 completed with exit code 0>" }],
+      }),
+    );
+    expect(state.sawShellExit).toBe(true);
   });
 
   it("shellIdOf reads only the typed field, string or number, never free text", () => {
