@@ -1244,6 +1244,10 @@ export interface Settings {
   /// Tabbar layout: "top" (default, horizontal across the top) or
   /// "left" (fixed vertical sidebar à la Wave Terminal).
   tabbar_position: TabbarPosition;
+  /// Zen icons — titlebar icon buttons fade out and only reappear on
+  /// hover over the titlebar. Frontend flips `body.zen-icons`. Default
+  /// false.
+  zen_icons?: boolean;
   /// Visual style of the folded left sidebar (collapsed rail). The
   /// frontend flips `body.tabbar-rail-<style>`; "legacy" (default) is
   /// the original pill rail.
