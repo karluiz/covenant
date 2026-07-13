@@ -128,6 +128,45 @@ describe("spec-prompt toast rendering", () => {
     expect((toasts[0] as HTMLElement).dataset.tabId).toBe("t3");
   });
 
+  it("scopes to the active tab (no broadcast) when no tab is eligible at emit time", async () => {
+    vi.resetModules();
+    capturedCandidateHandler = null;
+    document.body.innerHTML = "";
+
+    vi.mock("../api", async (importOriginal) => {
+      const original = await importOriginal<typeof import("../api")>();
+      return {
+        ...original,
+        specDetectorApi: { start: vi.fn().mockResolvedValue(undefined) },
+        subscribeSpecCandidates: vi.fn().mockImplementation((handler: (c: SpecCandidate) => void) => {
+          capturedCandidateHandler = handler;
+          return Promise.resolve(() => { capturedCandidateHandler = null; });
+        }),
+      };
+    });
+
+    const { startSpecPrompts, getSpecPromptState } = await import("./spec-prompt");
+    // Every tab under the repo has a mission → nobody is eligible right now.
+    const tabs: TabSnapshot[] = [
+      { id: "t1", cwd: "/repo", hasMission: true, hasOperator: true },
+      { id: "t2", cwd: "/repo", hasMission: true, hasOperator: true },
+    ];
+    const host = makeHost(tabs, { activeTabId: "t1" });
+    await startSpecPrompts(host);
+
+    emitCandidate({ path: "/repo/docs/specs/3.20.md", repo_root: "/repo" });
+
+    expect(document.querySelectorAll(".spec-prompt-toast").length).toBe(0);
+
+    // Missions finish later — only the tab that was active at emit time
+    // may surface the badge, never every sibling under the repo root.
+    tabs[0]!.hasMission = false;
+    tabs[1]!.hasMission = false;
+    const state = getSpecPromptState();
+    expect(state.getPendingForTab(tabs[0]!, tabs, Date.now()).length).toBe(1);
+    expect(state.getPendingForTab(tabs[1]!, tabs, Date.now()).length).toBe(0);
+  });
+
   it("prefers active tab over a deeper-cwd sibling only when cwd depth ties", async () => {
     vi.resetModules();
     capturedCandidateHandler = null;
