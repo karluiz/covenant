@@ -826,7 +826,7 @@ body.theme-true-dark .cov-sync {
   border-color: var(--border);
 }
 body.theme-true-dark .covenant-page .btn { background: var(--accent); color: #0c0e12; }
-body.theme-true-dark .covenant-page .btn.ghost { color: var(--muted); border-color: var(--cov-line); }
+body.theme-true-dark .covenant-page .btn.ghost { background: transparent; color: var(--muted); border-color: var(--cov-line); }
 body.theme-true-dark .covenant-page .btn.ghost:hover { color: var(--text-primary); border-color: var(--border); }
 
 /* Leaderboard controls + input */
