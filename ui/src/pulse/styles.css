@@ -1,0 +1,23 @@
+/* ui/src/pulse/styles.css — shell chrome only; page internals live in score/styles.css */
+.pulse-frame {
+  position: fixed;
+  top: 38px; left: var(--tabbar-w, 0); right: 0; bottom: var(--statusbar-h, 0);
+  z-index: 9000;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+.pulse-header {
+  display: flex; align-items: center; gap: 12px;
+  height: 44px; flex: 0 0 44px; padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+.pulse-title {
+  font-size: var(--fs-title); font-weight: 700;
+  letter-spacing: var(--ls-title); text-transform: uppercase;
+  color: var(--num);
+}
+.pulse-header-spacer { flex: 1; }
+.pulse-close { background: transparent; border: 0; cursor: pointer; padding: 0; }
+.pulse-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px; }
