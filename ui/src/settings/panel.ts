@@ -756,11 +756,11 @@ export class SettingsPanel {
             <div id="tab-custom-gradient-pickers" style="display:flex;gap:8px;margin:6px 0 0 28px" hidden>
               <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)">
                 Start
-                <input type="color" name="tab_custom_gradient_start" value="#7aa2f7" style="width:32px;height:28px;padding:0;border:none;border-radius:4px;cursor:pointer" />
+                <input type="color" name="tab_custom_gradient_start" value="#7aa2f7" style="width:32px;height:28px;padding:0;border:none;border-radius:0;cursor:pointer" />
               </label>
               <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)">
                 End
-                <input type="color" name="tab_custom_gradient_end" value="#bb9af7" style="width:32px;height:28px;padding:0;border:none;border-radius:4px;cursor:pointer" />
+                <input type="color" name="tab_custom_gradient_end" value="#bb9af7" style="width:32px;height:28px;padding:0;border:none;border-radius:0;cursor:pointer" />
               </label>
             </div>
             <span class="settings-label" style="font-size:11px;font-weight:400;margin:8px 0 8px;color:var(--muted)">Active indicator</span>

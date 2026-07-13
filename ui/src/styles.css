@@ -3787,85 +3787,6 @@ body.tabbar-left.sidebar-view-somnus #layout:has(> #capabilities-page:not([hidde
     gap: 10px;
     margin-bottom: 12px;
 }
-/* .provider-card layout-only extras; visuals come from .settings-card / .settings-card-title / .settings-field-label / .settings-btn. */
-.provider-card .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-.provider-card input {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 0;
-    padding: 8px 10px;
-    color: var(--fg);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-}
-.provider-card .settings-btn { align-self: flex-start; }
-.provider-status {
-    font-size: 11.5px;
-    color: var(--muted);
-    margin-left: 8px;
-}
-#sec-providers .btn-secondary {
-    align-self: flex-start;
-    background: transparent;
-    border: 1px dashed var(--border);
-    border-radius: 0;
-    padding: 8px 14px;
-    color: var(--text-primary);
-    font-size: 12px;
-    cursor: pointer;
-}
-#sec-providers .btn-secondary:hover {
-    background: var(--bg-hover, rgba(var(--ink-rgb), 0.04));
-    color: #fff;
-}
-.add-provider-bar {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.add-provider-form {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-    padding: 12px 14px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 0;
-}
-.add-provider-form input {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 0;
-    padding: 6px 10px;
-    color: #fff;
-    font-size: 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.add-provider-form .add-provider-preset {
-    min-width: 240px;
-}
-.add-provider-form .add-provider-preset .ui-select__button {
-    font-family: inherit;
-    font-size: 13px;
-}
-.add-provider-form .add-provider-id {
-    width: 140px;
-}
-.add-provider-form .add-provider-url {
-    flex: 1;
-    min-width: 220px;
-}
-.add-provider-form .add-provider-confirm {
-    background: #4a7dff;
-    border: 1px solid #4a7dff;
-    color: #fff;
-}
-
 /* ── Providers master/detail (v0.8.17) ──────────────────────────────────
    Two-column layout: 256 px provider rail + flex detail pane. Replaces
    the v0.8.15 full-width card stack. See docs/mockups/providers-redesign
@@ -4325,19 +4246,6 @@ body.theme-light .providers-md__rail-name { color: var(--text-primary); }
 body.theme-light .providers-md__pane-title { color: var(--text-primary); }
 body.theme-light .providers-md__pane-glyph { color: #fff; }
 
-.add-provider-form .add-provider-confirm:hover {
-    background: #5d8aff;
-}
-.add-provider-form .add-provider-cancel {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 0;
-    padding: 6px 12px;
-    color: var(--text-primary);
-    font-size: 12px;
-    cursor: pointer;
-}
-
 /* Models per-role rows — layout-only; visuals come from shared tokens. */
 .model-route-row .field {
     display: flex;
@@ -4588,22 +4496,22 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     width: 9px;
     height: 9px;
     border-radius: 50%;
-    background: #6b7785;
-    box-shadow: 0 0 8px rgba(107, 119, 133, 0.35);
+    background: var(--muted);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--muted) 35%, transparent);
     position: relative;
     flex-shrink: 0;
 }
 .updates-card[data-state="uptodate"] .updates-card__dot {
-    background: #6dd29a;
-    box-shadow: 0 0 10px rgba(109, 210, 154, 0.55);
+    background: var(--ok);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 55%, transparent);
 }
 .updates-card[data-state="available"] .updates-card__dot {
-    background: #f0b265;
-    box-shadow: 0 0 10px rgba(240, 178, 101, 0.55);
+    background: var(--running);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--running) 55%, transparent);
 }
 .updates-card[data-state="error"] .updates-card__dot {
-    background: #f47174;
-    box-shadow: 0 0 10px rgba(244, 113, 116, 0.55);
+    background: var(--fail);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--fail) 55%, transparent);
 }
 .updates-card[data-state="checking"] .updates-card__dot::after {
     content: "";
@@ -15677,7 +15585,6 @@ body.theme-light textarea,
 body.theme-light select,
 body.theme-light .ui-select__button,
 body.theme-light .ui-select__popover,
-body.theme-light .provider-card input,
 body.theme-light .settings-input-row input,
 body.theme-light .settings-field input,
 body.theme-light .settings-field select,
@@ -15798,7 +15705,6 @@ body.theme-light .mission-page-newmodal-actions #sp-create {
 }
 
 /* ── Settings card titles (provider/model cards) ───────────── */
-body.theme-light .provider-card h3,
 body.theme-light .model-card h3,
 body.theme-light .settings-card h3,
 body.theme-light .settings-section-title,
@@ -20041,7 +19947,7 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   margin: 0 0 14px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
-  border-radius: 8px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--fg);
   font-size: 12.5px;
@@ -20053,9 +19959,8 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   max-width: 460px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 2px 16px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 .cloud-rowflex {
   display: flex;
@@ -20127,7 +20032,7 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .cloud-btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: #0c0e12;
 }
 .cloud-btn-primary:hover {
   background: color-mix(in srgb, var(--accent) 88%, #000);
