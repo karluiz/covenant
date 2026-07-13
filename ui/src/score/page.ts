@@ -274,21 +274,21 @@ function chipDismiss(label: string, onDismiss: () => void): HTMLElement {
 // ── Stat cards ────────────────────────────────────────────────────────────────
 
 function renderStats(host: HTMLElement, summary: Summary): void {
-  const delta = summary.today_prompts > 0
-    ? `<span class="delta">+${summary.today_prompts} today</span>`
-    : "";
+  const baseline = Math.max(1, Math.round(summary.total_prompts / Math.max(summary.current_streak, 1)));
+  const up = summary.today_prompts >= baseline;
+  const arrow = summary.today_prompts > 0 ? `<span class="cov-stat-delta ${up ? "is-up" : "is-down"}">${up ? "▲" : "▽"} vs ${baseline}/day</span>` : "";
   host.innerHTML = `
-    <div class="cov-stat">
-      <div class="v">${summary.total_prompts.toLocaleString()}</div>
-      <div class="l">Total prompts ${delta}</div>
+    <div class="cov-stat cov-stat--hero">
+      <div class="v">${summary.current_streak}d</div>
+      <div class="l">Current streak 🔥</div>
     </div>
     <div class="cov-stat">
       <div class="v">${summary.today_prompts}</div>
-      <div class="l">Today</div>
+      <div class="l">Today ${arrow}</div>
     </div>
     <div class="cov-stat">
-      <div class="v">${summary.current_streak}d</div>
-      <div class="l">Current streak 🔥</div>
+      <div class="v">${summary.total_prompts.toLocaleString()}</div>
+      <div class="l">Total prompts</div>
     </div>
     <div class="cov-stat">
       <div class="v">${summary.total_commits.toLocaleString()}</div>
