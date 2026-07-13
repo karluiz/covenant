@@ -6,6 +6,37 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.11 — Pulse polish + app-wide dead-style CSS revival
+
+### Added
+
+- **Per-group identity colors in the Pulse leaderboard**: the score DB
+  gained a `group_colors` table (v8 migration) upserted on tab focus via
+  `score_set_current_session` — By-group bars now carry each group's real
+  color instead of a rank palette (`crates/score`, `ui/src/score/breakdowns.ts`).
+- **Estimated $ cost per model**: the Token-usage card adds an `Est. $`
+  column and amber total from a static price table (`ui/src/score/pricing.ts`)
+  — Anthropic catalog rates + common OpenAI list prices, local providers $0,
+  unknown models excluded with a count.
+- **Loading skeletons in Pulse**: template hosts start with pulsing
+  placeholders that each query replaces on arrival; reduced-motion aware.
+- **⌘⌥M kbd hint** inside the Settings "Open Pulse →" button.
+
+### Fixed
+
+- **App-wide dead styles — invalid `rgba(var(--ink-rgb), a)`**: `--ink-rgb`
+  is space-separated, making the comma-alpha form invalid CSS that drops
+  silently — ~337 occurrences across 17 stylesheets (rails, Canon, Tasker,
+  Beacon, ACP, Changes, tab themes, …) meant scores of hovers, hairlines
+  and fills never painted. All converted to `rgb(var(--ink-rgb) / a)`;
+  DESIGN.md hard rules 12–13 added (no emoji in chrome; slash-syntax ink).
+- **Pulse mockup parity**: visible empty heatmap cells, hints adjacent to
+  card titles, two-slot grid (leaderboards/tables stop truncating), token
+  table overflow scroller, amber rebalance (momentum only — identity
+  neutral, interaction accent), True Dark ghost buttons no longer render
+  as twin primaries, executor popover now layers above working surfaces,
+  streak emoji → `Icons.flame` SVG.
+
 ## v0.9.10 — Pulse metrics dashboard + settings design-system pass
 
 ### Added
