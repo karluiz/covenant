@@ -9,6 +9,7 @@ vi.mock("../api", () => ({
   canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] }),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
+  canonRenameOrg: vi.fn().mockResolvedValue(undefined),
   canonPublish: vi.fn().mockResolvedValue({}),
   canonReadLocal: vi.fn().mockResolvedValue(""),
   canonReadSource: vi.fn().mockResolvedValue(""),
@@ -353,6 +354,33 @@ describe("CanonPanel", () => {
     expect(row.querySelector(".canon-idx")?.textContent).toBe("3.1");
     expect(row.querySelector(".rail-name")?.textContent).toBe("Alpha");
     expect(row.querySelector(".rail-meta")?.textContent).toContain("3.1-alpha");
+  });
+
+  it("shows the rename pencil only on owner rows and commits via the prompt", async () => {
+    const { canonRenameOrg } = await import("../api");
+    const panel = new CanonPanel({
+      groupId: "g-rename",
+      groupLabel: "G",
+      groupColor: null,
+      groupRootDir: "/repo",
+    });
+    panel.setOrgs([
+      { id: 1, slug: "acme", name: "Acme", role: "owner", personal: false },
+      { id: 2, slug: "other", name: "Other", role: "member", personal: false },
+    ]);
+    (panel.element.querySelector(".canon-org-chip") as HTMLElement).click();
+    const rows = [...document.querySelectorAll(".canon-org-menu-row")];
+    const acme = rows.find((r) => r.textContent?.includes("Acme"))!;
+    const other = rows.find((r) => r.textContent?.includes("Other"))!;
+    expect(acme.querySelector(".canon-org-menu-edit")).not.toBeNull();
+    expect(other.querySelector(".canon-org-menu-edit")).toBeNull();
+
+    (acme.querySelector(".canon-org-menu-edit") as HTMLElement).click();
+    const input = document.querySelector(".workspace-rename-overlay input") as HTMLInputElement;
+    expect(input.value).toBe("Acme");
+    input.value = "Acme Corp";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(canonRenameOrg as Mock).toHaveBeenCalledWith("acme", "Acme Corp");
   });
 
   it("slugifies a display name to a valid slug", () => {

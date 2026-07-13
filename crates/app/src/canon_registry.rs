@@ -93,6 +93,14 @@ pub async fn create_org(slug: &str, name: &str) -> Result<Value, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Owner-only display-name edit; the slug never changes.
+pub async fn rename_org(org: &str, name: &str) -> Result<(), String> {
+    let url = format!("{}/orgs/{}", auth::backend_url(), urlencoding(org));
+    let body = serde_json::json!({ "name": name });
+    send_authed(|j| client().patch(&url).bearer_auth(j).json(&body)).await?;
+    Ok(())
+}
+
 pub async fn list_members(org: &str) -> Result<Vec<Member>, String> {
     let url = format!("{}/orgs/{}/members", auth::backend_url(), urlencoding(org));
     send_authed(|j| client().get(&url).bearer_auth(j))

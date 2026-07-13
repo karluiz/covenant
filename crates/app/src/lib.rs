@@ -2392,6 +2392,11 @@ async fn canon_create_org(slug: String, name: String) -> Result<serde_json::Valu
 }
 
 #[tauri::command]
+async fn canon_rename_org(org: String, name: String) -> Result<(), String> {
+    canon_registry::rename_org(&org, &name).await
+}
+
+#[tauri::command]
 async fn canon_org_members(org: String) -> Result<Vec<canon_registry::Member>, String> {
     canon_registry::list_members(&org).await
 }
@@ -4785,6 +4790,7 @@ pub fn run() {
             canon_my_orgs,
             canon_search,
             canon_create_org,
+            canon_rename_org,
             canon_org_members,
             canon_add_member,
             canon_remove_member,
