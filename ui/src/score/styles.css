@@ -253,8 +253,8 @@
   border-radius: 999px;
   flex-shrink: 0;
 }
-.bar-row .name:hover { color: #5eead4; }
-.bar-row.active .name { color: #5eead4; }
+.bar-row .name:hover { color: var(--num); }
+.bar-row.active .name { color: var(--num); }
 .bar {
   height: 14px;
   background: #0a0f12;
@@ -316,7 +316,7 @@
 }
 .branch .b-name .ico { color: #4a5b63; }
 .branch .b-meta { font-size: 10px; color: #6c8088; }
-.branch .b-meta b { color: #5eead4; font-weight: 500; }
+.branch .b-meta b { color: var(--num); font-weight: 500; }
 
 /* Sessions feed */
 .session {
@@ -353,7 +353,7 @@
 }
 .session .what-meta { display: flex; gap: 6px; align-items: center; }
 .session .what .repo {
-  color: #5eead4;
+  color: var(--num);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.6px;
@@ -381,7 +381,7 @@
   letter-spacing: 0.3px;
   font-variant-numeric: tabular-nums;
 }
-.session .nums b { color: #5eead4; font-weight: 600; }
+.session .nums b { color: var(--num); font-weight: 600; }
 
 /* Sync card */
 .cov-sync {
@@ -668,14 +668,14 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
   padding: 3px 10px; cursor: pointer; white-space: nowrap;
   transition: border-color .12s, color .12s;
 }
-.lb-ctl:hover { border-color: #2f6f66; color: #5eead4; }
+.lb-ctl:hover { border-color: color-mix(in srgb, var(--num) 40%, transparent); color: var(--num); }
 .lb-search {
   flex: 1; min-width: 0; font: inherit; font-size: 11px; color: #d6e2e6;
   background: #0d1316; border: 1px solid #1e2a30; border-radius: 999px;
   padding: 3px 12px; outline: none;
 }
 .lb-search::placeholder { color: #5c6e75; }
-.lb-search:focus { border-color: #2f6f66; }
+.lb-search:focus { border-color: color-mix(in srgb, var(--num) 40%, transparent); }
 
 .lb-summary { font-size: 10px; color: #6c8088; letter-spacing: .02em; margin-bottom: 10px; }
 
@@ -696,7 +696,7 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; color: #d6e2e6;
 }
-.lb-row:hover .lb-gname { color: #5eead4; }
+.lb-row:hover .lb-gname { color: var(--num); }
 .lb-ws { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; justify-self: center; }
 .lb-ws.empty {
   background: none !important; display: flex; align-items: center; justify-content: center;
@@ -729,7 +729,7 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
 .lb-sw { width: 9px; height: 9px; border-radius: 2px; }
 .lb-sw.empty { background: none; display: inline-flex; align-items: center; justify-content: center; color: #3c4a50; width: auto; }
 .lb-showing { white-space: nowrap; }
-.lb-more { font: inherit; font-size: 10px; color: #5eead4; background: none; border: 0; padding: 0; cursor: pointer; }
+.lb-more { font: inherit; font-size: 10px; color: var(--num); background: none; border: 0; padding: 0; cursor: pointer; }
 .lb-more:hover { text-decoration: underline; }
 
 body.theme-light .lb-ctl { background: #fff; border-color: var(--border); color: var(--muted); }
@@ -822,7 +822,7 @@ body.theme-true-dark .covenant-page .btn.ghost:hover { color: var(--text-primary
 body.theme-true-dark .lb-ctl { background: var(--cov-surface); border-color: var(--cov-line); }
 body.theme-true-dark .lb-ctl:hover { border-color: color-mix(in srgb, var(--num) 45%, transparent); color: var(--num); }
 body.theme-true-dark .lb-search { background: #060607; border-color: var(--cov-line); }
-body.theme-true-dark .lb-row:hover { background: rgba(69, 196, 178, 0.05); }
+body.theme-true-dark .lb-row:hover { background: color-mix(in srgb, var(--num) 5%, transparent); }
 body.theme-true-dark .lb-foot { border-top-color: var(--cov-line); }
 
 /* Achievements: point the card's brand accent at the calmed teal and lift
