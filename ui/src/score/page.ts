@@ -137,7 +137,7 @@ async function refreshInner(host: HTMLElement, state: State): Promise<void> {
   ]);
 
   renderFilters(filtersHost, state, host);
-  renderStats(statsHost, summary);
+  renderStats(statsHost, summary, heatmap);
   renderHeatmap(heatmapHost, heatmap, (day) => {
     state.filter.day = day;
     void refresh(host, state);
@@ -273,17 +273,31 @@ function chipDismiss(label: string, onDismiss: () => void): HTMLElement {
 
 // ── Stat cards ────────────────────────────────────────────────────────────────
 
-function renderStats(host: HTMLElement, summary: Summary): void {
-  const baseline = Math.max(1, Math.round(summary.total_prompts / Math.max(summary.current_streak, 1)));
-  const up = summary.today_prompts >= baseline;
-  const arrow = summary.today_prompts > 0 ? `<span class="cov-stat-delta ${up ? "is-up" : "is-down"}">${up ? "▲" : "▽"} vs ${baseline}/day</span>` : "";
+function renderStats(host: HTMLElement, summary: Summary, cells: DailyCell[]): void {
+  // Baseline: mean prompts/day over the 30 days BEFORE today. Comparing
+  // against an honest recent average (not lifetime-total ÷ streak) keeps the
+  // delta meaningful — today excluded so a partial day doesn't dilute it.
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const cutoffKey = cutoff.toISOString().slice(0, 10);
+  const prior30 = cells
+    .filter((c) => c.day >= cutoffKey && c.day < todayKey)
+    .reduce((sum, c) => sum + c.prompts, 0);
+  const avg = prior30 / 30;
+  let arrow = "";
+  if (summary.today_prompts > 0 && avg > 0) {
+    const pct = Math.round(((summary.today_prompts - avg) / avg) * 100);
+    const up = pct >= 0;
+    arrow = `<span class="cov-stat-delta ${up ? "is-up" : "is-down"}">${up ? "▲ +" : "▽ "}${pct}% vs 30d avg</span>`;
+  }
   host.innerHTML = `
-    <div class="cov-stat cov-stat--hero">
+    <div class="cov-stat cov-stat--hero cov-stat--momentum">
       <div class="v">${summary.current_streak}d</div>
       <div class="l">Current streak 🔥</div>
     </div>
-    <div class="cov-stat">
-      <div class="v">${summary.today_prompts}</div>
+    <div class="cov-stat cov-stat--momentum">
+      <div class="v">${summary.today_prompts.toLocaleString()}</div>
       <div class="l">Today ${arrow}</div>
     </div>
     <div class="cov-stat">
