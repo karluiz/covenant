@@ -19,9 +19,19 @@ vi.mock("../api", () => ({
     staged: [],
     unstaged: [{ path: "f.txt", oldPath: null, status: "modified", added: 1, removed: 0, binary: false }],
   })),
+  gitCommit: vi.fn(async () => ({ staged: [], unstaged: [] })),
+  generateCommitMessage: vi.fn(async () => "feat: subject\n\nbody line"),
+  gitRepoSummary: vi.fn(async () => ({
+    repo_name: "repo", repo_root: "/repo", current_branch: "main",
+    detached_head: null, dirty_count: 1,
+    branches: [{ name: "main", current: true, upstream: "origin/main", last_commit: null, worktree_path: null }],
+    worktrees: [],
+  })),
 }));
 
 import { ChangesSurface } from "./index";
+
+const tick = async (n = 4) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
 
 describe("ChangesSurface", () => {
   let host: HTMLElement;
@@ -34,6 +44,14 @@ describe("ChangesSurface", () => {
     expect(s.isOpen).toBe(true);
     expect(document.body.classList.contains("changes-fullscreen")).toBe(true);
     expect(host.querySelector(".cd-file")).toBeTruthy();
+  });
+
+  it("shows the changeset overview until a file is selected", async () => {
+    const s = new ChangesSurface(host);
+    await s.open("/repo");
+    expect(host.querySelector(".cd-overview")).toBeTruthy();
+    expect(host.querySelector(".cd-ov-head")?.textContent).toMatch(/1 file changed/);
+    expect(host.querySelectorAll(".cd-ov-row").length).toBe(1);
   });
 
   it("close clears the fullscreen flag", async () => {
@@ -55,6 +73,46 @@ describe("ChangesSurface", () => {
     expect(s.isOpen).toBe(false);
   });
 
+  it("Escape from an open diff returns to the overview; second Escape closes", async () => {
+    const s = new ChangesSurface(host);
+    await s.open("/repo");
+    host.querySelector<HTMLElement>(".cd-file")!.click();
+    await tick();
+    expect(host.querySelector(".cd-diff-view")).toBeTruthy();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(s.isOpen).toBe(true);
+    expect(host.querySelector(".cd-overview")).toBeTruthy();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(s.isOpen).toBe(false);
+  });
+
+  it("commits subject and body joined by a blank line", async () => {
+    const gitCommit = vi.mocked(api.gitCommit);
+    const s = new ChangesSurface(host);
+    await s.open("/repo");
+
+    const subj = host.querySelector<HTMLInputElement>(".cd-subj")!;
+    const body = host.querySelector<HTMLTextAreaElement>(".cd-commit-body")!;
+    subj.value = "feat: thing";
+    subj.dispatchEvent(new Event("input"));
+    body.value = "longer description";
+
+    host.querySelector<HTMLButtonElement>(".cd-commit-btn")!.click();
+    await tick();
+    expect(gitCommit).toHaveBeenCalledWith("/repo", "feat: thing\n\nlonger description", false);
+  });
+
+  it("Summarize splits the generated message into subject and body", async () => {
+    const s = new ChangesSurface(host);
+    await s.open("/repo");
+    host.querySelector<HTMLButtonElement>(".cd-summarize")!.click();
+    await tick();
+    expect(host.querySelector<HTMLInputElement>(".cd-subj")!.value).toBe("feat: subject");
+    expect(host.querySelector<HTMLTextAreaElement>(".cd-commit-body")!.value).toBe("body line");
+  });
+
   it("re-pulls diff from staged side after staging the currently shown file", async () => {
     const gitFileDiff = vi.mocked(api.gitFileDiff);
     const gitStage = vi.mocked(api.gitStage);
@@ -66,9 +124,7 @@ describe("ChangesSurface", () => {
     const row = [...host.querySelectorAll<HTMLElement>(".cd-file")]
       .find(r => r.textContent?.includes("f.txt"))!;
     row.click();
-    // Wait for showDiff async (gitFileDiff call #1)
-    await Promise.resolve();
-    await Promise.resolve();
+    await tick();
 
     const callsAfterSelect = gitFileDiff.mock.calls.length;
     expect(callsAfterSelect).toBeGreaterThanOrEqual(1);
@@ -76,11 +132,7 @@ describe("ChangesSurface", () => {
     // Now stage via the rail's stage button — triggers stage(path)
     const stageBtn = row.querySelector<HTMLElement>(".cd-stage-btn")!;
     stageBtn.click();
-    // Wait for stage async (gitStage + renderRail + showDiff re-pull)
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await tick(6);
 
     expect(gitStage).toHaveBeenCalledWith("/repo", "f.txt");
 
