@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.12 — Auto-refresh expired Covenant session on 401
+
+### Fixed
+
+- **Canon registry 401s after 30 days**: the backend JWT expires after
+  ~30 days while the stored GitHub token stays valid, so org/package
+  calls (create org, list members, publish, install) died with a raw
+  "401 Unauthorized" once the JWT aged out. All registry requests now go
+  through a shared `send_authed()` that re-exchanges the GitHub token
+  for a fresh JWT via the new `auth::refresh_jwt()` and retries once
+  (`crates/app/src/canon_registry.rs`, `crates/score/src/auth.rs`).
+
 ## v0.9.11 — Pulse polish + app-wide dead-style CSS revival
 
 ### Added
