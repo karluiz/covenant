@@ -23,10 +23,12 @@ export function mountRemotePresenceDot(doc: Document = document): void {
   dot.setAttribute("aria-expanded", "false");
   // If the update banner is already up, dock inside its capsule (left
   // edge) instead of floating orphaned beside it. The banner's hide
-  // handler returns the dot to the titlebar center.
+  // handler returns the dot to the brand. Otherwise dock inside the
+  // brand span — it is window-centered (absolute), while the center
+  // track is gap-centered, so a center-mounted dot would detach.
   const banner = doc.getElementById("covenant-update-banner");
   if (banner) banner.prepend(dot);
-  else center.appendChild(dot);
+  else (doc.getElementById("app-titlebar-brand") ?? center).appendChild(dot);
 
   const pop = doc.createElement("div");
   pop.id = "rc-presence-popover";

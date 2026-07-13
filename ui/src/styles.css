@@ -15069,8 +15069,8 @@ body.theme-light .boot-splash-meta-dot {
        outgrew the old fixed ~310px reserve, so window-centering shoved the
        capsule into it). The minmax(0,1fr) track clips this to the free space;
        the capsule collapses its own labels below (see media queries).
-       ponytail: brand sits at gap-center, not true window-center — reads as
-       balanced against the visible content, revisit only if that looks off. */
+       The brand escapes this track (absolute, below) — only the functional
+       update capsule stays gap-centered. */
     min-width: 0;
     overflow: hidden;
     /* Query the gap directly so the capsule sheds labels on the real free
@@ -15079,14 +15079,23 @@ body.theme-light .boot-splash-meta-dot {
     container-name: titlebar-center;
 }
 #app-titlebar-brand {
+    /* True window center. Gap-center drifts left because the right cluster
+       outweighs the left; the containing block is #app-titlebar (relative),
+       so the static center's overflow:hidden doesn't clip this. Inherits
+       the center's font stack and pointer-events:none. */
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
     color: var(--text, #d5d9de);
     white-space: nowrap;
 }
-/* Hide the decorative brand before the bounded box shrinks below its width
-   and slivers it to "COVE…". The functional update capsule stays (it
-   collapses its own labels above). */
-@media (max-width: 760px) {
-    #app-titlebar-brand { display: none; }
+/* Hide the decorative wordmark before window-center collides with the right
+   icon cluster (~380px) + half the wordmark. The brand span itself stays so
+   an adopted RC presence dot survives; the update capsule collapses its own
+   labels above. */
+@media (max-width: 880px) {
+    #app-titlebar-brand-word { display: none; }
 }
 #app-titlebar-right {
     display: flex;
