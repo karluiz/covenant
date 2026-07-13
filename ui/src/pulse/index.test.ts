@@ -17,11 +17,9 @@ describe("PulseSurface", () => {
     surface.open();
     expect(surface.isOpen).toBe(true);
     expect(host.querySelector(".pulse-frame")).not.toBeNull();
-    expect(document.body.classList.contains("pulse-fullscreen")).toBe(true);
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(surface.isOpen).toBe(false);
     expect(host.innerHTML).toBe("");
-    expect(document.body.classList.contains("pulse-fullscreen")).toBe(false);
   });
 });

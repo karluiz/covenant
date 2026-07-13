@@ -18,7 +18,6 @@ export class PulseSurface {
   open(): void {
     if (this.open_) return;
     this.open_ = true;
-    document.body.classList.add("pulse-fullscreen");
     document.addEventListener("keydown", this.onKey, true);
     this.mountShell();
   }
@@ -27,7 +26,6 @@ export class PulseSurface {
     if (!this.open_) return;
     this.open_ = false;
     document.removeEventListener("keydown", this.onKey, true);
-    document.body.classList.remove("pulse-fullscreen");
     this.host.innerHTML = "";
   }
 
