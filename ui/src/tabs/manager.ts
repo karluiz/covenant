@@ -7640,7 +7640,7 @@ export class TabManager {
         ).map((e) => ({
           label: e.label,
           badge: e.badge,
-          icon: Icons.sparkles(),
+          icon: brandIconSvg(e.executor ?? "copilot", 16) ?? Icons.sparkles(),
           onClick: () => {
             if (group.collapsed) this.toggleGroupCollapsed(group.id);
             void this.createAcpTab({
