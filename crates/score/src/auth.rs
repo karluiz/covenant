@@ -232,6 +232,17 @@ pub async fn finalize_signin(
     Ok(user)
 }
 
+/// Re-exchange the stored GitHub token for a fresh backend JWT. The backend
+/// JWT expires after ~30 days while the GitHub token stays valid, so a 401
+/// from the backend usually just means "mint me a new one".
+pub async fn refresh_jwt() -> Result<String, AuthError> {
+    let token = load_token_from_keychain()?
+        .ok_or_else(|| AuthError::Github("no GitHub token stored".into()))?;
+    let r = exchange_with_backend(&backend_url(), &token).await?;
+    store_jwt(&r.jwt)?;
+    Ok(r.jwt)
+}
+
 pub fn signout(store: &ScoreStore) -> Result<(), AuthError> {
     delete_token_from_keychain()?;
     delete_scope_from_keychain()?;
