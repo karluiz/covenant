@@ -76,7 +76,11 @@ function onCandidate(cand: SpecCandidate) {
   const tabs = host.listTabs();
   const eligible = state.eligibleTabs(cand, tabs);
   if (eligible.length === 0) {
-    state.recordCandidate(cand, Date.now());
+    // No tab can take the spec right now. Scope it to the active tab
+    // anyway — never record a broadcast (null target), which would fan
+    // the badge out to every tab that becomes eligible later.
+    const activeId = host.getActiveTabId();
+    if (activeId) state.recordCandidate(cand, Date.now(), activeId);
     return;
   }
 
