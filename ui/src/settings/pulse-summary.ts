@@ -10,7 +10,7 @@ export async function renderPulseSummary(host: HTMLElement, onOpen: () => void):
       <div class="pulse-mini-stat"><b>${s.today_prompts}</b><span>today</span></div>
       <div class="pulse-mini-stat"><b>${s.total_prompts.toLocaleString()}</b><span>prompts</span></div>
       <div class="pulse-mini-stat"><b>${s.total_commits.toLocaleString()}</b><span>commits</span></div>
-      <button type="button" class="pulse-open-btn">Open Pulse →</button>
+      <button type="button" class="pulse-open-btn">Open Pulse → <kbd>⌘⌥M</kbd></button>
     </div>
   `;
   host.querySelector<HTMLButtonElement>(".pulse-open-btn")!.addEventListener("click", onOpen);

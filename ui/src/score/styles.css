@@ -986,8 +986,18 @@ body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f;
 .pulse-mini-stat { display: flex; flex-direction: column; }
 .pulse-mini-stat b { font-size: 20px; color: var(--num); font-weight: 500; font-variant-numeric: tabular-nums; }
 .pulse-mini-stat span { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
-.pulse-open-btn { margin-left: auto; background: var(--bg-panel); border: 1px solid rgb(var(--ink-rgb) / 0.1); border-radius: 0; padding: 8px 14px; color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.pulse-open-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; background: var(--bg-panel); border: 1px solid rgb(var(--ink-rgb) / 0.1); border-radius: 0; padding: 8px 14px; color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
 .pulse-open-btn:hover { background: rgb(var(--ink-rgb) / 0.05); }
+.pulse-open-btn kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-micro);
+  line-height: 1;
+  padding: 2px 5px;
+  color: var(--muted);
+  background: rgb(var(--ink-rgb) / 0.06);
+  border: 1px solid rgb(var(--ink-rgb) / 0.1);
+  border-radius: 0;
+}
 
 /* Est. $ column + total (Pulse models card) */
 .cov-model-table .cov-cost { font-variant-numeric: tabular-nums; text-align: right; color: var(--text-primary); }
