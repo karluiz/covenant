@@ -55,10 +55,10 @@ export function showUpdateBanner(update: Update): void {
     .addEventListener("click", () => openReleaseNotesModal(update, startInstall));
 
   const hide = () => {
-    // Return an adopted RC presence dot to the titlebar before the
-    // capsule goes away, or it disappears with the banner.
+    // Return an adopted RC presence dot to the brand (window-centered)
+    // before the capsule goes away, or it disappears with the banner.
     const dot = banner.querySelector<HTMLElement>("#rc-presence-dot");
-    if (dot) center.prepend(dot);
+    if (dot) (document.getElementById("app-titlebar-brand") ?? center).appendChild(dot);
     banner.remove();
     document.body.classList.remove(BODY_CLASS);
   };

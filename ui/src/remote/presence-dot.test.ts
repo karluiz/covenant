@@ -72,9 +72,9 @@ afterEach(() => {
 });
 
 describe("mountRemotePresenceDot", () => {
-  it("mounts the dot into the titlebar center, hidden at count 0", () => {
+  it("mounts the dot into the brand span, hidden at count 0", () => {
     const { dot } = mount();
-    expect(dot.parentElement?.id).toBe("app-titlebar-center");
+    expect(dot.parentElement?.id).toBe("app-titlebar-brand");
     expect(dot.style.display).toBe("none");
   });
 

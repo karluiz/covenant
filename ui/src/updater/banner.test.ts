@@ -48,7 +48,7 @@ describe("showUpdateBanner", () => {
     expect(banner.firstElementChild).toBe(dot);
   });
 
-  it("returns the adopted dot to the titlebar center on dismiss", () => {
+  it("returns the adopted dot to the brand span on dismiss", () => {
     const center = mountTitlebar();
     const dot = document.createElement("button");
     dot.id = "rc-presence-dot";
@@ -60,6 +60,6 @@ describe("showUpdateBanner", () => {
       .click();
 
     expect(document.getElementById("covenant-update-banner")).toBeNull();
-    expect(dot.parentElement).toBe(center);
+    expect(dot.parentElement?.id).toBe("app-titlebar-brand");
   });
 });
