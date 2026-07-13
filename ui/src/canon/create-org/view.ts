@@ -2,20 +2,25 @@
 // where the org's identity is born live: the monogram forms and takes its
 // deterministic color as you type. Same entrance language as the Spec Creator
 // (scrim + ambient field + staggered rise), scoped to `.canon-createorg`.
+// Doubles as the owner-only Rename surface: same moment, fixed slug.
 import "./create-org.css";
-import { canonCreateOrg } from "../../api";
+import { canonCreateOrg, canonRenameOrg } from "../../api";
 import { slugify, orgInitials, orgHue } from "../org";
 
 export interface CreateOrgOpts {
-  /** Called with the new slug after a successful create — the caller sets it
-   *  active and refreshes. The surface closes itself first. */
+  /** Called with the org slug after a successful create/rename — the caller
+   *  sets it active and refreshes. The surface closes itself first. */
   onCreated: (slug: string) => void;
+  /** Rename mode: edit the display name of an existing org. The slug is the
+   *  org's identity and never changes — it renders fixed. */
+  rename?: { slug: string; name: string };
 }
 
 /** Open the immersive Create-organization surface. Self-managed: handles its
- *  own entrance/exit, Esc/backdrop/Cancel, and the create call. */
+ *  own entrance/exit, Esc/backdrop/Cancel, and the create/rename call. */
 export function openCreateOrgExperience(opts: CreateOrgOpts): void {
   if (document.querySelector(".canon-createorg")) return;
+  const rename = opts.rename ?? null;
 
   const root = document.createElement("div");
   root.className = "canon-createorg";
@@ -23,7 +28,7 @@ export function openCreateOrgExperience(opts: CreateOrgOpts): void {
     <div class="canon-createorg-scrim"></div>
     <div class="canon-createorg-field"></div>
     <div class="canon-createorg-stage">
-      <div class="canon-createorg-eyebrow canon-createorg-rise" style="--rise-delay:60ms">New organization</div>
+      <div class="canon-createorg-eyebrow canon-createorg-rise" style="--rise-delay:60ms">${rename ? "Rename organization" : "New organization"}</div>
       <div class="canon-createorg-mono canon-createorg-rise" style="--rise-delay:120ms" aria-hidden="true"></div>
       <input class="canon-createorg-name canon-createorg-rise" style="--rise-delay:200ms"
              type="text" placeholder="Name your organization" autocomplete="off" spellcheck="false" />
@@ -34,10 +39,10 @@ export function openCreateOrgExperience(opts: CreateOrgOpts): void {
       <p class="canon-createorg-err" role="alert" hidden></p>
       <div class="canon-createorg-actions canon-createorg-rise" style="--rise-delay:320ms">
         <button class="canon-createorg-cancel" type="button">Cancel</button>
-        <button class="canon-createorg-create" type="button" disabled>Create</button>
+        <button class="canon-createorg-create" type="button" disabled>${rename ? "Rename" : "Create"}</button>
       </div>
       <div class="canon-createorg-hint canon-createorg-rise" style="--rise-delay:380ms">
-        <kbd>esc</kbd> to cancel · <kbd>⏎</kbd> to create
+        <kbd>esc</kbd> to cancel · <kbd>⏎</kbd> to ${rename ? "rename" : "create"}
       </div>
     </div>`;
 
@@ -52,7 +57,8 @@ export function openCreateOrgExperience(opts: CreateOrgOpts): void {
 
   let busy = false;
 
-  const currentSlug = (): string => slugify(nameEl.value);
+  // Rename keeps the org's identity: the slug (and its hue) never track typing.
+  const currentSlug = (): string => (rename ? rename.slug : slugify(nameEl.value));
 
   const sync = (): void => {
     const name = nameEl.value.trim();
@@ -71,7 +77,7 @@ export function openCreateOrgExperience(opts: CreateOrgOpts): void {
     }
     slugVal.textContent = slug || "…";
     slugField.classList.toggle("is-empty", !slug);
-    createBtn.disabled = !name || !slug || busy;
+    createBtn.disabled = !name || !slug || busy || (!!rename && name === rename.name);
     if (!err.hidden) { err.hidden = true; err.textContent = ""; }
   };
 
@@ -90,7 +96,8 @@ export function openCreateOrgExperience(opts: CreateOrgOpts): void {
     createBtn.classList.add("is-busy");
     root.classList.add("creating");
     try {
-      await canonCreateOrg(slug, name);
+      if (rename) await canonRenameOrg(slug, name);
+      else await canonCreateOrg(slug, name);
       opts.onCreated(slug);
       close();
     } catch (e) {
@@ -114,12 +121,14 @@ export function openCreateOrgExperience(opts: CreateOrgOpts): void {
   scrim.addEventListener("click", close);
   document.addEventListener("keydown", onKey, true);
 
+  if (rename) nameEl.value = rename.name;
   document.body.appendChild(root);
   sync();
   // Entrance choreography on the next frame so the transitions run.
   requestAnimationFrame(() => {
     root.classList.add("open");
     nameEl.focus();
+    if (rename) nameEl.select();
   });
 }
 

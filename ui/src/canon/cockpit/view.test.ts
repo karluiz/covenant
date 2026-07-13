@@ -92,6 +92,25 @@ describe("CanonCockpitView create-org flow", () => {
     expect(setActiveOrg).toHaveBeenCalledWith("neworg");
     expect(v.element.textContent).toContain("neworg");
   });
+
+  it("shows the id-card rename pencil only to owners and opens the surface in rename mode", () => {
+    vi.mocked(openCreateOrgExperience).mockClear();
+    const memberV = new CanonCockpitView({ ...opts,
+      orgs: [{ id: 1, slug: "cleverit", name: "Cleverit", role: "member", personal: false }],
+      getActiveOrg: () => "cleverit" });
+    memberV.open();
+    expect(memberV.element.querySelector(".canon-cockpit-idcard-edit")).toBeNull();
+    memberV.close();
+
+    const v = new CanonCockpitView(opts); // active org role: owner
+    v.open();
+    const edit = v.element.querySelector(".canon-cockpit-idcard-edit") as HTMLElement;
+    expect(edit).toBeTruthy();
+    edit.click();
+    expect(openCreateOrgExperience).toHaveBeenCalledWith(
+      expect.objectContaining({ rename: { slug: "karluiz", name: "karluiz" } }),
+    );
+  });
 });
 
 describe("CanonCockpitView Registry section", () => {

@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../api", () => ({ canonCreateOrg: vi.fn().mockResolvedValue({}) }));
+vi.mock("../../api", () => ({
+  canonCreateOrg: vi.fn().mockResolvedValue({}),
+  canonRenameOrg: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { openCreateOrgExperience } from "./view";
-import { canonCreateOrg } from "../../api";
+import { canonCreateOrg, canonRenameOrg } from "../../api";
 
 function q<T extends Element>(sel: string): T {
   return document.querySelector(sel) as T;
@@ -63,5 +66,34 @@ describe("openCreateOrgExperience", () => {
     expect(err.hidden).toBe(false);
     expect(err.textContent).toContain("taken");
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("rename mode: fixed slug, prefilled name, renames on submit", async () => {
+    const onCreated = vi.fn();
+    openCreateOrgExperience({ onCreated, rename: { slug: "acme", name: "Acme" } });
+
+    const name = q<HTMLInputElement>(".canon-createorg-name");
+    const slug = q<HTMLElement>(".canon-createorg-slug-val");
+    const submit = q<HTMLButtonElement>(".canon-createorg-create");
+
+    expect(q<HTMLElement>(".canon-createorg-eyebrow").textContent).toBe("Rename organization");
+    expect(name.value).toBe("Acme");
+    expect(slug.textContent).toBe("acme");
+    // Unchanged name: nothing to commit.
+    expect(submit.disabled).toBe(true);
+
+    name.value = "Acme Corp";
+    name.dispatchEvent(new Event("input"));
+    // The slug is the org's identity — it never tracks typing in rename mode.
+    expect(slug.textContent).toBe("acme");
+    expect(submit.disabled).toBe(false);
+
+    submit.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(canonRenameOrg).toHaveBeenCalledWith("acme", "Acme Corp");
+    expect(canonCreateOrg).not.toHaveBeenCalled();
+    expect(onCreated).toHaveBeenCalledWith("acme");
   });
 });

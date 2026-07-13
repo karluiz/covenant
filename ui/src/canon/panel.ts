@@ -5,11 +5,10 @@ import { pushInfoToast } from "../notifications/toast";
 import { renderMarkdown } from "../ui/markdown";
 import type { CanonStatus, Org, CanonEvalProgress } from "../api";
 import {
-  canonLocalStatus, canonMyOrgs, canonPublish, canonRenameOrg,
+  canonLocalStatus, canonMyOrgs, canonPublish,
   canonReadLocal, canonReadSource, canonExport, canonRunEvals, onCanonEvalProgress,
   canonEvalSummary,
 } from "../api";
-import { openRenamePrompt } from "../workspaces/rename-prompt";
 import { liftClass, type LiftBadge } from "./cockpit/lift";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
@@ -422,16 +421,9 @@ export class CanonPanel {
         edit.addEventListener("click", (e) => {
           e.stopPropagation();
           close();
-          openRenamePrompt({
-            label: "Rename org",
-            value: org.name,
-            onCommit: (next) => {
-              if (next === org.name) return;
-              void canonRenameOrg(org.slug, next)
-                .then(() => this.refresh())
-                .then(() => pushInfoToast({ message: `Organization renamed to ${next}` }))
-                .catch((err) => pushInfoToast({ message: `Rename failed: ${String(err)}` }));
-            },
+          openCreateOrgExperience({
+            rename: { slug: org.slug, name: org.name },
+            onCreated: () => void this.refresh(),
           });
         });
         row.appendChild(edit);
