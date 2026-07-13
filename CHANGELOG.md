@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.13 — JWT auto-refresh across marketplace + score sync
+
+### Fixed
+
+- **Expired-session 401s beyond the canon registry**: the 401-refresh-retry
+  helper moved into `karl_score::auth::send_authed()` and now also covers
+  the operator marketplace (publish, search, install count) and score sync
+  (events push, profile publish/unpublish), so every backend surface mints
+  a fresh JWT from the stored GitHub token instead of failing after the
+  30-day expiry. New `AuthError::SessionExpired` carries a clear
+  "sign in again" message when the refresh itself fails
+  (`crates/score/src/auth.rs`, `crates/score/src/sync.rs`,
+  `crates/app/src/marketplace.rs`, `crates/app/src/canon_registry.rs`).
+
 ## v0.9.12 — Auto-refresh expired Covenant session on 401
 
 ### Fixed
