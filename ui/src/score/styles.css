@@ -207,7 +207,7 @@
   /* Empty cells must stay visible — they draw the full 53-week grid the
      amber activity sits in (per the approved mockup). Below ~8% ink they
      vanish against --bg-elevated and the grid reads as floating cells. */
-  background: rgba(var(--ink-rgb), 0.09);
+  background: rgba(var(--ink-rgb), 0.12);
   border-radius: 0;
   cursor: pointer;
   min-width: 0;
@@ -493,7 +493,7 @@ body.theme-light .cov-card h4 { color: var(--muted); }
 body.theme-light .cov-card h4 .hint,
 body.theme-light .cov-card-foot { color: var(--muted); }
 
-body.theme-light .cov-cell { background: rgba(var(--ink-rgb), 0.08); border-color: transparent; }
+body.theme-light .cov-cell { background: rgba(var(--ink-rgb), 0.10); border-color: transparent; }
 body.theme-light .cov-cell.l1 { background: color-mix(in srgb, var(--num) 22%, transparent); }
 body.theme-light .cov-cell.l2 { background: color-mix(in srgb, var(--num) 42%, transparent); }
 body.theme-light .cov-cell.l3 { background: color-mix(in srgb, var(--num) 66%, transparent); }
@@ -802,7 +802,7 @@ body.theme-true-dark .lb-more { color: var(--num); }
    The empty-cell rule below is (0,2,1) specificity and would otherwise
    clobber the (0,2,0) `.cov-cell.lN` ramp, so re-assert the ramp here at
    (0,3,1) to keep the data colors on OLED. */
-body.theme-true-dark .cov-cell { background: rgba(var(--ink-rgb), 0.09); border-color: transparent; }
+body.theme-true-dark .cov-cell { background: rgba(var(--ink-rgb), 0.12); border-color: transparent; }
 body.theme-true-dark .cov-cell.l1 { background: color-mix(in srgb, var(--num) 22%, transparent); }
 body.theme-true-dark .cov-cell.l2 { background: color-mix(in srgb, var(--num) 42%, transparent); }
 body.theme-true-dark .cov-cell.l3 { background: color-mix(in srgb, var(--num) 66%, transparent); }
@@ -972,8 +972,14 @@ body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f;
 /* Pulse cockpit zones */
 .pulse-hero { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
 .pulse-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.pulse-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+/* Two wide slots per row — tables and leaderboards need the room; four
+   narrow auto-fill columns truncated names and overflowed the token table. */
+.pulse-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pulse-grid > .cov-card { min-width: 0; margin-bottom: 0; }
 .cov-card--wide { grid-column: 1 / -1; }
+@media (max-width: 1000px) {
+  .pulse-grid { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* Settings Metrics summary strip */
 .pulse-mini { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 4px 0; }
