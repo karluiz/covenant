@@ -185,10 +185,9 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
 
     const head = document.createElement("div");
     head.className = "spawns-md-head";
-    const badge = brandBadge(spec.label);
     const spacer = document.createElement("span");
     spacer.className = "spawns-md-spacer";
-    head.append(badge, brandSelect.element, spacer);
+    head.append(brandSelect.element, spacer);
 
     if (spec.default) {
       const badge = document.createElement("span");

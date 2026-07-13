@@ -80,7 +80,8 @@ export class ConvergenceOverlay {
     const exit = document.createElement("button");
     exit.type = "button";
     exit.className = "modal-cancel-btn";
-    exit.innerHTML = `<span>Exit</span><kbd class="modal-kbd">Esc</kbd>`;
+    exit.innerHTML = `<kbd class="modal-kbd">Esc</kbd>`;
+    exit.setAttribute("aria-label", "Exit Convergence Mode");
     exit.addEventListener("click", () => this.close());
     header.append(title, exit);
 
