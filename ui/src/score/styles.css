@@ -1009,3 +1009,15 @@ body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f;
   text-align: right;
 }
 .cov-cost-total b { color: var(--num); font-weight: 600; }
+
+/* Loading skeletons — placeholders in the TEMPLATE that each render fn
+   replaces when its data lands. Neutral pulse, no shimmer theater. */
+.cov-skel {
+  background: rgb(var(--ink-rgb) / 0.05);
+  animation: cov-skel-pulse 1.4s ease-in-out infinite;
+}
+@keyframes cov-skel-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .cov-skel { animation: none; } }
+.cov-skel-stat { height: 82px; min-width: 150px; }
+.cov-skel-heat { height: 190px; grid-column: 1 / -1; }
+.cov-skel-block { height: 130px; }

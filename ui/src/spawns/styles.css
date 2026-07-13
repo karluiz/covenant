@@ -74,7 +74,7 @@
   border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
   border-radius: 0;
   padding: 6px;
-  z-index: 2000;
+  z-index: 2147482500;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 .spawns-popover__item {
