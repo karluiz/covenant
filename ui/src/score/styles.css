@@ -172,11 +172,13 @@
   font-size: var(--fs-title); font-weight: 600; letter-spacing: var(--ls-title);
   text-transform: uppercase; color: rgba(var(--ink-rgb), 0.42); margin: 0 0 12px;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  /* Hint sits next to the title (approved mockup), not pushed to the far edge. */
+  justify-content: flex-start;
+  align-items: baseline;
+  gap: 10px;
 }
 .cov-card h4 .hint,
-.cov-heatmap-card h4 .hint { font-size: var(--fs-micro); color: var(--text-tertiary); text-transform: none; letter-spacing: normal; margin-left: 6px; }
+.cov-heatmap-card h4 .hint { font-size: var(--fs-micro); color: var(--text-tertiary); text-transform: none; letter-spacing: normal; font-weight: 400; }
 .cov-card-foot {
   font-size: 10px;
   color: var(--text-tertiary);
@@ -202,7 +204,10 @@
   width: 100%;
 }
 .cov-cell {
-  background: rgba(var(--ink-rgb), 0.06);
+  /* Empty cells must stay visible — they draw the full 53-week grid the
+     amber activity sits in (per the approved mockup). Below ~8% ink they
+     vanish against --bg-elevated and the grid reads as floating cells. */
+  background: rgba(var(--ink-rgb), 0.09);
   border-radius: 0;
   cursor: pointer;
   min-width: 0;
@@ -488,7 +493,7 @@ body.theme-light .cov-card h4 { color: var(--muted); }
 body.theme-light .cov-card h4 .hint,
 body.theme-light .cov-card-foot { color: var(--muted); }
 
-body.theme-light .cov-cell { background: rgba(var(--ink-rgb), 0.05); border-color: transparent; }
+body.theme-light .cov-cell { background: rgba(var(--ink-rgb), 0.08); border-color: transparent; }
 body.theme-light .cov-cell.l1 { background: color-mix(in srgb, var(--num) 22%, transparent); }
 body.theme-light .cov-cell.l2 { background: color-mix(in srgb, var(--num) 42%, transparent); }
 body.theme-light .cov-cell.l3 { background: color-mix(in srgb, var(--num) 66%, transparent); }
@@ -583,8 +588,10 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
 .cov-toggle { display:inline-flex; border:1px solid rgba(255,255,255,0.12); border-radius:999px; overflow:hidden; margin-bottom:8px; }
 .cov-toggle button { background:transparent; color:inherit; padding:4px 12px; border:none; cursor:pointer; }
 .cov-toggle button.active { background: rgba(255,255,255,0.10); }
+.cov-table-scroll { overflow-x: auto; }
 .cov-model-table { width:100%; border-collapse:collapse; }
-.cov-model-table th, .cov-model-table td { padding:6px 8px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.06); font-variant-numeric: tabular-nums; }
+.cov-model-table th, .cov-model-table td { padding:6px 10px; text-align:left; border-bottom:1px solid rgba(var(--ink-rgb), 0.06); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cov-model-table td:first-child, .cov-model-table th:first-child { padding-left: 0; }
 .cov-dim { opacity:0.5; }
 
 /* ── Achievements ─────────────────────────────────────────────────────────
@@ -795,7 +802,7 @@ body.theme-true-dark .lb-more { color: var(--num); }
    The empty-cell rule below is (0,2,1) specificity and would otherwise
    clobber the (0,2,0) `.cov-cell.lN` ramp, so re-assert the ramp here at
    (0,3,1) to keep the data colors on OLED. */
-body.theme-true-dark .cov-cell { background: rgba(var(--ink-rgb), 0.05); border-color: transparent; }
+body.theme-true-dark .cov-cell { background: rgba(var(--ink-rgb), 0.09); border-color: transparent; }
 body.theme-true-dark .cov-cell.l1 { background: color-mix(in srgb, var(--num) 22%, transparent); }
 body.theme-true-dark .cov-cell.l2 { background: color-mix(in srgb, var(--num) 42%, transparent); }
 body.theme-true-dark .cov-cell.l3 { background: color-mix(in srgb, var(--num) 66%, transparent); }

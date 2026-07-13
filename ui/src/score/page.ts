@@ -57,7 +57,7 @@ const TEMPLATE = /* html */ `
         <h4>Specs</h4>
         <div data-role="specs"></div>
       </div>
-      <div class="cov-card">
+      <div class="cov-card cov-card--wide">
         <h4>Token usage · per model</h4>
         <div data-role="models"></div>
       </div>

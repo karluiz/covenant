@@ -85,13 +85,15 @@ export function renderModelsCard(
       <button type="button" data-src="internal" class="${!isExternal ? "active" : ""}">Covenant</button>
       <button type="button" data-src="external" class="${isExternal ? "active" : ""}">External</button>
     </div>
-    <table class="cov-model-table">
-      <thead><tr>
-        ${isExternal ? "<th>Agent</th>" : ""}
-        <th>Model</th><th>Calls</th><th>Input</th><th>Output</th><th>Est. $</th>
-      </tr></thead>
-      <tbody>${rows || `<tr><td colspan="${isExternal ? 6 : 5}" class="cov-empty">No usage</td></tr>`}</tbody>
-    </table>
+    <div class="cov-table-scroll">
+      <table class="cov-model-table">
+        <thead><tr>
+          ${isExternal ? "<th>Agent</th>" : ""}
+          <th>Model</th><th>Calls</th><th>Input</th><th>Output</th><th>Est. $</th>
+        </tr></thead>
+        <tbody>${rows || `<tr><td colspan="${isExternal ? 6 : 5}" class="cov-empty">No usage</td></tr>`}</tbody>
+      </table>
+    </div>
     ${totalLine}
   `;
   host.querySelectorAll<HTMLButtonElement>(".cov-toggle button").forEach((b) => {
