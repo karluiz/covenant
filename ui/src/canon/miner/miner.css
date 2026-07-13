@@ -80,13 +80,13 @@
   padding: 0 10px;
   border-radius: 0;
   border: 1px solid var(--border);
-  background: rgba(var(--ink-rgb), 0.04);
+  background: rgb(var(--ink-rgb) / 0.04);
   color: var(--fg);
   font-size: var(--fs-meta, 11px);
   font-family: inherit;
   cursor: pointer;
 }
-.canon-miner-btn:hover { background: rgba(var(--ink-rgb), 0.08); }
+.canon-miner-btn:hover { background: rgb(var(--ink-rgb) / 0.08); }
 .canon-miner-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .canon-miner-btn svg { width: 13px; height: 13px; }
 
@@ -116,7 +116,7 @@
   color: var(--fg-dim);
   cursor: pointer;
 }
-.canon-miner-close:hover { color: var(--fg); background: rgba(var(--ink-rgb), 0.06); }
+.canon-miner-close:hover { color: var(--fg); background: rgb(var(--ink-rgb) / 0.06); }
 
 .canon-miner-body {
   flex: 1;
@@ -214,7 +214,7 @@
   padding: 0 12px;
   border-radius: 0;
   border: 1px solid var(--border);
-  background: rgba(var(--ink-rgb), 0.04);
+  background: rgb(var(--ink-rgb) / 0.04);
   color: var(--fg);
   font-size: 13px;
   font-family: inherit;
@@ -223,7 +223,7 @@
 .canon-miner-field input[type="text"]:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 65%, transparent);
-  background: rgba(var(--ink-rgb), 0.06);
+  background: rgb(var(--ink-rgb) / 0.06);
 }
 .canon-miner-field input::placeholder { color: var(--fg-dim); }
 
@@ -285,7 +285,7 @@
   flex-direction: column;
   gap: 2px;
   padding: 6px 4px;
-  border-bottom: 1px solid rgba(var(--ink-rgb), 0.04);
+  border-bottom: 1px solid rgb(var(--ink-rgb) / 0.04);
   font-size: var(--fs-meta, 11px);
 }
 .canon-miner-activity-line {
@@ -360,7 +360,7 @@
   border-radius: 0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: rgba(var(--ink-rgb), 0.07);
+  background: rgb(var(--ink-rgb) / 0.07);
   color: var(--fg-dim);
   flex: none;
 }
@@ -378,10 +378,10 @@
   margin: -2px -4px;
   cursor: text;
 }
-.canon-miner-card-body:hover { background: rgba(var(--ink-rgb), 0.03); }
+.canon-miner-card-body:hover { background: rgb(var(--ink-rgb) / 0.03); }
 .canon-miner-card-body[contenteditable="true"] {
   outline: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
-  background: rgba(var(--ink-rgb), 0.03);
+  background: rgb(var(--ink-rgb) / 0.03);
   cursor: text;
 }
 
@@ -394,7 +394,7 @@
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--fs-micro, 10px);
   color: var(--fg-dim);
-  background: rgba(var(--ink-rgb), 0.06);
+  background: rgb(var(--ink-rgb) / 0.06);
   border-radius: 0;
   padding: 2px 6px;
 }
@@ -417,7 +417,7 @@
   cursor: pointer;
   border-radius: 0;
 }
-.canon-miner-discarded:hover { background: rgba(var(--ink-rgb), 0.04); }
+.canon-miner-discarded:hover { background: rgb(var(--ink-rgb) / 0.04); }
 
 .canon-miner-cards-empty {
   color: var(--fg-dim);

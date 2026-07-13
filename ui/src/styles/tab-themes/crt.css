@@ -29,7 +29,7 @@ body.tab-style-crt .tab-btn.active {
     linear-gradient(90deg,
       color-mix(in srgb, var(--tab-stripe, var(--accent)) 16%, transparent), transparent 78%),
     repeating-linear-gradient(0deg,
-      rgba(var(--ink-rgb), 0.05) 0 1px, transparent 1px 3px);
+      rgb(var(--ink-rgb) / 0.05) 0 1px, transparent 1px 3px);
   text-shadow:
     0 0 6px color-mix(in srgb, var(--tab-stripe, var(--accent)) 75%, transparent),
     0 0 13px color-mix(in srgb, var(--tab-stripe, var(--accent)) 38%, transparent);

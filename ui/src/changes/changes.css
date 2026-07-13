@@ -1,6 +1,6 @@
 /* Changes — full-screen git diff viewer.
    Uses Covenant theme tokens: --bg-overlay (opaque panel), --bg-panel,
-   --border, --text-primary, --muted, --accent, and rgba(var(--ink-rgb), a)
+   --border, --text-primary, --muted, --accent, and rgb(var(--ink-rgb) / a)
    for neutral surface lifts that read correctly on every theme incl. True Dark. */
 
 body.changes-fullscreen .cd-frame {
@@ -41,8 +41,8 @@ body.changes-fullscreen .cd-frame {
 }
 .cd-close:hover .settings-esc {
   color: #fff;
-  background: rgba(var(--ink-rgb), 0.08);
-  border-color: rgba(var(--ink-rgb), 0.16);
+  background: rgb(var(--ink-rgb) / 0.08);
+  border-color: rgb(var(--ink-rgb) / 0.16);
 }
 
 /* Body: rail | diff */
@@ -64,7 +64,7 @@ body.changes-fullscreen .cd-frame {
   padding: 6px 10px;
   margin-bottom: 10px;
   flex-shrink: 0;
-  background: rgba(var(--ink-rgb), 0.05);
+  background: rgb(var(--ink-rgb) / 0.05);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 0;
@@ -90,8 +90,8 @@ body.changes-fullscreen .cd-frame {
   border-radius: 0;
   cursor: pointer;
 }
-.cd-file:hover { background: rgba(var(--ink-rgb), 0.06); }
-.cd-file--selected { background: rgba(var(--ink-rgb), 0.1); }
+.cd-file:hover { background: rgb(var(--ink-rgb) / 0.06); }
+.cd-file--selected { background: rgb(var(--ink-rgb) / 0.1); }
 .cd-file-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-status { font-size: 11px; font-weight: 700; width: 12px; text-align: center; }
 .cd-status--modified { color: #d7a700; }
@@ -105,7 +105,7 @@ body.changes-fullscreen .cd-frame {
   padding: 2px 8px;
   border-radius: 0;
   border: 1px solid var(--border);
-  background: rgba(var(--ink-rgb), 0.04);
+  background: rgb(var(--ink-rgb) / 0.04);
   color: var(--text-primary);
   cursor: pointer;
 }
@@ -128,7 +128,7 @@ body.changes-fullscreen .cd-frame {
   resize: vertical;
   min-height: 52px;
   padding: 7px 9px;
-  background: rgba(var(--ink-rgb), 0.05);
+  background: rgb(var(--ink-rgb) / 0.05);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 0;
@@ -179,7 +179,7 @@ body.changes-fullscreen .cd-frame {
   width: 12px;
   height: 12px;
   margin-top: 1px;
-  border: 1.5px solid rgba(var(--ink-rgb), 0.15);
+  border: 1.5px solid rgb(var(--ink-rgb) / 0.15);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: cd-spin 0.7s linear infinite;
@@ -201,7 +201,7 @@ body.changes-fullscreen .cd-frame {
 }
 .cd-summarize {
   flex: 0 1 auto;
-  background: rgba(var(--ink-rgb), 0.04);
+  background: rgb(var(--ink-rgb) / 0.04);
   color: var(--text-primary);
 }
 .cd-summarize-icon { flex: 0 0 auto; }
@@ -209,7 +209,7 @@ body.changes-fullscreen .cd-frame {
 .cd-summarize:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .cd-commit-btn {
   flex: 1;
-  background: rgba(var(--ink-rgb), 0.06);
+  background: rgb(var(--ink-rgb) / 0.06);
   border-color: var(--border);
   color: var(--text-primary);
   font-weight: 500;

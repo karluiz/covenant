@@ -125,8 +125,8 @@ body.theme-dark .op-card-summary {
   padding: 3px 7px;
   border-radius: 0;
   color: color-mix(in srgb, var(--text-primary, #f5f6f7) 64%, transparent);
-  border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.12);
-  background: rgba(var(--ink-rgb, 255 255 255), 0.04);
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.12);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
   white-space: nowrap;
 }
 .op-card-actions {
@@ -148,15 +148,15 @@ body.theme-dark .op-card-summary {
   border-radius: 0;
   cursor: pointer;
   color: color-mix(in srgb, var(--text-primary, #f5f6f7) 70%, transparent);
-  border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.12);
-  background: rgba(var(--ink-rgb, 255 255 255), 0.04);
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.12);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .op-card-iconbtn svg { width: 16px; height: 16px; }
 .op-card-iconbtn:hover {
   color: var(--text-primary, #f5f6f7);
-  background: rgba(var(--ink-rgb, 255 255 255), 0.09);
-  border-color: rgba(var(--ink-rgb, 255 255 255), 0.2);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.09);
+  border-color: rgb(var(--ink-rgb, 255 255 255) / 0.2);
 }
 .op-card-iconbtn.is-danger:hover {
   color: var(--danger);
@@ -777,7 +777,7 @@ body.theme-light .op-tg-bubble {
      between souls. This fits the 3-line worst case and centres shorter ones. */
   height: 196px;
   padding: 22px;
-  border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.12);
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.12);
   border-radius: 0;
   background: var(--bg-elevated, #181c23);
   overflow: hidden;
@@ -877,7 +877,7 @@ body.theme-light .op-tg-bubble {
 .op-thumb-av .op-avatar-pixel { width: 120%; height: 120%; object-fit: contain; margin-top: 5px; }
 .op-thumb-name { font-size: 10.5px; white-space: nowrap; }
 .op-thumb-blank .op-thumb-av { font-size: 18px; color: var(--text-tertiary, #5c626c); background: var(--bg-overlay, #1c2029); }
-.op-thumb:hover { border-color: rgba(var(--ink-rgb), 0.18); background: var(--bg-overlay, #1c2029); }
+.op-thumb:hover { border-color: rgb(var(--ink-rgb) / 0.18); background: var(--bg-overlay, #1c2029); }
 .op-thumb.is-sel {
   border-color: color-mix(in srgb, var(--sig, #8b929b) 60%, transparent);
   background: color-mix(in srgb, var(--sig, #8b929b) 10%, transparent);
@@ -1046,8 +1046,8 @@ body.theme-light .op-tg-bubble {
   font-size: 11px;
   line-height: 1;
   color: var(--text-secondary, #9aa3b2);
-  background: rgba(var(--ink-rgb), 0.04);
-  border: 1px solid rgba(var(--ink-rgb), 0.09);
+  background: rgb(var(--ink-rgb) / 0.04);
+  border: 1px solid rgb(var(--ink-rgb) / 0.09);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;

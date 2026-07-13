@@ -71,9 +71,9 @@ Text hierarchy: `--text-primary` (`#f5f6f7`) → `--text-secondary`/`--fg-dim` (
 Hovers, rests, and hairlines compose from the ink channel so they survive theme flips:
 
 ```css
-background: rgba(var(--ink-rgb), 0.04);   /* rest */
-background: rgba(var(--ink-rgb), 0.08);   /* hover */
-border-color: rgba(var(--ink-rgb), 0.14); /* active edge */
+background: rgb(var(--ink-rgb) / 0.04);   /* rest */
+background: rgb(var(--ink-rgb) / 0.08);   /* hover */
+border-color: rgb(var(--ink-rgb) / 0.14); /* active edge */
 ```
 
 Never hardcode `rgba(255,255,255,…)` for these — it breaks in light theme.
@@ -145,7 +145,7 @@ New panels **must** compose `.rail-*` classes, not re-invent header/footer/rows.
 
 ### Scrollbars
 
-Globally hidden (WKWebView paints native scrollbars over styled ones). Scrollable regions reveal a 6px thumb (`rgba(var(--ink-rgb), 0.22)`) on hover/focus-within by opting into the reveal list at the top of `styles.css`. Never re-enable scrollbars ad hoc.
+Globally hidden (WKWebView paints native scrollbars over styled ones). Scrollable regions reveal a 6px thumb (`rgb(var(--ink-rgb) / 0.22)`) on hover/focus-within by opting into the reveal list at the top of `styles.css`. Never re-enable scrollbars ad hoc.
 
 ---
 
@@ -193,4 +193,4 @@ Rules:
 10. **Exit with `esc`, not an ×.** Full-screen / immersive surfaces (cockpit, miner, create surfaces, readers) close via a labelled `esc` affordance (`<kbd class="settings-esc">esc</kbd>`) **and** the Escape key — never a close ×. Rail/sidebar panels close via their rail toggle, so they carry no × either. Reserve × only where there is genuinely no rail toggle and no full-screen Escape context. **`esc` closes the whole surface back to the terminal** — never to an intermediate view (a fullscreen "board"/"cockpit" expanded from a rail closes the rail too, matching Settings / Changes / Tasker / Release log).
 11. **Full-screen surfaces respect the chrome.** Anything `position: fixed` starts at `top: 38px` (below the titlebar / traffic lights) and carries a `border-top`; it never paints over the window controls. Working surfaces (cockpit) also inset the sidebar (`--tabbar-w`) and status bar (`--statusbar-h`); focused immersive moments (create, miner) may go full-bleed below the titlebar.
 12. **No emoji in chrome — icons are inline SVG.** Every glyph comes from `ui/src/icons` (Lucide, `currentColor`) or `ui/src/icons/brands.ts`; never an emoji character in UI copy or labels. (Operator avatars users pick themselves are the one exception.) Plain text glyphs (`▲ ▽ ✓ ✗ ·`) are fine — the ban is on emoji.
-13. **Compose ink alphas with the slash syntax: `rgb(var(--ink-rgb) / 0.08)`.** `--ink-rgb` is space-separated (`255 255 255`), so the legacy comma form `rgba(var(--ink-rgb), 0.08)` is INVALID CSS — the declaration silently drops at computed-value time and the style vanishes. (Historic occurrences of the comma form are being migrated; never add new ones.)
+13. **Compose ink alphas with the slash syntax: `rgb(var(--ink-rgb) / 0.08)`.** `--ink-rgb` is space-separated (`255 255 255`), so the legacy comma form `rgba(var(--ink-rgb), 0.08)` is INVALID CSS — the declaration silently drops at computed-value time and the style vanishes. Repo-wide sweep done 2026-07-13; never add new comma-form occurrences.

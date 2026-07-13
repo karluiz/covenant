@@ -674,8 +674,8 @@ body.theme-true-dark .canon-row .rail-row-actions { background: #000; }
 }
 .canon-reader-close:hover .settings-esc {
   color: #fff;
-  background: rgba(var(--ink-rgb), 0.08);
-  border-color: rgba(var(--ink-rgb), 0.16);
+  background: rgb(var(--ink-rgb) / 0.08);
+  border-color: rgb(var(--ink-rgb) / 0.16);
 }
 body.tabbar-left .canon-reader { top: 38px; }
 

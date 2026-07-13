@@ -63,8 +63,8 @@ body.sidebar-view-tasker #tasker-panel {
 }
 .tasker-esc-btn:hover .settings-esc {
   color: #fff;
-  background: rgba(var(--ink-rgb), 0.08);
-  border-color: rgba(var(--ink-rgb), 0.16);
+  background: rgb(var(--ink-rgb) / 0.08);
+  border-color: rgb(var(--ink-rgb) / 0.16);
 }
 
 .tasker-projects {

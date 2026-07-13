@@ -164,7 +164,7 @@ body.tab-style-forge.tabbar-left .tab-btn {
 }
 
 body.tab-style-forge.tabbar-left .tab-btn:hover:not(.active) {
-    background: color-mix(in srgb, var(--tab-color, transparent) 10%, rgba(var(--ink-rgb), 0.05));
+    background: color-mix(in srgb, var(--tab-color, transparent) 10%, rgb(var(--ink-rgb) / 0.05));
 }
 
 body.tab-style-forge.tabbar-left .tab-btn.active {
