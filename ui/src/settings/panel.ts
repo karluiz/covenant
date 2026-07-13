@@ -12,7 +12,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { listMonospaceFonts } from "../api";
+import { cliInstalled, installCli, listMonospaceFonts } from "../api";
 
 import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
@@ -1156,6 +1156,17 @@ export class SettingsPanel {
           </label>
         </section>
         <section class="settings-section" id="sec-telegram"></section>
+        <section class="settings-section" id="sec-cli">
+          <h3 class="settings-section-title">Command line</h3>
+          <p class="settings-section-desc">Open folders and files from any terminal with <code>covenant .</code> — folders become a group rooted there, files open in the editor. Homebrew installs this automatically; DMG installs use this button.</p>
+          <div class="settings-field">
+            <span class="settings-label">Shell command</span>
+            <div class="settings-input-row">
+              <button type="button" class="settings-save" data-action="install-cli">${Icons.terminal({ size: 14 })}<span id="install-cli-label">Install 'covenant' command</span></button>
+            </div>
+            <small class="settings-hint">Symlinks the bundled shim to <code>/usr/local/bin/covenant</code>. May ask for your administrator password once.</small>
+          </div>
+        </section>
         <section class="settings-section" id="sec-onboarding">
           <h3 class="settings-section-title">Onboarding</h3>
           <p class="settings-section-desc">Re-run the first-run tour at any time. Useful if you skipped it on install or want a refresher on the keyboard shortcuts and the super-agent.</p>
@@ -1852,6 +1863,26 @@ export class SettingsPanel {
     const wsExportBtn = form.querySelector<HTMLButtonElement>('button[data-ws-action="export"]');
     const wsImportBtn = form.querySelector<HTMLButtonElement>('button[data-ws-action="import"]');
     const wsFile = form.querySelector<HTMLInputElement>('input[data-ws-file]');
+    // "Install 'covenant' command" — symlinks the bundled CLI shim into
+    // the PATH. Label reflects installed state on open; re-running is a
+    // harmless re-link (also how you repair a broken symlink).
+    const installCliBtn = form.querySelector<HTMLButtonElement>('button[data-action="install-cli"]');
+    const installCliLabel = form.querySelector<HTMLElement>("#install-cli-label");
+    void cliInstalled().then((installed) => {
+      if (installed && installCliLabel) installCliLabel.textContent = "Reinstall 'covenant' command";
+    });
+    installCliBtn?.addEventListener("click", async () => {
+      installCliBtn.disabled = true;
+      try {
+        const dest = await installCli();
+        pushInfoToast({ message: `CLI installed at ${dest}` });
+        if (installCliLabel) installCliLabel.textContent = "Reinstall 'covenant' command";
+      } catch (err) {
+        pushInfoToast({ message: `CLI install failed: ${String(err)}` });
+      } finally {
+        installCliBtn.disabled = false;
+      }
+    });
     // "Show tour again" — fires the optional `onShowTour` hook wired
     // by main.ts to the onboarding wizard. No-op if main hasn't wired
     // it (defensive — the button is always present in the markup).
