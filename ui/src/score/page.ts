@@ -7,6 +7,7 @@ import { renderAgentBars, renderSpecsCard, renderModelsCard } from "./usage";
 import { getCurrentUser, setCurrentUser } from "./user";
 import { runDeviceFlow } from "./signin";
 import { attachTooltip } from "../tooltip/tooltip";
+import { Icons } from "../icons";
 import { scoreSignout, scoreSyncNow, scoreSyncStatus, scoreTokenScope } from "./api";
 
 interface State {
@@ -294,7 +295,7 @@ function renderStats(host: HTMLElement, summary: Summary, cells: DailyCell[]): v
   host.innerHTML = `
     <div class="cov-stat cov-stat--hero cov-stat--momentum">
       <div class="v">${summary.current_streak}d</div>
-      <div class="l">Current streak 🔥</div>
+      <div class="l">Current streak <span class="cov-flame">${Icons.flame({ size: 12 })}</span></div>
     </div>
     <div class="cov-stat cov-stat--momentum">
       <div class="v">${summary.today_prompts.toLocaleString()}</div>

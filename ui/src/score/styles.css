@@ -1021,3 +1021,6 @@ body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f;
 .cov-skel-stat { height: 82px; min-width: 150px; }
 .cov-skel-heat { height: 190px; grid-column: 1 / -1; }
 .cov-skel-block { height: 130px; }
+
+/* Streak flame — SVG icon (no emoji in chrome), amber like the streak. */
+.cov-flame { display: inline-flex; vertical-align: -2px; color: var(--num); margin-left: 2px; }
