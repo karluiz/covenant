@@ -356,8 +356,7 @@ describe("CanonPanel", () => {
     expect(row.querySelector(".rail-meta")?.textContent).toContain("3.1-alpha");
   });
 
-  it("shows the rename pencil only on owner rows and commits via the prompt", async () => {
-    const { canonRenameOrg } = await import("../api");
+  it("shows the rename pencil only on owner rows and opens the immersive surface", () => {
     const panel = new CanonPanel({
       groupId: "g-rename",
       groupLabel: "G",
@@ -376,11 +375,9 @@ describe("CanonPanel", () => {
     expect(other.querySelector(".canon-org-menu-edit")).toBeNull();
 
     (acme.querySelector(".canon-org-menu-edit") as HTMLElement).click();
-    const input = document.querySelector(".workspace-rename-overlay input") as HTMLInputElement;
+    const input = document.querySelector(".canon-createorg-name") as HTMLInputElement;
     expect(input.value).toBe("Acme");
-    input.value = "Acme Corp";
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    expect(canonRenameOrg as Mock).toHaveBeenCalledWith("acme", "Acme Corp");
+    expect(document.querySelector(".canon-createorg-eyebrow")?.textContent).toBe("Rename organization");
   });
 
   it("slugifies a display name to a valid slug", () => {

@@ -256,6 +256,10 @@ body.tabbar-left .canon-cockpit {
   background: rgb(var(--ink-rgb, 245 246 247) / 0.03);
 }
 .canon-cockpit-idcard-text { min-width: 0; }
+/* Owner-only rename — quiet until the card is hovered. */
+.canon-cockpit-idcard-edit { margin-left: auto; opacity: 0; transition: opacity 0.15s ease; }
+.canon-cockpit-idcard:hover .canon-cockpit-idcard-edit,
+.canon-cockpit-idcard-edit:focus-visible { opacity: 1; }
 .canon-cockpit-idcard-name {
   font-size: 18px;
   font-weight: 600;

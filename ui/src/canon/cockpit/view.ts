@@ -265,6 +265,17 @@ export class CanonCockpitView {
       meta.append(slug, badge);
       text.append(name, meta);
       card.append(this.monogram(active, 48), text);
+      // Owner-only display-name rename — same immersive surface as create.
+      if (active.role === "owner") {
+        const edit = iconButton(Icons.pencil({ size: 14 }), "Rename organization", () => {
+          openCreateOrgExperience({
+            rename: { slug: active.slug, name: active.name },
+            onCreated: () => this.refreshOrgs(active.slug),
+          });
+        });
+        edit.classList.add("canon-cockpit-idcard-edit");
+        card.appendChild(edit);
+      }
       el.appendChild(card);
     } else {
       el.appendChild(this.note("No organization selected."));
@@ -301,6 +312,16 @@ export class CanonCockpitView {
     return el;
   }
 
+  /** Refetch orgs so the just-created/renamed org is in the snapshot before
+   *  switching (activeOrg() resolves against opts.orgs). */
+  private refreshOrgs(slug: string): void {
+    void canonMyOrgs().then((fresh) => {
+      this.opts.orgs = fresh;
+      this.opts.setActiveOrg(slug);
+      this.showSection("org");
+    });
+  }
+
   private renderCreateOrgRow(): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "canon-cockpit-org-create";
@@ -309,17 +330,7 @@ export class CanonCockpitView {
     createBtn.className = "canon-cockpit-create-btn";
     createBtn.textContent = "Create organization";
     createBtn.addEventListener("click", () => {
-      openCreateOrgExperience({
-        onCreated: (slug) => {
-          // Refetch so the just-created org is in the snapshot before switching
-          // (activeOrg() resolves against opts.orgs).
-          void canonMyOrgs().then((fresh) => {
-            this.opts.orgs = fresh;
-            this.opts.setActiveOrg(slug);
-            this.showSection("org");
-          });
-        },
-      });
+      openCreateOrgExperience({ onCreated: (slug) => this.refreshOrgs(slug) });
     });
     wrap.appendChild(createBtn);
     return wrap;
