@@ -411,7 +411,9 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
         }
       } else if (isToolUpdate(u)) {
         state.turnHadOutput = true;
-        if (exitCodeOf(u.rawOutput) !== null) state.sawShellExit = true;
+        if (exitCodeOf(u.rawOutput) !== null || textExitCodeOf(u.content) !== null) {
+          state.sawShellExit = true;
+        }
         upsertTool(state, {
           toolCallId: u.toolCallId,
           title: u.title,
@@ -1525,7 +1527,7 @@ export class AcpChatView {
     const command = commandOf(f.rawInput);
     dom.titleEl.textContent = f.title ?? command ?? f.toolCallId;
 
-    const code = exitCodeOf(f.rawOutput);
+    const code = exitCodeOf(f.rawOutput) ?? textExitCodeOf(f.content);
     if (code !== null) {
       dom.exitEl.hidden = false;
       dom.exitEl.textContent = `exit ${code}`;
@@ -1998,8 +2000,20 @@ export function isBackgroundConsole(f: AcpToolCallFields, sawShellExit: boolean)
     f.kind === "execute" &&
     f.status === "completed" &&
     commandOf(f.rawInput) !== null &&
-    exitCodeOf(f.rawOutput) === null
+    exitCodeOf(f.rawOutput) === null &&
+    textExitCodeOf(f.content) === null
   );
+}
+
+/// Copilot ends a foreground execute's streamed output with a free-text
+/// `<shellId: N completed with exit code X>` marker; resumed sessions
+/// replay only that text, without the typed `shell_exit` entry. Parse it
+/// as an exit signal so finished commands aren't censused as live
+/// background consoles ("26 consoles running" of dead one-shot lints).
+const TEXT_EXIT_RE = /<shellId:\s*\S+ completed with exit code (-?\d+)>/;
+export function textExitCodeOf(content: AcpContentBlock[]): number | null {
+  const m = TEXT_EXIT_RE.exec(joinContentText(content));
+  return m ? Number(m[1]) : null;
 }
 
 /// `rawOutput.contents[].exitCode` where `type === "shell_exit"` — mirrors
