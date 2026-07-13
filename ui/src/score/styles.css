@@ -102,7 +102,7 @@
 
 .covenant-page {
   padding: 4px 0 32px;
-  color: #d6e2e6;
+  color: var(--text-primary);
   font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.45;
@@ -116,26 +116,25 @@
   flex-wrap: wrap;
 }
 .cov-chip {
-  font-size: 11px;
+  font-size: var(--fs-meta);
   padding: 5px 10px;
-  border: 1px solid #243036;
-  border-radius: 6px;
-  color: #6c8088;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--muted);
   cursor: pointer;
-  background: #131a1e;
+  background: transparent;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-family: inherit;
   line-height: 1;
 }
-.cov-chip:hover { color: #d6e2e6; border-color: #324048; }
+.cov-chip:hover { color: var(--text-primary); border-color: rgba(var(--ink-rgb), 0.2); }
 .cov-chip.active {
-  color: #5eead4;
-  border-color: #1f4a44;
-  background: rgba(94,234,212,0.06);
+  color: var(--num);
+  border-color: color-mix(in srgb, var(--num) 30%, transparent);
 }
-.cov-chip .x { color: #4a5b63; margin-left: 2px; }
+.cov-chip .x { color: var(--text-tertiary); margin-left: 4px; }
 
 /* Stat cards */
 .cov-stats {
@@ -145,54 +144,46 @@
   margin-bottom: 22px;
 }
 .cov-stat {
-  background: #131a1e;
-  border: 1px solid #1c252b;
-  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0;
   padding: 14px 16px;
 }
-.cov-stat .v {
-  font-size: 24px;
-  color: #5eead4;
-  letter-spacing: 0.5px;
-  font-weight: 500;
-}
-.cov-stat .l {
-  font-size: 9px;
-  color: #6c8088;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  margin-top: 2px;
-}
-.cov-stat .delta { font-size: 10px; color: #22c55e; margin-left: 6px; }
+.cov-stat .v { font-size: 26px; color: var(--num); font-weight: 500; font-variant-numeric: tabular-nums; }
+.cov-stat .l { font-size: var(--fs-micro); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.cov-stat--hero .v { font-size: 40px; }
+.cov-stat-delta.is-up { color: var(--ok); }
+.cov-stat-delta.is-down { color: var(--muted); }
 
 /* Section card */
 .cov-card {
-  background: #131a1e;
-  border: 1px solid #1c252b;
-  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0;
   padding: 16px 18px;
   margin-bottom: 14px;
 }
 .cov-card h4 {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: #6c8088;
-  margin: 0 0 12px;
-  font-weight: 600;
+  font-size: var(--fs-title); font-weight: 600; letter-spacing: var(--ls-title);
+  text-transform: uppercase; color: rgba(var(--ink-rgb), 0.42); margin: 0 0 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.cov-card h4 .hint { font-size: 9px; color: #4a5b63; text-transform: none; letter-spacing: 0.3px; }
+.cov-card h4 .hint { font-size: var(--fs-micro); color: var(--text-tertiary); text-transform: none; letter-spacing: normal; margin-left: 6px; }
 .cov-card-foot {
   font-size: 10px;
-  color: #4a5b63;
+  color: var(--text-tertiary);
   margin-top: 8px;
 }
 
 /* Heatmap */
-.cov-heatmap-card { }
+.cov-heatmap-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 16px 18px;
+}
 .cov-heatmap {
   display: grid;
   grid-template-rows: repeat(7, minmax(0, 1fr));
@@ -204,9 +195,9 @@
   padding: 2px;
 }
 .cov-cell {
-  background: #131a1e;
-  border-radius: 3px;
-  border: 1px solid #182025;
+  background: rgba(var(--ink-rgb), 0.05);
+  border-radius: 0;
+  border: 1px solid transparent;
   cursor: pointer;
   width: 100%;
   height: 100%;
@@ -215,11 +206,11 @@
   aspect-ratio: 1 / 1;
 }
 .cov-legend .cov-cell { width: 11px; height: 11px; aspect-ratio: auto; }
-.cov-cell.l1 { background: #0f3530; border-color: #134039; }
-.cov-cell.l2 { background: #14564e; border-color: #1a6b60; }
-.cov-cell.l3 { background: #1f8a7a; border-color: #25a293; }
-.cov-cell.l4 { background: #5eead4; border-color: #7ff5dd; box-shadow: 0 0 4px rgba(94,234,212,0.18); }
-.cov-cell:hover { border-color: #5eead4; }
+.cov-cell.l1 { background: color-mix(in srgb, var(--num) 22%, transparent); }
+.cov-cell.l2 { background: color-mix(in srgb, var(--num) 42%, transparent); }
+.cov-cell.l3 { background: color-mix(in srgb, var(--num) 66%, transparent); }
+.cov-cell.l4 { background: var(--num); }
+.cov-cell:hover { border-color: var(--num); }
 .cov-legend {
   display: flex;
   justify-content: flex-end;
@@ -227,17 +218,8 @@
   gap: 4px;
   margin-top: 8px;
   font-size: 9px;
-  color: #6c8088;
+  color: var(--muted);
 }
-
-/* Two-column layout */
-.cov-two {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-.cov-two .cov-card { margin-bottom: 0; }
 
 /* Bar chart rows */
 .bar-row {
@@ -271,8 +253,8 @@
   border-radius: 999px;
   flex-shrink: 0;
 }
-.bar-row .name:hover { color: #5eead4; }
-.bar-row.active .name { color: #5eead4; }
+.bar-row .name:hover { color: var(--num); }
+.bar-row.active .name { color: var(--num); }
 .bar {
   height: 14px;
   background: #0a0f12;
@@ -280,8 +262,8 @@
   overflow: hidden;
   display: flex;
 }
-.bar .seg-p { background: #5eead4; }
-.bar .seg-c { background: #1f4a44; }
+.bar .seg-p { background: color-mix(in srgb, var(--num) 55%, transparent); }
+.bar .seg-c { background: color-mix(in srgb, var(--num) 24%, transparent); }
 .bar-row .meta { font-size: 10px; color: #6c8088; text-align: right; }
 .seg-key {
   display: inline-block;
@@ -291,8 +273,8 @@
   vertical-align: middle;
   margin-right: 2px;
 }
-.seg-key.seg-p { background: #5eead4; }
-.seg-key.seg-c { background: #1f4a44; }
+.seg-key.seg-p { background: color-mix(in srgb, var(--num) 55%, transparent); }
+.seg-key.seg-c { background: color-mix(in srgb, var(--num) 24%, transparent); }
 
 /* Cap the By-repo and Top-branches lists to ~10 rows, then scroll. */
 [data-role=repos],
@@ -334,7 +316,7 @@
 }
 .branch .b-name .ico { color: #4a5b63; }
 .branch .b-meta { font-size: 10px; color: #6c8088; }
-.branch .b-meta b { color: #5eead4; font-weight: 500; }
+.branch .b-meta b { color: var(--num); font-weight: 500; }
 
 /* Sessions feed */
 .session {
@@ -371,7 +353,7 @@
 }
 .session .what-meta { display: flex; gap: 6px; align-items: center; }
 .session .what .repo {
-  color: #5eead4;
+  color: var(--num);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.6px;
@@ -399,7 +381,7 @@
   letter-spacing: 0.3px;
   font-variant-numeric: tabular-nums;
 }
-.session .nums b { color: #5eead4; font-weight: 600; }
+.session .nums b { color: var(--num); font-weight: 600; }
 
 /* Sync card */
 .cov-sync {
@@ -408,21 +390,21 @@
   justify-content: space-between;
   width: 100%;
   box-sizing: border-box;
-  background: linear-gradient(90deg, rgba(94,234,212,0.04), transparent);
-  border: 1px solid #1f4a44;
-  border-radius: 10px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--num) 4%, transparent), transparent);
+  border: 1px solid color-mix(in srgb, var(--num) 30%, transparent);
+  border-radius: 0;
   padding: 14px 18px;
   gap: 12px;
 }
-.cov-sync .l { font-size: 11px; color: #6c8088; }
-.cov-sync .l b { color: #d6e2e6; display: block; margin-bottom: 2px; font-weight: 500; font-size: 13px; }
-.cov-sync-status { font-size: 11px; color: #6c8088; }
+.cov-sync .l { font-size: 11px; color: var(--muted); }
+.cov-sync .l b { color: var(--text-primary); display: block; margin-bottom: 2px; font-weight: 500; font-size: 13px; }
+.cov-sync-status { font-size: 11px; color: var(--muted); }
 .cov-sync-reauth { margin-top: 8px; }
 .covenant-page .btn {
-  background: #5eead4;
-  color: #04201c;
+  background: var(--num);
+  color: #0b0d10;
   border: 0;
-  border-radius: 6px;
+  border-radius: 0;
   padding: 8px 14px;
   font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
   font-size: 12px;
@@ -431,15 +413,15 @@
 }
 .covenant-page .btn.ghost {
   background: transparent;
-  color: #6c8088;
-  border: 1px solid #243036;
+  color: var(--muted);
+  border: 1px solid var(--border);
 }
 .covenant-page .btn:hover { opacity: 0.85; }
-.covenant-page .btn.ghost:hover { color: #d6e2e6; border-color: #324048; }
+.covenant-page .btn.ghost:hover { color: var(--text-primary); border-color: rgba(var(--ink-rgb), 0.2); }
 
 /* Empty state */
 .cov-empty {
-  color: #4a5b63;
+  color: var(--text-tertiary);
   font-size: 11px;
   padding: 12px 0;
   text-align: center;
@@ -479,15 +461,15 @@ body.theme-light .score-legend { color: var(--muted); }
 
 body.theme-light .covenant-page { color: var(--text-primary); }
 body.theme-light .cov-chip {
-    background: rgba(0, 0, 0, 0.03);
+    background: rgba(var(--ink-rgb), 0.03);
     border-color: var(--border);
     color: var(--muted);
 }
 body.theme-light .cov-chip:hover { color: var(--text-primary); border-color: var(--border); }
 body.theme-light .cov-chip.active {
-    color: #0a8f7d;
-    border-color: rgba(94, 234, 212, 0.5);
-    background: rgba(94, 234, 212, 0.1);
+    color: var(--num);
+    border-color: color-mix(in srgb, var(--num) 30%, transparent);
+    background: color-mix(in srgb, var(--num) 12%, transparent);
 }
 body.theme-light .cov-chip .x { color: var(--muted); }
 
@@ -496,39 +478,36 @@ body.theme-light .cov-card {
     background: var(--bg-panel);
     border-color: var(--border);
 }
-body.theme-light .cov-stat .v { color: #0a8f7d; }
+body.theme-light .cov-stat .v { color: var(--num); }
 body.theme-light .cov-stat .l { color: var(--muted); }
-body.theme-light .cov-stat .delta { color: #2f9e44; }
 body.theme-light .cov-card h4 { color: var(--muted); }
 body.theme-light .cov-card h4 .hint,
 body.theme-light .cov-card-foot { color: var(--muted); }
 
-body.theme-light .cov-cell { background: #eef0f3; border-color: #e3e6eb; }
-body.theme-light .cov-cell.l1 { background: #c9efe7; border-color: #b6e8dd; }
-body.theme-light .cov-cell.l2 { background: #8ee0cf; border-color: #79d6c2; }
-body.theme-light .cov-cell.l3 { background: #44c4ac; border-color: #2eb89c; }
+body.theme-light .cov-cell { background: rgba(var(--ink-rgb), 0.05); border-color: transparent; }
+body.theme-light .cov-cell.l1 { background: color-mix(in srgb, var(--num) 22%, transparent); }
+body.theme-light .cov-cell.l2 { background: color-mix(in srgb, var(--num) 42%, transparent); }
+body.theme-light .cov-cell.l3 { background: color-mix(in srgb, var(--num) 66%, transparent); }
 body.theme-light .cov-cell.l4 {
-    background: #14a88c;
-    border-color: #0d8c74;
-    box-shadow: 0 0 4px rgba(20, 168, 140, 0.25);
+    background: var(--num);
 }
 body.theme-light .cov-legend { color: var(--muted); }
 
 body.theme-light .bar-row .name { color: var(--text-primary); }
 body.theme-light .bar-row .name:hover,
-body.theme-light .bar-row.active .name { color: #0a8f7d; }
+body.theme-light .bar-row.active .name { color: var(--num); }
 body.theme-light .bar { background: rgba(0, 0, 0, 0.05); }
-body.theme-light .bar .seg-p { background: #2eb89c; }
-body.theme-light .bar .seg-c { background: #a4ddd0; }
+body.theme-light .bar .seg-p { background: color-mix(in srgb, var(--num) 55%, transparent); }
+body.theme-light .bar .seg-c { background: color-mix(in srgb, var(--num) 24%, transparent); }
 body.theme-light .bar-row .meta { color: var(--muted); }
-body.theme-light .seg-key.seg-p { background: #2eb89c; }
-body.theme-light .seg-key.seg-c { background: #a4ddd0; }
+body.theme-light .seg-key.seg-p { background: color-mix(in srgb, var(--num) 55%, transparent); }
+body.theme-light .seg-key.seg-c { background: color-mix(in srgb, var(--num) 24%, transparent); }
 
 body.theme-light .branch { color: var(--text-primary); }
 body.theme-light .branch:hover { background: rgba(0, 0, 0, 0.04); }
 body.theme-light .branch .b-name .ico { color: var(--muted); }
 body.theme-light .branch .b-meta { color: var(--muted); }
-body.theme-light .branch .b-meta b { color: #0a8f7d; }
+body.theme-light .branch .b-meta b { color: var(--num); }
 body.theme-light [data-role=repos],
 body.theme-light [data-role=branches] { scrollbar-color: #c3ccd2 transparent; }
 body.theme-light [data-role=repos]::-webkit-scrollbar-thumb,
@@ -537,7 +516,7 @@ body.theme-light [data-role=branches]::-webkit-scrollbar-thumb { background: #c3
 body.theme-light .session { border-top-color: var(--border); }
 body.theme-light .session .when { color: var(--muted); }
 body.theme-light .session .what { color: var(--text-primary); }
-body.theme-light .session .what .repo { color: #0a8f7d; }
+body.theme-light .session .what .repo { color: var(--num); }
 body.theme-light .session .what .repo.dim,
 body.theme-light .session .what .slash { color: var(--muted); }
 body.theme-light .session .what .branch {
@@ -549,18 +528,18 @@ body.theme-light .session .what .group {
     border-color: var(--border);
 }
 body.theme-light .session .nums { color: var(--muted); }
-body.theme-light .session .nums b { color: #0a8f7d; }
+body.theme-light .session .nums b { color: var(--num); }
 
 body.theme-light .cov-sync {
-    background: linear-gradient(90deg, rgba(94, 234, 212, 0.08), transparent);
-    border-color: rgba(94, 234, 212, 0.5);
+    background: color-mix(in srgb, var(--num) 8%, transparent);
+    border-color: color-mix(in srgb, var(--num) 30%, transparent);
 }
 body.theme-light .cov-sync .l { color: var(--muted); }
 body.theme-light .cov-sync .l b { color: var(--text-primary); }
 body.theme-light .cov-sync-status { color: var(--muted); }
 body.theme-light .covenant-page .btn {
-    background: #14a88c;
-    color: #ffffff;
+    background: var(--num);
+    color: #0c0e12;
 }
 body.theme-light .covenant-page .btn.ghost {
     background: #ffffff;
@@ -689,14 +668,14 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
   padding: 3px 10px; cursor: pointer; white-space: nowrap;
   transition: border-color .12s, color .12s;
 }
-.lb-ctl:hover { border-color: #2f6f66; color: #5eead4; }
+.lb-ctl:hover { border-color: color-mix(in srgb, var(--num) 40%, transparent); color: var(--num); }
 .lb-search {
   flex: 1; min-width: 0; font: inherit; font-size: 11px; color: #d6e2e6;
   background: #0d1316; border: 1px solid #1e2a30; border-radius: 999px;
   padding: 3px 12px; outline: none;
 }
 .lb-search::placeholder { color: #5c6e75; }
-.lb-search:focus { border-color: #2f6f66; }
+.lb-search:focus { border-color: color-mix(in srgb, var(--num) 40%, transparent); }
 
 .lb-summary { font-size: 10px; color: #6c8088; letter-spacing: .02em; margin-bottom: 10px; }
 
@@ -709,7 +688,7 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
   color: inherit; font: inherit; text-align: left; cursor: pointer;
   transition: background .12s;
 }
-.lb-row:hover { background: rgba(94, 234, 212, .06); }
+.lb-row:hover { background: color-mix(in srgb, var(--num) 6%, transparent); }
 .lb-rank { font-size: 10px; color: #5c6e75; text-align: right; font-variant-numeric: tabular-nums; }
 .lb-name { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .lb-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
@@ -717,7 +696,7 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; color: #d6e2e6;
 }
-.lb-row:hover .lb-gname { color: #5eead4; }
+.lb-row:hover .lb-gname { color: var(--num); }
 .lb-ws { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; justify-self: center; }
 .lb-ws.empty {
   background: none !important; display: flex; align-items: center; justify-content: center;
@@ -750,11 +729,11 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
 .lb-sw { width: 9px; height: 9px; border-radius: 2px; }
 .lb-sw.empty { background: none; display: inline-flex; align-items: center; justify-content: center; color: #3c4a50; width: auto; }
 .lb-showing { white-space: nowrap; }
-.lb-more { font: inherit; font-size: 10px; color: #5eead4; background: none; border: 0; padding: 0; cursor: pointer; }
+.lb-more { font: inherit; font-size: 10px; color: var(--num); background: none; border: 0; padding: 0; cursor: pointer; }
 .lb-more:hover { text-decoration: underline; }
 
 body.theme-light .lb-ctl { background: #fff; border-color: var(--border); color: var(--muted); }
-body.theme-light .lb-ctl:hover { border-color: #2eb89c; color: #0a8f7d; }
+body.theme-light .lb-ctl:hover { border-color: #2eb89c; color: var(--num); }
 body.theme-light .lb-search { background: #fff; border-color: var(--border); color: var(--text-primary); }
 body.theme-light .lb-search::placeholder { color: var(--muted); }
 body.theme-light .lb-search:focus { border-color: #2eb89c; }
@@ -764,7 +743,7 @@ body.theme-light .lb-rank,
 body.theme-light .lb-cum { color: var(--muted); }
 body.theme-light .lb-gname { color: var(--text-primary); }
 body.theme-light .lb-row:hover { background: rgba(46, 184, 156, .10); }
-body.theme-light .lb-row:hover .lb-gname { color: #0a8f7d; }
+body.theme-light .lb-row:hover .lb-gname { color: var(--num); }
 body.theme-light .lb-bar { background: rgba(0, 0, 0, .06); }
 body.theme-light .lb-avg { border-left-color: rgba(0, 0, 0, .30); }
 body.theme-light .lb-share { color: #0a3b33; text-shadow: 0 1px 2px rgba(255, 255, 255, .5); }
@@ -791,40 +770,40 @@ body.theme-true-dark {
 body.theme-true-dark .cov-stat,
 body.theme-true-dark .cov-card,
 body.theme-true-dark .cov-chip { background: var(--cov-surface); border-color: var(--cov-line); }
-body.theme-true-dark .cov-chip:hover { border-color: #2c2c2f; color: #d6e2e6; }
+body.theme-true-dark .cov-chip:hover { border-color: var(--border); color: var(--text-primary); }
 body.theme-true-dark .cov-chip.active {
-  color: var(--cov-teal); border-color: var(--cov-teal-dim);
-  background: rgba(69, 196, 178, 0.06);
+  color: var(--num); border-color: color-mix(in srgb, var(--num) 30%, transparent);
+  background: color-mix(in srgb, var(--num) 10%, transparent);
 }
 
+body.theme-true-dark .cov-stat .v { color: var(--num); }
+
 /* Calm the bright teal accents that vibrate on pure black */
-body.theme-true-dark .cov-stat .v,
 body.theme-true-dark .branch .b-meta b,
 body.theme-true-dark .session .what .repo,
 body.theme-true-dark .session .nums b,
 body.theme-true-dark .bar-row .name:hover,
 body.theme-true-dark .bar-row.active .name,
 body.theme-true-dark .lb-row:hover .lb-gname,
-body.theme-true-dark .lb-more { color: var(--cov-teal); }
-body.theme-true-dark .cov-stat .delta { color: #3ba35b; }
+body.theme-true-dark .lb-more { color: var(--num); }
 
 /* Heatmap: neutral empty cells, keep the data ramp, drop the l4 glow.
    The empty-cell rule below is (0,2,1) specificity and would otherwise
    clobber the (0,2,0) `.cov-cell.lN` ramp, so re-assert the ramp here at
    (0,3,1) to keep the data colors on OLED. */
-body.theme-true-dark .cov-cell { background: var(--cov-surface); border-color: var(--cov-line); }
-body.theme-true-dark .cov-cell.l1 { background: #0f3530; border-color: #134039; }
-body.theme-true-dark .cov-cell.l2 { background: #14564e; border-color: #1a6b60; }
-body.theme-true-dark .cov-cell.l3 { background: #1f8a7a; border-color: #25a293; }
-body.theme-true-dark .cov-cell.l4 { background: #5eead4; border-color: #7ff5dd; box-shadow: none; }
+body.theme-true-dark .cov-cell { background: rgba(var(--ink-rgb), 0.05); border-color: transparent; }
+body.theme-true-dark .cov-cell.l1 { background: color-mix(in srgb, var(--num) 22%, transparent); }
+body.theme-true-dark .cov-cell.l2 { background: color-mix(in srgb, var(--num) 42%, transparent); }
+body.theme-true-dark .cov-cell.l3 { background: color-mix(in srgb, var(--num) 66%, transparent); }
+body.theme-true-dark .cov-cell.l4 { background: var(--num); box-shadow: none; }
 
 /* Bars / segments */
 body.theme-true-dark .bar,
 body.theme-true-dark .lb-bar { background: #060607; }
 body.theme-true-dark .bar .seg-p,
-body.theme-true-dark .seg-key.seg-p { background: var(--cov-teal); }
+body.theme-true-dark .seg-key.seg-p { background: color-mix(in srgb, var(--num) 55%, transparent); }
 body.theme-true-dark .bar .seg-c,
-body.theme-true-dark .seg-key.seg-c { background: var(--cov-teal-dim); }
+body.theme-true-dark .seg-key.seg-c { background: color-mix(in srgb, var(--num) 24%, transparent); }
 
 /* Branch hover, sessions divider */
 body.theme-true-dark .branch:hover { background: var(--cov-surface); }
@@ -832,18 +811,18 @@ body.theme-true-dark .session { border-top-color: var(--cov-line); }
 
 /* Sync card + buttons */
 body.theme-true-dark .cov-sync {
-  background: linear-gradient(90deg, rgba(69, 196, 178, 0.05), transparent);
-  border-color: var(--cov-teal-dim);
+  background: color-mix(in srgb, var(--num) 6%, transparent);
+  border-color: color-mix(in srgb, var(--num) 28%, transparent);
 }
-body.theme-true-dark .covenant-page .btn { background: var(--cov-teal); color: #04201c; }
+body.theme-true-dark .covenant-page .btn { background: var(--num); color: #0c0e12; }
 body.theme-true-dark .covenant-page .btn.ghost { color: var(--muted); border-color: var(--cov-line); }
-body.theme-true-dark .covenant-page .btn.ghost:hover { color: #d6e2e6; border-color: #2c2c2f; }
+body.theme-true-dark .covenant-page .btn.ghost:hover { color: var(--text-primary); border-color: var(--border); }
 
 /* Leaderboard controls + input */
 body.theme-true-dark .lb-ctl { background: var(--cov-surface); border-color: var(--cov-line); }
-body.theme-true-dark .lb-ctl:hover { border-color: var(--cov-teal-dim); color: var(--cov-teal); }
+body.theme-true-dark .lb-ctl:hover { border-color: color-mix(in srgb, var(--num) 45%, transparent); color: var(--num); }
 body.theme-true-dark .lb-search { background: #060607; border-color: var(--cov-line); }
-body.theme-true-dark .lb-row:hover { background: rgba(69, 196, 178, 0.05); }
+body.theme-true-dark .lb-row:hover { background: color-mix(in srgb, var(--num) 5%, transparent); }
 body.theme-true-dark .lb-foot { border-top-color: var(--cov-line); }
 
 /* Achievements: point the card's brand accent at the calmed teal and lift
@@ -858,7 +837,7 @@ body.theme-true-dark .cov-ach-badge { background: #161617; border-color: var(--c
 body.theme-true-dark .cov-rarity-rare .cov-ach-badge,
 body.theme-true-dark .cov-rarity-epic .cov-ach-badge,
 body.theme-true-dark .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
-body.theme-light .lb-more { color: #0a8f7d; }
+body.theme-light .lb-more { color: var(--num); }
 
 /* ── Public Profile card ─────────────────────────────────────────────────────
    Consistent with .cov-card: dark #131a1e surface, teal (#5eead4) accents,
@@ -978,3 +957,17 @@ body.theme-true-dark .cov-pubprofile-share button {
   background: var(--cov-surface-2); border-color: var(--cov-line); color: #d6e2e6;
 }
 body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f; }
+
+/* Pulse cockpit zones */
+.pulse-hero { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
+.pulse-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.pulse-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.cov-card--wide { grid-column: 1 / -1; }
+
+/* Settings Metrics summary strip */
+.pulse-mini { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 4px 0; }
+.pulse-mini-stat { display: flex; flex-direction: column; }
+.pulse-mini-stat b { font-size: 20px; color: var(--num); font-weight: 500; font-variant-numeric: tabular-nums; }
+.pulse-mini-stat span { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.pulse-open-btn { margin-left: auto; background: var(--bg-panel); border: 1px solid rgba(var(--ink-rgb), 0.1); border-radius: 0; padding: 8px 14px; color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.pulse-open-btn:hover { background: rgba(var(--ink-rgb), 0.05); }

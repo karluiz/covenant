@@ -3,6 +3,7 @@ import { listSpawns, upsertSpawn, deleteSpawn } from "../spawns/api";
 import { CustomSelect } from "../ui/select";
 import { spawnShortcutLabel, acpExecutorFor } from "../spawns/shortcuts";
 import { brandIconSvg } from "../icons/brands";
+import { attachTooltip } from "../tooltip/tooltip";
 
 /// Known executor presets. Picking one fills in defaults for any
 /// fields the user hasn't customised yet. "Custom" leaves the row
@@ -122,6 +123,17 @@ function brandBadge(label: string): HTMLSpanElement {
   return el;
 }
 
+/// Brand glyph as raw HTML for a select option — logo tinted with its
+/// brand color, or a colored dot when no logo exists. Mirrors brandBadge().
+function brandOptionGlyph(label: string): string {
+  const color = brandColor(label);
+  const svg = brandIconSvg(label, 14);
+  if (svg) {
+    return `<span style="display:inline-flex;color:${color}">${svg}</span>`;
+  }
+  return `<span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${color}"></span>`;
+}
+
 function emptySpec(): SpawnSpec {
   const id =
     typeof crypto !== "undefined" && crypto.randomUUID
@@ -166,7 +178,7 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
       ariaLabel: "Spawn brand",
       value: isPreset ? spec.label : "__custom__",
       options: [
-        ...PRESET_KEYS.map((k) => ({ value: k, label: k })),
+        ...PRESET_KEYS.map((k) => ({ value: k, label: k, iconHtml: brandOptionGlyph(k) })),
         { value: "__custom__", label: "Custom…" },
       ],
     });
@@ -339,7 +351,7 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
           btn.type = "button";
           btn.className = "spawns-settings-chip";
           btn.textContent = chip.label;
-          btn.title = `Append \`${chip.insert}\` to args`;
+          attachTooltip(btn, `Append \`${chip.insert}\` to args`);
           btn.addEventListener("click", (e) => {
             e.preventDefault();
             appendChip(chip);

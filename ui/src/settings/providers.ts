@@ -3,6 +3,7 @@ import type { Settings, ProviderEntry } from "../api";
 import { listModelsOpenAiCompat, listModelsAzureFoundry, testAnthropicKey } from "../api";
 import { CustomSelect } from "../ui/select";
 import { Icons } from "../icons";
+import { attachTooltip } from "../tooltip/tooltip";
 
 /// The forge how-to: getting a free model (Ollama or a free-tier cloud
 /// key) into Covenant. Linked from the providers empty-state and the
@@ -100,7 +101,7 @@ function renderRailHead(
   const addBtn = document.createElement("button");
   addBtn.type = "button";
   addBtn.className = "providers-md__rail-add";
-  addBtn.title = "Add provider";
+  attachTooltip(addBtn, "Add provider");
   addBtn.setAttribute("aria-label", "Add provider");
   addBtn.textContent = "+";
   addBtn.onclick = () => openAddDialog(root, settings, onChange);
@@ -158,7 +159,7 @@ function renderRailItem(
   const dot = document.createElement("span");
   const status = state.testResults.get(id)?.status ?? "unknown";
   dot.className = `providers-md__dot providers-md__dot--${status}`;
-  dot.title = statusLabel(status);
+  attachTooltip(dot, statusLabel(status));
   item.appendChild(dot);
 
   item.onclick = () => {
@@ -689,7 +690,7 @@ function wrapSecret(input: HTMLInputElement): HTMLElement {
   const reveal = document.createElement("button");
   reveal.type = "button";
   reveal.className = "providers-md__icon-btn";
-  reveal.title = "Reveal";
+  attachTooltip(reveal, "Reveal");
   reveal.setAttribute("aria-label", "Reveal API key");
   reveal.innerHTML = Icons.eye({ size: 16 });
   reveal.onclick = () => {
@@ -702,7 +703,7 @@ function wrapSecret(input: HTMLInputElement): HTMLElement {
   const copy = document.createElement("button");
   copy.type = "button";
   copy.className = "providers-md__icon-btn";
-  copy.title = "Copy";
+  attachTooltip(copy, "Copy");
   copy.setAttribute("aria-label", "Copy API key to clipboard");
   copy.innerHTML = Icons.copy({ size: 16 });
   copy.onclick = async () => {

@@ -172,7 +172,7 @@
 .spawns-md {
   display: flex;
   border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.08);
-  border-radius: 10px;
+  border-radius: 0;
   overflow: hidden;
   min-height: 300px;
   background: rgba(var(--ink-rgb, 255 255 255), 0.012);
@@ -195,7 +195,7 @@
   padding: 7px 10px;
   background: none;
   border: none;
-  border-radius: 7px;
+  border-radius: 0;
   color: var(--text, #aeb6c2);
   font: inherit;
   font-size: 12.5px;
@@ -230,7 +230,7 @@
   padding: 7px 10px;
   background: none;
   border: none;
-  border-radius: 7px;
+  border-radius: 0;
   color: var(--muted, #5a6873);
   font: inherit;
   font-size: 12px;
@@ -264,7 +264,7 @@
   color: var(--accent, #b794f4);
   background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent, #b794f4) 30%, transparent);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 2px 8px;
 }
 /* "Launch as ACP tab" checkbox row in the detail pane. */
@@ -291,15 +291,15 @@
   font-size: 11px;
   cursor: pointer;
   padding: 3px 6px;
-  border-radius: 5px;
+  border-radius: 0;
 }
 .spawns-md-action:hover {
   color: var(--text, #d5d9de);
   background: rgba(var(--ink-rgb, 255 255 255), 0.05);
 }
 .spawns-md-action--danger:hover {
-  color: #e06c75;
-  background: rgba(224, 108, 117, 0.08);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 .spawns-md-grid {
   display: grid;
@@ -321,8 +321,8 @@
 .spawns-md-preview {
   margin-top: auto;
   padding: 9px 12px;
-  border-radius: 7px;
-  background: rgba(0, 0, 0, 0.3);
+  border-radius: 0;
+  background: rgba(var(--ink-rgb, 255 255 255), 0.05);
   border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.06);
   font-family: var(--mono, "SF Mono", ui-monospace, Menlo, monospace);
   font-size: 11.5px;
@@ -332,7 +332,7 @@
   text-overflow: ellipsis;
 }
 .spawns-md-prompt {
-  color: #6dd29a;
+  color: var(--ok);
 }
 .spawns-md-empty {
   color: var(--muted, #5a6873);
@@ -353,17 +353,13 @@
   align-items: center;
   height: 22px;
   padding: 0 9px;
-  border-radius: 11px;
+  border-radius: 0;
   font-family: var(--mono, "SF Mono", ui-monospace, Menlo, monospace);
   font-size: 11px;
   line-height: 1;
   color: color-mix(in srgb, var(--fg, #e6e8eb) 78%, transparent);
-  background:
-    linear-gradient(180deg,
-      rgb(255 255 255 / 0.04) 0%,
-      rgb(255 255 255 / 0.015) 100%);
-  border: 1px solid rgb(255 255 255 / 0.09);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  background: rgba(var(--ink-rgb, 255 255 255), 0.04);
+  border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.09);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
@@ -409,9 +405,9 @@
 }
 
 .spawns-settings-input {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
+  background: rgba(var(--ink-rgb, 255 255 255), 0.05);
+  border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.1);
+  border-radius: 0;
   color: var(--text, #d5d9de);
   font: inherit;
   font-size: 12px;
@@ -426,9 +422,9 @@
   min-width: 0;
 }
 .spawns-settings-select .ui-select__button {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
+  background: rgba(var(--ink-rgb, 255 255 255), 0.05);
+  border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.1);
+  border-radius: 0;
   color: var(--text, #d5d9de);
   font: inherit;
   font-size: 12px;

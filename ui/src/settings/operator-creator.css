@@ -14,7 +14,7 @@
      the true-black workspace; edge-to-edge reads as a real takeover. */
   position: fixed; top: 38px; left: 0; right: 0; bottom: 0;
   display: flex; flex-direction: column;
-  background: linear-gradient(180deg, #14151b 0%, #101116 100%);
+  background: var(--bg-overlay);
   /* Hairline against the top bar the modal sits under — same token Settings
      uses for all its dividers, so the whole app reads consistently. */
   border: none; border-top: 1px solid var(--border); border-radius: 0;
@@ -32,13 +32,13 @@
   min-height: 60px; box-sizing: border-box;
 }
 .op-creator header .brand {
-  font-weight: 600; color: #e6e8f0;
+  font-weight: 600; color: var(--text-primary);
   display: inline-flex; align-items: center; gap: 8px;
 }
-.op-creator header .brand svg { color: var(--accent, #7c8cff); opacity: 0.9; }
+.op-creator header .brand svg { color: var(--accent); opacity: 0.9; }
 .op-creator header .kbd {
   font-family: monospace; font-size: 11px; opacity: 0.5;
-  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 5px; padding: 2px 6px;
+  border: 1px solid rgba(var(--ink-rgb), 0.14); border-radius: 0; padding: 2px 6px;
   cursor: pointer;
 }
 .op-creator .stage {
@@ -49,13 +49,14 @@
   border-right: 1px solid var(--border);
 }
 .op-creator .op-rail-item {
-  text-align: left; padding: 9px 12px; border-radius: 8px; border: 0;
-  background: transparent; color: #aeb4c6; font-size: 13px; cursor: pointer;
+  text-align: left; padding: 9px 12px; border-radius: 0; border: 0;
+  background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer;
 }
-.op-creator .op-rail-item:hover { background: rgba(255, 255, 255, 0.04); }
+.op-creator .op-rail-item:hover { background: rgba(var(--ink-rgb), 0.04); }
 .op-creator .op-rail-item.is-active {
-  background: rgba(124, 140, 255, 0.14); color: #c8cfff;
-  box-shadow: inset 0 0 0 1px rgba(124, 140, 255, 0.3);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--accent) 45%, var(--text-primary));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .op-creator .op-section { padding: 18px 20px; overflow-y: auto; min-height: 0; }
 /* Live pane is a flex column so the read-only SOUL.md source fills all the
@@ -70,7 +71,7 @@
 }
 .op-creator .op-soul-rawhead {
   font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase;
-  color: #8b90a4; margin-bottom: 8px; user-select: none;
+  color: var(--text-secondary); margin-bottom: 8px; user-select: none;
 }
 .op-creator .op-soul-live .op-soul-source {
   flex: 1 1 auto; min-height: 0; margin-top: 0;
@@ -90,41 +91,41 @@
 .op-creator .op-modal-input,
 .op-creator .op-modal-select,
 .op-creator .op-soul-source {
-  width: 100%; background: #16171e; color: #d7dae6;
-  border: 1px solid #23252f; border-radius: 8px; padding: 9px 11px;
+  width: 100%; background: var(--bg); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 0; padding: 9px 11px;
   font: inherit; transition: box-shadow 0.18s ease, border-color 0.18s ease;
 }
 .op-creator .op-modal-input:focus {
-  outline: none; border-color: rgba(124, 140, 255, 0.6);
-  box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.14);
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .op-creator .op-section .op-soul-body {
   width: 100%; min-height: 320px; resize: vertical; display: block;
-  background: #16171e; color: #d7dae6;
-  border: 1px solid #23252f; border-radius: 8px; padding: 11px 13px;
+  background: var(--bg); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 0; padding: 11px 13px;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 13px; line-height: 1.55;
   transition: box-shadow 0.18s ease, border-color 0.18s ease;
 }
 .op-creator .op-section .op-soul-body:focus {
-  outline: none; border-color: rgba(124, 140, 255, 0.6);
-  box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.14);
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .op-creator .op-soul-hard {
   width: 100%; resize: vertical; display: block;
-  background: #16171e; color: #d7dae6;
-  border: 1px solid #23252f; border-radius: 8px; padding: 9px 11px;
+  background: var(--bg); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 0; padding: 9px 11px;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 12.5px; line-height: 1.5;
   transition: box-shadow 0.18s ease, border-color 0.18s ease;
 }
 .op-creator .op-soul-hard:focus {
-  outline: none; border-color: rgba(124, 140, 255, 0.6);
-  box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.14);
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .op-creator .op-soul-section-title {
   font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase;
-  color: #8b90a4; margin: 0 0 8px;
+  color: var(--text-secondary); margin: 0 0 8px;
 }
 .op-creator .op-soul-avatar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
 .op-creator .op-soul-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -135,43 +136,43 @@
 .op-creator .op-skills-pills {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
   width: 100%; min-height: 38px; padding: 6px 8px;
-  background: #16171e; border: 1px solid #23252f; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 0;
   cursor: text; transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .op-creator .op-skills-pills:focus-within {
-  border-color: rgba(124, 140, 255, 0.6);
-  box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.14);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .op-creator .op-skill-pill {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 6px 3px 10px; border-radius: 999px;
-  background: rgba(124, 140, 255, 0.16); color: #d7dae6;
+  padding: 3px 6px 3px 10px; border-radius: 0;
+  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text-primary);
   font-size: 12.5px; line-height: 1.4; white-space: nowrap;
 }
 .op-creator .op-skill-pill-x {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 15px; height: 15px; padding: 0; border: 0; border-radius: 999px;
-  background: transparent; color: #9aa0b5; font-size: 14px; line-height: 1;
+  width: 15px; height: 15px; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--text-secondary); font-size: 14px; line-height: 1;
   cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
 }
-.op-creator .op-skill-pill-x:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.op-creator .op-skill-pill-x:hover { background: rgba(var(--ink-rgb), 0.12); color: var(--text-primary); }
 .op-creator .op-skills-entry {
   flex: 1; min-width: 130px; border: 0; background: transparent;
-  color: #d7dae6; font: inherit; padding: 3px 2px; outline: none;
+  color: var(--text-primary); font: inherit; padding: 3px 2px; outline: none;
 }
-.op-creator .op-skills-hint { font-size: 11.5px; line-height: 1.5; color: #7c8194; }
+.op-creator .op-skills-hint { font-size: 11.5px; line-height: 1.5; color: var(--text-secondary); }
 .op-creator .op-skills-suggest { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .op-creator .op-skills-suggest-lbl {
-  font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase; color: #5f6477;
+  font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-tertiary);
 }
 .op-creator .op-skills-chip {
-  padding: 3px 9px; border-radius: 999px; cursor: pointer;
-  background: transparent; border: 1px dashed #2c2f3b; color: #9aa0b5;
+  padding: 3px 9px; border-radius: 0; cursor: pointer;
+  background: transparent; border: 1px dashed var(--border); color: var(--text-secondary);
   font: inherit; font-size: 12px; transition: all 0.15s ease;
 }
 .op-creator .op-skills-chip:hover {
-  border-color: rgba(124, 140, 255, 0.5); border-style: solid;
-  color: #d7dae6; background: rgba(124, 140, 255, 0.1);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent); border-style: solid;
+  color: var(--text-primary); background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 /* ── True Dark (OLED): neutralize the hardcoded blue-tinted gradient and
@@ -191,4 +192,9 @@ body.theme-true-dark .op-creator .op-skills-pills {
 /* Neutral lift instead of an accent tint — accent jumps hard on near-black. */
 body.theme-true-dark .op-creator .op-skill-pill {
   background: rgba(255, 255, 255, 0.08);
+}
+body.theme-true-dark .op-creator .op-rail-item.is-active {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }

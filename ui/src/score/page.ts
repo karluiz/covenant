@@ -22,14 +22,18 @@ interface State {
 
 const TEMPLATE = /* html */ `
   <div class="covenant-page">
-    <div class="cov-filters" data-role="filters"></div>
-    <div class="cov-stats" data-role="stats"></div>
-    <div class="cov-card cov-heatmap-card">
-      <h4>Activity · last 12 months <span class="hint">click a cell to filter by day</span></h4>
-      <div class="cov-heatmap" data-role="heatmap"></div>
-      <div class="cov-legend">Less <span class="cov-cell"></span><span class="cov-cell l1"></span><span class="cov-cell l2"></span><span class="cov-cell l3"></span><span class="cov-cell l4"></span> More</div>
+    <div class="pulse-hero">
+      <div class="pulse-hero-top">
+        <div class="cov-stats" data-role="stats"></div>
+        <div class="cov-filters" data-role="filters"></div>
+      </div>
+      <div class="cov-heatmap-card">
+        <h4>Activity · last 12 months <span class="hint">click a cell to filter by day</span></h4>
+        <div class="cov-heatmap" data-role="heatmap"></div>
+        <div class="cov-legend">Less <span class="cov-cell"></span><span class="cov-cell l1"></span><span class="cov-cell l2"></span><span class="cov-cell l3"></span><span class="cov-cell l4"></span> More</div>
+      </div>
     </div>
-    <div class="cov-two">
+    <div class="pulse-grid">
       <div class="cov-card">
         <h4 data-role="repos-title">By repo <span class="hint">click to drill in</span></h4>
         <div data-role="repos"></div>
@@ -41,28 +45,26 @@ const TEMPLATE = /* html */ `
         <h4 data-role="branches-title">Top branches <span class="hint">pick a repo</span></h4>
         <div data-role="branches"></div>
       </div>
-    </div>
-    <div class="cov-card">
-      <h4>By group <span class="hint">Covenant tab groups</span></h4>
-      <div data-role="groups"></div>
-    </div>
-    <div class="cov-card">
-      <h4>By agent <span class="hint">click to filter</span></h4>
-      <div data-role="agents"></div>
-    </div>
-    <div class="cov-two">
       <div class="cov-card">
-        <h4>Specs created</h4>
+        <h4>By group <span class="hint">Covenant tab groups</span></h4>
+        <div data-role="groups"></div>
+      </div>
+      <div class="cov-card">
+        <h4>By operator <span class="hint">click to filter</span></h4>
+        <div data-role="agents"></div>
+      </div>
+      <div class="cov-card">
+        <h4>Specs</h4>
         <div data-role="specs"></div>
       </div>
       <div class="cov-card">
         <h4>Token usage · per model</h4>
         <div data-role="models"></div>
       </div>
-    </div>
-    <div class="cov-card">
-      <h4>Recent sessions</h4>
-      <div data-role="sessions"></div>
+      <div class="cov-card cov-card--wide">
+        <h4>Recent sessions</h4>
+        <div data-role="sessions"></div>
+      </div>
     </div>
     <div class="cov-sync" data-role="sync"></div>
   </div>
@@ -272,21 +274,21 @@ function chipDismiss(label: string, onDismiss: () => void): HTMLElement {
 // ── Stat cards ────────────────────────────────────────────────────────────────
 
 function renderStats(host: HTMLElement, summary: Summary): void {
-  const delta = summary.today_prompts > 0
-    ? `<span class="delta">+${summary.today_prompts} today</span>`
-    : "";
+  const baseline = Math.max(1, Math.round(summary.total_prompts / Math.max(summary.current_streak, 1)));
+  const up = summary.today_prompts >= baseline;
+  const arrow = summary.today_prompts > 0 ? `<span class="cov-stat-delta ${up ? "is-up" : "is-down"}">${up ? "▲" : "▽"} vs ${baseline}/day</span>` : "";
   host.innerHTML = `
-    <div class="cov-stat">
-      <div class="v">${summary.total_prompts.toLocaleString()}</div>
-      <div class="l">Total prompts ${delta}</div>
+    <div class="cov-stat cov-stat--hero">
+      <div class="v">${summary.current_streak}d</div>
+      <div class="l">Current streak 🔥</div>
     </div>
     <div class="cov-stat">
       <div class="v">${summary.today_prompts}</div>
-      <div class="l">Today</div>
+      <div class="l">Today ${arrow}</div>
     </div>
     <div class="cov-stat">
-      <div class="v">${summary.current_streak}d</div>
-      <div class="l">Current streak 🔥</div>
+      <div class="v">${summary.total_prompts.toLocaleString()}</div>
+      <div class="l">Total prompts</div>
     </div>
     <div class="cov-stat">
       <div class="v">${summary.total_commits.toLocaleString()}</div>

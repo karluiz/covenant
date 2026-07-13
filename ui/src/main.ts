@@ -9,6 +9,8 @@ import "./styles/tab-themes/glass.css";
 import "./styles/tab-themes/crt.css";
 import "./styles/tab-themes/custom.css";
 import "./tasker/styles.css";
+import "./pulse/styles.css";
+import { PulseSurface } from "./pulse/index";
 import "./ui/markdown-editor.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -1734,6 +1736,12 @@ async function boot(): Promise<void> {
   document.body.appendChild(changesHost);
   const changesSurface = new ChangesSurface(changesHost);
 
+  // Pulse metrics dashboard — ⌘⌥M toggle. Own fixed-overlay host on body.
+  const pulseHost = document.createElement("div");
+  document.body.appendChild(pulseHost);
+  const pulseSurface = new PulseSurface(pulseHost);
+  window.addEventListener("covenant:open-pulse", () => { pulseSurface.open(); });
+
   const openChanges = async (cwdArg?: string): Promise<void> => {
     const cwd = cwdArg ?? manager.activeCwd();
     if (!cwd) return;
@@ -2360,6 +2368,14 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "r" || e.key === "R" || e.key === "®")) {
       e.preventDefault();
       somnusBtn?.click();
+      return;
+    }
+    // ⌘⌥M → Pulse metrics dashboard. "µ" is what ⌥M produces on macOS
+    // keyboards, so match it alongside the plain letter (same pattern as
+    // the ⌘⌥R "®" handler above).
+    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "m" || e.key === "M" || e.key === "µ")) {
+      e.preventDefault();
+      if (pulseSurface.isOpen) { pulseSurface.close(); } else { pulseSurface.open(); }
       return;
     }
     // ⌘⇧G → create a new empty tab group (no member tab needed).
