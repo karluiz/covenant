@@ -25,7 +25,16 @@ reqwest = { workspace = true, features = ["json"] }
 # persists — tokens/JWT vanish on restart ("Sync failed: not signed in").
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
+# OpenTelemetry — behind the `otel` feature so the dependency chain is opt-in.
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "metrics"], optional = true }
+opentelemetry-otlp = { version = "0.32", features = ["metrics", "grpc-tonic"], optional = true }
+
+[features]
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
+
 [dev-dependencies]
 tempfile = "3"
 mockito = "1"
 rusqlite = { workspace = true }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "metrics", "testing"] }

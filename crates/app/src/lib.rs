@@ -4367,6 +4367,13 @@ pub fn run() {
             karl_score::set_recorder(score_store.clone());
             app.manage(score_commands::ScoreState(score_store.clone()));
 
+            // OTEL CDLC metrics — opt-in via OTEL_EXPORTER_OTLP_ENDPOINT.
+            let _otel_provider = karl_score::otel::start(score_store.clone());
+            if _otel_provider.is_some() {
+                // Keep the provider alive for the app lifetime.
+                std::mem::forget(_otel_provider);
+            }
+
             // Spawns store — catalog of executor agents
             let spawns_store = std::sync::Arc::new(
                 spawns_store::SpawnStore::open(&data_dir)

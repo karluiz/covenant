@@ -188,6 +188,111 @@ names are recorded; commit message bodies and diffs are not.
 
 ---
 
+## OpenTelemetry (OTEL) export
+
+Covenant can push all CDLC metrics to any OpenTelemetry-compatible backend
+(Grafana/Prometheus, Datadog, Honeycomb, New Relic, etc.) via the standard
+OTLP gRPC protocol. This is opt-in: set the `OTEL_EXPORTER_OTLP_ENDPOINT`
+environment variable before launching Covenant.
+
+### Quick start
+
+```bash
+# Point at a local OTEL Collector (default gRPC port)
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+
+# Or a cloud backend that speaks OTLP
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com:4317
+```
+
+When the variable is set, Covenant initializes an OTLP meter provider at
+startup and registers observable gauges that read from the score store on
+each collection cycle (every 60 s by default).
+
+When the variable is **not** set, no OTEL code runs — zero overhead.
+
+### Exported metrics
+
+All metrics live under the `covenant.cdlc` namespace.
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `covenant.cdlc.total_prompts` | gauge | — | Lifetime prompt count |
+| `covenant.cdlc.total_commits` | gauge | — | Lifetime commit count |
+| `covenant.cdlc.total_tokens` | gauge | — | Lifetime LLM token consumption |
+| `covenant.cdlc.today_prompts` | gauge | — | Prompts recorded today |
+| `covenant.cdlc.today_commits` | gauge | — | Commits recorded today |
+| `covenant.cdlc.current_streak` | gauge | — | Current consecutive-day activity streak |
+| `covenant.cdlc.longest_streak` | gauge | — | Longest streak ever |
+| `covenant.cdlc.total_specs` | gauge | — | Total spec/note files tracked |
+| `covenant.cdlc.repo.prompts` | gauge | `repo` | Prompts by repository |
+| `covenant.cdlc.repo.commits` | gauge | `repo` | Commits by repository |
+| `covenant.cdlc.agent.prompts` | gauge | `agent` | Prompts by executor agent |
+| `covenant.cdlc.model.input_tokens` | gauge | `provider`, `model` | Input tokens by model |
+| `covenant.cdlc.model.output_tokens` | gauge | `provider`, `model` | Output tokens by model |
+| `covenant.cdlc.model.cache_read_tokens` | gauge | `provider`, `model` | Cache-read tokens by model |
+
+### Architecture
+
+```
+ScoreStore (SQLite)
+    │
+    ▼  observable gauge callbacks (60 s)
+opentelemetry_sdk::SdkMeterProvider
+    │
+    ▼  PeriodicReader
+opentelemetry-otlp (gRPC/tonic)
+    │
+    ▼
+OTEL Collector / Grafana / Datadog / …
+```
+
+The implementation lives in `crates/score/src/otel.rs` behind the `otel`
+Cargo feature (enabled by default in the app crate). Key entry points:
+
+- `otel::start(store)` — called during app setup; returns `None` when the
+  env var is unset (no-op path).
+- `otel::init_meter_provider()` — builds the `SdkMeterProvider` with an
+  OTLP exporter.
+- `otel::register_metrics(meter, store)` — registers all observable gauges
+  against a given meter + store.
+
+### Standard OTEL environment variables
+
+The exporter respects the full set of
+[OTLP exporter env vars](https://opentelemetry.io/docs/specs/otel/protocol/exporter/):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(none — opt-in)* | Collector endpoint |
+| `OTEL_EXPORTER_OTLP_HEADERS` | — | Auth headers (`key=value` pairs) |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | `10000` | Export timeout (ms) |
+| `OTEL_RESOURCE_ATTRIBUTES` | — | Extra resource attributes |
+
+### Example: local Grafana stack
+
+```bash
+# 1. Run the Grafana LGTM stack (Loki + Grafana + Tempo + Mimir)
+docker run -d --name lgtm -p 3000:3000 -p 4317:4317 grafana/otel-lgtm
+
+# 2. Launch Covenant
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 /Applications/Covenant.app/Contents/MacOS/Covenant
+
+# 3. Open Grafana at http://localhost:3000 → Explore → Mimir
+#    Query: covenant_cdlc_total_prompts
+```
+
+### Testing
+
+```bash
+cargo test -p karl-score --features otel --test otel
+```
+
+The smoke test uses the SDK's `InMemoryMetricExporter` to verify all gauges
+register and produce values without needing a live collector.
+
+---
+
 ## Relevant history
 
 See `CHANGELOG.md` — most context-aware behavior landed in **v0.6.0**

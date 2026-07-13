@@ -5,6 +5,8 @@ pub mod commit_scanner;
 pub mod context;
 pub mod external;
 pub mod filter;
+#[cfg(feature = "otel")]
+pub mod otel;
 pub mod profile_card;
 pub mod session;
 pub mod spec_scanner;

@@ -61,7 +61,7 @@ karl-session = { path = "../session" }
 karl-agent = { path = "../agent" }
 karl-familiar = { path = "../familiar" }
 karl-capabilities = { path = "../capabilities" }
-karl-score = { path = "../score" }
+karl-score = { path = "../score", features = ["otel"] }
 karl-canon = { path = "../canon" }
 dirs = { workspace = true }
 sysinfo = { workspace = true }
