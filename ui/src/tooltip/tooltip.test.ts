@@ -140,10 +140,19 @@ describe("computeTooltipPos", () => {
 
   test("clamps to the LAYOUT viewport under zoom > 1", () => {
     // Visual viewport 1200px at zoom 1.5 → layout viewport is 800px.
-    // A target hugging the visual right edge (rect in visual px).
-    const p = computeTooltipPos(rect(1160, 300, 30, 20), 120, 30, 1.5, 1200, 800);
+    // A target hugging the layout right edge (rects are layout px).
+    const p = computeTooltipPos(rect(760, 300, 30, 20), 120, 30, 1.5, 1200, 800);
     // Tooltip must fit inside the 800px layout viewport, not the 1200px visual one.
     expect(p.left + 120).toBeLessThanOrEqual(1200 / 1.5 - 8);
     expect(p.left).toBeGreaterThanOrEqual(8);
+  });
+
+  test("stays glued to a bottom status-bar badge under zoom > 1", () => {
+    // Regression: rects are layout px already — dividing them by z floated
+    // the tooltip ~10% up/left of the badge at zoom 1.1.
+    const p = computeTooltipPos(rect(700, 880, 60, 24), 200, 30, 1.1, 1000, 1000);
+    expect(p.below).toBe(false);
+    expect(p.top).toBe(880 - 30 - 8); // directly above the badge, layout px
+    expect(p.left).toBe(700 + 30 - 100); // centered on the badge
   });
 });

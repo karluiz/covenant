@@ -82,10 +82,12 @@ function renderContent(content: TooltipContent): string {
   return parts.join("");
 }
 
-/// Pure clamp math in LAYOUT px. `rect` comes from getBoundingClientRect(),
-/// which WebKit reports in visual (zoomed) px, while the fixed tooltip's
-/// left/top are layout px — so everything is divided by the zoom level
-/// (same semantics as the pane-menu fix, manager.ts / 970e45b).
+/// Pure clamp math in LAYOUT px. In this WKWebView getBoundingClientRect()
+/// reports LAYOUT px under CSS zoom — the same space as the fixed tooltip's
+/// left/top and offset* (dividing it by z was the regression that floated
+/// status-bar tooltips way above their badges at zoom > 1). Only
+/// window.inner* is visual px, so just the viewport converts via `/ z`
+/// (same rationale as the pane-menu fix, manager.ts / 970e45b).
 export function computeTooltipPos(
   rect: { top: number; bottom: number; left: number; width: number },
   tw: number,
@@ -94,10 +96,10 @@ export function computeTooltipPos(
   visualVw: number,
   visualVh: number,
 ): { top: number; left: number; below: boolean } {
-  const rTop = rect.top / z;
-  const rBottom = rect.bottom / z;
-  const rLeft = rect.left / z;
-  const rWidth = rect.width / z;
+  const rTop = rect.top;
+  const rBottom = rect.bottom;
+  const rLeft = rect.left;
+  const rWidth = rect.width;
   const vw = visualVw / z;
   const vh = visualVh / z;
   // Prefer above; flip below if not enough room
