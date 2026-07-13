@@ -113,6 +113,11 @@ pub struct GroupCell {
     /// different workspaces stay distinct and casing typos collapse.
     pub workspace: Option<String>,
     pub prompts: u32,
+    /// The group's live identity color (hex), if the group is (or was)
+    /// open in the app. Upserted by `score_set_current_session` into the
+    /// `group_colors` table — events themselves never carry color.
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

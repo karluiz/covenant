@@ -2662,14 +2662,16 @@ export async function piExtensionUiResponse(
 }
 
 /// Notify the score crate which session/cwd/group is currently active.
-/// Fire-and-forget; pass nulls to clear.
+/// Fire-and-forget; pass nulls to clear. `groupColor` refreshes the
+/// group's live identity color for entity-colored Pulse bars.
 export function scoreSetCurrentSession(
   sessionId: string | null,
   cwd: string | null,
   groupName: string | null,
   workspace: string | null,
+  groupColor: string | null = null,
 ): void {
-  void invoke<void>("score_set_current_session", { sessionId, cwd, groupName, workspace });
+  void invoke<void>("score_set_current_session", { sessionId, cwd, groupName, workspace, groupColor });
 }
 
 /// Subscribe to a Pi session's event stream. Returns an unlisten fn that

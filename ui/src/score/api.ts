@@ -86,7 +86,7 @@ export interface ScoreFilter {
 
 export interface RepoCell { repo: string; prompts: number; commits: number }
 export interface BranchCell { branch: string; prompts: number; commits: number }
-export interface GroupCell { group_name: string; workspace: string | null; prompts: number }
+export interface GroupCell { group_name: string; workspace: string | null; prompts: number; color?: string | null }
 export interface SessionRow {
   start_ts: number;
   end_ts: number;

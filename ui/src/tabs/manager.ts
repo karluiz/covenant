@@ -2616,6 +2616,7 @@ export class TabManager {
       pane?.cwd ?? null,
       group?.name ?? null,
       this.activeWorkspaceName,
+      group?.color ?? null,
     );
   }
 

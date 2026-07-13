@@ -242,6 +242,23 @@ impl ScoreStore {
                  PRAGMA user_version = 7;",
             )?;
         }
+        // v8: live group-identity colors, keyed case-insensitively by group
+        // name. Upserted whenever a grouped tab focuses (set_current_session),
+        // so recoloring a group refreshes on next focus. Events never carry
+        // color — breakdown_groups LEFT JOINs this table.
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
+        if v < 8 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS group_colors (
+                    group_name TEXT PRIMARY KEY COLLATE NOCASE,
+                    color      TEXT NOT NULL,
+                    updated_ms INTEGER NOT NULL
+                 );
+                 PRAGMA user_version = 8;",
+            )?;
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path,
@@ -607,6 +624,19 @@ impl ScoreStore {
             .map_err(Into::into)
     }
 
+    /// Record (or refresh) a group's live identity color. Called on tab
+    /// focus via `score_set_current_session` — cheap idempotent upsert.
+    pub fn upsert_group_color(&self, group_name: &str, color: &str) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO group_colors(group_name, color, updated_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT(group_name) DO UPDATE SET color = excluded.color, updated_ms = excluded.updated_ms",
+            rusqlite::params![group_name, color, now],
+        )?;
+        Ok(())
+    }
+
     pub fn breakdown_groups(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::GroupCell>> {
         let w = crate::filter::build_where(f);
         // Key by case-insensitive group_name only: one row per logical group,
@@ -620,10 +650,15 @@ impl ScoreStore {
         // so it's 1 iff there's a single named workspace (regardless of how
         // many null-workspace events also exist); MAX(workspace) then surfaces
         // it. 0 named (all legacy) or 2+ named (ambiguous) → no badge.
+        // Color comes from the group_colors live-identity table (v8), joined
+        // case-insensitively AFTER grouping via a correlated subquery — the
+        // table has one row per logical group, so this stays O(groups).
         let sql = format!(
             "SELECT MIN(group_name),
                     CASE WHEN COUNT(DISTINCT workspace) = 1 THEN MAX(workspace) END,
-                    SUM(CASE WHEN kind='prompt' THEN 1 ELSE 0 END)
+                    SUM(CASE WHEN kind='prompt' THEN 1 ELSE 0 END),
+                    (SELECT gc.color FROM group_colors gc
+                      WHERE gc.group_name = score_events.group_name)
              FROM score_events
              WHERE group_name IS NOT NULL AND {}
              GROUP BY group_name COLLATE NOCASE
@@ -637,6 +672,7 @@ impl ScoreStore {
                 group_name: r.get(0)?,
                 workspace: r.get(1)?,
                 prompts: r.get::<_, i64>(2)? as u32,
+                color: r.get(3)?,
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()

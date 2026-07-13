@@ -53,6 +53,19 @@ pub fn set_current_session(s: Option<CurrentSession>) {
     }
 }
 
+/// Record a group's live identity color (fire-and-forget upsert). Kept off
+/// `CurrentSession`/`Context` so events never carry color — the
+/// `group_colors` table is the single source, refreshed on tab focus.
+pub fn note_group_color(group_name: &str, color: &str) {
+    if let Ok(g) = slot().lock() {
+        if let Some(store) = g.as_ref() {
+            if let Err(e) = store.upsert_group_color(group_name, color) {
+                tracing::warn!(target: "score", error = %e, "note_group_color failed");
+            }
+        }
+    }
+}
+
 fn slot() -> &'static Mutex<Option<Arc<ScoreStore>>> {
     RECORDER.get_or_init(|| Mutex::new(None))
 }

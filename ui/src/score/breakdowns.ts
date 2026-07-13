@@ -184,7 +184,10 @@ function buildLbRow(
   wsColor: Map<string, string>,
   onSelect: (groupName: string) => void,
 ): HTMLElement {
-  const color = PALETTE[(row.rank - 1) % PALETTE.length];
+  // Prefer the group's live identity color (the one decorative color the
+  // design system sanctions); rank-palette hue only for groups this install
+  // has never had open.
+  const color = row.color ?? PALETTE[(row.rank - 1) % PALETTE.length];
   const wsFill = row.workspace ? wsColor.get(row.workspace) ?? "#6c8088" : null;
 
   const el = document.createElement("button");

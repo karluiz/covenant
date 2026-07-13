@@ -29,6 +29,10 @@ export interface LeaderRow {
   cumulative: number;
   /** prompts / maxPrompts * 100 — bar length, scaled so the leader reads full. */
   barPct: number;
+  /** Live group identity color (from the score DB's group_colors table),
+   *  or null for groups never seen by this install — render falls back to
+   *  the rank palette. */
+  color: string | null;
 }
 
 export interface WorkspaceSubtotal {
@@ -137,6 +141,7 @@ export function buildLeaderboard(cells: GroupCell[], view: GroupView): Leaderboa
       share: c.prompts / safeTotal,
       cumulative: m.cumulative,
       barPct: (c.prompts / maxPrompts) * 100,
+      color: c.color ?? null,
     };
   });
 

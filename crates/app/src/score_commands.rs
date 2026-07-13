@@ -26,7 +26,13 @@ pub fn score_set_current_session(
     cwd: Option<String>,
     group_name: Option<String>,
     workspace: Option<String>,
+    group_color: Option<String>,
 ) {
+    // Refresh the group's live identity color so breakdowns can paint
+    // entity-colored bars. Independent of whether a session is active.
+    if let (Some(name), Some(color)) = (group_name.as_deref(), group_color.as_deref()) {
+        karl_score::note_group_color(name, color);
+    }
     match (session_id, cwd) {
         (Some(sid), Some(c)) => {
             karl_score::set_current_session(Some(karl_score::CurrentSession {
