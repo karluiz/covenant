@@ -978,3 +978,9 @@ body.theme-true-dark .cov-pubprofile-share button {
   background: var(--cov-surface-2); border-color: var(--cov-line); color: #d6e2e6;
 }
 body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f; }
+
+/* Pulse cockpit zones */
+.pulse-hero { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
+.pulse-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.pulse-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.cov-card--wide { grid-column: 1 / -1; }
