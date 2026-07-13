@@ -20,15 +20,42 @@ body.changes-fullscreen .cd-frame {
 .cd-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
   flex-shrink: 0;
 }
-.cd-title { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-.cd-repo { font-size: 12px; color: var(--muted); }
+.cd-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.cd-repo {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  color: var(--muted);
+}
+.cd-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10.5px;
+  color: var(--muted);
+  border: 1px solid rgb(var(--ink-rgb) / 0.1);
+  background: rgb(var(--ink-rgb) / 0.03);
+  padding: 2px 8px 2px 6px;
+}
+.cd-branch svg { opacity: 0.7; flex: 0 0 auto; }
 .cd-header-spacer { flex: 1; }
+.cd-head-sum {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cd-sum-add { color: var(--ok); }
+.cd-sum-del { color: var(--fail); }
 /* Bare button; the visible pill is the inner .settings-esc (shared with
    Settings + the operator creator for a consistent esc affordance). */
 .cd-close {
@@ -40,13 +67,13 @@ body.changes-fullscreen .cd-frame {
   cursor: pointer;
 }
 .cd-close:hover .settings-esc {
-  color: #fff;
+  color: var(--text-primary);
   background: rgb(var(--ink-rgb) / 0.08);
   border-color: rgb(var(--ink-rgb) / 0.16);
 }
 
 /* Body: rail | diff */
-.cd-body { flex: 1; display: grid; grid-template-columns: 300px 1fr; min-height: 0; }
+.cd-body { flex: 1; display: grid; grid-template-columns: 330px 1fr; min-height: 0; }
 
 .cd-left {
   display: flex;
@@ -54,15 +81,14 @@ body.changes-fullscreen .cd-frame {
   min-height: 0;
   border-right: 1px solid var(--border);
   overflow: hidden;
-  padding: 10px;
   background: var(--bg-panel);
 }
-.cd-rail-host { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.cd-rail-host { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 10px 10px; }
 .cd-search {
   box-sizing: border-box;
-  width: 100%;
+  width: calc(100% - 20px);
   padding: 6px 10px;
-  margin-bottom: 10px;
+  margin: 10px 10px 4px;
   flex-shrink: 0;
   background: rgb(var(--ink-rgb) / 0.05);
   color: var(--text-primary);
@@ -74,71 +100,186 @@ body.changes-fullscreen .cd-frame {
 .cd-search:focus { border-color: var(--accent); }
 .cd-search::placeholder { color: var(--muted); }
 
+/* File groups */
 .cd-group { margin-bottom: 6px; }
+.cd-group-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 12px 2px 4px;
+  user-select: none;
+}
+.cd-group:first-child .cd-group-hd { margin-top: 8px; }
 .cd-group-title {
   font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.09em;
   color: var(--muted);
-  margin: 10px 4px 4px;
 }
+.cd-group-n {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  color: var(--text-tertiary, var(--muted));
+  font-variant-numeric: tabular-nums;
+  margin-left: 6px;
+}
+.cd-group-act {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 1px 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.cd-group:hover .cd-group-act, .cd-group-act:focus-visible { opacity: 1; }
+.cd-group-act:hover { color: var(--accent); }
+.cd-group-empty {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  color: var(--text-tertiary, var(--muted));
+  font-style: italic;
+}
+
+/* File rows — name line + dimmed directory line, diffstat on the right. */
 .cd-file {
-  display: flex;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 1px;
   align-items: center;
-  gap: 8px;
   padding: 5px 8px;
   border-radius: 0;
   cursor: pointer;
 }
 .cd-file:hover { background: rgb(var(--ink-rgb) / 0.06); }
-.cd-file--selected { background: rgb(var(--ink-rgb) / 0.1); }
-.cd-file-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cd-status { font-size: 11px; font-weight: 700; width: 12px; text-align: center; }
+.cd-file--selected {
+  background: rgb(var(--ink-rgb) / 0.1);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.cd-status {
+  grid-row: 1 / 3;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
 .cd-status--modified { color: #d7a700; }
 .cd-status--added, .cd-status--untracked { color: #3fb950; }
 .cd-status--deleted { color: #f85149; }
 .cd-status--renamed { color: var(--accent); }
-.cd-counts { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cd-file-name {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cd-file-dir {
+  grid-column: 2 / 4;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  color: var(--text-tertiary, var(--muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* RTL ellipsis keeps the tail of the path visible — the discriminating part. */
+  direction: rtl;
+  text-align: left;
+}
+.cd-file-dir bdi { unicode-bidi: plaintext; }
+.cd-file-meta { display: inline-flex; align-items: center; gap: 7px; }
+.cd-counts {
+  font-size: 10px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cd-blocks { display: inline-flex; gap: 1.5px; }
+.cd-blocks i { width: 5px; height: 5px; background: rgb(var(--ink-rgb) / 0.1); }
+.cd-blocks i.cd-blocks--a { background: #3fb950; }
+.cd-blocks i.cd-blocks--d { background: #f85149; }
 .cd-stage-btn {
-  opacity: 0;
-  font-size: 11px;
-  padding: 2px 8px;
+  grid-row: 1 / 3;
+  align-self: center;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
   border-radius: 0;
   border: 1px solid var(--border);
   background: rgb(var(--ink-rgb) / 0.04);
-  color: var(--text-primary);
+  color: var(--muted);
   cursor: pointer;
 }
-.cd-file:hover .cd-stage-btn { opacity: 1; }
+.cd-file:hover .cd-file-meta { display: none; }
+.cd-file:hover .cd-stage-btn { display: inline-flex; }
 .cd-stage-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-/* Commit footer — pinned at the bottom of the left column. */
+/* Commit composer — pinned at the bottom of the left column. */
 .cd-commit {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 10px;
-  margin-top: 8px;
+  gap: 7px;
+  padding: 10px;
   border-top: 1px solid var(--border);
 }
-.cd-commit-msg {
+.cd-subj-row { position: relative; }
+.cd-subj {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 46px 7px 9px;
+  background: rgb(var(--ink-rgb) / 0.05);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  outline: none;
+}
+.cd-subj:focus { border-color: var(--accent); }
+.cd-subj::placeholder { color: var(--muted); font-weight: 400; }
+.cd-subj-count {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 9.5px;
+  color: var(--text-tertiary, var(--muted));
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.cd-subj-count--over { color: var(--running); }
+.cd-commit-body {
   box-sizing: border-box;
   width: 100%;
   resize: vertical;
-  min-height: 52px;
+  min-height: 76px;
+  max-height: 200px;
+  overflow-y: auto;
   padding: 7px 9px;
   background: rgb(var(--ink-rgb) / 0.05);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 0;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.5;
   outline: none;
 }
-.cd-commit-msg:focus { border-color: var(--accent); }
-.cd-commit-msg::placeholder { color: var(--muted); }
+.cd-commit-body:focus { border-color: var(--accent); }
+.cd-commit-body::placeholder { color: var(--muted); }
 
 /* Status banner — inline flex container with icon + text + optional dismiss. */
 .cd-commit-status {
@@ -151,7 +292,7 @@ body.changes-fullscreen .cd-frame {
   transition: opacity 0.5s ease;
   line-height: 1.45;
 }
-.cd-commit-status:empty { min-height: 0; }
+.cd-commit-status:empty { display: none; }
 .cd-commit-status--err {
   background: color-mix(in srgb, var(--fail) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--fail) 30%, transparent);
@@ -185,22 +326,30 @@ body.changes-fullscreen .cd-frame {
   animation: cd-spin 0.7s linear infinite;
 }
 @keyframes cd-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .cd-status-spinner, .cd-summarize--busy .cd-summarize-icon { animation: none; }
+}
 
 /* Action row: Summarize | Commit | Commit & Push */
 .cd-commit-actions { display: flex; gap: 6px; }
 .cd-summarize, .cd-commit-btn, .cd-push-btn {
   font-size: 12px;
-  padding: 6px 10px;
+  height: 30px;
+  padding: 0 10px;
   border-radius: 0;
   border: 1px solid var(--border);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
 }
 .cd-summarize {
-  flex: 0 1 auto;
+  flex: 0 0 32px;
+  padding: 0;
   background: rgb(var(--ink-rgb) / 0.04);
   color: var(--text-primary);
 }
@@ -216,7 +365,7 @@ body.changes-fullscreen .cd-frame {
 }
 .cd-commit-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .cd-push-btn {
-  flex: 1;
+  flex: 1.3;
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
@@ -230,8 +379,18 @@ body.changes-fullscreen .cd-frame {
   font-weight: 400;
 }
 .cd-summarize:disabled, .cd-commit-btn:disabled, .cd-push-btn:disabled { opacity: 0.4; cursor: default; }
+.cd-push-target {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  color: var(--text-tertiary, var(--muted));
+  font-variant-numeric: tabular-nums;
+}
+.cd-push-target:empty { display: none; }
 
-.cd-clean, .cd-diff-empty {
+.cd-clean {
   color: var(--muted);
   font-size: 13px;
   padding: 28px 12px;
@@ -240,8 +399,136 @@ body.changes-fullscreen .cd-frame {
 
 /* Diff pane */
 .cd-right { overflow: auto; min-width: 0; background: var(--bg-overlay); }
-.cd-diff-host { padding: 8px 0 24px; }
-.cd-diff { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.cd-diff-host { min-height: 100%; }
+
+/* Changeset overview — shown until a file is selected. */
+.cd-overview { max-width: 720px; margin: 0 auto; padding: 44px 32px; }
+.cd-ov-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, var(--muted));
+  margin-bottom: 8px;
+}
+.cd-ov-head {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+  text-wrap: balance;
+}
+.cd-ov-sub {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cd-ov-bar {
+  display: flex;
+  height: 3px;
+  margin: 20px 0 26px;
+  background: rgb(var(--ink-rgb) / 0.07);
+}
+.cd-ov-bar-a { background: #3fb950; }
+.cd-ov-bar-d { background: #f85149; }
+.cd-ov-list { display: flex; flex-direction: column; }
+.cd-ov-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 76px 140px;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  border-top: 1px solid rgb(var(--ink-rgb) / 0.06);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.cd-ov-row:last-child { border-bottom: 1px solid rgb(var(--ink-rgb) / 0.06); }
+.cd-ov-row:hover { background: rgb(var(--ink-rgb) / 0.04); }
+.cd-ov-path {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cd-ov-dir { color: var(--text-tertiary, var(--muted)); }
+.cd-ov-counts {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10.5px;
+  text-align: right;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.cd-ov-spark { display: flex; height: 3px; background: rgb(var(--ink-rgb) / 0.06); }
+.cd-ov-hints {
+  margin-top: 26px;
+  font-size: 11px;
+  color: var(--text-tertiary, var(--muted));
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.cd-ov-hints span { display: inline-flex; gap: 5px; align-items: center; }
+.cd-ov-hints kbd {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 9px;
+  border: 1px solid rgb(var(--ink-rgb) / 0.1);
+  background: rgb(var(--ink-rgb) / 0.03);
+  padding: 1px 4px;
+  border-radius: 0;
+}
+
+/* Diff view — sticky file header above the hunks. */
+.cd-diff-hd {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  background: var(--bg-overlay);
+  border-bottom: 1px solid var(--border);
+}
+.cd-diff-path {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cd-diff-counts {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cd-diff-stage {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: rgb(var(--ink-rgb) / 0.04);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cd-diff-stage:hover { border-color: var(--accent); color: var(--accent); }
+
+.cd-diff { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); padding: 8px 0 24px; }
+.cd-diff-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 28px 12px;
+  text-align: center;
+}
 .cd-line {
   display: grid;
   grid-template-columns: 52px 52px 18px 1fr;
