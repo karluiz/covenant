@@ -6,6 +6,52 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.10 — Pulse metrics dashboard + settings design-system pass
+
+### Added
+
+- **Pulse — full-screen metrics dashboard (⌘⌥M)**: the Settings "Metrics"
+  scroll wall is now a first-class momentum-first surface (`ui/src/pulse/`).
+  Streak-led hero with a today-vs-30-day-average delta, full-width activity
+  heatmap as the centerpiece, and a breakdown grid (by repo / group /
+  operator, specs, tokens per model, recent sessions) with click-to-drill
+  filtering. Amber (`--num`) is reserved for momentum — streak, today, and
+  the heatmap ramp — while totals read neutral. The Settings tab becomes a
+  compact summary strip with an "Open Pulse →" launcher
+  (`ui/src/settings/pulse-summary.ts`).
+- **Switcher (⌘⌥T) palette redesign**: workspace tile strip with ⌘1–5
+  jumps, group spines instead of dots, monospace structured crumbs, and a
+  kbd footer.
+- **ACP background-console disclaimer**: chip + in-block note + live census
+  strip so background consoles are labeled while they stream
+  (`ui/src/executors/acp/`).
+- **Executor brand icons in selects**: `CustomSelect` supports per-option
+  `iconHtml` (`ui/src/ui/select.ts`); the Harnesses executor picker now
+  shows each brand's tinted logo, and ACP message links are styled.
+
+### Changed
+
+- **Settings design-system pass, all config tabs**: Providers, Inference,
+  Operators (card grid + immersive creator), Harnesses, Telegram, Updates,
+  Covenant Cloud and friends now ride the shared tokens — semantic state
+  colors (`--ok`/`--running`/`--fail`/`--danger`), ink-composed alphas
+  (fixes light theme), sharp corners, `attachTooltip` instead of native
+  tooltips, and one `--accent` (three stray blues unified). The Telegram tab
+  was rebuilt in English with a brand header, live connection pill, and a
+  reveal/copy token field (`ui/src/settings/telegram.ts`). Dead legacy CSS
+  (`.add-provider-form`, `.provider-card`, `#sec-providers .btn-secondary`)
+  purged from `ui/src/styles.css`.
+
+### Fixed
+
+- **Beacon meta strip**: compact pill density with gap separators, and the
+  actor now right-aligns to fill the row, mirroring the time.
+- **Switcher theme compliance**: transparent input in light theme and a
+  neutral lift for the current tile on True Dark.
+- **Tasker calendar under zoom**: the due-date popover now positions in
+  layout px (÷ zoom), matching the pane-menu viewport fix, so it no longer
+  drifts at non-100% zoom (`ui/src/tasker/panel.ts`).
+
 ## v0.9.9 — Canon rail redesign + Context Lift badges + Beacon run taxonomy
 
 ### Added
