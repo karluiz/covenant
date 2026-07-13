@@ -1747,10 +1747,13 @@ body:not(.tabbar-left) #new-group {
    whole pane, so the 4-column terminal grid must not apply (its col 4
    reserves --right-sidebar-w for a Blocks sidebar that ACP tabs never
    create, which read as a phantom sidebar eating ~240px). The view
-   mounts on .pane-host inside .terminal-block, so stretch that chain. */
+   mounts on .pane-host inside .terminal-block, so stretch that chain.
+   Flex ROW: the Files tree + editor mount as real sibling columns
+   (chat | editor | tree) so both share the screen with the chat —
+   unlike shell tabs, where the editor is an absolute overlay. */
 .tab-pane.tab-pane-acp {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     grid-template-columns: none;
 }
 .tab-pane.tab-pane-acp[hidden] {
@@ -1766,6 +1769,21 @@ body:not(.tabbar-left) #new-group {
     flex: 1;
     min-height: 0;
     min-width: 0;
+}
+.tab-pane.tab-pane-acp > .editor-host {
+    flex: 0 0 min(46%, 760px);
+    min-width: 0;
+    border-left: 1px solid rgb(var(--ink-rgb) / 0.08);
+}
+.tab-pane.tab-pane-acp > .acp-structure-host {
+    flex: 0 0 var(--right-sidebar-w);
+    min-width: 0;
+    overflow: hidden;
+    border-left: 1px solid rgb(var(--ink-rgb) / 0.08);
+    background: var(--bg-panel);
+}
+.tab-pane.tab-pane-acp > .acp-structure-host[hidden] {
+    display: none;
 }
 
 .tab-terminal {
@@ -8214,8 +8232,10 @@ body.structure-dragging * {
    default `1fr 0 0 var(--right-sidebar-w)` — the editor-host is pulled out of flow with
    position:absolute and pinned over the terminal column, so opening a
    file no longer pushes xterm or triggers a refit. The editor right
-   edge tracks the blocks sidebar width via the rules below. */
-.tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+   edge tracks the blocks sidebar width via the rules below.
+   ACP tabs are excluded: there the editor is a flex sibling of the chat
+   (shares the screen) — see .tab-pane-acp > .editor-host. */
+.tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host {
     /* grid-column: auto is critical — a grid item with explicit
        placement uses its grid cell (0px here) as the absolute-positioning
        containing block, hiding the editor entirely. Resetting it
@@ -8236,21 +8256,21 @@ body.structure-dragging * {
 }
 /* Solidify nested header + body too — both inherit alpha-tinted
    surfaces from the global theme. */
-.tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
-.tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
+.tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
+.tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
     background: rgb(17 20 26);
 }
 /* True Dark/OLED: the editor overlay hardcodes rgb(17 20 26) slate to stay
    solid over xterm; on true black that reads as a grey topbar. Pin to #000. */
-body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host,
-body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
-body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
+body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host,
+body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
+body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
     background: #000000;
 }
-.tab-pane:has(.editor-host:not([hidden])):has(.blocks-collapsed) > .editor-host {
+.tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])):has(.blocks-collapsed) > .editor-host {
     right: 28px;
 }
-.tab-pane:has(.editor-host:not([hidden])):has(.blocks-host.recall-active) > .editor-host {
+.tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])):has(.blocks-host.recall-active) > .editor-host {
     right: var(--right-sidebar-w);
 }
 

@@ -4697,6 +4697,20 @@ export class TabManager {
     acpTerminalBlock.appendChild(acpPaneHost0);
     pane.appendChild(acpTerminalBlock);
 
+    // Files tree + editor SHARE the pane with the chat (flex row — see
+    // .tab-pane-acp rules in styles.css). Unlike shell tabs, where the
+    // editor is an absolute overlay covering the terminal, here both are
+    // real flex columns so chat and editor stay visible side by side.
+    const acpEditorHost = document.createElement("div");
+    acpEditorHost.className = "editor-host";
+    acpEditorHost.hidden = true;
+    pane.appendChild(acpEditorHost);
+
+    const acpStructureHost = document.createElement("div");
+    acpStructureHost.className = "acp-structure-host";
+    acpStructureHost.hidden = true;
+    pane.appendChild(acpStructureHost);
+
     const boot = document.createElement("div");
     boot.className = "acp-boot";
     boot.textContent = `Starting ${executorTitle}…`;
@@ -4744,6 +4758,68 @@ export class TabManager {
     };
     tab.panes = [pane0Acp];
     assertLayoutValid(tab);
+
+    // Same editor/tree contract as shell tabs (openEditor, structure,
+    // setSidebarView) so openCliPath, the global search palette, and the
+    // titlebar Files button all work on ACP tabs. ponytail: editor width
+    // is a fixed flex basis — add a drag splitter if users ask.
+    const acpEditor = new StructureEditor(acpEditorHost, {
+      toast: (msg, severity) => {
+        if (severity === "error") console.error(msg);
+        pushInfoToast({ message: msg });
+      },
+      onClose: () => {
+        acpEditorHost.hidden = true;
+        acpStructure.setActivePath(null);
+      },
+      onOpenPath: (path) => acpOpenEditor(path),
+    });
+    const acpOpenEditor = (path: string, opts?: { line?: number }): void => {
+      acpEditorHost.hidden = false;
+      void acpEditor.open(path, opts);
+      acpStructure.setActivePath(path);
+    };
+    const acpStructure = new StructureTree(
+      acpStructureHost,
+      (path) => acpOpenEditor(path),
+      (change) => {
+        const open = acpEditor.getCurrentPath();
+        if (!open) return;
+        if (change.kind === "rename" && open === change.oldPath) {
+          acpOpenEditor(change.newPath);
+        } else if (change.kind === "trash" && open === change.path) {
+          acpEditor.close();
+        }
+      },
+    );
+    tab.disposers.push({ dispose: attachFileDrop(acpStructure) });
+    const acpSetSidebarView = (view: "blocks" | "structure" | "recall"): void => {
+      tab.sidebarView = view;
+      if (view === "structure") {
+        acpStructureHost.hidden = false;
+        acpStructure.show();
+        const cwd = activePane(tab).cwd;
+        if (cwd) void acpStructure.setCwd(cwd);
+      } else {
+        acpStructure.hide();
+        acpStructureHost.hidden = true;
+      }
+    };
+    // Global Files/Blocks switch from the title bar — every tab listens,
+    // only the active one is visible (same pattern as shell tabs).
+    const acpOnSidebarSet = (e: Event): void => {
+      acpSetSidebarView(
+        (e as CustomEvent<{ view: "blocks" | "structure" | "recall" }>).detail.view,
+      );
+    };
+    window.addEventListener("sidebar-view:set", acpOnSidebarSet);
+    tab.disposers.push({
+      dispose: () => window.removeEventListener("sidebar-view:set", acpOnSidebarSet),
+    });
+    tab.editor = acpEditor;
+    tab.structure = acpStructure;
+    tab.openEditor = acpOpenEditor;
+    tab.setSidebarView = acpSetSidebarView;
 
     // D14 — active-pane border: wire pane-0 focus for ACP tabs via
     // focusin, same rationale as createPiTab (AcpChatView doesn't expose
