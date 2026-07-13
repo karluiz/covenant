@@ -631,6 +631,10 @@ export class AcpChatView {
   private lastUserEl: HTMLElement | null = null;
 
   private stickToBottom = true;
+  /// Last observed scrollTop — lets the scroll handler tell an upward
+  /// (user) scroll from a downward/programmatic one. See
+  /// [`resolveStickToBottom`].
+  private lastScrollTop = 0;
   /// Timestamp of the last programmatic "jump to bottom" — wheel/scroll
   /// events within a short window after this are residual momentum from
   /// the jump and must not break `stickToBottom`.
@@ -777,12 +781,20 @@ export class AcpChatView {
     this.messagesEl.addEventListener(
       "scroll",
       () => {
+        const el = this.messagesEl;
+        const prevTop = this.lastScrollTop;
+        this.lastScrollTop = el.scrollTop;
         // After a programmatic jump, ignore scroll events for a short
         // window — the jump itself fires scroll, and on trackpads
         // residual momentum can briefly put us > 48px from the bottom.
         if (Date.now() - this.jumpedAt < 300) return;
-        const el = this.messagesEl;
-        this.stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        this.stickToBottom = resolveStickToBottom(
+          prevTop,
+          el.scrollTop,
+          el.scrollHeight,
+          el.clientHeight,
+          this.stickToBottom,
+        );
         this.syncJumpChip();
       },
       { passive: true },
@@ -1914,6 +1926,27 @@ export class AcpChatView {
     const away = el.scrollHeight - el.scrollTop - el.clientHeight >= 48;
     this.jumpBtn.hidden = !away || this.stickToBottom;
   }
+}
+
+/// Directional bottom-stick: only an upward scroll (user intent — wheel,
+/// trackpad, scrollbar drag, PgUp) releases the stick. Downward or
+/// programmatic scrolls and content growth never do — while a turn is
+/// streaming, `scrollToBottom()`'s own scroll event can observe a tall
+/// chunk appended after `scrollTop` was set (distance ≥ 48px at event
+/// time), and a purely positional check would misread that as the user
+/// scrolling away, killing follow on every big chunk.
+export function resolveStickToBottom(
+  prevScrollTop: number,
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  current: boolean,
+): boolean {
+  const distance = scrollHeight - scrollTop - clientHeight;
+  if (distance < 48) return true;
+  // 1px slack: fractional scrollTop jitter under zoom is not intent.
+  if (scrollTop < prevScrollTop - 1) return false;
+  return current;
 }
 
 function requireChild(root: HTMLElement, selector: string): HTMLElement {

@@ -25,6 +25,7 @@ import {
   filterSlashCommands,
   isBackgroundConsole,
   isCommandNoise,
+  resolveStickToBottom,
   stripFences,
   markPermAnswered,
   mentionFragmentAt,
@@ -460,5 +461,32 @@ describe("titleFromPrompt", () => {
     expect(titleFromPrompt("/model")).toBeNull();
     expect(titleFromPrompt("<command-name>/x</command-name>")).toBeNull();
     expect(titleFromPrompt("   ")).toBeNull();
+  });
+});
+
+describe("resolveStickToBottom", () => {
+  // (prevTop, top, scrollHeight, clientHeight, current)
+  it("stays stuck when a tall chunk lands after the programmatic scroll", () => {
+    // scrollTop was set to the old bottom (1000-500=500), then a 300px
+    // tool card appended before the scroll event fired: distance = 300.
+    expect(resolveStickToBottom(400, 500, 1300, 500, true)).toBe(true);
+  });
+
+  it("releases on an upward scroll away from the bottom", () => {
+    expect(resolveStickToBottom(500, 300, 1300, 500, false)).toBe(false);
+    expect(resolveStickToBottom(500, 300, 1300, 500, true)).toBe(false);
+  });
+
+  it("re-engages when scrolled back near the bottom", () => {
+    expect(resolveStickToBottom(300, 760, 1300, 500, false)).toBe(true);
+  });
+
+  it("ignores sub-pixel jitter as upward intent", () => {
+    expect(resolveStickToBottom(500.5, 500, 1300, 500, true)).toBe(true);
+  });
+
+  it("stays released while content keeps streaming below", () => {
+    // Reader parked mid-transcript: scrollTop unchanged, height grows.
+    expect(resolveStickToBottom(300, 300, 2000, 500, false)).toBe(false);
   });
 });
