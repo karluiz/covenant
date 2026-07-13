@@ -129,7 +129,7 @@
   font-family: inherit;
   line-height: 1;
 }
-.cov-chip:hover { color: var(--text-primary); border-color: rgba(var(--ink-rgb), 0.2); }
+.cov-chip:hover { color: var(--text-primary); border-color: rgb(var(--ink-rgb) / 0.2); }
 .cov-chip.active {
   color: var(--num);
   border-color: color-mix(in srgb, var(--num) 30%, transparent);
@@ -170,7 +170,7 @@
 .cov-card h4,
 .cov-heatmap-card h4 {
   font-size: var(--fs-title); font-weight: 600; letter-spacing: var(--ls-title);
-  text-transform: uppercase; color: rgba(var(--ink-rgb), 0.42); margin: 0 0 12px;
+  text-transform: uppercase; color: rgb(var(--ink-rgb) / 0.42); margin: 0 0 12px;
   display: flex;
   /* Hint sits next to the title (approved mockup), not pushed to the far edge. */
   justify-content: flex-start;
@@ -207,7 +207,7 @@
   /* Empty cells must stay visible — they draw the full 53-week grid the
      amber activity sits in (per the approved mockup). Below ~8% ink they
      vanish against --bg-elevated and the grid reads as floating cells. */
-  background: rgba(var(--ink-rgb), 0.12);
+  background: rgb(var(--ink-rgb) / 0.12);
   border-radius: 0;
   cursor: pointer;
   min-width: 0;
@@ -426,7 +426,7 @@
   border: 1px solid var(--border);
 }
 .covenant-page .btn:hover { opacity: 0.85; }
-.covenant-page .btn.ghost:hover { color: var(--text-primary); border-color: rgba(var(--ink-rgb), 0.2); }
+.covenant-page .btn.ghost:hover { color: var(--text-primary); border-color: rgb(var(--ink-rgb) / 0.2); }
 
 /* Empty state */
 .cov-empty {
@@ -470,7 +470,7 @@ body.theme-light .score-legend { color: var(--muted); }
 
 body.theme-light .covenant-page { color: var(--text-primary); }
 body.theme-light .cov-chip {
-    background: rgba(var(--ink-rgb), 0.03);
+    background: rgb(var(--ink-rgb) / 0.03);
     border-color: var(--border);
     color: var(--muted);
 }
@@ -493,7 +493,7 @@ body.theme-light .cov-card h4 { color: var(--muted); }
 body.theme-light .cov-card h4 .hint,
 body.theme-light .cov-card-foot { color: var(--muted); }
 
-body.theme-light .cov-cell { background: rgba(var(--ink-rgb), 0.10); border-color: transparent; }
+body.theme-light .cov-cell { background: rgb(var(--ink-rgb) / 0.10); border-color: transparent; }
 body.theme-light .cov-cell.l1 { background: color-mix(in srgb, var(--num) 22%, transparent); }
 body.theme-light .cov-cell.l2 { background: color-mix(in srgb, var(--num) 42%, transparent); }
 body.theme-light .cov-cell.l3 { background: color-mix(in srgb, var(--num) 66%, transparent); }
@@ -590,7 +590,7 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
 .cov-toggle button.active { background: rgba(255,255,255,0.10); }
 .cov-table-scroll { overflow-x: auto; }
 .cov-model-table { width:100%; border-collapse:collapse; }
-.cov-model-table th, .cov-model-table td { padding:6px 10px; text-align:left; border-bottom:1px solid rgba(var(--ink-rgb), 0.06); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cov-model-table th, .cov-model-table td { padding:6px 10px; text-align:left; border-bottom:1px solid rgb(var(--ink-rgb) / 0.06); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cov-model-table td:first-child, .cov-model-table th:first-child { padding-left: 0; }
 .cov-dim { opacity:0.5; }
 
@@ -612,14 +612,14 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
 .cov-ach-counts { display:flex; gap:8px; flex-wrap:wrap; }
 .cov-ach-pill {
   font-size:11px; padding:5px 10px; line-height:1;
-  border:1px solid rgba(var(--ink-rgb), 0.10); border-radius:6px;
-  background:rgba(var(--ink-rgb), 0.04); color:var(--muted);
+  border:1px solid rgb(var(--ink-rgb) / 0.10); border-radius:6px;
+  background:rgb(var(--ink-rgb) / 0.04); color:var(--muted);
 }
 .cov-ach-pill strong { color:var(--ach-accent); font-weight:500; }
 .cov-ach-rep { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:8px 18px; padding:2px 0; }
 .cov-rep-row { display:flex; align-items:center; gap:8px; }
 .cov-rep-label { width:92px; font-size:9px; text-transform:uppercase; letter-spacing:1.2px; color:var(--muted); }
-.cov-rep-bar { flex:1; height:6px; background:rgba(var(--ink-rgb), 0.06); border-radius:3px; overflow:hidden; }
+.cov-rep-bar { flex:1; height:6px; background:rgb(var(--ink-rgb) / 0.06); border-radius:3px; overflow:hidden; }
 .cov-rep-fill { height:100%; background:linear-gradient(90deg, color-mix(in srgb, var(--ach-accent) 55%, transparent), var(--ach-accent)); }
 .cov-rep-value { width:40px; text-align:right; font-variant-numeric: tabular-nums; font-size:12px; color:var(--ach-accent); }
 .cov-ach-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
@@ -631,7 +631,7 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
 .cov-ach-section { margin:6px 0 2px; }
 .cov-ach-prog {
   padding:10px 12px; margin-bottom:8px;
-  background:rgba(var(--ink-rgb), 0.03); border:1px solid var(--border); border-radius:8px;
+  background:rgb(var(--ink-rgb) / 0.03); border:1px solid var(--border); border-radius:8px;
 }
 .cov-ach-prog-head { display:flex; justify-content:space-between; gap:8px; font-size:12px; margin-bottom:6px; }
 .cov-ach-title { font-weight:500; color:var(--text-primary); }
@@ -640,16 +640,16 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
 .cov-ach-meta { color:color-mix(in srgb, var(--muted) 75%, transparent); font-size:9px; margin-top:6px; text-transform:uppercase; letter-spacing:1.2px; }
 .cov-ach-award, .cov-ach-cat {
   display:flex; align-items:center; gap:12px;
-  padding:10px 12px; background:rgba(var(--ink-rgb), 0.03);
+  padding:10px 12px; background:rgb(var(--ink-rgb) / 0.03);
   border:1px solid var(--border); border-radius:8px;
 }
 .cov-ach-award { margin-bottom:8px; }
 .cov-ach-cat { transition:border-color 0.15s ease, opacity 0.15s ease; }
-.cov-ach-cat:hover { border-color:rgba(var(--ink-rgb), 0.18); }
+.cov-ach-cat:hover { border-color:rgb(var(--ink-rgb) / 0.18); }
 .cov-ach-badge {
   flex:0 0 auto; width:34px; height:34px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
-  background:rgba(var(--ink-rgb), 0.04); font-weight:600; font-size:13px;
+  background:rgb(var(--ink-rgb) / 0.04); font-weight:600; font-size:13px;
   border:1px solid var(--border); color:var(--muted);
 }
 .cov-ach-award-body { flex:1; min-width:0; }
@@ -657,7 +657,7 @@ body.theme-light .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
 .cov-ach-locked { opacity:0.6; }
 .cov-ach-locked:hover { opacity:0.85; }
 .cov-ach-locked .cov-ach-badge { background:transparent; }
-.cov-rarity-common .cov-ach-badge { border-color:rgba(var(--ink-rgb), 0.16); color:var(--fg-dim); }
+.cov-rarity-common .cov-ach-badge { border-color:rgb(var(--ink-rgb) / 0.16); color:var(--fg-dim); }
 .cov-rarity-uncommon .cov-ach-badge { border-color:color-mix(in srgb, var(--ok) 45%, var(--border)); color:var(--ok); }
 .cov-rarity-rare .cov-ach-badge { border-color:color-mix(in srgb, var(--ach-accent) 45%, var(--border)); color:var(--ach-accent); box-shadow:0 0 6px color-mix(in srgb, var(--ach-accent) 14%, transparent); }
 .cov-rarity-epic .cov-ach-badge { border-color:color-mix(in srgb, var(--ach-epic) 45%, var(--border)); color:var(--ach-epic); box-shadow:0 0 6px color-mix(in srgb, var(--ach-epic) 16%, transparent); }
@@ -802,7 +802,7 @@ body.theme-true-dark .lb-more { color: var(--num); }
    The empty-cell rule below is (0,2,1) specificity and would otherwise
    clobber the (0,2,0) `.cov-cell.lN` ramp, so re-assert the ramp here at
    (0,3,1) to keep the data colors on OLED. */
-body.theme-true-dark .cov-cell { background: rgba(var(--ink-rgb), 0.12); border-color: transparent; }
+body.theme-true-dark .cov-cell { background: rgb(var(--ink-rgb) / 0.12); border-color: transparent; }
 body.theme-true-dark .cov-cell.l1 { background: color-mix(in srgb, var(--num) 22%, transparent); }
 body.theme-true-dark .cov-cell.l2 { background: color-mix(in srgb, var(--num) 42%, transparent); }
 body.theme-true-dark .cov-cell.l3 { background: color-mix(in srgb, var(--num) 66%, transparent); }
@@ -986,8 +986,8 @@ body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f;
 .pulse-mini-stat { display: flex; flex-direction: column; }
 .pulse-mini-stat b { font-size: 20px; color: var(--num); font-weight: 500; font-variant-numeric: tabular-nums; }
 .pulse-mini-stat span { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
-.pulse-open-btn { margin-left: auto; background: var(--bg-panel); border: 1px solid rgba(var(--ink-rgb), 0.1); border-radius: 0; padding: 8px 14px; color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
-.pulse-open-btn:hover { background: rgba(var(--ink-rgb), 0.05); }
+.pulse-open-btn { margin-left: auto; background: var(--bg-panel); border: 1px solid rgb(var(--ink-rgb) / 0.1); border-radius: 0; padding: 8px 14px; color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.pulse-open-btn:hover { background: rgb(var(--ink-rgb) / 0.05); }
 
 /* Est. $ column + total (Pulse models card) */
 .cov-model-table .cov-cost { font-variant-numeric: tabular-nums; text-align: right; color: var(--text-primary); }
