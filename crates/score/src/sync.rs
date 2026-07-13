@@ -83,12 +83,14 @@ pub async fn push_once(store: &ScoreStore) -> std::result::Result<u64, SyncError
 
     let count = events.len() as u64;
     let url = format!("{backend}/sync/events");
-    let resp = reqwest::Client::new()
-        .post(&url)
-        .bearer_auth(&jwt)
-        .json(&serde_json::json!({"events": events}))
-        .send()
-        .await?;
+    let payload = serde_json::json!({"events": events});
+    let resp = auth::send_authed(&jwt, |j| {
+        reqwest::Client::new()
+            .post(&url)
+            .bearer_auth(j)
+            .json(&payload)
+    })
+    .await?;
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
         return Err(SyncError::Server(body));
@@ -182,12 +184,10 @@ pub async fn publish_profile(store: &ScoreStore) -> std::result::Result<String, 
     let snap = current_snapshot(store)?.ok_or(SyncError::NotSignedIn)?;
     let backend = auth::backend_url();
     let url = format!("{backend}/profile/publish");
-    let resp = reqwest::Client::new()
-        .put(&url)
-        .bearer_auth(&jwt)
-        .json(&snap)
-        .send()
-        .await?;
+    let resp = auth::send_authed(&jwt, |j| {
+        reqwest::Client::new().put(&url).bearer_auth(j).json(&snap)
+    })
+    .await?;
     if !resp.status().is_success() {
         return Err(SyncError::Server(resp.text().await.unwrap_or_default()));
     }
@@ -200,11 +200,8 @@ pub async fn unpublish_profile() -> std::result::Result<(), SyncError> {
     let jwt = auth::load_jwt()?.ok_or(SyncError::NotSignedIn)?;
     let backend = auth::backend_url();
     let url = format!("{backend}/profile/publish");
-    let resp = reqwest::Client::new()
-        .delete(&url)
-        .bearer_auth(&jwt)
-        .send()
-        .await?;
+    let resp =
+        auth::send_authed(&jwt, |j| reqwest::Client::new().delete(&url).bearer_auth(j)).await?;
     if !resp.status().is_success() {
         return Err(SyncError::Server(resp.text().await.unwrap_or_default()));
     }

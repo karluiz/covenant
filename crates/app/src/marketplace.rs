@@ -52,8 +52,18 @@ async fn jwt() -> Result<String, String> {
         .ok_or_else(|| "not signed in to Covenant Cloud".to_string())
 }
 
-pub async fn publish_soul(soul_md: &str) -> Result<(), String> {
+/// Send an authed request via [`auth::send_authed`] (401 → refresh JWT +
+/// retry once).
+async fn send_authed(
+    build: impl Fn(&str) -> reqwest::RequestBuilder,
+) -> Result<reqwest::Response, String> {
     let token = jwt().await?;
+    auth::send_authed(&token, build)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn publish_soul(soul_md: &str) -> Result<(), String> {
     let soul = crate::soul::parse(soul_md).map_err(|e| e.to_string())?;
     let body = json!({
         "name": soul.frontmatter.name,
@@ -63,15 +73,15 @@ pub async fn publish_soul(soul_md: &str) -> Result<(), String> {
         "tagline": derive_tagline(soul_md),
         "soul_md": soul_md,
     });
-    client()
-        .post(format!("{}/marketplace/operators", auth::backend_url()))
-        .bearer_auth(&token)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?;
+    send_authed(|j| {
+        client()
+            .post(format!("{}/marketplace/operators", auth::backend_url()))
+            .bearer_auth(j)
+            .json(&body)
+    })
+    .await?
+    .error_for_status()
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -80,25 +90,26 @@ pub async fn marketplace_search(
     q: Option<String>,
     tag: Option<String>,
 ) -> Result<Vec<MarketplaceListing>, String> {
-    let token = jwt().await?;
-    let mut req = client()
-        .get(format!("{}/marketplace/operators", auth::backend_url()))
-        .bearer_auth(&token);
-    if let Some(q) = q.filter(|s| !s.is_empty()) {
-        req = req.query(&[("q", q)]);
-    }
-    if let Some(tag) = tag.filter(|s| !s.is_empty()) {
-        req = req.query(&[("tag", tag)]);
-    }
-    let rows = req
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json::<Vec<MarketplaceListing>>()
-        .await
-        .map_err(|e| e.to_string())?;
+    let q = q.filter(|s| !s.is_empty());
+    let tag = tag.filter(|s| !s.is_empty());
+    let rows = send_authed(|j| {
+        let mut req = client()
+            .get(format!("{}/marketplace/operators", auth::backend_url()))
+            .bearer_auth(j);
+        if let Some(q) = &q {
+            req = req.query(&[("q", q)]);
+        }
+        if let Some(tag) = &tag {
+            req = req.query(&[("tag", tag)]);
+        }
+        req
+    })
+    .await?
+    .error_for_status()
+    .map_err(|e| e.to_string())?
+    .json::<Vec<MarketplaceListing>>()
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(rows)
 }
 
@@ -116,17 +127,16 @@ pub async fn marketplace_publish(
 
 #[tauri::command]
 pub async fn marketplace_install_count(id: String) -> Result<(), String> {
-    let token = jwt().await?;
-    client()
-        .post(format!(
-            "{}/marketplace/operators/{}/install",
-            auth::backend_url(),
-            id
-        ))
-        .bearer_auth(&token)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    send_authed(|j| {
+        client()
+            .post(format!(
+                "{}/marketplace/operators/{}/install",
+                auth::backend_url(),
+                id
+            ))
+            .bearer_auth(j)
+    })
+    .await?;
     Ok(())
 }
 

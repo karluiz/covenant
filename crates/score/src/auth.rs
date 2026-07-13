@@ -105,6 +105,8 @@ pub enum AuthError {
     Keyring(#[from] keyring::Error),
     #[error("score: {0}")]
     Score(#[from] crate::store::ScoreError),
+    #[error("Covenant session expired — sign in again ({0})")]
+    SessionExpired(String),
 }
 
 pub async fn start_device_flow(base_url: &str) -> Result<DeviceCodeResponse, AuthError> {
@@ -243,6 +245,34 @@ pub async fn refresh_jwt() -> Result<String, AuthError> {
     Ok(r.jwt)
 }
 
+/// Send a request built with `jwt`; on 401 mint a fresh JWT via
+/// [`refresh_jwt`] and retry once. Returns the raw response — callers do
+/// their own status handling.
+pub async fn send_authed(
+    jwt: &str,
+    build: impl Fn(&str) -> reqwest::RequestBuilder,
+) -> Result<reqwest::Response, AuthError> {
+    send_authed_with(jwt, build, refresh_jwt()).await
+}
+
+async fn send_authed_with<F>(
+    jwt: &str,
+    build: impl Fn(&str) -> reqwest::RequestBuilder,
+    refresh: F,
+) -> Result<reqwest::Response, AuthError>
+where
+    F: std::future::Future<Output = Result<String, AuthError>>,
+{
+    let mut resp = build(jwt).send().await?;
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let fresh = refresh
+            .await
+            .map_err(|e| AuthError::SessionExpired(e.to_string()))?;
+        resp = build(&fresh).send().await?;
+    }
+    Ok(resp)
+}
+
 pub fn signout(store: &ScoreStore) -> Result<(), AuthError> {
     delete_token_from_keychain()?;
     delete_scope_from_keychain()?;
@@ -253,3 +283,65 @@ pub fn signout(store: &ScoreStore) -> Result<(), AuthError> {
 
 pub const GITHUB_OAUTH_BASE: &str = "https://github.com";
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
+
+#[cfg(test)]
+mod tests {
+    use super::send_authed_with;
+
+    /// Serves exactly two requests: 401 first, 200 second, recording the
+    /// Authorization header of each.
+    async fn mock_401_then_200() -> (
+        std::net::SocketAddr,
+        std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let auths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let auths2 = auths.clone();
+        tokio::spawn(async move {
+            for status in ["401 Unauthorized", "200 OK"] {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 4096];
+                let n = sock.read(&mut buf).await.unwrap();
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let auth = req
+                    .lines()
+                    .find(|l| l.to_ascii_lowercase().starts_with("authorization:"))
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                auths2.lock().unwrap().push(auth);
+                let body = "[]";
+                let resp = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                sock.write_all(resp.as_bytes()).await.unwrap();
+            }
+        });
+        (addr, auths)
+    }
+
+    #[tokio::test]
+    async fn retries_once_with_refreshed_jwt_on_401() {
+        let (addr, auths) = mock_401_then_200().await;
+        let url = format!("http://{addr}/orgs");
+        let resp = send_authed_with(
+            "stale-jwt",
+            |j| reqwest::Client::new().get(&url).bearer_auth(j),
+            async { Ok("fresh-jwt".to_string()) },
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 200);
+        let auths = auths.lock().unwrap();
+        assert_eq!(
+            *auths,
+            vec![
+                "authorization: Bearer stale-jwt",
+                "authorization: Bearer fresh-jwt"
+            ]
+        );
+    }
+}

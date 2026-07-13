@@ -5,7 +5,6 @@
 use karl_score::auth;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::future::Future;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Org {
@@ -62,34 +61,17 @@ fn client() -> reqwest::Client {
         .unwrap_or_else(|_| reqwest::Client::new())
 }
 
-/// Send an authed request; on 401 mint a fresh JWT via `refresh` and retry
-/// once. The backend JWT expires after ~30 days while the stored GitHub token
-/// stays valid, so a 401 usually just means the JWT aged out.
-async fn send_authed_with<F>(
-    build: impl Fn(&str) -> reqwest::RequestBuilder,
-    refresh: F,
-) -> Result<reqwest::Response, String>
-where
-    F: Future<Output = Result<String, String>>,
-{
-    let j = jwt()?;
-    let mut resp = build(&j).send().await.map_err(|e| e.to_string())?;
-    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        let j = refresh.await?;
-        resp = build(&j).send().await.map_err(|e| e.to_string())?;
-    }
-    resp.error_for_status().map_err(|e| e.to_string())
-}
-
+/// Send an authed request via [`auth::send_authed`] (401 → refresh JWT +
+/// retry once), then surface HTTP errors as strings.
 async fn send_authed(
     build: impl Fn(&str) -> reqwest::RequestBuilder,
 ) -> Result<reqwest::Response, String> {
-    send_authed_with(build, async {
-        auth::refresh_jwt()
-            .await
-            .map_err(|e| format!("Covenant session expired — sign in again ({e})"))
-    })
-    .await
+    let j = jwt()?;
+    auth::send_authed(&j, build)
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())
 }
 
 pub async fn list_orgs() -> Result<Vec<Org>, String> {
@@ -211,70 +193,12 @@ fn urlencoding(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{send_authed_with, urlencoding};
+    use super::urlencoding;
 
     #[test]
     fn urlencoding_escapes_unsafe() {
         assert_eq!(urlencoding("kyc-peru"), "kyc-peru");
         assert_eq!(urlencoding("a b/c"), "a%20b%2Fc");
         assert_eq!(urlencoding("1.0.0"), "1.0.0");
-    }
-
-    /// Serves exactly two requests: 401 first, 200 second, recording the
-    /// Authorization header of each.
-    async fn mock_401_then_200() -> (
-        std::net::SocketAddr,
-        std::sync::Arc<std::sync::Mutex<Vec<String>>>,
-    ) {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let auths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let auths2 = auths.clone();
-        tokio::spawn(async move {
-            for status in ["401 Unauthorized", "200 OK"] {
-                let (mut sock, _) = listener.accept().await.unwrap();
-                let mut buf = vec![0u8; 4096];
-                let n = sock.read(&mut buf).await.unwrap();
-                let req = String::from_utf8_lossy(&buf[..n]).to_string();
-                let auth = req
-                    .lines()
-                    .find(|l| l.to_ascii_lowercase().starts_with("authorization:"))
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                auths2.lock().unwrap().push(auth);
-                let body = "[]";
-                let resp = format!(
-                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                sock.write_all(resp.as_bytes()).await.unwrap();
-            }
-        });
-        (addr, auths)
-    }
-
-    #[tokio::test]
-    async fn retries_once_with_refreshed_jwt_on_401() {
-        // Debug builds honor COVENANT_DEV_JWT in auth::load_jwt(), which keeps
-        // this test off the real macOS Keychain.
-        std::env::set_var("COVENANT_DEV_JWT", "stale-jwt");
-        let (addr, auths) = mock_401_then_200().await;
-        let url = format!("http://{addr}/orgs");
-        let resp = send_authed_with(|j| reqwest::Client::new().get(&url).bearer_auth(j), async {
-            Ok("fresh-jwt".to_string())
-        })
-        .await
-        .unwrap();
-        assert_eq!(resp.status(), 200);
-        let auths = auths.lock().unwrap();
-        assert_eq!(
-            *auths,
-            vec![
-                "authorization: Bearer stale-jwt",
-                "authorization: Bearer fresh-jwt"
-            ]
-        );
     }
 }
