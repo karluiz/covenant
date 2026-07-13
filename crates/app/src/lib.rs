@@ -11,6 +11,7 @@
 
 mod acp_commands;
 mod aom;
+mod cli_open;
 mod archetypes;
 mod browser;
 mod capabilities_commands;
@@ -3773,7 +3774,26 @@ pub fn run() {
 
     tracing::info!("covenant starting");
 
+    // `covenant <path>` cold start: queue before the webview exists; the
+    // frontend drains at boot.
+    let launch_argv: Vec<String> = std::env::args().collect();
+    cli_open::queue(cli_open::paths_from_argv(
+        &launch_argv,
+        std::env::current_dir().ok().as_deref(),
+    ));
+
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            // `covenant <path>` while already running: the new process
+            // forwards its argv here and exits.
+            cli_open::queue_and_notify(
+                app,
+                cli_open::paths_from_argv(&argv, Some(std::path::Path::new(&cwd))),
+            );
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_focus();
+            }
+        }))
         .menu(|handle| build_app_menu(handle))
         .on_menu_event(|app, event| {
             // ⌘W / ⌘T accelerators land here (the native menu consumes the
@@ -4977,9 +4997,26 @@ pub fn run() {
             lsp_commands::lsp_stop,
             lsp_commands::lsp_list_installed,
             lsp_commands::lsp_delete_server,
+            cli_open::take_cli_open_paths,
+            cli_open::install_cli,
+            cli_open::cli_installed,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // Finder "Open With" / double-click on an associated file
+            // (e.g. .md). Fires both cold and warm; the pending queue
+            // absorbs the cold case.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                let paths: Vec<String> = urls
+                    .iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                cli_open::queue_and_notify(_app, paths);
+            }
+        });
 }
 
 #[cfg(test)]

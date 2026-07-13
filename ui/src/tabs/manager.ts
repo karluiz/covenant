@@ -6327,6 +6327,43 @@ export class TabManager {
 
   // ─── Group ops ──────────────────────────────────────
 
+  /// `covenant <path>` / Finder "Open With" entry point. A directory
+  /// focuses the existing group rooted there (or creates one named
+  /// after its basename); a file opens in the active tab's editor,
+  /// spawning a shell tab in the file's directory first when needed.
+  async openCliPath(path: string, isDirectory: boolean): Promise<void> {
+    if (isDirectory) {
+      for (const [gid, g] of this.groups) {
+        if (g.rootDir !== path) continue;
+        const firstIdx = this.memberIndices(gid)[0];
+        if (firstIdx !== undefined) {
+          this.activate(this.tabs[firstIdx].id);
+        } else {
+          await this.createTab({ groupId: gid, cwd: path });
+        }
+        return;
+      }
+      const id = crypto.randomUUID();
+      this.groups.set(id, {
+        id,
+        name: cwdBasename(path),
+        color: null,
+        collapsed: false,
+        rootDir: path,
+        canonOrg: null,
+      });
+      await this.createTab({ groupId: id, cwd: path });
+      this.scheduleSave();
+      return;
+    }
+    const dir = path.slice(0, path.lastIndexOf("/")) || "/";
+    let tab = this.tabs.find((t) => t.id === this.activeId && t.kind !== "pi") ?? null;
+    if (!tab?.openEditor) tab = await this.createTab({ cwd: dir });
+    if (!tab) return;
+    this.activate(tab.id);
+    tab.openEditor?.(path);
+  }
+
   private createGroupFromTab(tabId: string): void {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;

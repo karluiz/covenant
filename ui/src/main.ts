@@ -45,7 +45,7 @@ import type { SessionId, SpecCandidate, Task } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
 import { RightRailController, type RailTarget } from "./titlebar/right-rail";
-import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, takeCliOpenPaths, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, claudeThemeFor, type ThemeMode } from "./theme/mode";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -2142,6 +2142,19 @@ async function boot(): Promise<void> {
     console.warn("workspace boot failed; starting fresh", err);
     await workspaceManager.boot(null);
   }
+
+  // `covenant <path>` / Finder "Open With": drain once after restore
+  // (cold-start paths queued before the webview existed) and again on
+  // every poke from a second-instance forward or RunEvent::Opened.
+  const drainCliOpens = async (): Promise<void> => {
+    for (const p of await takeCliOpenPaths()) {
+      await manager.openCliPath(p.path, p.isDir);
+    }
+  };
+  void listen("cli://open-paths", () => {
+    void drainCliOpens();
+  });
+  await drainCliOpens();
 
   // beforeunload flush: best-effort sync of the V2 envelope when the
   // window closes. The Tauri command is async so it may not always land

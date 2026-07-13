@@ -169,6 +169,7 @@ jobs:
             depends_on macos: ">= :ventura"
 
             app "Covenant.app"
+            binary "#{appdir}/Covenant.app/Contents/Resources/covenant"
 
             zap trash: [
               "~/Library/Application Support/com.karluiz.covenant",

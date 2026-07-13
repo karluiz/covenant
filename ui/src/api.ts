@@ -82,6 +82,28 @@ export async function spawnSession(
   });
 }
 
+/// A path handed to the app by `covenant <path>` or Finder "Open With".
+export interface CliOpenPath {
+  path: string;
+  isDir: boolean;
+}
+
+/// Drain paths queued by the CLI shim / file association. Consuming —
+/// each path is returned exactly once.
+export async function takeCliOpenPaths(): Promise<CliOpenPath[]> {
+  return invoke<CliOpenPath[]>("take_cli_open_paths");
+}
+
+/// Symlink the bundled `covenant` shim into /usr/local/bin (may show an
+/// admin prompt). Resolves to the installed path.
+export async function installCli(): Promise<string> {
+  return invoke<string>("install_cli");
+}
+
+export async function cliInstalled(): Promise<boolean> {
+  return invoke<boolean>("cli_installed");
+}
+
 /// Fetch the tail of a tab's persisted scrollback. Returns an empty
 /// array for unknown / new tabs. Write the bytes into xterm BEFORE
 /// `spawnSession` attaches its live channel.
