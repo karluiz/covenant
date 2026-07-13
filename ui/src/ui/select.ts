@@ -2,6 +2,10 @@ export interface SelectOption {
   value: string;
   label: string;
   disabled?: boolean;
+  /// Optional leading glyph (raw HTML, e.g. a brand SVG). Rendered before
+  /// the label in both the button and the option row. Trusted markup —
+  /// callers must not pass user input here.
+  iconHtml?: string;
 }
 
 export interface CustomSelectConfig {
@@ -28,6 +32,7 @@ export class CustomSelect {
   readonly button: HTMLButtonElement;
 
   private readonly labelEl: HTMLSpanElement;
+  private readonly iconEl: HTMLSpanElement;
   private readonly input: HTMLInputElement | null;
   private readonly placeholder: string;
   private readonly ariaLabel: string | null;
@@ -77,6 +82,10 @@ export class CustomSelect {
     this.button.setAttribute("aria-expanded", "false");
     if (config.title) this.button.title = config.title;
 
+    this.iconEl = document.createElement("span");
+    this.iconEl.className = "ui-select__button-icon";
+    this.iconEl.setAttribute("aria-hidden", "true");
+
     this.labelEl = document.createElement("span");
     this.labelEl.className = "ui-select__label";
 
@@ -89,7 +98,7 @@ export class CustomSelect {
       </svg>
     `;
 
-    this.button.append(this.labelEl, caret);
+    this.button.append(this.iconEl, this.labelEl, caret);
     this.element.appendChild(this.button);
 
     this.button.addEventListener("click", (e) => {
@@ -263,6 +272,9 @@ export class CustomSelect {
     const selected = this.currentOption();
     const label = selected?.label ?? this.placeholder;
     this.labelEl.textContent = label || "—";
+    const icon = selected?.iconHtml ?? "";
+    this.iconEl.innerHTML = icon;
+    this.iconEl.hidden = icon === "";
     this.button.classList.toggle("is-placeholder", !selected);
     this.button.disabled = this.disabledInternal || !this.hasEnabledOptions();
     this.element.dataset.value = this.valueInternal;
@@ -290,7 +302,15 @@ export class CustomSelect {
       const label = document.createElement("span");
       label.className = "ui-select__option-label";
       label.textContent = option.label;
-      btn.append(check, label);
+      if (option.iconHtml) {
+        const icon = document.createElement("span");
+        icon.className = "ui-select__option-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.innerHTML = option.iconHtml;
+        btn.append(check, icon, label);
+      } else {
+        btn.append(check, label);
+      }
       btn.classList.toggle("is-highlighted", index === this.highlighted);
       btn.classList.toggle("is-selected", option.value === this.valueInternal);
       btn.addEventListener("click", () => this.chooseIndex(index));

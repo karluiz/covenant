@@ -2918,6 +2918,18 @@ body:not(.tabbar-left) #new-group {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+/* Optional per-option / button leading glyph (e.g. brand logos). */
+.ui-select__option-icon,
+.ui-select__button-icon {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+}
+.ui-select__button-icon[hidden] { display: none; }
+.ui-select__button-icon svg,
+.ui-select__option-icon svg { display: block; }
 
 /* ── Avatar combobox ──────────────────────────────────────────────────
    Custom dropdown used in place of native controls when options carry an
@@ -3897,9 +3909,9 @@ body.theme-true-dark .settings-nav a.active { background: rgba(var(--ink-rgb), 0
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 10px;
+    font-size: var(--fs-title);
     font-weight: 600;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--ls-title);
     text-transform: uppercase;
     color: rgba(var(--ink-rgb), 0.42);
 }
@@ -4009,11 +4021,11 @@ body.theme-true-dark .settings-nav a.active { background: rgba(var(--ink-rgb), 0
     flex-shrink: 0;
 }
 .providers-md__dot--ok {
-    background: #4ade80;
-    box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.1);
+    background: var(--ok);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 18%, transparent);
 }
-.providers-md__dot--warn { background: #f4b860; }
-.providers-md__dot--err { background: #f87171; }
+.providers-md__dot--warn { background: var(--running); }
+.providers-md__dot--err { background: var(--fail); }
 .providers-md__dot--unknown { background: rgba(var(--ink-rgb), 0.25); }
 
 /* Detail pane */
@@ -4073,19 +4085,19 @@ body.theme-true-dark .settings-nav a.active { background: rgba(var(--ink-rgb), 0
     white-space: nowrap;
 }
 .providers-md__pane-status--ok {
-    color: #4ade80;
-    background: rgba(74, 222, 128, 0.08);
-    border-color: rgba(74, 222, 128, 0.25);
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 10%, transparent);
+    border-color: color-mix(in srgb, var(--ok) 30%, transparent);
 }
 .providers-md__pane-status--warn {
-    color: #f4b860;
-    background: rgba(244, 184, 96, 0.08);
-    border-color: rgba(244, 184, 96, 0.25);
+    color: var(--running);
+    background: color-mix(in srgb, var(--running) 10%, transparent);
+    border-color: color-mix(in srgb, var(--running) 30%, transparent);
 }
 .providers-md__pane-status--err {
-    color: #f87171;
-    background: rgba(248, 113, 113, 0.08);
-    border-color: rgba(248, 113, 113, 0.3);
+    color: var(--fail);
+    background: color-mix(in srgb, var(--fail) 10%, transparent);
+    border-color: color-mix(in srgb, var(--fail) 32%, transparent);
 }
 .providers-md__pane-status--unknown {
     color: var(--muted);
@@ -4103,9 +4115,9 @@ body.theme-true-dark .settings-nav a.active { background: rgba(var(--ink-rgb), 0
     gap: 12px;
 }
 .providers-md__section-head {
-    font-size: 10px;
+    font-size: var(--fs-title);
     font-weight: 600;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--ls-title);
     text-transform: uppercase;
     color: rgba(var(--ink-rgb), 0.42);
 }
@@ -4133,7 +4145,7 @@ body.theme-true-dark .settings-nav a.active { background: rgba(var(--ink-rgb), 0
 }
 .providers-md__input:focus {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(122, 162, 247, 0.18);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .providers-md__select { min-width: 0; }
 .providers-md__select .ui-select__button {
@@ -4191,20 +4203,20 @@ body.theme-true-dark .settings-nav a.active { background: rgba(var(--ink-rgb), 0
 }
 .providers-md__btn--primary:hover { background: #93b6f9; }
 .providers-md__btn--danger {
-    color: #f87171;
-    border-color: rgba(248, 113, 113, 0.35);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 38%, transparent);
     background: transparent;
 }
-.providers-md__btn--danger:hover { background: rgba(248, 113, 113, 0.08); }
+.providers-md__btn--danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
 
 .providers-md__test-stat {
     font-size: 12px;
     color: var(--muted);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.providers-md__test-stat--ok { color: #4ade80; }
-.providers-md__test-stat--err { color: #f87171; }
-.providers-md__test-stat--warn { color: #f4b860; }
+.providers-md__test-stat--ok { color: var(--ok); }
+.providers-md__test-stat--err { color: var(--fail); }
+.providers-md__test-stat--warn { color: var(--running); }
 .providers-md__test-stat--pending { color: var(--muted); }
 
 .providers-md__pane-foot {
@@ -4287,7 +4299,7 @@ body.theme-true-dark .settings-nav a.active { background: rgba(var(--ink-rgb), 0
 }
 .providers-md__add-field input:focus {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(122, 162, 247, 0.18);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .providers-md__add-footer {
     display: flex;
@@ -4350,16 +4362,16 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     color: var(--muted);
 }
 .field-warning.is-warning {
-    color: #ffb080;
+    color: var(--running);
 }
 .route-status {
     font-size: 11.5px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     margin-top: 2px;
 }
-.route-status.is-ok { color: #6ce39a; }
-.route-status.is-warn { color: #ffb080; }
-.route-status.is-err { color: #ff8080; }
+.route-status.is-ok { color: var(--ok); }
+.route-status.is-warn { color: var(--running); }
+.route-status.is-err { color: var(--fail); }
 .route-status.is-idle { color: var(--muted); font-style: italic; }
 
 .settings-label {
@@ -20381,3 +20393,93 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .rail-row-actions .rail-row-action { position: static; opacity: 1; }
 .rail-row:has(.rail-row-actions) { padding-right: 82px; }
 .rail-row-action.is-neutral:hover { color: var(--fg); }
+
+/* ── Telegram settings ─────────────────────────────────────────────────
+   Push-notification integration. Aligned with the Providers/Harnesses
+   chrome: sharp corners, token surfaces, semantic status colors. */
+.tg { display: flex; flex-direction: column; gap: 18px; max-width: 620px; }
+.tg-head { display: flex; align-items: center; gap: 12px; }
+.tg-glyph {
+    width: 34px; height: 34px; flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #26a5e1; /* Telegram brand blue — identity only */
+    background: color-mix(in srgb, #26a5e1 14%, transparent);
+    border: 1px solid color-mix(in srgb, #26a5e1 28%, transparent);
+}
+.tg-subtitle { font-size: 12px; color: var(--muted); flex: 1 1 auto; min-width: 0; }
+
+/* Connection status pill */
+.tg-pill {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; padding: 4px 10px;
+    border: 1px solid transparent; white-space: nowrap;
+}
+.tg-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+.tg-pill--ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.tg-pill--error { color: var(--fail); background: color-mix(in srgb, var(--fail) 10%, transparent); border-color: color-mix(in srgb, var(--fail) 32%, transparent); }
+.tg-pill--testing { color: var(--running); background: color-mix(in srgb, var(--running) 10%, transparent); border-color: color-mix(in srgb, var(--running) 30%, transparent); }
+.tg-pill--idle,
+.tg-pill--disabled { color: var(--muted); background: rgba(var(--ink-rgb), 0.04); border-color: rgba(var(--ink-rgb), 0.1); }
+
+.tg-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-primary); cursor: pointer; user-select: none; width: fit-content; }
+.tg-toggle input { accent-color: var(--accent); }
+
+.tg-section {
+    display: flex; flex-direction: column; gap: 12px;
+    padding: 16px 18px;
+    background: var(--bg);
+    border: 1px solid rgba(var(--ink-rgb), 0.07);
+}
+.tg-section-head {
+    font-size: var(--fs-title); font-weight: 600;
+    letter-spacing: var(--ls-title); text-transform: uppercase;
+    color: rgba(var(--ink-rgb), 0.42);
+}
+.tg-field { display: flex; flex-direction: column; gap: 6px; }
+.tg-label { font-size: 12px; color: var(--muted); }
+.tg-input,
+.tg-secret input {
+    width: 100%; box-sizing: border-box;
+    background: var(--bg-panel);
+    border: 1px solid rgba(var(--ink-rgb), 0.08);
+    padding: 8px 10px; color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; outline: none;
+}
+.tg-input:focus,
+.tg-secret input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.tg-secret { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
+.tg-icon-btn {
+    background: var(--bg-panel); border: 1px solid rgba(var(--ink-rgb), 0.08);
+    width: 32px; height: 32px; color: var(--muted); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.tg-icon-btn:hover { color: var(--text-primary); background: rgba(var(--ink-rgb), 0.05); }
+.tg-hint { font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.tg-hint a { color: color-mix(in srgb, var(--accent) 85%, var(--text-primary)); text-decoration: none; }
+.tg-hint a:hover { text-decoration: underline; }
+.tg-hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; background: rgba(var(--ink-rgb), 0.06); padding: 1px 5px; }
+
+.tg-test-row { display: flex; align-items: center; gap: 12px; padding-top: 2px; }
+.tg-btn {
+    background: var(--bg-panel); border: 1px solid rgba(var(--ink-rgb), 0.1);
+    padding: 7px 14px; color: var(--text-primary);
+    font-size: 12px; font-weight: 500; font-family: inherit; cursor: pointer;
+}
+.tg-btn:hover { background: rgba(var(--ink-rgb), 0.05); }
+.tg-test-stat { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.tg-test-stat--ok { color: var(--ok); }
+.tg-test-stat--err { color: var(--fail); }
+.tg-test-stat--pending { color: var(--muted); }
+
+.tg-check { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; user-select: none; }
+.tg-check input { accent-color: var(--accent); margin-top: 2px; }
+.tg-check span { display: flex; flex-direction: column; gap: 1px; }
+.tg-check b { font-weight: 500; font-size: 13px; color: var(--text-primary); }
+.tg-check small { font-size: 11.5px; color: var(--muted); }
+
+body.theme-light .tg-input,
+body.theme-light .tg-secret input,
+body.theme-light .tg-icon-btn,
+body.theme-light .tg-btn { background: #fff; border-color: rgba(0,0,0,0.1); }
+body.theme-light .tg-section { background: #f5f6f8; border-color: rgba(0,0,0,0.06); }
