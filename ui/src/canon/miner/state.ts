@@ -67,15 +67,6 @@ export function acceptedFindings(state: MinerState): MinerFinding[] {
     .map((c) => ({ ...c.finding, kind: c.kind, bodyMd: c.editedBody ?? c.finding.bodyMd }));
 }
 
-export const CATEGORY_ORDER: [string, string][] = [
-  ["convention", "Conventions"],
-  ["pattern", "Patterns"],
-  ["gotcha", "Gotchas"],
-  ["domain_rule", "Domain rules"],
-  ["glossary", "Glossary"],
-  ["workflow", "Workflows"],
-];
-
 export const KIND_ORDER = ["skill", "memory", "command", "subagent"] as const;
 export const KIND_LABELS: Record<string, string> = {
   skill: "Skill package", memory: "Memory", command: "Commands", subagent: "Subagents",
