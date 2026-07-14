@@ -307,7 +307,11 @@ describe("CanonCockpitView unit publish actions", () => {
     });
     const v = new CanonCockpitView({ ...opts, orgs: [], getActiveOrg: () => null });
     v.open(); v.showSection("agents");
-    await Promise.resolve(); await Promise.resolve();
+    // Wait for the row to actually render before asserting the button's
+    // absence — a bare microtask flush would pass even if gating broke.
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")).toBeTruthy();
+    });
     expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeNull();
   });
 });
