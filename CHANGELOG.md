@@ -6,6 +6,35 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.17 — operator card redesign + canon source-path hints
+
+### Added
+
+- **Operator cards read as delegation credentials**: the roster card
+  (Canon cockpit Operators + registry) drops the rounded chip, whole-card
+  color wash and tag wall for a credential layout — a 2px identity spine
+  and tinted avatar tile carry the operator's color, the name sits over a
+  mandate line (org · voice), the escalation threshold renders as a 3px
+  gauge in the operator's color, the model is a mono chip with GH/ACP
+  capability marks, and tags collapse to one quiet mono line with a `+N`
+  overflow counter. Actions (edit/duplicate/publish/delete) reveal on
+  hover like rail rows (`ui/src/operator/creator.ts`,
+  `ui/src/styles/operator_chip.css`).
+
+### Fixed
+
+- **Operator card polish**: 280px grid minimum so the mandate and tag
+  lines breathe, the `+N` counter is a flex sibling the ellipsis can't
+  swallow, and the action icon buttons pin their geometry against the
+  cockpit's generic button reset that was rendering them as empty
+  bordered boxes (`ui/src/styles/operator_chip.css`).
+
+- **Canon empty-state hints pointed at projection dirs**: the Subagents /
+  Commands / MCP / Memory / Skills empty states told users to author
+  files under `.claude/*` — those are projection **targets**; Canon reads
+  sources from `.covenant/canon/*` (`ContextKind::dir`). Hints now name
+  the real source paths (`ui/src/canon/cockpit/view.ts`).
+
 ## v0.9.16 — operators move to Canon + ACP trust config
 
 ### Added
