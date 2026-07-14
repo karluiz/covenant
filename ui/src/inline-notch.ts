@@ -123,15 +123,15 @@ export function mountInlineNotch(host: HTMLElement): void {
         </div>
       </div>
       <div class="inline-notch-body" style="gap:0">
-        <div class="rail-controls">
-          <div class="rail-select" role="button" tabindex="0">
-            <span class="rail-select-stack"></span>
-            <span class="rail-select-label">All agents</span>
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-          </div>
-        </div>
         <div class="rail-substream">
-          <span>activity</span>
+          <span class="rail-substream-cluster">
+            <span>activity</span>
+            <span aria-hidden="true">·</span>
+            <button class="activity-filter" type="button">
+              <span class="activity-filter-label">All agents</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+          </span>
           <button class="clear" type="button">clear</button>
         </div>
         <div class="rail-body"></div>
@@ -144,9 +144,8 @@ export function mountInlineNotch(host: HTMLElement): void {
   const collapseBtn = host.querySelector<HTMLButtonElement>(".rail-collapse")!;
   const streamEl = host.querySelector<HTMLElement>(".rail-body")!;
   const clearBtn = host.querySelector<HTMLButtonElement>(".clear")!;
-  const selectEl = host.querySelector<HTMLElement>(".rail-select")!;
-  const pickerStack = host.querySelector<HTMLElement>(".rail-select-stack")!;
-  const pickerLabel = host.querySelector<HTMLElement>(".rail-select-label")!;
+  const selectEl = host.querySelector<HTMLElement>(".activity-filter")!;
+  const pickerLabel = host.querySelector<HTMLElement>(".activity-filter-label")!;
 
   const COLLAPSED_KEY = "covenant.inlineNotch.collapsed";
   const setCollapseIcon = (collapsed: boolean): void => {
@@ -279,21 +278,6 @@ export function mountInlineNotch(host: HTMLElement): void {
       ? all
       : all.filter((a) => selectedAgents!.has(a));
 
-    pickerStack.innerHTML = "";
-    const show = visible.slice(0, 3);
-    for (const a of show) {
-      // `.rail-select-stack i` carries the shared size/border; only the
-      // per-agent gradient is set inline.
-      const dot = document.createElement("i");
-      dot.style.background = `linear-gradient(135deg, ${agentColor(a)}, #c7a8ff)`;
-      pickerStack.appendChild(dot);
-    }
-    if (visible.length > show.length) {
-      const more = document.createElement("span");
-      more.textContent = `+${visible.length - show.length}`;
-      more.style.cssText = "font-size:10px;color:var(--fg-dim);margin-left:4px;align-self:center;";
-      pickerStack.appendChild(more);
-    }
     pickerLabel.textContent = selectedAgents === null
       ? "All agents"
       : visible.length === 0
@@ -399,7 +383,8 @@ export function mountInlineNotch(host: HTMLElement): void {
     const r = selectEl.getBoundingClientRect();
     drop.style.top = `${r.bottom + 6}px`;
     drop.style.left = `${r.left}px`;
-    drop.style.minWidth = `${r.width}px`;
+    // Anchor is a micro text button now — give the popover a usable width.
+    drop.style.minWidth = "180px";
     dropdownEl = drop;
     dismissDropdown = (e: Event) => {
       const t = e.target as Node;
@@ -413,13 +398,6 @@ export function mountInlineNotch(host: HTMLElement): void {
     e.stopPropagation();
     if (dropdownEl) closeDropdown();
     else openDropdown();
-  });
-  selectEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      if (dropdownEl) closeDropdown();
-      else openDropdown();
-    }
   });
 
   function render(): void {
