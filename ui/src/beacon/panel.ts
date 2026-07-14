@@ -5,6 +5,7 @@ import {
   beaconCancelWorkflow,
   beaconRunJobs,
   type BeaconState,
+  type BeaconRun,
   type BeaconJob,
   type BeaconStep,
 } from "../api";
@@ -59,12 +60,57 @@ export function stateSpine(state: string): string {
   }
 }
 
-/// Display label for a run state. "running"/"failed" are shorter and read
-/// better than the raw API tokens at pill size; the rest just de-snake.
-export function stateLabel(state: string): string {
-  if (state === "in_progress") return "running";
-  if (state === "failure") return "failed";
-  return state.replace(/_/g, " ");
+export type RunGroup = { ref: string; runs: BeaconRun[] };
+
+/// Group runs by ref (branch/tag). Runs arrive newest-first, so group order
+/// is first appearance and each group's runs[0] is its most recent run.
+export function groupRuns(runs: BeaconRun[]): RunGroup[] {
+  const groups = new Map<string, BeaconRun[]>();
+  for (const r of runs) {
+    const key = r.branch ?? "";
+    const g = groups.get(key);
+    if (g) g.push(r);
+    else groups.set(key, [r]);
+  }
+  return [...groups].map(([ref, rs]) => ({ ref, runs: rs }));
+}
+
+/// Longest common word-prefix of 2+ workflow names ("Release " for
+/// "Release macOS"/"Release Linux"), stripped from child rows so the group
+/// doesn't repeat it. Empty when there's no shared word or a name would
+/// be left empty.
+export function commonNamePrefix(names: string[]): string {
+  if (names.length < 2) return "";
+  let prefix = names[0];
+  for (const n of names) {
+    while (prefix && !n.startsWith(prefix)) prefix = prefix.slice(0, -1);
+  }
+  const sp = prefix.lastIndexOf(" ");
+  if (sp === -1) return "";
+  prefix = prefix.slice(0, sp + 1);
+  return names.every((n) => n.length > prefix.length) ? prefix : "";
+}
+
+/// Aggregate group state: a failure needs attention over anything else,
+/// then in-flight work, then success.
+export function groupSpine(runs: { state: string }[]): "ok" | "run" | "fail" | "idle" {
+  const colors = runs.map((r) => stateDotColor(r.state));
+  if (colors.includes("bad")) return "fail";
+  if (colors.includes("busy")) return "run";
+  if (colors.includes("ok")) return "ok";
+  return "idle";
+}
+
+const GROUP_LABEL: Record<ReturnType<typeof groupSpine>, string> = {
+  ok: "passing",
+  run: "running",
+  fail: "failed",
+  idle: "idle",
+};
+
+/// Version tags (v0.9.17, 1.2) get accent styling; branch names stay fg.
+export function isVersionRef(ref: string): boolean {
+  return /^v?\d+(\.\d+)+/.test(ref);
 }
 
 function relTime(iso: string): string {
@@ -441,129 +487,145 @@ export function renderBeacon(
         );
         return;
       }
-      for (const run of state.runs) {
-        const clickable = isHttpUrl(run.url);
-        const expanded = !!detail && detail.expanded.has(run.id);
-        const row = document.createElement("div");
-        row.className = "rail-row";
-        row.setAttribute("data-spine", stateSpine(run.state));
+      // Release ledger: runs grouped by ref. Header = ref + aggregate state
+      // + freshest time; a segmented bar (one segment per run) shows the
+      // group's shape at a glance; child rows drop the shared name prefix.
+      for (const group of groupRuns(state.runs)) {
+        const gspine = groupSpine(group.runs);
+        const head = document.createElement("div");
+        head.className = "rail-ghead";
+        const tag = document.createElement("span");
+        tag.className = `rail-gtag${isVersionRef(group.ref) ? "" : " is-branch"}`;
+        tag.textContent = group.ref || "—";
+        const gstate = document.createElement("span");
+        gstate.className = `rail-gstate is-${gspine}`;
+        gstate.textContent = GROUP_LABEL[gspine];
+        const gwhen = document.createElement("span");
+        gwhen.className = "rail-when";
+        gwhen.textContent = relTime(group.runs[0].updated_at);
+        head.append(tag, gstate, gwhen);
+        root.appendChild(head);
 
-        const line = document.createElement("div");
-        line.className = "rail-row-line";
-        if (detail) {
-          const chev = document.createElement("span");
-          chev.className = `rail-chev${expanded ? " is-open" : ""}`;
-          chev.innerHTML = Icons.chevronRight({ size: 12 });
-          line.append(chev);
+        const segs = document.createElement("div");
+        segs.className = "rail-gsegs";
+        for (const r of group.runs) {
+          const seg = document.createElement("i");
+          seg.className = `is-${stateSpine(r.state)}`;
+          segs.appendChild(seg);
         }
-        const name = document.createElement("span");
-        name.className = "rail-name";
-        name.textContent = run.name || "(workflow)";
-        const when = document.createElement("span");
-        when.className = "rail-when";
-        when.textContent = relTime(run.updated_at);
-        line.append(name, when);
+        root.appendChild(segs);
 
-        // Meta strip: state pill + fixed slots on ONE line — the actor is
-        // the only flexible slot, so it truncates first instead of wrapping.
-        // No "·" separators: gap spacing + per-slot color already segment
-        // the bits, and at rail width three middots cost the whole actor
-        // (leaving an orphan dot when it collapsed to zero).
-        const meta = document.createElement("div");
-        meta.className = "rail-meta is-strip";
-        const dotColor = stateDotColor(run.state);
-        const pill = document.createElement("span");
-        pill.className = `rail-pill is-${
-          dotColor === "busy" ? "busy" : dotColor === "bad" ? "fail" : dotColor === "ok" ? "ok" : "idle"
-        }`;
-        pill.textContent = stateLabel(run.state);
-        meta.append(pill);
-        const addBit = (text: string, cls = ""): void => {
-          const bit = document.createElement("span");
-          bit.className = `rail-meta-bit${cls ? ` ${cls}` : ""}`;
-          bit.textContent = text;
-          meta.append(bit);
-        };
-        if (run.run_number) addBit(`#${run.run_number}`);
-        if (run.branch) addBit(run.branch, "is-ref");
-        if (run.sha) addBit(run.sha);
-        if (run.actor) addBit(run.actor, "is-actor");
-        row.append(line, meta);
+        const prefix = commonNamePrefix(group.runs.map((r) => r.name));
+        for (const run of group.runs) {
+          const clickable = isHttpUrl(run.url);
+          const expanded = !!detail && detail.expanded.has(run.id);
+          const row = document.createElement("div");
+          row.className = "rail-row is-run-row";
 
-        // Row interaction: expand/collapse when detail is wired; otherwise
-        // (legacy callers without detail) fall back to opening the URL.
-        const openRun = () =>
-          void openUrl(run.url!).catch((e) => console.error("beacon openUrl failed", e));
-        if (detail && run.id) {
-          row.setAttribute("role", "button");
-          row.setAttribute("tabindex", "0");
-          row.setAttribute("aria-expanded", String(expanded));
-          row.addEventListener("click", () => detail.onToggle(run.id));
-          row.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") detail.onToggle(run.id);
-          });
-        } else if (clickable) {
-          row.setAttribute("role", "link");
-          row.setAttribute("tabindex", "0");
-          row.addEventListener("click", openRun);
-          row.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") openRun();
-          });
-        } else {
-          // Non-interactive row: don't imply it's clickable.
-          row.style.cursor = "default";
-        }
+          const line = document.createElement("div");
+          line.className = "rail-row-line";
+          const dotColor = stateDotColor(run.state);
+          line.append(
+            stepGlyph(
+              dotColor === "ok" ? "ok" : dotColor === "bad" ? "fail" : dotColor === "busy" ? "now" : "idle",
+            ),
+          );
+          const name = document.createElement("span");
+          name.className = "rail-name";
+          name.textContent = (prefix ? run.name.slice(prefix.length) : run.name) || "(workflow)";
+          line.append(name);
+          if (run.run_number) {
+            const no = document.createElement("span");
+            no.className = "rail-run-no";
+            no.textContent = `#${run.run_number}`;
+            line.append(no);
+          }
+          const when = document.createElement("span");
+          when.className = "rail-when";
+          when.textContent = relTime(run.updated_at);
+          line.append(when);
+          row.append(line);
 
-        // Action cluster: ↗ open-on-GitHub + re-run/cancel.
-        const actions = document.createElement("div");
-        actions.className = "rail-row-actions";
-        if (clickable) {
-          const openBtn = document.createElement("button");
-          openBtn.type = "button";
-          // is-neutral: bare .rail-row-action hovers danger-red (cancel/rerun);
-          // opening GitHub is benign navigation.
-          openBtn.className = "rail-row-action is-neutral";
-          openBtn.setAttribute("aria-label", "Open on GitHub");
-          openBtn.innerHTML = Icons.externalLink({ size: 13 });
-          attachTooltip(openBtn, "Open on GitHub");
-          openBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            openRun();
-          });
-          actions.append(openBtn);
-        }
-        if (runActions && run.id) {
-          const busy = stateDotColor(run.state) === "busy";
-          const action = document.createElement("button");
-          action.type = "button";
-          action.className = "rail-row-action";
-          if (busy) {
-            action.setAttribute("aria-label", "Cancel run");
-            action.innerHTML = Icons.ban({ size: 13 });
-            attachTooltip(action, "Cancel run");
-            action.addEventListener("click", (e) => {
-              e.stopPropagation();
-              runActions.onCancel?.(run.id);
+          // Row interaction: expand/collapse when detail is wired; otherwise
+          // (legacy callers without detail) fall back to opening the URL.
+          const openRun = () =>
+            void openUrl(run.url!).catch((e) => console.error("beacon openUrl failed", e));
+          if (detail && run.id) {
+            row.setAttribute("role", "button");
+            row.setAttribute("tabindex", "0");
+            row.setAttribute("aria-expanded", String(expanded));
+            row.addEventListener("click", () => detail.onToggle(run.id));
+            row.addEventListener("keydown", (e) => {
+              if (e.key === "Enter" || e.key === " ") detail.onToggle(run.id);
+            });
+          } else if (clickable) {
+            row.setAttribute("role", "link");
+            row.setAttribute("tabindex", "0");
+            row.addEventListener("click", openRun);
+            row.addEventListener("keydown", (e) => {
+              if (e.key === "Enter" || e.key === " ") openRun();
             });
           } else {
-            action.setAttribute("aria-label", "Re-run workflow");
-            action.innerHTML = Icons.refresh({ size: 13 });
-            attachTooltip(action, "Re-run workflow");
-            action.addEventListener("click", (e) => {
-              e.stopPropagation();
-              runActions.onRerun?.(run.id);
-            });
+            // Non-interactive row: don't imply it's clickable.
+            row.style.cursor = "default";
           }
-          actions.append(action);
-        }
-        if (actions.childElementCount) row.appendChild(actions);
 
-        root.appendChild(row);
-        if (expanded) {
-          root.appendChild(
-            renderJobs(run.id, detail!.jobs.get(run.id) ?? { kind: "loading" }, detail!),
-          );
+          // Action cluster: ↗ open-on-GitHub + re-run/cancel. On hover it
+          // covers the run#/time slots (metadata comes back on mouse-out)
+          // instead of permanently reserving right padding.
+          const actions = document.createElement("div");
+          actions.className = "rail-row-actions";
+          if (clickable) {
+            const openBtn = document.createElement("button");
+            openBtn.type = "button";
+            // is-neutral: bare .rail-row-action hovers danger-red (cancel/rerun);
+            // opening GitHub is benign navigation.
+            openBtn.className = "rail-row-action is-neutral";
+            openBtn.setAttribute("aria-label", "Open on GitHub");
+            openBtn.innerHTML = Icons.externalLink({ size: 13 });
+            attachTooltip(openBtn, "Open on GitHub");
+            openBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              openRun();
+            });
+            actions.append(openBtn);
+          }
+          if (runActions && run.id) {
+            const busy = dotColor === "busy";
+            const action = document.createElement("button");
+            action.type = "button";
+            action.className = "rail-row-action";
+            if (busy) {
+              action.setAttribute("aria-label", "Cancel run");
+              action.innerHTML = Icons.ban({ size: 13 });
+              attachTooltip(action, "Cancel run");
+              action.addEventListener("click", (e) => {
+                e.stopPropagation();
+                runActions.onCancel?.(run.id);
+              });
+            } else {
+              action.setAttribute("aria-label", "Re-run workflow");
+              action.innerHTML = Icons.refresh({ size: 13 });
+              attachTooltip(action, "Re-run workflow");
+              action.addEventListener("click", (e) => {
+                e.stopPropagation();
+                runActions.onRerun?.(run.id);
+              });
+            }
+            actions.append(action);
+          }
+          if (actions.childElementCount) row.appendChild(actions);
+
+          root.appendChild(row);
+          if (expanded) {
+            root.appendChild(
+              renderJobs(run.id, detail!.jobs.get(run.id) ?? { kind: "loading" }, detail!),
+            );
+          }
         }
+        const sep = document.createElement("div");
+        sep.className = "rail-gsep";
+        root.appendChild(sep);
       }
       return;
     }

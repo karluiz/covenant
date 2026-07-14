@@ -2,51 +2,66 @@
    system (ui/src/styles.css); this file holds the run-detail taxonomy
    (meta strip, jobs/steps tree) and the titlebar live-indicator states. */
 
-/* Base .rail-chev (size/color/transition) is shared chrome in styles.css;
-   Beacon rows open per-row rather than per-group, so only the open-state
-   selector lives here. */
-.rail-row .rail-chev.is-open { transform: rotate(90deg); }
-
-/* ── Meta strip: state pill + fixed slots, one line, never wraps ────── */
-.rail-meta.is-strip {
+/* ── Release ledger: runs grouped by ref ─────────────────────────────
+   Header = ref + aggregate state + freshest time; a segmented bar (one
+   segment per run) shows the group's shape; child rows carry state in
+   the glyph (no spine, no pill — one encoding). */
+.rail-ghead {
   display: flex;
-  align-items: center;
-  /* the gap IS the separator — middots cost ~50px at rail width, which is
-     exactly the actor's slot */
+  align-items: baseline;
   gap: 8px;
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  /* shared .rail-meta wraps — the strip's whole point is that it never does */
-  flex-wrap: nowrap;
-  /* align under the run name (18px chev column + 6px gap) */
-  padding-left: 24px;
+  padding: 9px var(--rail-pad-x) 4px;
 }
-.rail-pill {
+.rail-gtag {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-gtag.is-branch { color: var(--fg); font-weight: 600; }
+.rail-gstate {
   flex: none;
   font-size: 9px;
   font-weight: 700;
-  padding: 1px 5px;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
 }
-.rail-pill.is-busy { color: var(--running); background: color-mix(in srgb, var(--running) 12%, transparent); }
-.rail-pill.is-ok   { color: var(--ok);      background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.rail-pill.is-fail { color: var(--fail);    background: color-mix(in srgb, var(--fail) 12%, transparent); }
-.rail-pill.is-idle { color: var(--text-tertiary); background: rgb(var(--ink-rgb) / 0.06); }
-.rail-meta-bit { flex: none; color: var(--fg-dim); font-size: 11px; }
-.rail-meta-bit.is-ref { color: var(--accent); }
-/* Actor sits on the RIGHT edge, mirroring the relative time above it — the
-   strip fills both edges instead of piling left and dying mid-row. It still
-   shrinks/ellipsizes first when the row is genuinely too narrow. */
-.rail-meta-bit.is-actor {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-left: auto;
+.rail-gstate.is-ok { color: var(--ok); }
+.rail-gstate.is-run { color: var(--running); }
+.rail-gstate.is-fail { color: var(--fail); }
+.rail-gstate.is-idle { color: var(--text-tertiary); }
+.rail-ghead .rail-when { margin-left: auto; }
+
+.rail-gsegs { display: flex; gap: 2px; padding: 0 var(--rail-pad-x); margin-bottom: 3px; }
+.rail-gsegs i { height: 2px; flex: 1; background: rgb(var(--ink-rgb) / 0.10); }
+.rail-gsegs i.is-ok { background: var(--ok); }
+.rail-gsegs i.is-fail { background: var(--fail); }
+.rail-gsegs i.is-run { background: var(--running); animation: beacon-pulse 1.6s ease-in-out infinite; }
+
+.rail-gsep { border-bottom: 1px solid rgb(var(--ink-rgb) / 0.05); margin-top: 5px; }
+
+/* Child run rows: tighter than the generic .rail-row, no hairline (the
+   group separator segments the list). Hover actions COVER the run#/time
+   slots instead of reserving permanent right padding. */
+.rail-row.is-run-row { padding: 4px var(--rail-pad-x); border-bottom: 0; }
+.rail-row.is-run-row:has(.rail-row-actions) { padding-right: var(--rail-pad-x); }
+.rail-row.is-run-row .rail-glyph { width: 16px; }
+.rail-run-no {
+  flex: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro);
   color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
 }
+.rail-row.is-run-row:hover .rail-run-no,
+.rail-row.is-run-row:hover .rail-when,
+.rail-row.is-run-row:focus-within .rail-run-no,
+.rail-row.is-run-row:focus-within .rail-when { visibility: hidden; }
+.rail-row.is-run-row .rail-row-actions { top: 50%; transform: translateY(-50%); }
 
 /* ── Jobs/steps taxonomy ────────────────────────────────────────────── */
 .rail-jobs { padding: 0 0 8px; }
@@ -145,4 +160,5 @@
 @media (prefers-reduced-motion: reduce) {
   #titlebar-beacon.is-busy svg { animation: none; }
   .rail-pulse { animation: none; }
+  .rail-gsegs i.is-run { animation: none; }
 }

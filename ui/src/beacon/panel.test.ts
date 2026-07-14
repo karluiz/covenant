@@ -14,6 +14,10 @@ import {
   fmtDuration,
   groupSteps,
   failedRunsToOpen,
+  groupRuns,
+  commonNamePrefix,
+  groupSpine,
+  isVersionRef,
 } from "./panel";
 import type { RunDetail, RunDetailState } from "./panel";
 import type { BeaconState, BeaconJob, BeaconStep } from "../api";
@@ -151,6 +155,51 @@ function run(over: Partial<Run> = {}): Run {
   };
 }
 
+describe("groupRuns", () => {
+  it("groups by ref preserving newest-first order of first appearance", () => {
+    const g = groupRuns([
+      run({ id: 1, branch: "main" }),
+      run({ id: 2, branch: "v0.9.17" }),
+      run({ id: 3, branch: "main" }),
+      run({ id: 4, branch: null }),
+    ]);
+    expect(g.map((x) => x.ref)).toEqual(["main", "v0.9.17", ""]);
+    expect(g[0].runs.map((r) => r.id)).toEqual([1, 3]);
+  });
+});
+
+describe("commonNamePrefix", () => {
+  it("finds the shared word-prefix of 2+ names", () => {
+    expect(
+      commonNamePrefix(["Release macOS", "Release Linux", "Release Manifest"]),
+    ).toBe("Release ");
+  });
+  it("empty when a name would be left empty, share no word, or single name", () => {
+    expect(commonNamePrefix(["Release", "Release macOS"])).toBe("");
+    expect(commonNamePrefix(["Build", "Deploy"])).toBe("");
+    expect(commonNamePrefix(["Release macOS"])).toBe("");
+  });
+});
+
+describe("groupSpine", () => {
+  const s = (...states: string[]) => groupSpine(states.map((state) => ({ state })));
+  it("failure wins, then busy, then ok, else idle", () => {
+    expect(s("success", "failure", "in_progress")).toBe("fail");
+    expect(s("success", "queued")).toBe("run");
+    expect(s("success", "success")).toBe("ok");
+    expect(s("cancelled", "skipped")).toBe("idle");
+  });
+});
+
+describe("isVersionRef", () => {
+  it("version tags yes, branches no", () => {
+    expect(isVersionRef("v0.9.17")).toBe(true);
+    expect(isVersionRef("1.2.0")).toBe(true);
+    expect(isVersionRef("main")).toBe(false);
+    expect(isVersionRef("feat/v2-panel")).toBe(false);
+  });
+});
+
 describe("renderBeacon", () => {
   let root: HTMLElement;
   beforeEach(() => {
@@ -240,22 +289,35 @@ describe("renderBeacon", () => {
     expect(reconnected).toEqual([1]);
   });
 
-  it("renders one row per workflow run with a status spine", () => {
+  it("renders runs grouped by ref: header, segments, prefix-stripped rows", () => {
     renderBeacon(root, {
       kind: "ok",
       repo: "o/r",
       runs: [
-        run({ name: "Release macOS", state: "success" }),
-        run({ name: "Release Windows", state: "in_progress", url: null }),
+        run({ id: 1, name: "Release macOS", state: "success", branch: "v0.9.17" }),
+        run({ id: 2, name: "Release Windows", state: "in_progress", branch: "v0.9.17", url: null }),
+        run({ id: 3, name: "Deploy Landing", state: "success", branch: "main" }),
       ],
     });
-    const rows = root.querySelectorAll(".rail-row");
-    expect(rows.length).toBe(2);
-    expect(root.querySelector('.rail-row[data-spine="ok"]')).not.toBeNull();
-    expect(root.querySelector('.rail-row[data-spine="run"]')).not.toBeNull();
-    expect(root.textContent).toContain("Release macOS");
+    // two groups, each with a header + segmented bar
+    const tags = [...root.querySelectorAll(".rail-gtag")].map((e) => e.textContent);
+    expect(tags).toEqual(["v0.9.17", "main"]);
+    expect(root.querySelector(".rail-gtag")!.classList.contains("is-branch")).toBe(false);
+    expect(root.querySelectorAll(".rail-gtag.is-branch").length).toBe(1);
+    // aggregate state: one run busy → running
+    const states = [...root.querySelectorAll(".rail-gstate")].map((e) => e.textContent);
+    expect(states).toEqual(["running", "passing"]);
+    // one segment per run in the group
+    expect(root.querySelectorAll(".rail-gsegs")[0].children.length).toBe(2);
+    expect(root.querySelector(".rail-gsegs i.is-run")).not.toBeNull();
+    // shared "Release " prefix stripped from child rows; singleton kept whole
+    const names = [...root.querySelectorAll(".rail-name")].map((e) => e.textContent);
+    expect(names).toEqual(["macOS", "Windows", "Deploy Landing"]);
+    // run number + state glyph carry the per-run detail (no pill, no sha)
     expect(root.textContent).toContain("#42");
-    expect(root.textContent).toContain("abc1234");
+    expect(root.querySelector(".rail-pill")).toBeNull();
+    expect(root.textContent).not.toContain("abc1234");
+    expect(root.querySelectorAll(".rail-row .rail-sg.is-ok").length).toBe(2);
   });
 
   it("does NOT produce a clickable link for a javascript: url", () => {
@@ -379,8 +441,8 @@ describe("run detail expansion", () => {
     expect(jobNames).toEqual(["build-sign-notarize"]);
     const stepNames = [...root.querySelectorAll(".rail-step-name")].map((e) => e.textContent);
     expect(stepNames).toEqual(["Checkout", "Notarize"]);
-    // Chevron marks the open state.
-    expect(root.querySelector(".rail-chev.is-open")).not.toBeNull();
+    // aria marks the open state (no chevron in the ledger rows).
+    expect(root.querySelector('.rail-row[aria-expanded="true"]')).not.toBeNull();
   });
 
   it("renders loading and error detail states", () => {
@@ -399,17 +461,16 @@ describe("run detail expansion", () => {
     expect(root.querySelector(".rail-jobs-error")?.textContent).toContain("boom");
   });
 
-  it("renders the run state as a pill in a single-line meta strip", () => {
+  it("renders the run state in the group header, not a per-row pill", () => {
     renderBeacon(root, okState, undefined, undefined, undefined, detail());
-    const pill = root.querySelector(".rail-pill");
-    expect(pill).not.toBeNull();
-    expect(pill?.textContent).toBe("running");
-    expect(pill?.classList.contains("is-busy")).toBe(true);
-    // ref is accent-tagged, actor is the truncating slot
-    expect(root.querySelector(".rail-meta .is-ref")?.textContent).toBe("main");
-    expect(root.querySelector(".rail-meta .is-actor")?.textContent).toBe("karluiz");
-    // gap does the separating — no middot spans to orphan when actor clips
-    expect(root.querySelector(".rail-meta-sep")).toBeNull();
+    expect(root.querySelector(".rail-pill")).toBeNull();
+    const gstate = root.querySelector(".rail-gstate");
+    expect(gstate?.textContent).toBe("running");
+    expect(gstate?.classList.contains("is-run")).toBe(true);
+    // ref lives in the group tag; branch names are not version-styled
+    const tag = root.querySelector(".rail-gtag");
+    expect(tag?.textContent).toBe("main");
+    expect(tag?.classList.contains("is-branch")).toBe(true);
   });
 
   const taxJobs: BeaconJob[] = [
