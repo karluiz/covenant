@@ -6,6 +6,56 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.19 — Activity turn-level rows + titlebar spawns capsule
+
+### Added
+
+- **Activity turn-level rows**: the Activity sidebar aggregated nothing —
+  every `notch:state` heartbeat rendered a row, so the stream was a
+  metronome of "Claude · thinking". The phase stream is now folded into
+  TURNS (one row per agent work cycle) holding only meaningful events —
+  commands run, files written, waits, done. Thinking feeds elapsed time
+  and token count; file reads collapse into a distinct-file counter. Rows
+  unfold `.rail-fold`-style to the per-event audit trail
+  (`ui/src/activity/turns.ts`, `ui/src/inline-notch.ts`).
+
+- **Resources hot processes per session**: each Resources row gains a
+  sub-line with the top coalesced processes in that session's subtree
+  (e.g. `vitest ×10 45.2% · tsc 14.5%`). `ProcSample` resolves generic
+  runtimes (node/python/…) to the JS tool they host via
+  `node_modules/<pkg>` and `.bin/<tool>` argv paths, so a vitest worker
+  fleet reads as vitest, not node (`crates/metrics/src/lib.rs`,
+  `ui/src/resources/panel.ts`).
+
+- **Titlebar spawns capsule**: the Start-agent chip is now one bordered
+  split-button — picker segment (brand glyph + label + caret) │ hairline │
+  docked ▷ run segment — instead of four floating glyphs; hover tints the
+  border with the executor's brand accent, and the redundant left
+  `.titlebar-sep` is gone (`ui/src/spawns/chip.ts`,
+  `ui/src/spawns/styles.css`, `ui/index.html`).
+
+### Changed
+
+- **Activity agent filter folded into the micro-header**: the boxed
+  `.rail-select` row (border + fill + avatar dot) was the only card-like
+  control in a flat rail and burned 36px for a rarely-used filter; it is
+  now plain mono text in the `ACTIVITY · ALL AGENTS ▾ / clear` line with
+  the same multi-select dropdown (`ui/src/inline-notch.ts`).
+
+- **Collapse-all is a zen-mode anchor**: `#tabbar-collapse-all` no longer
+  fades with the other titlebar icons under Zen icons — it stays visible
+  as a permanent anchor like the two fold toggles (`ui/src/styles.css`).
+
+### Fixed
+
+- **Resources panel light-mode legibility**: the panel referenced
+  `--txt`/`--txt-dim`/`--txt-faint`/`--line-soft` — tokens scoped inside
+  spec-chat — so every color fell through to its dark fallback and washed
+  out in light mode. Swapped to the global tokens
+  (`--text-primary`/`--text-secondary`/`--muted`/`--border`) and
+  `--ui-font`; hover now composes from `--ink-rgb` and the duplicate left
+  divider is a single line (`ui/src/resources/panel.css`).
+
 ## v0.9.18 — Start-agent brand icon fix + Beacon release ledger
 
 ### Added
