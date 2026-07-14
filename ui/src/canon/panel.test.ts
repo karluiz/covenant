@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, type Mock } from "vitest";
 import { CanonPanel, liftBadgeEl, slugify } from "./panel";
 import { liftClass } from "./cockpit/lift";
+import type { Operator } from "../api";
 
 // Mock the api module so tests don't invoke Tauri IPC. Only the calls
 // panel.ts's compact rail actually makes — registry search, install, and
@@ -17,6 +18,8 @@ vi.mock("../api", () => ({
   canonRunEvals: vi.fn().mockResolvedValue(undefined),
   canonEvalSummary: vi.fn().mockResolvedValue([]),
   onCanonEvalProgress: vi.fn().mockResolvedValue(() => {}),
+  operatorList: vi.fn(async () => []),
+  operatorSoulRead: vi.fn(async () => ""),
 }));
 
 vi.mock("../notifications/toast", () => ({
@@ -63,10 +66,21 @@ describe("CanonPanel", () => {
     }).mount(host);
     panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
     const cells = [...host.querySelectorAll(".canon-census-cell")];
-    expect(cells.length).toBe(7);
-    for (const label of ["Agents", "Context", "Memory", "Commands", "MCP", "Specs", "Skills"]) {
+    expect(cells.length).toBe(8);
+    for (const label of ["Operators", "Agents", "Context", "Memory", "Commands", "MCP", "Specs", "Skills"]) {
       expect(cells.some((c) => c.textContent?.includes(label))).toBe(true);
     }
+  });
+
+  it("renders an Operators fold when the panel has operators", () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({ groupId: "g", groupLabel: "G", groupColor: null, groupRootDir: "/repo" });
+    panel.mount(host);
+    panel.operators = [{ id: "01H", name: "Zeta", tags: ["security"], model: "gpt-4o" } as unknown as Operator]; // test double
+    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
+    const fold = [...host.querySelectorAll(".rail-gname")].find((el) => el.textContent === "Operators");
+    expect(fold).toBeTruthy();
+    expect(host.textContent).toContain("Zeta");
   });
 
   it("collapses empty kinds into a single hint instead of per-kind sections", () => {

@@ -3,15 +3,16 @@ import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
 import { renderMarkdown } from "../ui/markdown";
-import type { CanonStatus, Org, CanonEvalProgress } from "../api";
+import type { CanonStatus, Org, CanonEvalProgress, Operator } from "../api";
 import {
   canonLocalStatus, canonMyOrgs, canonPublish,
   canonReadLocal, canonReadSource, canonExport, canonRunEvals, onCanonEvalProgress,
-  canonEvalSummary,
+  canonEvalSummary, operatorList, operatorSoulRead,
 } from "../api";
 import { liftClass, type LiftBadge } from "./cockpit/lift";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
+import { operatorsForOrg } from "../operator/org-filter";
 // Re-exported so existing consumers (cockpit, tests) keep importing from
 // "../panel"; the definitions live in ./org to avoid a panel↔create-org cycle.
 export { slugify, orgInitials, orgHue } from "./org";
@@ -273,6 +274,9 @@ export class CanonPanel {
   private body: HTMLElement;
   private orgChip: HTMLElement;
   private orgs: Org[] = [];
+  /** Operators in scope for the active org — census cell + fold, tests
+   *  assign this directly to exercise renderStatus() in isolation. */
+  operators: Operator[] = [];
 
   /** The root element of the panel — used in tests and by callers that need
    *  to query the rendered content without going through a host element. */
@@ -516,12 +520,15 @@ export class CanonPanel {
       this.body.replaceChildren(loading);
     }
     try {
-      const [status, orgs] = await Promise.all([
+      const [status, orgs, allOps] = await Promise.all([
         canonLocalStatus(cwd),
         canonMyOrgs().catch(() => [] as Org[]),
+        operatorList().catch(() => [] as Operator[]),
       ]);
       this.orgs = orgs;
       this.updateOrgChip();
+      const known = new Set(orgs.map((o) => o.slug));
+      this.operators = operatorsForOrg(allOps, this.activeOrg(), known);
       this.renderStatus(status);
     } catch (e) {
       this.body.textContent = `Failed to read Canon: ${String(e)}`;
@@ -557,6 +564,11 @@ export class CanonPanel {
     });
 
     const kinds: { label: string; rows: RailRowSpec[] }[] = [
+      { label: "Operators", rows: this.operators.map((o) => ({
+        title: o.name,
+        meta: o.tags.filter(Boolean).slice(0, 3).join(" · ") || o.model,
+        onOpen: () => openMarkdownReader(o.name, () => operatorSoulRead(o.id)),
+      })) },
       { label: "Agents", rows: s.agents.map((a) => ({ title: a.name, meta: "agent", onOpen: () => openMarkdownReader(a.name, readSource("agent", a.name)) })) },
       { label: "Context", rows: s.contexts.map((c) => ({ title: c.name, meta: c.summary ?? "context", onOpen: () => openMarkdownReader(c.name, readSource("context", c.name)) })) },
       { label: "Memory", rows: s.memory.map((m) => ({ title: m.name, meta: m.description ?? "memory", onOpen: () => openMarkdownReader(m.name, readSource("memory", m.name)) })) },
