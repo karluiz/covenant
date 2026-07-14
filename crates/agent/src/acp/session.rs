@@ -66,13 +66,26 @@ impl AcpSpawnOpts {
     ///   a global install on PATH if present, else `npx -y pi-acp`.
     pub fn for_executor(executor: &str, cwd: PathBuf) -> Result<Self, String> {
         match executor {
-            "copilot" => Ok(Self {
-                cwd,
-                program: None,
-                extra_args: Vec::new(),
-                agent_args: None,
-                env: Vec::new(),
-            }),
+            // Interactive-tab profile. Explicit agent_args (no
+            // --allow-all-tools here): the app layer appends it only when
+            // the executor's configured trust is Yolo. The legacy `None`
+            // branch in `spawn` keeps allow-all for the headless
+            // operator path (run.rs), which has its own deny-biased
+            // resolver semantics and predates trust config.
+            "copilot" => {
+                let cwd_arg = cwd.to_string_lossy().into_owned();
+                Ok(Self {
+                    cwd,
+                    program: None,
+                    extra_args: Vec::new(),
+                    agent_args: Some(vec![
+                        "--acp".to_string(),
+                        "--add-dir".to_string(),
+                        cwd_arg,
+                    ]),
+                    env: Vec::new(),
+                })
+            }
             "pi" => {
                 let path = augmented_path(std::env::var_os("PATH"));
                 let (program, extra_args) = match find_program_on_path("pi-acp", path.as_deref())
@@ -871,10 +884,18 @@ mod tests {
     #[test]
     fn for_executor_profiles() {
         let cwd = std::env::temp_dir();
-        // copilot: default binary + default (--acp --add-dir) launch args.
+        // copilot: default binary + explicit (--acp --add-dir) launch args.
         let c = AcpSpawnOpts::for_executor("copilot", cwd.clone()).unwrap();
-        assert!(c.program.is_none());
-        assert!(c.agent_args.is_none());
+        assert_eq!(c.program, None);
+        let copilot_args = c.agent_args.expect("copilot profile is explicit");
+        assert_eq!(
+            copilot_args,
+            vec!["--acp".to_string(), "--add-dir".to_string(), cwd.to_string_lossy().into_owned()]
+        );
+        assert!(
+            !copilot_args.iter().any(|a| a == "--allow-all-tools"),
+            "allow-all is trust-derived now, not baked into the profile"
+        );
         // pi: explicit program (pi-acp or npx fallback), NO copilot flags.
         let p = AcpSpawnOpts::for_executor("pi", cwd.clone()).unwrap();
         let prog = p.program.expect("pi resolves a program");
