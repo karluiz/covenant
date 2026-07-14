@@ -295,6 +295,17 @@ pub fn mask_secrets(text: &str) -> String {
                     .unwrap(),
                 "jwt",
             ),
+            // Full PEM block first (redacts the key BODY, not just the header)
+            // — lazy to the first END so multiple keys each match their own.
+            (
+                Regex::new(
+                    r"(?s)-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----.*?-----END (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----",
+                )
+                .unwrap(),
+                "pem",
+            ),
+            // Fallback: a header with no matching END (malformed) still gets its
+            // delimiter line redacted.
             (
                 Regex::new(r"-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----").unwrap(),
                 "pem",
@@ -494,5 +505,15 @@ mod tests {
         let masked = super::mask_secrets(&karl_canon::blank_mcp_secrets(remote).unwrap());
         assert!(!masked.contains("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"), "url token must be scrubbed");
         assert!(masked.contains("[REDACTED:github]"));
+    }
+
+    #[test]
+    fn mask_secrets_redacts_full_pem_body_not_just_header() {
+        let pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAsecretKeyMaterial123\nabcDEFghiJKL456\n-----END RSA PRIVATE KEY-----";
+        let masked = super::mask_secrets(pem);
+        assert!(!masked.contains("MIIEowIBAAKCAQEAsecretKeyMaterial123"), "key body must be redacted");
+        assert!(!masked.contains("abcDEFghiJKL456"), "key body must be redacted");
+        assert!(masked.contains("[REDACTED:pem]"));
+        assert!(!masked.contains("PRIVATE KEY"), "no PEM markers should survive");
     }
 }
