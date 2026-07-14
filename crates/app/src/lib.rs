@@ -24,6 +24,7 @@ mod connectivity;
 mod context;
 pub mod convergence;
 mod cost;
+mod covenant_review;
 mod cross_session;
 mod discord_presence;
 mod drafts;
@@ -5115,6 +5116,12 @@ pub fn run() {
             score_sync_commands::score_profile_set_publish,
             score_sync_commands::score_profile_preview,
             score_sync_commands::score_profile_share_url,
+            covenant_review::review_get_share,
+            covenant_review::review_publish_spec,
+            covenant_review::review_republish_spec,
+            covenant_review::review_revoke_spec,
+            covenant_review::review_activity,
+            covenant_review::review_resolve_comment,
             score_commands::score_set_current_session,
             score_commands::score_summary_filtered,
             score_commands::score_heatmap_filtered,

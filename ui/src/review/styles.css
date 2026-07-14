@@ -1,0 +1,150 @@
+/* Review panel — comments + verdict rail mounted beside the mission
+   viewer's spec body once a spec is shared for review (see
+   ui/src/review/panel.ts). Rows ride the shared .rail-row / .rail-empty
+   chrome (ui/src/styles.css); classes below are local to this panel. */
+
+.review-panel {
+    width: 320px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    overflow-y: auto;
+    border-radius: 0;
+    font-family: var(--ui-font);
+}
+
+.review-panel::-webkit-scrollbar {
+    width: 6px;
+}
+
+.review-panel::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 0;
+}
+
+.review-verdict {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.review-verdict-label {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--fg-dim);
+}
+
+.review-verdict-body {
+    font-size: var(--fs-body);
+    color: var(--fg);
+    line-height: 1.4;
+}
+
+.review-verdict--approved .review-verdict-body {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.review-verdict--changes .review-verdict-body {
+    color: var(--running);
+    font-weight: 600;
+}
+
+.review-verdict--none .review-verdict-body {
+    color: var(--fg-dim);
+}
+
+.review-verdict-meta {
+    font-size: var(--fs-micro);
+    color: var(--fg-dim);
+}
+
+.review-threads {
+    display: flex;
+    flex-direction: column;
+}
+
+.review-group-label {
+    padding: 10px 14px 4px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+}
+
+.review-thread {
+    display: flex;
+    flex-direction: column;
+}
+
+.review-row-time {
+    font-size: var(--fs-micro);
+    color: var(--fg-dim);
+    flex-shrink: 0;
+}
+
+.review-row-body {
+    font-size: var(--fs-body);
+    color: var(--fg);
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.review-row--reply {
+    margin-left: var(--rail-pad-x);
+    padding-left: 12px;
+    border-left: 2px solid var(--border);
+}
+
+.review-resolve svg {
+    width: 13px;
+    height: 13px;
+}
+
+.review-resolved-fold {
+    border-top: 1px solid var(--border);
+}
+
+.review-resolved-fold summary {
+    padding: 10px 14px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+    cursor: pointer;
+    list-style: none;
+}
+
+.review-resolved-fold summary::-webkit-details-marker {
+    display: none;
+}
+
+.review-resolved-fold summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform 0.1s;
+}
+
+.review-resolved-fold[open] summary::before {
+    transform: rotate(90deg);
+}
+
+.review-resolved-list .review-row {
+    opacity: 0.65;
+}
+
+.review-panel .rail-empty {
+    flex: 1;
+}
