@@ -337,6 +337,57 @@ pub fn unstage(cwd: &Path, path: &str) -> Result<diff::Changes, String> {
     changes(cwd)
 }
 
+/// Apply a patch to the index only (optionally reversed), fed via stdin.
+fn apply_cached(cwd: &Path, patch: &str, reverse: bool) -> Result<(), String> {
+    use std::io::Write as _;
+    use std::process::Stdio;
+    let mut args = vec!["apply", "--cached", "--whitespace=nowarn"];
+    if reverse {
+        args.push("--reverse");
+    }
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("git failed to start: {e}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("git apply stdin unavailable")?
+        .write_all(patch.as_bytes())
+        .map_err(|e| format!("git apply stdin: {e}"))?;
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("git apply: {e}"))?;
+    if !out.status.success() {
+        return Err(command_error("git apply", &out));
+    }
+    Ok(())
+}
+
+/// Stage a single hunk of a tracked file's working diff. `hunk_index` matches
+/// the hunk order `file_diff(_, _, staged=false)` returned for the same file.
+pub fn stage_hunk(cwd: &Path, path: &str, hunk_index: usize) -> Result<diff::Changes, String> {
+    let raw = git(cwd, &["diff", "--", path])?;
+    let patch = diff::select_hunk_patch(&raw, hunk_index)
+        .ok_or_else(|| format!("hunk {hunk_index} not found in diff of {path}"))?;
+    apply_cached(cwd, &patch, false)?;
+    changes(cwd)
+}
+
+/// Unstage a single hunk of a staged file (reverse-apply on the index).
+pub fn unstage_hunk(cwd: &Path, path: &str, hunk_index: usize) -> Result<diff::Changes, String> {
+    let raw = git(cwd, &["diff", "--cached", "--", path])?;
+    let patch = diff::select_hunk_patch(&raw, hunk_index)
+        .ok_or_else(|| format!("hunk {hunk_index} not found in staged diff of {path}"))?;
+    apply_cached(cwd, &patch, true)?;
+    changes(cwd)
+}
+
 pub fn commit(cwd: &Path, message: &str, push: bool) -> Result<diff::Changes, String> {
     let msg = message.trim();
     if msg.is_empty() {
@@ -605,6 +656,29 @@ pub mod diff {
         }
         FileDiffBody::Hunks { hunks }
     }
+
+    /// Extract the file header plus the Nth hunk of a raw unified diff as a
+    /// standalone patch `git apply` accepts. Raw passthrough — parsed lines are
+    /// never re-rendered, so exact bytes and `\ No newline` markers survive.
+    pub fn select_hunk_patch(raw: &str, index: usize) -> Option<String> {
+        let mut header = String::new();
+        let mut hunks: Vec<String> = Vec::new();
+        for line in raw.split_inclusive('\n') {
+            if line.starts_with("@@") {
+                hunks.push(String::new());
+            }
+            match hunks.last_mut() {
+                Some(h) => h.push_str(line),
+                None => header.push_str(line),
+            }
+        }
+        let hunk = hunks.get(index)?;
+        let mut patch = format!("{header}{hunk}");
+        if !patch.ends_with('\n') {
+            patch.push('\n');
+        }
+        Some(patch)
+    }
 }
 
 #[cfg(test)]
@@ -661,6 +735,71 @@ mod tests {
             .iter()
             .any(|f| f.path == "tracked.txt"));
         assert!(!after_unstage.staged.iter().any(|f| f.path == "tracked.txt"));
+    }
+
+    #[test]
+    fn select_hunk_patch_extracts_header_plus_one_hunk() {
+        let raw = "diff --git a/f.txt b/f.txt\nindex 111..222 100644\n--- a/f.txt\n+++ b/f.txt\n\
+@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n\
+@@ -9,2 +9,3 @@\n nine\n+nine-and-a-half\n ten\n\\ No newline at end of file\n";
+        let p0 = diff::select_hunk_patch(raw, 0).unwrap();
+        assert!(p0.starts_with("diff --git a/f.txt b/f.txt\n"));
+        assert!(p0.contains("@@ -1,2 +1,2 @@"));
+        assert!(!p0.contains("@@ -9,2 +9,3 @@"));
+
+        let p1 = diff::select_hunk_patch(raw, 1).unwrap();
+        assert!(p1.contains("@@ -9,2 +9,3 @@"));
+        assert!(!p1.contains("@@ -1,2 +1,2 @@"));
+        // The no-newline marker stays attached to its hunk.
+        assert!(p1.ends_with("\\ No newline at end of file\n"));
+
+        assert!(diff::select_hunk_patch(raw, 2).is_none());
+        assert!(diff::select_hunk_patch("", 0).is_none());
+    }
+
+    #[test]
+    fn stage_hunk_splits_file_across_groups_and_reverses() {
+        use std::fs;
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        // A file long enough that two edits produce two separate hunks.
+        let base: String = (1..=30).map(|i| format!("line{i}\n")).collect();
+        git_run(dir, &["init", "-q"]);
+        git_run(dir, &["config", "user.email", "t@t.t"]);
+        git_run(dir, &["config", "user.name", "t"]);
+        fs::write(dir.join("long.txt"), &base).unwrap();
+        git_run(dir, &["add", "."]);
+        git_run(dir, &["commit", "-q", "-m", "init"]);
+
+        let edited = base
+            .replace("line2\n", "LINE2\n")
+            .replace("line28\n", "LINE28\n");
+        fs::write(dir.join("long.txt"), edited).unwrap();
+
+        // Two hunks in the working diff; stage only the first.
+        let after = stage_hunk(dir, "long.txt", 0).unwrap();
+        assert!(after.staged.iter().any(|f| f.path == "long.txt"));
+        assert!(after.unstaged.iter().any(|f| f.path == "long.txt"));
+
+        // The staged side holds exactly the first edit.
+        let cached = git(dir, &["diff", "--cached", "--", "long.txt"]).unwrap();
+        assert!(cached.contains("+LINE2"));
+        assert!(!cached.contains("+LINE28"));
+
+        // Reverse it: nothing staged again, both edits back in the working tree.
+        let reverted = unstage_hunk(dir, "long.txt", 0).unwrap();
+        assert!(!reverted.staged.iter().any(|f| f.path == "long.txt"));
+        assert!(reverted.unstaged.iter().any(|f| f.path == "long.txt"));
+
+        // Out-of-range hunk is a clean error.
+        assert!(stage_hunk(dir, "long.txt", 9).is_err());
     }
 
     #[test]

@@ -2556,6 +2556,30 @@ async fn git_unstage(cwd: String, path: String) -> Result<git_tools::diff::Chang
 }
 
 #[tauri::command]
+async fn git_stage_hunk(
+    cwd: String,
+    path: String,
+    hunk_index: usize,
+) -> Result<git_tools::diff::Changes, String> {
+    let cwd = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::stage_hunk(&cwd, &path, hunk_index))
+        .await
+        .map_err(|e| format!("git_stage_hunk join: {e}"))?
+}
+
+#[tauri::command]
+async fn git_unstage_hunk(
+    cwd: String,
+    path: String,
+    hunk_index: usize,
+) -> Result<git_tools::diff::Changes, String> {
+    let cwd = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::unstage_hunk(&cwd, &path, hunk_index))
+        .await
+        .map_err(|e| format!("git_unstage_hunk join: {e}"))?
+}
+
+#[tauri::command]
 async fn git_commit(
     cwd: String,
     message: String,
@@ -4823,6 +4847,8 @@ pub fn run() {
             git_file_diff,
             git_stage,
             git_unstage,
+            git_stage_hunk,
+            git_unstage_hunk,
             git_commit,
             generate_commit_message,
             resolve_existing_path,

@@ -1,6 +1,6 @@
 import {
-  gitChanges, gitFileDiff, gitStage, gitUnstage, gitCommit, generateCommitMessage,
-  gitRepoSummary,
+  gitChanges, gitFileDiff, gitStage, gitUnstage, gitStageHunk, gitUnstageHunk,
+  gitCommit, generateCommitMessage, gitRepoSummary,
   type Changes, type FileChange, type GitRepoSummary,
 } from "../api";
 import { renderRail, splitPath, countsLabel, type RailHandlers } from "./rail";
@@ -548,8 +548,40 @@ export class ChangesSurface {
     toggle.addEventListener("click", () => void (staged ? this.unstage(path) : this.stage(path)));
     hd.append(pathEl, countsEl, toggle);
 
-    view.append(hd, renderDiffBody(file));
+    // Hunk-level staging only makes sense for tracked files with a hunk diff —
+    // an untracked file's diff is synthetic (--no-index vs /dev/null).
+    const canHunk = change !== null &&
+      change.file.status !== "untracked" &&
+      file.body.kind === "hunks";
+    const hunkAction = canHunk ? {
+      label: staged ? "Unstage hunk" : "Stage hunk",
+      onAct: (i: number) => void this.applyHunk(path, staged, i),
+    } : undefined;
+
+    view.append(hd, renderDiffBody(file, hunkAction));
     this.diffEl.replaceChildren(view);
+  }
+
+  /// Stage/unstage a single hunk, then re-show the same side of the file if it
+  /// still has changes there; otherwise the other side; otherwise the overview.
+  private async applyHunk(path: string, staged: boolean, index: number): Promise<void> {
+    try {
+      this.changes = staged
+        ? await gitUnstageHunk(this.repoRoot, path, index)
+        : await gitStageHunk(this.repoRoot, path, index);
+    } catch (e) {
+      this.setStatus(String(e), true);
+      return;
+    }
+    this.renderRailInto();
+    const remaining = this.allFiles().filter((v) => v.file.path === path);
+    const next = remaining.find((v) => v.staged === staged) ?? remaining[0];
+    if (next) {
+      await this.showDiff(path, next.staged);
+    } else {
+      this.selectedPath = null;
+      this.renderOverview();
+    }
   }
 
   private findChange(path: string): { file: FileChange; staged: boolean } | null {
