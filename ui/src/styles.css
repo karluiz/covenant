@@ -16932,6 +16932,13 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
   flex-shrink: 0;
 }
+/* Agent filter folded into the substream micro-header: plain mono text
+   ("ALL AGENTS ▾") — colour/hover/font come from `.rail-substream button`. */
+.rail-substream-cluster { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.activity-filter { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
+.activity-filter-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-filter svg { width: 11px; height: 11px; flex-shrink: 0; }
+
 /* Turn rows: chevron unfolds the meaningful-event audit trail. */
 .activity-turn .activity-chev {
   display: inline-flex; align-items: center;
