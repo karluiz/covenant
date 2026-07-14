@@ -205,12 +205,14 @@ export class OnboardingPanel {
     const card = this.modal.querySelector(".onboarding-card");
     if (!card) return;
 
-    const rows = OnboardingPanel.KEYS.map(
-      (k) =>
-        `<li class="onboarding-key"><kbd>${esc(k.keys)}</kbd><span class="onboarding-key__text"><span class="onboarding-key__label">${esc(
-          k.label,
-        )}</span><span class="onboarding-key__desc">${esc(k.desc)}</span></span></li>`,
-    ).join("");
+    // One chip per key, reusing the shortcuts panel's .shortcut-keys
+    // chrome so both surfaces read identically.
+    const rows = OnboardingPanel.KEYS.map((k) => {
+      const chips = [...k.keys].map((c) => `<kbd>${esc(c)}</kbd>`).join("");
+      return `<li class="onboarding-key"><span class="shortcut-keys onboarding-key__keys">${chips}</span><span class="onboarding-key__text"><span class="onboarding-key__label">${esc(
+        k.label,
+      )}</span><span class="onboarding-key__desc">${esc(k.desc)}</span></span></li>`;
+    }).join("");
 
     card.innerHTML = `
       <header class="onboarding-header">
