@@ -569,7 +569,7 @@ export class CanonPanel {
         meta: o.tags.filter(Boolean).slice(0, 3).join(" · ") || o.model,
         onOpen: () => openMarkdownReader(o.name, () => operatorSoulRead(o.id)),
       })) },
-      { label: "Agents", rows: s.agents.map((a) => ({ title: a.name, meta: "agent", onOpen: () => openMarkdownReader(a.name, readSource("agent", a.name)) })) },
+      { label: "Subagents", rows: s.agents.map((a) => ({ title: a.name, meta: "agent", onOpen: () => openMarkdownReader(a.name, readSource("agent", a.name)) })) },
       { label: "Context", rows: s.contexts.map((c) => ({ title: c.name, meta: c.summary ?? "context", onOpen: () => openMarkdownReader(c.name, readSource("context", c.name)) })) },
       { label: "Memory", rows: s.memory.map((m) => ({ title: m.name, meta: m.description ?? "memory", onOpen: () => openMarkdownReader(m.name, readSource("memory", m.name)) })) },
       { label: "Commands", rows: s.commands.map((c) => ({ title: c.name, meta: c.description ?? "command", onOpen: () => openMarkdownReader(c.name, readSource("command", c.name)) })) },

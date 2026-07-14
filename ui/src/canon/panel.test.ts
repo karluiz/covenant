@@ -67,7 +67,7 @@ describe("CanonPanel", () => {
     panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
     const cells = [...host.querySelectorAll(".canon-census-cell")];
     expect(cells.length).toBe(8);
-    for (const label of ["Operators", "Agents", "Context", "Memory", "Commands", "MCP", "Specs", "Skills"]) {
+    for (const label of ["Operators", "Subagents", "Context", "Memory", "Commands", "MCP", "Specs", "Skills"]) {
       expect(cells.some((c) => c.textContent?.includes(label))).toBe(true);
     }
   });
@@ -225,7 +225,7 @@ describe("CanonPanel", () => {
       mcp: [],
       specs: [],
     });
-    expect(host.textContent).toContain("Agents");
+    expect(host.textContent).toContain("Subagents");
     expect(host.textContent).toContain("reviewer");
     expect(host.textContent).toContain("Context");
     expect(host.textContent).toContain("kyc");

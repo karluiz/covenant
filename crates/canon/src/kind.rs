@@ -39,7 +39,7 @@ impl ContextKind {
     /// Human label for UI section headers.
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Agent => "Agent",
+            Self::Agent => "Subagent",
             Self::Context => "Context",
             Self::Memory => "Memory",
             Self::Command => "Command",
