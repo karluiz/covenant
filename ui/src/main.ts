@@ -86,6 +86,7 @@ import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
 import { OperatorPicker } from "./operator/picker";
+import { openOperatorModal, wireOperatorModal } from "./operator/creator";
 import { mountSpecChat } from "./spec-chat/index";
 import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel, type PanelTab } from "./project-notes/panel";
@@ -2182,10 +2183,21 @@ async function boot(): Promise<void> {
     const tab = manager.tabForSession(sessionId);
     if (tab) await manager.setTabOperator(tab.id, op.id);
   };
-  // TODO: open directly to Operators pane when openTo API is added to SettingsPanel
-  operatorPicker.onNewRequested = () => { settings.toggle(); };
-  // TODO: scroll to specific operator row when openTo API is added to SettingsPanel
-  operatorPicker.onEditRequested = (_op) => { settings.toggle(); };
+  // Operators live in the Canon cockpit now (Settings roster is gone) —
+  // both New and Edit route straight to the immersive creator, then
+  // refresh the shared operator cache so tab chips / status bar pick up
+  // the change. The picker itself refetches operatorList() fresh on its
+  // next open(), so it needs no explicit refresh of its own.
+  operatorPicker.onNewRequested = () => {
+    wireOperatorModal(openOperatorModal({ mode: "create" }), {
+      onSaved: () => { void manager.refreshOperatorCache(); },
+    });
+  };
+  operatorPicker.onEditRequested = (op) => {
+    wireOperatorModal(openOperatorModal({ mode: "edit", existing: op }), {
+      onSaved: () => { void manager.refreshOperatorCache(); },
+    });
+  };
   statusBar.onOperatorChipClick = (sid) => { void operatorPicker.open(sid); };
   statusBar.onOperatorClearRequested = (sid) => {
     const tab = manager.tabForSession(sid);
