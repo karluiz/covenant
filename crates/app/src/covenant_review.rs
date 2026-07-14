@@ -61,8 +61,11 @@ pub fn load_shares(path: &Path) -> HashMap<String, ShareState> {
 
 pub fn save_shares(path: &Path, m: &HashMap<String, ShareState>) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(m).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        &tmp,
+        serde_json::to_vec_pretty(m).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
@@ -167,7 +170,9 @@ pub async fn review_publish_spec(
         .as_str()
         .ok_or("missing token in response")?
         .to_string();
-    let version = resp["version"].as_i64().ok_or("missing version in response")? as i32;
+    let version = resp["version"]
+        .as_i64()
+        .ok_or("missing version in response")? as i32;
     let share = ShareState {
         spec_id,
         token: token.clone(),
@@ -192,7 +197,9 @@ pub async fn review_republish_spec(
     let mut share = shares.get(&path).cloned().ok_or("not shared")?;
     let markdown = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let resp = post_version(share.spec_id, &markdown).await?;
-    let version = resp["version"].as_i64().ok_or("missing version in response")? as i32;
+    let version = resp["version"]
+        .as_i64()
+        .ok_or("missing version in response")? as i32;
     share.version = version;
     shares.insert(path, share.clone());
     save_shares(&shares_file, &shares)?;
