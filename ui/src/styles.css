@@ -16849,39 +16849,27 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
   flex-shrink: 0;
 }
-.inline-notch-picker-drop {
-  position: fixed;
-  z-index: 1000;
-  background: var(--bg-overlay, #14161b);
-  border: 1px solid var(--border, rgba(255,255,255,0.1));
-  border-radius: 10px;
-  padding: 6px 0;
-  box-shadow: 0 30px 60px -28px rgba(0,0,0,0.9);
-  min-width: 220px;
-}
+/* Agent-filter dropdown: surface + rows come from the canonical
+   .ui-select__popover / .ui-select__option chrome; these rules only add
+   the picker's extras (group heads, separator, per-row count, agent dot). */
 .inline-notch-picker-drop-head {
-  padding: 4px 12px;
+  padding: 5px 8px 3px;
   color: var(--muted, #8a93a0); font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.08em;
 }
 .inline-notch-picker-drop-sep {
   height: 1px; background: rgb(var(--ink-rgb, 255 255 255) / 0.06); margin: 4px 0;
 }
-.inline-notch-picker-opt {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 12px;
-  color: var(--muted, #8a93a0);
-  cursor: pointer;
+/* Bespoke rows never set .is-highlighted (no keyboard nav here), so mirror
+   CustomSelect's highlight tint on plain hover. */
+.inline-notch-picker-drop .ui-select__option:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary, #fafafa) 9%, transparent);
 }
-.inline-notch-picker-opt:hover { background: rgb(var(--ink-rgb, 255 255 255) / 0.04); color: var(--text, #d5d9de); }
-.inline-notch-picker-check { width: 12px; color: #6ee7a8; opacity: 0; font-size: 11px; }
-.inline-notch-picker-opt.is-selected .inline-notch-picker-check { opacity: 1; }
-.inline-notch-picker-opt.is-selected .inline-notch-picker-name { color: var(--text, #d5d9de); }
-.inline-notch-picker-name { flex: 1; color: var(--text, #d5d9de); }
+.inline-notch-picker-name { flex: 1; }
 .inline-notch-picker-count { color: var(--muted, #8a93a0); font-variant-numeric: tabular-nums; font-size: 11px; }
 .inline-notch-picker-drop .inline-notch-av-dot {
   width: 12px; height: 12px; border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
+  box-shadow: 0 0 0 1px rgb(var(--ink-rgb, 255 255 255) / 0.12) inset;
   flex-shrink: 0;
 }
 
@@ -16890,32 +16878,10 @@ body.theme-light .inline-notch {
   color: var(--text-primary);
 }
 
-/* Agent-filter dropdown is portaled to <body>, so it sits outside
-   .inline-notch and needs its own light-mode surface treatment. */
-body.theme-light .inline-notch-picker-drop {
-  background: var(--bg-panel);
-  border-color: rgb(var(--ink-rgb) / 0.12);
-  box-shadow: 0 24px 50px -24px rgba(0, 0, 0, 0.35);
-}
-body.theme-light .inline-notch-picker-drop-head {
-  color: var(--muted);
-}
+/* Light-mode surface/rows come from the shared .ui-select__* light rules;
+   only the picker extras need ink-aware overrides. */
 body.theme-light .inline-notch-picker-drop-sep {
   background: rgb(var(--ink-rgb) / 0.08);
-}
-body.theme-light .inline-notch-picker-opt {
-  color: var(--muted);
-}
-body.theme-light .inline-notch-picker-opt:hover {
-  background: rgb(var(--ink-rgb) / 0.05);
-  color: var(--text-primary);
-}
-body.theme-light .inline-notch-picker-name,
-body.theme-light .inline-notch-picker-opt.is-selected .inline-notch-picker-name {
-  color: var(--text-primary);
-}
-body.theme-light .inline-notch-picker-count {
-  color: var(--muted);
 }
 body.theme-light .inline-notch-picker-drop .inline-notch-av-dot {
   box-shadow: 0 0 0 1px rgb(var(--ink-rgb) / 0.18) inset;
@@ -19980,7 +19946,9 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 body.theme-light .rail-search input { background: none; border: 0; }
 .rail-select {
   display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--rail-radius);
+  /* Sharp corners: select triggers follow the .ui-select__button family,
+     not the rail-radius chrome (DESIGN.md hard rule on selects). */
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 0;
   background: rgb(var(--ink-rgb) / 0.04); cursor: pointer; color: var(--fg);
 }
 .rail-select:hover { background: rgb(var(--ink-rgb) / 0.07); }

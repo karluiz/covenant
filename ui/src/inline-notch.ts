@@ -342,15 +342,23 @@ export function mountInlineNotch(host: HTMLElement): void {
   function openDropdown(): void {
     closeDropdown();
     const drop = document.createElement("div");
-    drop.className = "inline-notch-picker-drop";
+    // Reuse the canonical CustomSelect popover chrome (.ui-select__*) so
+    // this bespoke multi-select matches every other Covenant select; the
+    // inline-notch-* classes only carry the extras (head, count, dot).
+    drop.className = "ui-select__popover inline-notch-picker-drop";
+    drop.setAttribute("role", "listbox");
 
     function addOpt(args: { isAll?: boolean; agent?: string; selected: boolean; label: string; count: number; onClick: () => void }): void {
-      const row = document.createElement("div");
-      row.className = "inline-notch-picker-opt";
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "ui-select__option inline-notch-picker-opt";
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(args.selected));
       if (args.selected) row.classList.add("is-selected");
       const check = document.createElement("span");
-      check.className = "inline-notch-picker-check";
-      check.textContent = "✓";
+      check.className = "ui-select__option-check";
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = args.selected ? "✓" : "";
       row.appendChild(check);
       const av = document.createElement("span");
       av.className = "inline-notch-av-dot";
@@ -359,7 +367,7 @@ export function mountInlineNotch(host: HTMLElement): void {
         : "linear-gradient(135deg, #7c5cff, #c7a8ff)";
       row.appendChild(av);
       const name = document.createElement("span");
-      name.className = "inline-notch-picker-name";
+      name.className = "ui-select__option-label inline-notch-picker-name";
       name.textContent = args.label;
       row.appendChild(name);
       const count = document.createElement("span");
