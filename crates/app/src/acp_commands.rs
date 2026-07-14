@@ -1285,8 +1285,9 @@ pub async fn acp_set_trust(
     trust: AcpTrust,
 ) -> Result<(), String> {
     let (_, tab) = require(&state, &session_id).await?;
-    if let Ok(mut g) = tab.trust.write() {
-        *g = trust;
+    match tab.trust.write() {
+        Ok(mut g) => *g = trust,
+        Err(poisoned) => *poisoned.into_inner() = trust,
     }
     let mode = match trust {
         AcpTrust::Yolo => "bypassPermissions",
