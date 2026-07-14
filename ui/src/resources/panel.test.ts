@@ -41,28 +41,46 @@ describe('mountResourcesPanel', () => {
     expect(deps.setActive).toHaveBeenCalledWith(false);
   });
 
-  it('renders header totals and a Group→Session tree from a snapshot', async () => {
+  it('renders rail header totals and a Group→Session tree from a snapshot', async () => {
     let cb: (s: ResourcesSnapshot) => void = () => {};
     const deps = makeDeps({ onUpdate: vi.fn(async (h) => { cb = h; return () => {}; }) });
     mountResourcesPanel(host, deps);
     await Promise.resolve();
     cb(snap);
-    expect(host.querySelector('.res-total-cpu')!.textContent).toContain('3.1');
-    expect(host.querySelector('.res-group')!.textContent).toContain('KARLUIZ-SITE');
-    const rows = host.querySelectorAll('.res-session');
+    expect(host.querySelector('.rail-title-label')!.textContent).toBe('Resources');
+    expect(host.querySelector('.res-totals-sub')!.textContent).toBe('3.1% · 1.30 GB');
+    expect(host.querySelector('.rail-gname')!.textContent).toBe('KARLUIZ-SITE');
+    expect(host.querySelector('.rail-gcount')!.textContent).toBe('2');
+    const rows = host.querySelectorAll('.res-row');
     expect(rows.length).toBe(2);
     expect(host.textContent).toContain('Claude Code');
     expect(host.textContent).toContain('zsh');
   });
 
-  it('sorts sessions by memory desc by default', async () => {
+  it('sorts sessions by memory desc by default and encodes load on rows', async () => {
     let cb: (s: ResourcesSnapshot) => void = () => {};
     const deps = makeDeps({ onUpdate: vi.fn(async (h) => { cb = h; return () => {}; }) });
     mountResourcesPanel(host, deps);
     await Promise.resolve();
     cb(snap);
-    const rows = [...host.querySelectorAll('.res-session')];
+    const rows = [...host.querySelectorAll<HTMLElement>('.res-row')];
     expect(rows[0].textContent).toContain('Claude Code');
+    expect(rows[0].dataset.load).toBe('idle');
+    expect((rows[0].querySelector('.res-bar') as HTMLElement).style.width).toBe('0.8%');
+  });
+
+  it('collapses and re-expands a group via its head', async () => {
+    let cb: (s: ResourcesSnapshot) => void = () => {};
+    const deps = makeDeps({ onUpdate: vi.fn(async (h) => { cb = h; return () => {}; }) });
+    mountResourcesPanel(host, deps);
+    await Promise.resolve();
+    cb(snap);
+    const head = host.querySelector('.rail-group-head') as HTMLButtonElement;
+    expect(head.classList.contains('open')).toBe(true);
+    head.click();
+    expect(host.querySelectorAll('.res-row').length).toBe(0);
+    (host.querySelector('.rail-group-head') as HTMLButtonElement).click();
+    expect(host.querySelectorAll('.res-row').length).toBe(2);
   });
 
   it('renders the hot processes sub-line only for sessions with top entries', async () => {
@@ -90,6 +108,6 @@ describe('mountResourcesPanel', () => {
     mountResourcesPanel(host, deps);
     await Promise.resolve();
     cb({ total_cpu: 0, total_mem_bytes: 0, ram_share: 0, mem_total_bytes: 18_000_000_000, sessions: [] });
-    expect(host.querySelector('.res-empty')).not.toBeNull();
+    expect(host.querySelector('.rail-empty')).not.toBeNull();
   });
 });
