@@ -16071,13 +16071,13 @@ body.theme-light .release-close:hover .settings-esc {
     max-width: 340px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
 }
 
 .onboarding-key {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: 14px;
     font-size: 13px;
     color: var(--text-primary);
     text-align: left;
@@ -16085,17 +16085,22 @@ body.theme-light .release-close:hover .settings-esc {
 
 .onboarding-key kbd {
     flex: none;
-    min-width: 48px;
+    min-width: 56px;
+    box-sizing: border-box;
     text-align: center;
     font-family:
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 11.5px;
-    padding: 4px 8px;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    padding: 6px 10px;
     border-radius: 0;
     color: var(--text-primary);
-    background: rgb(var(--ink-rgb, 255 255 255) / 0.05);
-    border: 1px solid var(--border);
-    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+    background: rgb(var(--ink-rgb, 255 255 255) / 0.06);
+    border: 1px solid
+        color-mix(in srgb, var(--border) 60%, rgb(var(--ink-rgb, 255 255 255) / 0.35));
+    /* Keycap depth stays a dark bottom edge in BOTH themes — ink-rgb
+       would flip it to a white glow on dark. */
+    box-shadow: inset 0 -1.5px 0 rgba(0, 0, 0, 0.22);
 }
 
 .onboarding-key__text {
