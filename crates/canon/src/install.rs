@@ -240,6 +240,48 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
     })
 }
 
+/// Content-addressed version for single-file (non-skill) packages: the first
+/// 12 hex chars of sha256(content). Stable → republishing unchanged content
+/// hits the registry's unique constraint ("already published").
+pub fn content_version(content: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hex = format!("{:x}", Sha256::digest(content.as_bytes()));
+    hex[..12].to_string()
+}
+
+/// Install a single-file registry unit (agent/command/context/mcp) into its
+/// Canon source dir and re-project. Skill has its own package pipeline
+/// (install_from_dir); Spec and Memory are repo-local and never installable.
+pub fn install_unit(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+    content: &str,
+) -> Result<(), CanonError> {
+    if !valid_pkg_name(name) {
+        return Err(CanonError::InvalidPackage(format!("invalid name: {name:?}")));
+    }
+    let ext = match kind {
+        ContextKind::Agent | ContextKind::Command | ContextKind::Context => "md",
+        ContextKind::Mcp => {
+            // Reject payloads that projection would later choke on.
+            serde_json::from_str::<crate::mcp::McpServer>(content)
+                .map_err(|e| CanonError::InvalidPackage(format!("mcp json: {e}")))?;
+            "json"
+        }
+        ContextKind::Skill | ContextKind::Spec | ContextKind::Memory => {
+            return Err(CanonError::InvalidPackage(format!(
+                "kind {:?} is not installable as a unit",
+                kind
+            )));
+        }
+    };
+    let dir = canon_dir(repo_root).join(kind.dir());
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join(format!("{name}.{ext}")), content)?;
+    project(repo_root)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,5 +499,43 @@ mod tests {
         assert_eq!(s.memory.len(), 1);
         assert_eq!(s.memory[0].name, "pref-z");
         assert_eq!(s.memory[0].description.as_deref(), Some("User prefers Z"));
+    }
+
+    #[test]
+    fn content_version_is_short_stable_hex() {
+        let v = content_version("hello");
+        assert_eq!(v.len(), 12);
+        assert_eq!(v, content_version("hello"));
+        assert_ne!(v, content_version("world"));
+        assert!(v.bytes().all(|b| b.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn install_unit_writes_md_kinds_and_mcp_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        install_unit(root, crate::ContextKind::Command, "deploy", "---\ndescription: d\n---\nbody\n").unwrap();
+        assert!(root.join(".covenant/canon/commands/deploy.md").exists());
+
+        install_unit(root, crate::ContextKind::Mcp, "ctx7", r#"{"command":"npx","env":{"K":""}}"#).unwrap();
+        assert!(root.join(".covenant/canon/mcp/ctx7.json").exists());
+
+        // Installed units appear in list_context.
+        let units = crate::list_context(root).unwrap();
+        assert!(units.iter().any(|u| u.kind == crate::ContextKind::Command && u.name == "deploy"));
+        assert!(units.iter().any(|u| u.kind == crate::ContextKind::Mcp && u.name == "ctx7"));
+    }
+
+    #[test]
+    fn install_unit_rejects_unpackageable_kinds_and_bad_input() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        assert!(install_unit(root, crate::ContextKind::Skill, "x", "y").is_err());
+        assert!(install_unit(root, crate::ContextKind::Spec, "x", "y").is_err());
+        assert!(install_unit(root, crate::ContextKind::Memory, "x", "y").is_err());
+        assert!(install_unit(root, crate::ContextKind::Command, "../escape", "y").is_err());
+        // MCP content must be valid server JSON.
+        assert!(install_unit(root, crate::ContextKind::Mcp, "bad", "{ nope").is_err());
     }
 }

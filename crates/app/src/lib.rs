@@ -2418,8 +2418,9 @@ async fn canon_my_orgs() -> Result<Vec<canon_registry::Org>, String> {
 async fn canon_search(
     org: String,
     query: Option<String>,
+    kind: Option<String>,
 ) -> Result<Vec<canon_registry::PkgMeta>, String> {
-    canon_registry::search(&org, query.as_deref()).await
+    canon_registry::search(&org, query.as_deref(), kind.as_deref().unwrap_or("skill")).await
 }
 
 #[tauri::command]
@@ -2454,8 +2455,10 @@ async fn canon_preview(
     org: String,
     name: String,
     version: String,
+    kind: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let full = canon_registry::resolve(&org, &name, &version).await?;
+    let full =
+        canon_registry::resolve(&org, &name, &version, kind.as_deref().unwrap_or("skill")).await?;
     Ok(serde_json::json!({ "description": full.description, "skill_md": full.skill_md }))
 }
 
@@ -2471,20 +2474,26 @@ async fn canon_read_local(cwd: String, name: String) -> Result<String, String> {
     Ok(md)
 }
 
+/// Map a wire-format kind string to the `karl_canon::ContextKind` it represents.
+/// The one place the string→enum mapping lives — every command below calls this.
+fn parse_unit_kind(kind: &str) -> Result<karl_canon::ContextKind, String> {
+    match kind {
+        "agent" => Ok(karl_canon::ContextKind::Agent),
+        "context" => Ok(karl_canon::ContextKind::Context),
+        "command" => Ok(karl_canon::ContextKind::Command),
+        "mcp" => Ok(karl_canon::ContextKind::Mcp),
+        "skill" => Ok(karl_canon::ContextKind::Skill),
+        "spec" => Ok(karl_canon::ContextKind::Spec),
+        "memory" => Ok(karl_canon::ContextKind::Memory),
+        other => Err(format!("unknown context kind: {other}")),
+    }
+}
+
 /// Raw source markdown for a context unit of a given kind (agent/context/command/skill).
 #[tauri::command]
 async fn canon_read_source(cwd: String, kind: String, name: String) -> Result<String, String> {
     let repo = std::path::PathBuf::from(cwd);
-    let k = match kind.as_str() {
-        "agent" => karl_canon::ContextKind::Agent,
-        "context" => karl_canon::ContextKind::Context,
-        "command" => karl_canon::ContextKind::Command,
-        "mcp" => karl_canon::ContextKind::Mcp,
-        "skill" => karl_canon::ContextKind::Skill,
-        "spec" => karl_canon::ContextKind::Spec,
-        "memory" => karl_canon::ContextKind::Memory,
-        other => return Err(format!("unknown context kind: {other}")),
-    };
+    let k = parse_unit_kind(&kind)?;
     tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, k, &name))
         .await
         .map_err(|e| format!("canon_read_source join: {e}"))?
@@ -2515,14 +2524,74 @@ async fn canon_projection_status(cwd: String) -> Result<karl_canon::ProjectionSt
 }
 
 #[tauri::command]
-async fn canon_publish(cwd: String, org: String, name: String) -> Result<serde_json::Value, String> {
+async fn canon_publish(
+    cwd: String,
+    org: String,
+    name: String,
+    kind: Option<String>,
+) -> Result<serde_json::Value, String> {
     let repo = std::path::PathBuf::from(cwd);
-    let (toml_s, md_s, sm) =
-        tokio::task::spawn_blocking(move || karl_canon::read_skill_package(&repo, &name))
-            .await
-            .map_err(|e| format!("canon_publish join: {e}"))?
-            .map_err(|e| e.to_string())?;
-    canon_registry::publish(&org, &sm.name, &sm.version, "", &toml_s, &md_s).await
+    let kind = kind.unwrap_or_else(|| "skill".to_string());
+    if kind == "skill" {
+        let (toml_s, md_s, sm) =
+            tokio::task::spawn_blocking(move || karl_canon::read_skill_package(&repo, &name))
+                .await
+                .map_err(|e| format!("canon_publish join: {e}"))?
+                .map_err(|e| e.to_string())?;
+        return canon_registry::publish(&org, &sm.name, &sm.version, "", &toml_s, &md_s, "skill")
+            .await;
+    }
+    let k = parse_unit_kind(&kind)?;
+    if matches!(
+        k,
+        karl_canon::ContextKind::Spec | karl_canon::ContextKind::Memory
+    ) {
+        return Err(format!("kind {kind} is not publishable"));
+    }
+    let n = name.clone();
+    let content = tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, k, &n))
+        .await
+        .map_err(|e| format!("canon_publish join: {e}"))?
+        .map_err(|e| e.to_string())?;
+    // MCP configs may carry secrets in env/headers — blank the values.
+    let content = if kind == "mcp" {
+        karl_canon::blank_mcp_secrets(&content).map_err(|e| e.to_string())?
+    } else {
+        content
+    };
+    let version = karl_canon::content_version(&content);
+    canon_registry::publish(&org, &name, &version, "", "", &content, &kind).await
+}
+
+/// Install a non-skill registry unit: fetch, write into .covenant/canon, re-project.
+#[tauri::command]
+async fn canon_install_registry_unit(
+    cwd: String,
+    org: String,
+    name: String,
+    version: String,
+    kind: String,
+) -> Result<(), String> {
+    let k = parse_unit_kind(&kind)?;
+    if matches!(
+        k,
+        karl_canon::ContextKind::Skill
+            | karl_canon::ContextKind::Spec
+            | karl_canon::ContextKind::Memory
+    ) {
+        return Err(format!("kind {kind} is not installable as a unit"));
+    }
+    let full = canon_registry::resolve(&org, &name, &version, &kind).await?;
+    let pkg_id = full.id;
+    let repo = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || {
+        karl_canon::install_unit(&repo, k, &full.name, &full.skill_md)
+    })
+    .await
+    .map_err(|e| format!("canon_install_registry_unit join: {e}"))?
+    .map_err(|e| e.to_string())?;
+    canon_registry::record_install(pkg_id).await.ok();
+    Ok(())
 }
 
 #[tauri::command]
@@ -2534,7 +2603,7 @@ async fn canon_install_registry(
     group: Option<String>,
     workspace: Option<String>,
 ) -> Result<karl_canon::InstalledRef, String> {
-    let full = canon_registry::resolve(&org, &name, &version).await?;
+    let full = canon_registry::resolve(&org, &name, &version, "skill").await?;
     let pkg_id = full.id;
     let label = format!("registry:{}/{}@{}", org, full.name, full.version);
     let repo = std::path::PathBuf::from(cwd);
@@ -4877,6 +4946,7 @@ pub fn run() {
             canon_projection_status,
             canon_publish,
             canon_install_registry,
+            canon_install_registry_unit,
             canon_miner::canon_mine_start,
             canon_miner::canon_mine_stop,
             canon_miner::canon_compile_skill,

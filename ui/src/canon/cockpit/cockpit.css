@@ -101,9 +101,14 @@ body.tabbar-left .canon-cockpit {
 
 /* ── Shared: section header — full-bleed strip, divider reaches both edges ── */
 .canon-cockpit-sec-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   padding: 20px 24px 15px;
   border-bottom: 1px solid var(--border);
 }
+.canon-cockpit-sec-text { min-width: 0; }
 .canon-cockpit-sec-title {
   margin: 0 0 3px;
   font-size: 17px;
@@ -384,10 +389,11 @@ body.tabbar-left .canon-cockpit {
 
 /* ── Registry section ──────────────────────────────────────────────── */
 
-/* Skills | Operators kind toggle — segmented, sharp corners (mirrors
+/* Kind tabs — six catalogs, segmented, sharp corners (mirrors
    .wiz-segmented in styles.css, scoped to the cockpit's own tokens). */
 .canon-reg-kind-toggle {
   display: inline-flex;
+  flex-wrap: wrap;
   border: 1px solid var(--border);
   border-radius: 0;
   overflow: hidden;

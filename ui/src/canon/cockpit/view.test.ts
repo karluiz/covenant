@@ -14,6 +14,7 @@ vi.mock("../../api", () => ({
   canonSearch: vi.fn().mockResolvedValue([]),
   canonPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
   canonInstallRegistry: vi.fn().mockResolvedValue(undefined),
+  canonInstallRegistryUnit: vi.fn(async () => undefined),
   scoreSummaryFiltered: vi.fn().mockResolvedValue({ total_tokens: 0, total_prompts: 0, total_specs: 0, total_commits: 0 }),
   canonEvalSummary: vi.fn().mockResolvedValue([]),
   operatorList: vi.fn(async () => [] as unknown[]),
@@ -30,8 +31,8 @@ vi.mock("../../api", () => ({
 vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
 import {
-  canonMyOrgs, canonSearch, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
-  operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, type Operator,
+  canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
+  operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, canonPublish, type Operator,
   type MarketplaceListing,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
@@ -141,7 +142,7 @@ describe("CanonCockpitView create-org flow", () => {
 describe("CanonCockpitView Registry section", () => {
   it("renders registry search results for the active org", async () => {
     vi.mocked(canonSearch).mockResolvedValue([
-      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234" },
+      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234", kind: "skill" },
     ]);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("registry");
@@ -165,6 +166,43 @@ describe("CanonCockpitView Registry section", () => {
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("renders all six registry kind tabs", async () => {
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    const tabs = [...v.element.querySelectorAll(".canon-reg-kind")].map((b) => b.textContent);
+    expect(tabs).toEqual(["Skills", "Operators", "Subagents", "Commands", "Context", "MCP"]);
+  });
+
+  it("searches and installs a non-skill kind through canonInstallRegistryUnit", async () => {
+    vi.mocked(canonSearch).mockResolvedValue([
+      { id: 1, kind: "command", name: "deploy", version: "abc123def456", description: "d", publisher_login: "k", installs: 2, sha: "abc" },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    const commandsTab = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-reg-kind")]
+      .find((b) => b.textContent === "Commands")!;
+    commandsTab.click();
+    await vi.waitFor(() => {
+      expect(canonSearch).toHaveBeenLastCalledWith(expect.any(String), null, "command");
+    });
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-search-result")).toBeTruthy();
+    });
+    // Non-skill cards hide the content-addressed version + sha chips.
+    const card = v.element.querySelector(".canon-search-result")!;
+    expect(card.textContent).not.toContain("abc123def456");
+    expect(card.textContent).toContain("k");
+    const install = v.element.querySelector<HTMLButtonElement>(".canon-search-result [aria-label='Install']")!;
+    install.click();
+    await vi.waitFor(() => {
+      expect(canonInstallRegistryUnit).toHaveBeenCalledWith(
+        expect.any(String), expect.any(String), "deploy", "abc123def456", "command",
+      );
+    });
+  });
+
   it("installs an operator into the active non-personal org", async () => {
     vi.mocked(marketplaceSearch).mockResolvedValue([LISTING_FIXTURE]);
     vi.mocked(operatorList).mockResolvedValue([]);
@@ -186,15 +224,111 @@ describe("CanonCockpitView Registry section", () => {
 });
 
 describe("CanonCockpitView Context section", () => {
-  it("lists context files and invokes onNewContext (moved from the rail — see panel.test.ts)", async () => {
+  it("lists context files and invokes onNewContext via the section-head action (moved from the rail — see panel.test.ts)", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({ installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }], memory: [], commands: [], mcp: [], specs: [] });
     let called = false;
     const v = new CanonCockpitView({ ...opts, onNewContext: () => { called = true; } });
     v.open(); v.showSection("context");
-    await Promise.resolve(); await Promise.resolve();
-    expect(v.element.textContent).toContain("kyc-peru.md");
-    (v.element.querySelector(".canon-new-context-btn") as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("kyc-peru.md");
+    });
+    const headBtn = v.element.querySelector<HTMLButtonElement>(".canon-sec-head-action")!;
+    expect(headBtn.hidden).toBe(false);
+    headBtn.click();
     expect(called).toBe(true);
+  });
+
+  it("context head action is hidden while empty; empty-state CTA is the single affordance", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView({ ...opts, onNewContext: () => {} });
+    v.open(); v.showSection("context");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".rail-empty-btn")).toBeTruthy();
+    });
+    const headBtn = v.element.querySelector<HTMLButtonElement>(".canon-sec-head-action")!;
+    expect(headBtn.hidden).toBe(true);
+  });
+});
+
+describe("CanonCockpitView unit publish actions", () => {
+  it("subagent rows publish to the registry with kind agent", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
+    });
+    const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
+    pub.click();
+    await vi.waitFor(() => {
+      expect(canonPublish).toHaveBeenCalledWith(expect.any(String), expect.any(String), "reviewer", "agent");
+    });
+  });
+
+  it("command rows publish to the registry with kind command", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [], memory: [], commands: [{ name: "deploy", description: null }], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("commands");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
+    });
+    const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
+    pub.click();
+    await vi.waitFor(() => {
+      expect(canonPublish).toHaveBeenCalledWith(expect.any(String), expect.any(String), "deploy", "command");
+    });
+  });
+
+  it("mcp rows publish to the registry with kind mcp", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [{ name: "figma", description: null, transport: "stdio" }], specs: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("mcp");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
+    });
+    const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
+    pub.click();
+    await vi.waitFor(() => {
+      expect(canonPublish).toHaveBeenCalledWith(expect.any(String), expect.any(String), "figma", "mcp");
+    });
+  });
+
+  it("context rows render as skillCard rows with a publish action, kind context", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("context");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
+    });
+    const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
+    pub.click();
+    await vi.waitFor(() => {
+      expect(canonPublish).toHaveBeenCalledWith(expect.any(String), expect.any(String), "kyc-peru.md", "context");
+    });
+  });
+
+  it("does not render a publish action when no org is active", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView({ ...opts, orgs: [], getActiveOrg: () => null });
+    v.open(); v.showSection("agents");
+    // Wait for the row to actually render before asserting the button's
+    // absence — a bare microtask flush would pass even if gating broke.
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")).toBeTruthy();
+    });
+    expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeNull();
   });
 });
 

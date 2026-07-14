@@ -32,9 +32,11 @@ pub struct PkgMeta {
     pub publisher_login: String,
     pub installs: i32,
     pub sha: String,
+    #[serde(default = "default_kind")]
+    pub kind: String,
 }
 
-#[allow(dead_code)] // description/sha/publisher_login are part of the server JSON contract
+#[allow(dead_code)] // description/sha/publisher_login/kind are part of the server JSON contract
 #[derive(Debug, Clone, Deserialize)]
 pub struct PkgFull {
     pub id: i64,
@@ -46,6 +48,12 @@ pub struct PkgFull {
     pub skill_md: String,
     pub sha: String,
     pub publisher_login: String,
+    #[serde(default = "default_kind")]
+    pub kind: String,
+}
+
+fn default_kind() -> String {
+    "skill".to_string()
 }
 
 fn jwt() -> Result<String, String> {
@@ -128,11 +136,12 @@ pub async fn remove_member(org: &str, login: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn search(org: &str, q: Option<&str>) -> Result<Vec<PkgMeta>, String> {
+pub async fn search(org: &str, q: Option<&str>, kind: &str) -> Result<Vec<PkgMeta>, String> {
     let mut url = format!(
-        "{}/cdlc/packages?org={}",
+        "{}/cdlc/packages?org={}&kind={}",
         auth::backend_url(),
-        urlencoding(org)
+        urlencoding(org),
+        urlencoding(kind)
     );
     if let Some(q) = q.filter(|s| !s.is_empty()) {
         url.push_str(&format!("&q={}", urlencoding(q)));
@@ -144,13 +153,14 @@ pub async fn search(org: &str, q: Option<&str>) -> Result<Vec<PkgMeta>, String> 
         .map_err(|e| e.to_string())
 }
 
-pub async fn resolve(org: &str, name: &str, version: &str) -> Result<PkgFull, String> {
+pub async fn resolve(org: &str, name: &str, version: &str, kind: &str) -> Result<PkgFull, String> {
     let url = format!(
-        "{}/cdlc/packages/{}/{}/{}",
+        "{}/cdlc/packages/{}/{}/{}?kind={}",
         auth::backend_url(),
         urlencoding(org),
         urlencoding(name),
-        urlencoding(version)
+        urlencoding(version),
+        urlencoding(kind)
     );
     send_authed(|j| client().get(&url).bearer_auth(j))
         .await?
@@ -167,11 +177,13 @@ pub async fn publish(
     description: &str,
     skill_toml: &str,
     skill_md: &str,
+    kind: &str,
 ) -> Result<Value, String> {
     let url = format!("{}/cdlc/packages", auth::backend_url());
     let body = serde_json::json!({
         "org": org, "name": name, "version": version,
         "description": description, "skill_toml": skill_toml, "skill_md": skill_md,
+        "kind": kind,
     });
     send_authed(|j| client().post(&url).bearer_auth(j).json(&body))
         .await?

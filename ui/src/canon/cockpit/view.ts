@@ -8,7 +8,7 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { CanonStatus, Org, Member, Operator, PkgMeta, MarketplaceListing } from "../../api";
+import type { CanonStatus, Org, Member, Operator, PkgMeta, MarketplaceListing, CanonPkgKind } from "../../api";
 import {
   canonOrgMembers,
   canonAddMember,
@@ -21,6 +21,7 @@ import {
   canonSearch,
   canonPreview,
   canonInstallRegistry,
+  canonInstallRegistryUnit,
   scoreSummaryFiltered,
   canonEvalSummary,
   operatorList,
@@ -102,7 +103,7 @@ const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   spec: ["Specs", "Task-anchor specs published in this repo (docs/specs)."],
   memory: ["Memory", "Durable facts this group carries into every executor's managed block."],
   skills: ["Skills", "Skills installed in this group, projected to your executors."],
-  registry: ["Registry", "Browse and install skills and operators shared across the organization."],
+  registry: ["Registry", "Browse and install everything your organization publishes — skills, operators, subagents, commands, context and MCP servers."],
   context: ["Context", "Repo-mined context this group carries into every session."],
   loop: ["Loop", "Adoption, inference footprint, and eval pass-rate for this group."],
 };
@@ -180,6 +181,16 @@ export class CanonCockpitView {
   }
 
   private renderSection(key: SectionKey): HTMLElement {
+    let headAction: HTMLElement | undefined;
+    if (key === "context" && this.opts.groupRootDir && this.opts.onNewContext) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "canon-sec-head-action";
+      btn.textContent = "New context";
+      btn.hidden = true; // revealed once the list confirms it has files
+      btn.addEventListener("click", () => this.opts.onNewContext?.());
+      headAction = btn;
+    }
     const body =
       key === "org" ? this.renderOrgSection()
       : key === "members" ? this.renderMembersSection()
@@ -191,28 +202,34 @@ export class CanonCockpitView {
       : key === "memory" ? this.renderMemorySection()
       : key === "skills" ? this.renderSkillsSection()
       : key === "registry" ? this.renderRegistrySection()
-      : key === "context" ? this.renderContextSection()
+      : key === "context" ? this.renderContextSection(headAction)
       : this.renderLoopSection();
     // Full-bleed header (divider spans the whole pane) + a contained content
     // column below it — the Capabilities layout.
     const wrap = document.createElement("div");
     wrap.className = "canon-cockpit-section-wrap";
-    wrap.append(this.sectionHead(SECTION_HEAD[key][0], SECTION_HEAD[key][1]), body);
+    wrap.append(this.sectionHead(SECTION_HEAD[key][0], SECTION_HEAD[key][1], headAction), body);
     return wrap;
   }
 
-  /** A consistent section header: title + one-line description. Gives every
-   *  section the same top structure instead of dropping straight into content. */
-  private sectionHead(title: string, desc: string): HTMLElement {
+  /** A consistent section header: title + one-line description, with an
+   *  optional right-aligned action (e.g. Context's "New context"). Gives
+   *  every section the same top structure instead of dropping straight
+   *  into content. */
+  private sectionHead(title: string, desc: string, action?: HTMLElement): HTMLElement {
     const head = document.createElement("header");
     head.className = "canon-cockpit-sec-head";
+    const text = document.createElement("div");
+    text.className = "canon-cockpit-sec-text";
     const h = document.createElement("h2");
     h.className = "canon-cockpit-sec-title";
     h.textContent = title;
     const p = document.createElement("p");
     p.className = "canon-cockpit-sec-desc";
     p.textContent = desc;
-    head.append(h, p);
+    text.append(h, p);
+    head.appendChild(text);
+    if (action) head.appendChild(action);
     return head;
   }
 
@@ -292,6 +309,26 @@ export class CanonCockpitView {
     if (/forbidden|403/i.test(s)) return "Only owners can add members.";
     if (/not.?found|404/i.test(s)) return "No Covenant user with that login.";
     return s;
+  }
+
+  /** Upload-to-registry icon button for a single-file unit row, or null
+   *  when no org is active (nothing to publish into). Shared by the
+   *  Subagents/Commands/MCP/Context sections. */
+  private unitPublishAction(cwd: string, kind: CanonPkgKind, name: string): HTMLButtonElement | null {
+    const active = this.activeOrg();
+    if (!active) return null;
+    const pub = iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => {
+      pub.disabled = true;
+      void canonPublish(cwd, active.slug, name, kind)
+        .then(() => { pushInfoToast({ message: `Published ${name} to ${active.slug}` }); pub.disabled = false; })
+        .catch((e) => {
+          const msg = this.friendlyError(e);
+          pushInfoToast({ message: msg.includes("already published") || msg.includes("Conflict")
+            ? `${name} is already published (unchanged)` : `Publish failed: ${msg}` });
+          pub.disabled = false;
+        });
+    });
+    return pub;
   }
 
   // ── Org section ──────────────────────────────────────────────────────
@@ -686,12 +723,13 @@ export class CanonCockpitView {
           return;
         }
         for (const a of status.agents) {
+          const pub = this.unitPublishAction(cwd, "agent", a.name);
           list.appendChild(skillCard({
             name: a.name,
             meta: "agent",
             className: "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "agent", a.name),
-            actions: [],
+            actions: pub ? [pub] : [],
           }));
         }
       })
@@ -732,12 +770,13 @@ export class CanonCockpitView {
           return;
         }
         for (const c of status.commands) {
+          const pub = this.unitPublishAction(cwd, "command", c.name);
           list.appendChild(skillCard({
             name: c.name,
             meta: c.description ?? "command",
             className: "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "command", c.name),
-            actions: [],
+            actions: pub ? [pub] : [],
           }));
         }
       })
@@ -778,12 +817,13 @@ export class CanonCockpitView {
           return;
         }
         for (const m of status.mcp) {
+          const pub = this.unitPublishAction(cwd, "mcp", m.name);
           list.appendChild(skillCard({
             name: m.name,
             meta: m.description ?? m.transport,
             className: "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "mcp", m.name),
-            actions: [],
+            actions: pub ? [pub] : [],
           }));
         }
       })
@@ -926,7 +966,7 @@ export class CanonCockpitView {
               const pub = iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => {
                 errorEl.hidden = true;
                 pub.disabled = true;
-                void canonPublish(cwd, active.slug, i.name)
+                void canonPublish(cwd, active.slug, i.name, "skill")
                   .then(load)
                   .catch((e) => {
                     errorEl.hidden = false;
@@ -974,19 +1014,30 @@ export class CanonCockpitView {
       return el;
     }
 
-    // Skills | Operators kind toggle — same registry surface, two catalogs.
-    let kind: "skills" | "operators" = "skills";
+    // Kind tabs — one registry surface, six catalogs. Operators ride the
+    // marketplace API; every other kind is a /cdlc/packages search.
+    type RegTab = { key: string; label: string; wire: CanonPkgKind | null };
+    const REG_TABS: RegTab[] = [
+      { key: "skills", label: "Skills", wire: "skill" },
+      { key: "operators", label: "Operators", wire: null },
+      { key: "agents", label: "Subagents", wire: "agent" },
+      { key: "commands", label: "Commands", wire: "command" },
+      { key: "context", label: "Context", wire: "context" },
+      { key: "mcp", label: "MCP", wire: "mcp" },
+    ];
+    let tab: RegTab = REG_TABS[0];
     const toggleRow = document.createElement("div");
     toggleRow.className = "canon-reg-kind-toggle";
-    const skillsBtn = document.createElement("button");
-    skillsBtn.type = "button";
-    skillsBtn.className = "canon-reg-kind";
-    skillsBtn.textContent = "Skills";
-    const opsBtn = document.createElement("button");
-    opsBtn.type = "button";
-    opsBtn.className = "canon-reg-kind";
-    opsBtn.textContent = "Operators";
-    toggleRow.append(skillsBtn, opsBtn);
+    const tabBtns = new Map<string, HTMLButtonElement>();
+    for (const t of REG_TABS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "canon-reg-kind";
+      b.textContent = t.label;
+      b.addEventListener("click", () => { applyKindUI(t); runSearch(); });
+      tabBtns.set(t.key, b);
+      toggleRow.appendChild(b);
+    }
 
     const searchRow = document.createElement("div");
     searchRow.className = "canon-cockpit-search-row";
@@ -1005,9 +1056,9 @@ export class CanonCockpitView {
     const results = document.createElement("div");
     results.className = "canon-cockpit-search-results";
 
-    const runSkillsSearch = (active: Org): void => {
+    const runPkgSearch = (active: Org, wire: CanonPkgKind): void => {
       results.replaceChildren(this.note("Searching…"));
-      void canonSearch(active.slug, input.value.trim() || null)
+      void canonSearch(active.slug, input.value.trim() || null, wire)
         .then((rows: PkgMeta[]) => {
           results.replaceChildren();
           if (rows.length === 0) {
@@ -1020,7 +1071,10 @@ export class CanonCockpitView {
               if (!org) return;
               errorEl.hidden = true;
               inst.disabled = true;
-              void canonInstallRegistry(cwd, org.slug, r.name, r.version, this.opts.groupLabel, null)
+              const install = wire === "skill"
+                ? canonInstallRegistry(cwd, org.slug, r.name, r.version, this.opts.groupLabel, null)
+                : canonInstallRegistryUnit(cwd, org.slug, r.name, r.version, wire);
+              void install
                 .then(() => { inst.innerHTML = Icons.check({ size: 15 }); })
                 .catch((e) => {
                   errorEl.hidden = false;
@@ -1029,14 +1083,20 @@ export class CanonCockpitView {
                 });
             });
             const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
+            const meta = wire === "skill"
+              ? `${r.version} · ${installs} · ${r.publisher_login}`
+              : `${installs} · ${r.publisher_login}`;
+            const stats = wire === "skill"
+              ? [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)]
+              : [`shared by ${r.publisher_login}`, installs];
             results.appendChild(skillCard({
               name: r.name,
-              meta: `${r.version} · ${installs} · ${r.publisher_login}`,
+              meta,
               description: r.description,
               className: "canon-search-result",
-              fetchPreview: () => canonPreview(active.slug, r.name, r.version).then((p) => p.skill_md),
+              fetchPreview: () => canonPreview(active.slug, r.name, r.version, wire).then((p) => p.skill_md),
               actions: [inst],
-              stats: [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)],
+              stats,
             }));
           }
         })
@@ -1092,7 +1152,7 @@ export class CanonCockpitView {
 
     const runSearch = (): void => {
       errorEl.hidden = true;
-      if (kind === "operators") {
+      if (tab.wire === null) {
         runOperatorsSearch();
         return;
       }
@@ -1102,21 +1162,22 @@ export class CanonCockpitView {
         errorEl.textContent = "No organization selected.";
         return;
       }
-      runSkillsSearch(active);
+      runPkgSearch(active, tab.wire);
     };
 
-    const applyKindUI = (next: "skills" | "operators"): void => {
-      kind = next;
-      skillsBtn.setAttribute("aria-pressed", String(next === "skills"));
-      skillsBtn.classList.toggle("is-active", next === "skills");
-      opsBtn.setAttribute("aria-pressed", String(next === "operators"));
-      opsBtn.classList.toggle("is-active", next === "operators");
+    const applyKindUI = (next: RegTab): void => {
+      tab = next;
+      for (const [key, b] of tabBtns) {
+        const isActive = key === next.key;
+        b.setAttribute("aria-pressed", String(isActive));
+        b.classList.toggle("is-active", isActive);
+      }
       input.value = "";
-      input.placeholder = next === "skills" ? `Search ${initialActive.slug} registry…` : "Search operators…";
+      input.placeholder = next.wire === null
+        ? "Search operators…"
+        : `Search ${initialActive.slug} ${next.wire === "mcp" ? "MCP" : next.label.toLowerCase()}…`;
     };
-    skillsBtn.addEventListener("click", () => { applyKindUI("skills"); runSearch(); });
-    opsBtn.addEventListener("click", () => { applyKindUI("operators"); runSearch(); });
-    applyKindUI("skills");
+    applyKindUI(REG_TABS[0]);
 
     go.addEventListener("click", runSearch);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
@@ -1128,7 +1189,7 @@ export class CanonCockpitView {
 
   // ── Context section ──────────────────────────────────────────────────
 
-  private renderContextSection(): HTMLElement {
+  private renderContextSection(headAction?: HTMLElement): HTMLElement {
     const el = document.createElement("div");
     el.className = "canon-cockpit-section is-context";
     const cwd = this.opts.groupRootDir;
@@ -1137,13 +1198,6 @@ export class CanonCockpitView {
       el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to mine and manage context."));
       return el;
     }
-
-    const newBtn = document.createElement("button");
-    newBtn.type = "button";
-    newBtn.className = "canon-new-context-btn";
-    newBtn.textContent = "New context";
-    newBtn.addEventListener("click", () => this.opts.onNewContext?.());
-    el.appendChild(newBtn);
 
     const list = document.createElement("div");
     list.className = "canon-cockpit-context-list";
@@ -1164,11 +1218,16 @@ export class CanonCockpitView {
           }));
           return;
         }
+        if (headAction) headAction.hidden = false;
         for (const c of status.contexts) {
-          const row = document.createElement("div");
-          row.className = "canon-context-row";
-          row.textContent = c.name;
-          list.appendChild(row);
+          const pub = this.unitPublishAction(cwd, "context", c.name);
+          list.appendChild(skillCard({
+            name: c.name,
+            meta: c.summary ?? "context",
+            className: "canon-skill-row",
+            fetchPreview: () => canonReadSource(cwd, "context", c.name),
+            actions: pub ? [pub] : [],
+          }));
         }
       })
       .catch((e) => {
@@ -1207,7 +1266,7 @@ export class CanonCockpitView {
       const orgSlug = active.slug;
       void Promise.all([
         canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] }) as CanonStatus),
-        canonSearch(orgSlug, null).catch(() => [] as PkgMeta[]),
+        canonSearch(orgSlug, null, "skill").catch(() => [] as PkgMeta[]),
       ]).then(([status, pkgs]) => {
         const registrySkills = status.installed.filter((i) => i.source.startsWith("registry:"));
         if (registrySkills.length === 0) return;

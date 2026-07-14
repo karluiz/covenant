@@ -1,7 +1,8 @@
 //! The context-kind contract: the enumerable classes Canon carries into an
 //! executor's context — Agent, Context, Memory, Command, Mcp, Spec, Skill (the
-//! full CDLC roadmap). Skill is the only packageable kind; Spec is surface-only
-//! (repo-root `docs/specs`, not projected).
+//! full CDLC roadmap). Skill, Agent, Command, Context and Mcp are packageable;
+//! Spec is surface-only (repo-root `docs/specs`, not projected) and Memory is
+//! repo-local.
 
 use crate::manifest::{canon_dir, read_manifest};
 use crate::project::{parse_frontmatter_str, parse_summary, read_dir_md};
@@ -111,7 +112,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             name,
             summary: None,
             projectable: true,
-            packageable: false,
+            packageable: true,
         });
     }
     for (name, raw) in read_dir_md(&base.join("context"))? {
@@ -120,7 +121,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             summary: parse_summary(&raw),
             name,
             projectable: true,
-            packageable: false,
+            packageable: true,
         });
     }
     for (name, raw) in read_dir_md(&base.join("memory"))? {
@@ -138,7 +139,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             summary: parse_frontmatter_str(&raw, "description").or_else(|| parse_summary(&raw)),
             name,
             projectable: true,
-            packageable: false,
+            packageable: true,
         });
     }
     for (name, srv) in crate::mcp::read_mcp_servers(repo_root)? {
@@ -147,7 +148,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             summary: srv.description.clone(),
             name,
             projectable: true,
-            packageable: false,
+            packageable: true,
         });
     }
     for (name, title) in read_specs(repo_root)? {
@@ -204,10 +205,11 @@ mod tests {
         assert_eq!(units.len(), 3);
         let agent = units.iter().find(|u| u.kind == ContextKind::Agent).unwrap();
         assert_eq!(agent.name, "reviewer");
-        assert!(!agent.packageable);
+        assert!(agent.packageable);
         let ctx = units.iter().find(|u| u.kind == ContextKind::Context).unwrap();
         assert_eq!(ctx.name, "kyc");
         assert_eq!(ctx.summary.as_deref(), Some("KYC rules for Peru"));
+        assert!(ctx.packageable);
         let skill = units.iter().find(|u| u.kind == ContextKind::Skill).unwrap();
         assert_eq!(skill.name, "testing");
         assert!(skill.packageable);
@@ -229,7 +231,7 @@ mod tests {
         let cmd = units.iter().find(|u| u.kind == ContextKind::Command).unwrap();
         assert_eq!(cmd.name, "deploy");
         assert_eq!(cmd.summary.as_deref(), Some("Ship the current branch"));
-        assert!(!cmd.packageable);
+        assert!(cmd.packageable);
         assert!(cmd.projectable);
     }
 
@@ -298,6 +300,6 @@ mod tests {
         let mcp = units.iter().find(|u| u.kind == ContextKind::Mcp).unwrap();
         assert_eq!(mcp.name, "ctx7");
         assert_eq!(mcp.summary.as_deref(), Some("C7"));
-        assert!(!mcp.packageable);
+        assert!(mcp.packageable);
     }
 }

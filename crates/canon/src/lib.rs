@@ -9,7 +9,7 @@ pub mod eval;
 pub mod kind;
 pub mod mcp;
 
-pub use install::{install_from_dir, install_local, read_skill_package, read_source, status, CanonStatus};
+pub use install::{install_from_dir, install_local, install_unit, read_skill_package, read_source, status, CanonStatus, content_version};
 pub use manifest::{canon_dir, read_manifest, write_manifest};
 pub use project::{
     project, project_with_active, projection_status, ExecutorStatus, ProjState, ProjectionStatus,
@@ -17,7 +17,7 @@ pub use project::{
 pub use types::{CanonManifest, InstalledRef, SkillManifest};
 pub use eval::{pass_rate, read_evals, read_results, write_result, Eval, EvalResult};
 pub use kind::{list_context, ContextKind, ContextUnit};
-pub use mcp::McpServer;
+pub use mcp::{McpServer, blank_mcp_secrets};
 
 use thiserror::Error;
 

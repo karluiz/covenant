@@ -808,7 +808,7 @@ export class CanonPanel {
     if (!cwd || !active) return;
     const org = active.slug;
     try {
-      await canonPublish(cwd, org, name);
+      await canonPublish(cwd, org, name, "skill");
       await this.refresh();
       pushInfoToast({ message: `Published ${name} to ${org}` });
     } catch (e) {

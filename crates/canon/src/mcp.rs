@@ -314,6 +314,21 @@ pub(crate) fn mcp_synced(repo_root: &Path, tool: &str, servers: &[(String, McpSe
     }
 }
 
+/// Strip secrets from an MCP server JSON before it leaves the machine:
+/// every `env` and `headers` VALUE becomes "" (keys survive so the installer
+/// knows what to fill in). Errors on JSON that isn't a valid McpServer.
+pub fn blank_mcp_secrets(raw: &str) -> Result<String, CanonError> {
+    let mut srv: McpServer = serde_json::from_str(raw)
+        .map_err(|e| CanonError::InvalidPackage(format!("mcp json: {e}")))?;
+    for v in srv.env.values_mut() {
+        *v = String::new();
+    }
+    for v in srv.headers.values_mut() {
+        *v = String::new();
+    }
+    serde_json::to_string_pretty(&srv).map_err(|e| CanonError::InvalidPackage(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,5 +519,27 @@ mod tests {
             contents, invalid,
             "unparseable user file must not be clobbered"
         );
+    }
+
+    #[test]
+    fn blank_mcp_secrets_empties_env_and_header_values_keeping_keys() {
+        let raw = r#"{"command":"npx","args":["-y","x"],"env":{"API_KEY":"sk-secret","MODE":"prod"},"description":"D"}"#;
+        let out = blank_mcp_secrets(raw).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["env"]["API_KEY"], "");
+        assert_eq!(v["env"]["MODE"], "");
+        assert_eq!(v["command"], "npx");
+        assert_eq!(v["description"], "D");
+
+        let remote = r#"{"type":"http","url":"https://x.example/mcp","headers":{"Authorization":"Bearer tok"}}"#;
+        let out = blank_mcp_secrets(remote).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["headers"]["Authorization"], "");
+        assert_eq!(v["url"], "https://x.example/mcp");
+    }
+
+    #[test]
+    fn blank_mcp_secrets_rejects_invalid_json() {
+        assert!(blank_mcp_secrets("{ nope").is_err());
     }
 }
