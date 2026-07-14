@@ -12,7 +12,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { cliInstalled, installCli, listMonospaceFonts } from "../api";
+import { cliInstalled, installCli, listMonospaceFonts, type AcpExecutorConfig } from "../api";
 
 import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
@@ -182,6 +182,7 @@ interface Settings {
   telegram?: TelegramSettings;
   providers?: Record<string, ProviderEntry>;
   model_routes?: Record<string, RouteEntry>;
+  acp_executors?: Record<string, AcpExecutorConfig>;
   experimental?: ExperimentalConfig;
   code_intelligence?: CodeIntelligenceSettings;
 }
@@ -2056,6 +2057,9 @@ export class SettingsPanel {
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      // Re-read so we pick up acp_executors (and any other fields)
+      // that sub-sections persisted directly without updating this.current.
+      const freshSettings = await getSettings();
       const prevOp = this.current!.operator;
       const next: Settings = {
         anthropic_api_key: this.current!.providers?.anthropic?.api_key?.trim()
@@ -2142,6 +2146,7 @@ export class SettingsPanel {
         telegram: this.current!.telegram,
         providers: this.current!.providers,
         model_routes: this.current!.model_routes,
+        acp_executors: freshSettings.acp_executors,
         experimental: {
           split_panes: splitPanesInput.checked,
           statusbar_two_row: statusbarTwoRowInput.checked,
