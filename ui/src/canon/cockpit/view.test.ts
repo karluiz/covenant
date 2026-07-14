@@ -141,7 +141,7 @@ describe("CanonCockpitView create-org flow", () => {
 describe("CanonCockpitView Registry section", () => {
   it("renders registry search results for the active org", async () => {
     vi.mocked(canonSearch).mockResolvedValue([
-      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234" },
+      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234", kind: "skill" },
     ]);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("registry");

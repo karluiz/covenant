@@ -1595,6 +1595,7 @@ export interface PkgMeta {
   publisher_login: string;
   installs: number;
   sha: string;
+  kind: string;
 }
 export async function canonMyOrgs(): Promise<Org[]> {
   return invoke<Org[]>("canon_my_orgs");
@@ -1614,15 +1615,22 @@ export async function canonAddMember(org: string, login: string): Promise<void> 
 export async function canonRemoveMember(org: string, login: string): Promise<void> {
   return invoke("canon_remove_member", { org, login });
 }
-export async function canonSearch(org: string, query: string | null): Promise<PkgMeta[]> {
-  return invoke<PkgMeta[]>("canon_search", { org, query });
+export type CanonPkgKind = "skill" | "agent" | "command" | "context" | "mcp";
+
+export async function canonSearch(org: string, query: string | null, kind: CanonPkgKind): Promise<PkgMeta[]> {
+  return invoke<PkgMeta[]>("canon_search", { org, query, kind });
 }
 export interface CanonPreview {
   description: string;
   skill_md: string;
 }
-export async function canonPreview(org: string, name: string, version: string): Promise<CanonPreview> {
-  return invoke<CanonPreview>("canon_preview", { org, name, version });
+export async function canonPreview(
+  org: string,
+  name: string,
+  version: string,
+  kind: CanonPkgKind,
+): Promise<CanonPreview> {
+  return invoke<CanonPreview>("canon_preview", { org, name, version, kind });
 }
 export async function canonReadLocal(cwd: string, name: string): Promise<string> {
   return invoke<string>("canon_read_local", { cwd, name });
@@ -1663,8 +1671,8 @@ export async function scoreSummaryFiltered(groupName: string | null): Promise<Sc
   const filter = { repo: null, branch: null, group_name: groupName, day: null, agent: null };
   return invoke<ScoreSummary>("score_summary_filtered", { filter });
 }
-export async function canonPublish(cwd: string, org: string, name: string): Promise<unknown> {
-  return invoke<unknown>("canon_publish", { cwd, org, name });
+export async function canonPublish(cwd: string, org: string, name: string, kind: CanonPkgKind): Promise<unknown> {
+  return invoke<unknown>("canon_publish", { cwd, org, name, kind });
 }
 export async function canonInstallRegistry(
   cwd: string,
@@ -1675,6 +1683,15 @@ export async function canonInstallRegistry(
   workspace: string | null,
 ): Promise<InstalledRef> {
   return invoke<InstalledRef>("canon_install_registry", { cwd, org, name, version, group, workspace });
+}
+export async function canonInstallRegistryUnit(
+  cwd: string,
+  org: string,
+  name: string,
+  version: string,
+  kind: CanonPkgKind,
+): Promise<void> {
+  return invoke<void>("canon_install_registry_unit", { cwd, org, name, version, kind });
 }
 
 // Canon — eval runner (Task 4) -----------------------------------------
