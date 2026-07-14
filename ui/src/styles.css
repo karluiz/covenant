@@ -15879,6 +15879,7 @@ body.theme-light .settings-header h2,
 body.theme-light .settings-page-header h2 { color: var(--text-primary) !important; }
 
 body.theme-light .settings-save:not(:disabled),
+body.theme-light .cloud-btn-primary:not(:disabled),
 body.theme-light .mission-viewer-save:not(:disabled),
 body.theme-light .mission-page-submit:not(:disabled) {
     color: #ffffff !important;
@@ -15918,6 +15919,11 @@ body.theme-light .release-close:hover .settings-esc {
    bespoke: rounded 16px, gradient backdrop, progress fill bar, and
    step counter in the footer.
    ------------------------------------------------------------------------- */
+
+.onboarding-overlay {
+    align-items: center;
+    padding-top: 0;
+}
 
 .onboarding-card {
     width: 580px;
