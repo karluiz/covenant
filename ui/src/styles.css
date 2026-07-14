@@ -6520,7 +6520,7 @@ body:not(.statusbar-single-row) .sb-row .sb-center {
     color: var(--fg);
     background: var(--bg-overlay);
     border: 1px solid var(--border);
-    border-radius: 12px 12px 0 0;
+    border-radius: 0;
     border-bottom: none;
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
     font-size: 12px;
@@ -6558,27 +6558,42 @@ body.theme-light .status-git-popover {
 .status-git-pop-badge {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    border-radius: 0;
-    padding: 2px 7px;
-    border: 1px solid rgb(var(--ink-rgb) / 0.1);
-    background: rgb(var(--ink-rgb) / 0.035);
-    color: var(--muted);
-    font-size: 10.5px;
+    gap: 5px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
     line-height: 1.25;
     white-space: nowrap;
+    color: var(--muted);
 }
 .status-git-pop-current {
+    padding: 2px 7px;
     color: var(--fg);
     background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.status-git-pop-clean::before,
+.status-git-pop-dirty::before,
+.status-git-pop-badge.is-clean::before,
+.status-git-pop-badge.is-dirty::before,
+.status-git-pop-badge.is-here::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: none;
 }
 .status-git-pop-clean { color: var(--ok); }
-.status-git-pop-dirty {
-    color: var(--running);
-    border-color: color-mix(in srgb, var(--running) 35%, transparent);
-    background: color-mix(in srgb, var(--running) 10%, transparent);
-}
+.status-git-pop-clean::before { background: var(--ok); }
+.status-git-pop-dirty { color: var(--running); }
+.status-git-pop-dirty::before { background: var(--running); }
+.status-git-pop-badge.is-clean::before { background: var(--ok); }
+.status-git-pop-badge.is-dirty { color: var(--running); }
+.status-git-pop-badge.is-dirty::before { background: var(--running); }
+.status-git-pop-badge.is-here { color: var(--accent); }
+.status-git-pop-badge.is-here::before { background: var(--accent); }
 .status-git-pop-root {
     color: var(--muted);
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -6648,11 +6663,21 @@ body.theme-light .status-git-popover {
 }
 .status-git-pop-section h3 {
     margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
     color: var(--muted);
     font-size: 10.5px;
     font-weight: 650;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+}
+.status-git-pop-count {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 9.5px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: color-mix(in srgb, var(--muted) 70%, transparent);
 }
 .status-git-pop-list {
     min-height: 0;
@@ -6690,9 +6715,11 @@ body.theme-light .status-git-popover {
     pointer-events: none;
 }
 .status-git-pop-row.is-current::before,
+.status-git-pop-row.is-active::before,
 .status-git-pop-row:focus-visible::before,
 .status-git-pop-row:hover::before { display: none; }
 .status-git-pop-row.is-current + .status-git-pop-row::before,
+.status-git-pop-row.is-active + .status-git-pop-row::before,
 .status-git-pop-row:focus-visible + .status-git-pop-row::before,
 .status-git-pop-row:hover + .status-git-pop-row::before { display: none; }
 button.status-git-pop-row {
@@ -6703,9 +6730,9 @@ button.status-git-pop-row {
     font: inherit;
     cursor: pointer;
 }
-button.status-git-pop-row:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent) 9%, transparent);
-    border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+button.status-git-pop-row:hover:not(:disabled),
+.status-git-pop-row.is-active {
+    background: rgb(var(--ink-rgb) / 0.06);
 }
 button.status-git-pop-row:focus { outline: none; }
 button.status-git-pop-row:focus-visible:not(:disabled) {
@@ -6719,9 +6746,10 @@ button.status-git-pop-row:disabled {
     opacity: 0.72;
 }
 .status-git-pop-row.is-current {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
-    border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+    background: rgb(var(--ink-rgb) / 0.04);
+    box-shadow: inset 2px 0 0 var(--accent);
 }
+.status-git-pop-row.is-current .status-git-pop-badge { color: var(--accent); }
 .status-git-pop-row-main {
     min-width: 0;
     display: flex;
@@ -6754,12 +6782,21 @@ button.status-git-pop-row:disabled {
     background: transparent;
     color: var(--fg);
     cursor: pointer;
-    font: inherit;
-    font-size: 10.5px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 9.5px;
     font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     line-height: 1.25;
     padding: 2px 8px;
     height: 20px;
+    opacity: 0;
+    transition: opacity 100ms ease;
+}
+.status-git-pop-worktree:hover .status-git-pop-open-wt,
+.status-git-pop-worktree.is-active .status-git-pop-open-wt,
+.status-git-pop-open-wt:focus-visible {
+    opacity: 1;
 }
 .status-git-pop-open-wt:hover:not(:disabled) {
     border-color: var(--accent);
