@@ -10,6 +10,7 @@
 //! the user's behalf.
 
 mod acp_commands;
+mod acp_world;
 mod aom;
 mod cli_open;
 mod archetypes;
@@ -456,8 +457,8 @@ async fn spawn_session(
     // launches the shell directly in this directory — no visible
     // typed line, no bogus block in the sidebar. We validate the
     // path exists; if it's gone (cleaned-up dir) fall back to $HOME.
-    if let Some(cwd) = initial_cwd {
-        let p = std::path::PathBuf::from(&cwd);
+    if let Some(ref cwd) = initial_cwd {
+        let p = std::path::PathBuf::from(cwd);
         if p.is_dir() {
             opts.cwd = Some(p);
         } else {
@@ -590,6 +591,40 @@ async fn spawn_session(
     // first command. Also persists every BlockFinished to SQLite so
     // closing the app doesn't lose history.
     let world = Arc::new(Mutex::new(SessionWorldModel::default()));
+    // Rehydrate from previous sessions at the same cwd (session ids don't
+    // survive restarts; cwd is the only stable key). Best-effort: any
+    // storage failure just leaves the model empty, as before.
+    if let Some(cwd) = initial_cwd.clone().filter(|c| !c.is_empty()) {
+        let world_seed = world.clone();
+        let storage_seed = state.storage.clone();
+        tauri::async_runtime::spawn(async move {
+            let blocks = storage_seed
+                .recent_blocks_by_cwd(cwd.clone(), 8)
+                .await
+                .unwrap_or_default();
+            let summary = storage_seed
+                .latest_summary_by_cwd(cwd.clone())
+                .await
+                .ok()
+                .flatten()
+                .map(|s| format!("(carried over from a previous session in this directory) {s}"));
+            if blocks.is_empty() && summary.is_none() {
+                return;
+            }
+            let snaps: Vec<crate::world::BlockSnapshot> = blocks
+                .into_iter()
+                .map(|b| crate::world::BlockSnapshot {
+                    command: b.command,
+                    cwd: std::path::PathBuf::from(b.cwd.unwrap_or_default()),
+                    exit_code: b.exit_code,
+                    duration_ms: b.duration_ms,
+                    output_text: String::new(),
+                    inherited: true,
+                })
+                .collect();
+            world_seed.lock().await.seed_history(snaps, summary);
+        });
+    }
     let world_for_task = world.clone();
     let storage_for_world = state.storage.clone();
     let operator_for_world = state.operator.clone();

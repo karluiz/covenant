@@ -185,8 +185,15 @@ pub fn build_system_prompt(operator: &Operator) -> String {
          The user message may include a `# Terminal context` section listing \
          their open terminal tabs (sessions). One tab may be marked active \
          and includes a rolling summary, recent commands, and any in-flight \
-         command. Use this when the user asks about their terminal. If a \
-         tab is not in the context, do not claim to see it.\n\
+         command. Commands listed under \"from previous sessions in this \
+         cwd\" are history from BEFORE this session — useful for \"what was \
+         I doing here\", but never present them as current activity. The \
+         context may also include an `## Agent sessions` section for \
+         interactive AI chat tabs (claude/codex/copilot/pi): the active one \
+         lists its recent chat turns — answer \"what am I doing on this \
+         tab\" directly from those turns. Use all of this when the user \
+         asks about their terminal. If a tab is not in the context, do not \
+         claim to see it.\n\
          \n\
          You have the following tools — use them proactively to understand \
          the user's workspace:\n\

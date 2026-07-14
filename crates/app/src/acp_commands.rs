@@ -237,6 +237,10 @@ struct AcpTabSession {
     /// permission request; this field is that same `Arc`, kept on the tab
     /// so `acp_set_trust` can reach it.
     trust: Arc<std::sync::RwLock<AcpTrust>>,
+    /// Mechanical transcript ring feeding the operator's terminal
+    /// context (see `acp_world.rs`). std Mutex: short holds, never
+    /// across an await — same pattern as `commands`/`models`.
+    world: std::sync::Mutex<crate::acp_world::AcpWorldModel>,
 }
 
 impl AcpTabSession {
@@ -321,6 +325,42 @@ impl AcpRegistry {
     async fn remove(&self, id: &SessionId) -> Option<Arc<AcpTabSession>> {
         self.inner.lock().await.remove(id)
     }
+
+    /// Clone every live tab's world-model state for the operator's
+    /// terminal-context snapshot. Inner std locks are held per-tab for
+    /// the clone only, never across an await.
+    pub async fn snapshot_worlds(&self) -> Vec<AcpWorldSnapshot> {
+        let g = self.inner.lock().await;
+        g.iter()
+            .map(|(id, tab)| {
+                let w = match tab.world.lock() {
+                    Ok(w) => w,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                AcpWorldSnapshot {
+                    id: *id,
+                    executor: w.executor.clone(),
+                    turns: w.turns(),
+                    in_flight: w.in_flight_text(),
+                    last_prompt: w.last_user_prompt(),
+                    cwd: tab.cwd.clone(),
+                }
+            })
+            .collect()
+    }
+}
+
+/// One ACP tab's world-model state, cloned out of the registry for the
+/// operator's `# Terminal context` (see `teammate/world_snapshot.rs`).
+#[derive(Debug, Clone)]
+pub struct AcpWorldSnapshot {
+    pub id: SessionId,
+    pub executor: String,
+    pub turns: Vec<(crate::acp_world::AcpRole, String)>,
+    /// Agent text currently streaming (unflushed buffer), if any.
+    pub in_flight: Option<String>,
+    pub last_prompt: Option<String>,
+    pub cwd: PathBuf,
 }
 
 // ---------------------------------------------------------------------------
@@ -789,6 +829,7 @@ pub async fn spawn_acp_session(
         ready_tx,
         perception_consecutive: AtomicU32::new(0),
         trust: trust.clone(),
+        world: std::sync::Mutex::new(crate::acp_world::AcpWorldModel::new(executor.clone())),
     });
     let tab_for_task = tab_session.clone();
 
@@ -875,13 +916,45 @@ pub async fn spawn_acp_session(
             }
             // Cache the slash roster: the frontend's Tauri listener races
             // these first emits, so the view re-fetches via
-            // `acp_get_commands` after subscribing.
+            // `acp_get_commands` after subscribing. Also feed the tab's
+            // world model (operator context) — a session/load replay
+            // flows through here too, repopulating it after restart.
             if let AcpSessionEvent::Update(n) = &ev {
-                if let SessionUpdate::AvailableCommandsUpdate { available_commands } = &n.update {
-                    match tab_for_task.commands.lock() {
-                        Ok(mut c) => *c = available_commands.clone(),
-                        Err(poisoned) => *poisoned.into_inner() = available_commands.clone(),
+                match &n.update {
+                    SessionUpdate::AvailableCommandsUpdate { available_commands } => {
+                        match tab_for_task.commands.lock() {
+                            Ok(mut c) => *c = available_commands.clone(),
+                            Err(poisoned) => *poisoned.into_inner() = available_commands.clone(),
+                        }
                     }
+                    SessionUpdate::AgentMessageChunk { content } => {
+                        if let Some(t) = content.as_text() {
+                            match tab_for_task.world.lock() {
+                                Ok(mut w) => w.on_agent_chunk(t),
+                                Err(poisoned) => poisoned.into_inner().on_agent_chunk(t),
+                            }
+                        }
+                    }
+                    SessionUpdate::UserMessageChunk { content } => {
+                        if let Some(t) = content.as_text() {
+                            match tab_for_task.world.lock() {
+                                Ok(mut w) => w.record_user(t),
+                                Err(poisoned) => poisoned.into_inner().record_user(t),
+                            }
+                        }
+                    }
+                    SessionUpdate::ToolCall(f) => {
+                        let title = f
+                            .title
+                            .as_deref()
+                            .or_else(|| f.command())
+                            .unwrap_or("tool call");
+                        match tab_for_task.world.lock() {
+                            Ok(mut w) => w.on_tool_call(title),
+                            Err(poisoned) => poisoned.into_inner().on_tool_call(title),
+                        }
+                    }
+                    _ => {}
                 }
             }
             let payload = match ev {
@@ -1135,6 +1208,15 @@ pub async fn acp_send_prompt(
         return Err("acp: prompt already in flight".to_string());
     }
 
+    // Feed the tab's world model (operator context). `text` was moved
+    // into the first prompt block above.
+    if let Some(t) = blocks[0].get("text").and_then(Value::as_str) {
+        match tab.world.lock() {
+            Ok(mut w) => w.record_user(t),
+            Err(poisoned) => poisoned.into_inner().record_user(t),
+        }
+    }
+
     let topic = format!("session://{id}/acp");
     let notch_hub = state.notch_hub.clone();
     let acp_session_id = tab.wire_id();
@@ -1159,6 +1241,11 @@ pub async fn acp_send_prompt(
             Err(e) => e.to_string(),
         };
         tab_for_flag.in_flight.store(false, Ordering::Release);
+        // Turn boundary: fold the streamed chunks into one Agent turn.
+        match tab_for_flag.world.lock() {
+            Ok(mut w) => w.flush_agent_turn(),
+            Err(poisoned) => poisoned.into_inner().flush_agent_turn(),
+        }
         notch_hub
             .set_phase(
                 id,

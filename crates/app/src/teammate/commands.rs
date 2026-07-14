@@ -130,6 +130,10 @@ pub async fn teammate_send_text_message(
         .as_deref()
         .and_then(|s| s.parse::<karl_session::SessionId>().ok());
 
+    // ACP chat tabs (claude/codex/copilot/pi) — cloned here because
+    // `State<'_, AppState>` isn't `'static` (same reason as session_data).
+    let acp_worlds = state.acp_sessions.snapshot_worlds().await;
+
     let storage_bg = storage.inner().clone();
     let registry_bg = registry.inner().clone();
     let runtime_bg = runtime.inner().clone();
@@ -207,10 +211,22 @@ pub async fn teammate_send_text_message(
                 now_ms(),
             ));
         }
-        let mut world_context_str = if snapshots.is_empty() {
+        let acp_snapshots: Vec<crate::teammate::world_snapshot::AcpTabSnapshot> = acp_worlds
+            .into_iter()
+            .map(|w| crate::teammate::world_snapshot::AcpTabSnapshot {
+                id: w.id,
+                is_active: Some(w.id) == active_session_id_parsed,
+                executor: w.executor,
+                turns: w.turns,
+                in_flight: w.in_flight,
+                last_prompt: w.last_prompt,
+                cwd: w.cwd.display().to_string(),
+            })
+            .collect();
+        let mut world_context_str = if snapshots.is_empty() && acp_snapshots.is_empty() {
             String::new()
         } else {
-            crate::teammate::world_snapshot::render(&snapshots)
+            crate::teammate::world_snapshot::render_with_acp(&snapshots, &acp_snapshots)
         };
         // Surface the operator's own in-flight tasks so it can answer "are you
         // finished?"-style questions and not propose duplicates of running work.
@@ -239,14 +255,26 @@ pub async fn teammate_send_text_message(
         // dispatch so the operator can still answer.
         let active_cwd: Option<std::path::PathBuf> =
             if let Some(active_id) = active_session_id_parsed {
-                snapshots.iter().find(|s| s.id == active_id).and_then(|s| {
-                    let raw = std::path::PathBuf::from(&s.cwd);
-                    if raw.as_os_str().is_empty() {
-                        None
-                    } else {
-                        raw.canonicalize().ok()
-                    }
-                })
+                snapshots
+                    .iter()
+                    .find(|s| s.id == active_id)
+                    .map(|s| s.cwd.clone())
+                    // The focused tab may be an ACP chat tab — its cwd
+                    // works as a tool-sandbox root just the same.
+                    .or_else(|| {
+                        acp_snapshots
+                            .iter()
+                            .find(|s| s.id == active_id)
+                            .map(|s| s.cwd.clone())
+                    })
+                    .and_then(|cwd| {
+                        let raw = std::path::PathBuf::from(&cwd);
+                        if raw.as_os_str().is_empty() {
+                            None
+                        } else {
+                            raw.canonicalize().ok()
+                        }
+                    })
             } else {
                 None
             };

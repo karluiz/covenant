@@ -974,6 +974,36 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    /// Rolling summary of the most recent PREVIOUS session that ran
+    /// blocks in `cwd`. Used to seed a fresh session's world model at
+    /// spawn so the operator can answer "what was I doing here" right
+    /// after an app restart (session ids don't survive restarts; cwd is
+    /// the only stable key — see the tab manifest).
+    pub async fn latest_summary_by_cwd(
+        &self,
+        cwd: String,
+    ) -> Result<Option<String>, StorageError> {
+        if cwd.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Option<String>, StorageError> {
+            let c = conn.blocking_lock();
+            let result = c
+                .query_row(
+                    "SELECT summary FROM summaries WHERE session_id =
+                         (SELECT session_id FROM blocks WHERE cwd = ?1
+                          ORDER BY finished_at_unix_ms DESC LIMIT 1)",
+                    params![cwd],
+                    |r| r.get::<_, String>(0),
+                )
+                .optional()?;
+            Ok(result)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     /// Read most-recent blocks that ran in the given `cwd` (across
     /// sessions). Used by the BlockManager sidebar to surface
     /// historical commands when reopening a tab in the same dir —
@@ -3793,6 +3823,44 @@ mod tests {
         let (summary, title) = s.load_summary(session).await.unwrap().unwrap();
         assert_eq!(summary, "did stuff");
         assert_eq!(title, "release prep");
+    }
+
+    #[tokio::test]
+    async fn latest_summary_by_cwd_picks_most_recent_session() {
+        let (s, _g) = fresh();
+        let older = SessionId::new();
+        let newer = SessionId::new();
+        s.save_session(older, 1).await.unwrap();
+        s.save_session(newer, 2).await.unwrap();
+        for (sess, ts) in [(older, 100u64), (newer, 200u64)] {
+            s.save_block(
+                BlockId::new(),
+                sess,
+                "make build".into(),
+                Some("/proj".into()),
+                Some(0),
+                10,
+                ts,
+                String::new(),
+            )
+            .await
+            .unwrap();
+        }
+        s.save_summary(older, "old work".into(), "t".into(), 100)
+            .await
+            .unwrap();
+        s.save_summary(newer, "new work".into(), "t".into(), 200)
+            .await
+            .unwrap();
+
+        let got = s.latest_summary_by_cwd("/proj".into()).await.unwrap();
+        assert_eq!(got.as_deref(), Some("new work"));
+        assert!(s
+            .latest_summary_by_cwd("/nowhere".into())
+            .await
+            .unwrap()
+            .is_none());
+        assert!(s.latest_summary_by_cwd(String::new()).await.unwrap().is_none());
     }
 
     #[tokio::test]

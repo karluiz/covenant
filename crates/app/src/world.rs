@@ -22,6 +22,10 @@ pub struct BlockSnapshot {
     pub exit_code: Option<i32>,
     pub duration_ms: u64,
     pub output_text: String,
+    /// True for blocks seeded from a PREVIOUS session's history (same
+    /// cwd, loaded from SQLite at spawn). Rendered separately so the
+    /// agent never mistakes prior work for live activity.
+    pub inherited: bool,
 }
 
 #[derive(Debug, Default)]
@@ -84,12 +88,29 @@ impl SessionWorldModel {
                     exit_code,
                     duration_ms,
                     output_text: truncate(&output_text, MAX_OUTPUT_CHARS),
+                    inherited: false,
                 });
                 while self.blocks.len() > MAX_BLOCKS {
                     self.blocks.pop_front();
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Seed the model with history from a previous session (same cwd),
+    /// loaded from SQLite at spawn. `blocks` arrive newest-first
+    /// (storage order) and are prepended so any live blocks stay after
+    /// them. The seeded `summary` never clobbers a live one.
+    pub fn seed_history(&mut self, blocks: Vec<BlockSnapshot>, summary: Option<String>) {
+        for b in blocks {
+            self.blocks.push_front(b);
+        }
+        while self.blocks.len() > MAX_BLOCKS {
+            self.blocks.pop_front();
+        }
+        if self.summary.is_none() {
+            self.summary = summary;
         }
     }
 
@@ -148,8 +169,9 @@ fn render_block_full(out: &mut String, idx: usize, b: &BlockSnapshot) {
         .exit_code
         .map(|c| c.to_string())
         .unwrap_or_else(|| "?".to_string());
+    let prior = if b.inherited { " [prior session]" } else { "" };
     out.push_str(&format!(
-        "\n--- block {idx} ---\n\
+        "\n--- block {idx}{prior} ---\n\
          $ {cmd}\n\
          cwd:   {cwd}\n\
          exit:  {exit}    duration: {dur}ms\n",
@@ -171,8 +193,9 @@ fn render_block_brief(out: &mut String, b: &BlockSnapshot) {
         .exit_code
         .map(|c| c.to_string())
         .unwrap_or_else(|| "?".to_string());
+    let prior = if b.inherited { " [prior session]" } else { "" };
     out.push_str(&format!(
-        "$ {cmd}    [exit {exit}, {dur}ms]\n",
+        "$ {cmd}    [exit {exit}, {dur}ms]{prior}\n",
         cmd = b.command,
         dur = b.duration_ms,
     ));
@@ -274,6 +297,68 @@ mod tests {
         assert!(msg.contains("$ cargo build"));
         assert!(!msg.contains("error[E0432]"));
         assert!(msg.contains("status?"));
+    }
+
+    #[test]
+    fn seed_history_prepends_inherited_blocks() {
+        let mut w = SessionWorldModel::default();
+        w.apply(finished("live-cmd", 0, ""));
+        // Seed arrives newest-first (storage order).
+        w.seed_history(
+            vec![
+                BlockSnapshot {
+                    command: "newer-old".into(),
+                    cwd: PathBuf::from("/tmp"),
+                    exit_code: Some(0),
+                    duration_ms: 5,
+                    output_text: String::new(),
+                    inherited: true,
+                },
+                BlockSnapshot {
+                    command: "older-old".into(),
+                    cwd: PathBuf::from("/tmp"),
+                    exit_code: Some(1),
+                    duration_ms: 5,
+                    output_text: String::new(),
+                    inherited: true,
+                },
+            ],
+            Some("prior summary".into()),
+        );
+        assert_eq!(w.blocks.len(), 3);
+        assert_eq!(w.blocks[0].command, "older-old");
+        assert_eq!(w.blocks[1].command, "newer-old");
+        assert_eq!(w.blocks[2].command, "live-cmd");
+        assert!(w.blocks[0].inherited);
+        assert!(!w.blocks[2].inherited);
+        assert_eq!(w.summary.as_deref(), Some("prior summary"));
+
+        // Existing summary is never clobbered by a seed.
+        w.summary = Some("live summary".into());
+        w.seed_history(vec![], Some("stale".into()));
+        assert_eq!(w.summary.as_deref(), Some("live summary"));
+    }
+
+    #[test]
+    fn render_marks_inherited_blocks() {
+        let mut w = SessionWorldModel::default();
+        w.seed_history(
+            vec![BlockSnapshot {
+                command: "old-build".into(),
+                cwd: PathBuf::from("/tmp"),
+                exit_code: Some(0),
+                duration_ms: 5,
+                output_text: String::new(),
+                inherited: true,
+            }],
+            None,
+        );
+        w.apply(finished("new-build", 0, ""));
+        let msg = w.render_user_message("status?");
+        // Exactly one marker, attached to the inherited block, never to the live one.
+        assert_eq!(msg.matches("[prior session]").count(), 1);
+        let marker = msg.find("[prior session]").unwrap();
+        assert!(marker < msg.find("new-build").unwrap());
     }
 
     #[test]

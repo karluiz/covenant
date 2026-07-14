@@ -28,6 +28,9 @@ pub struct BlockBrief {
     pub command: String,
     pub exit_code: Option<i32>,
     pub duration_ms: u64,
+    /// Seeded from a previous session in the same cwd (see
+    /// `BlockSnapshot::inherited`).
+    pub inherited: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +56,7 @@ pub fn project(
             command: b.command.clone(),
             exit_code: b.exit_code,
             duration_ms: b.duration_ms,
+            inherited: b.inherited,
         })
         .collect::<Vec<_>>()
         .into_iter()
@@ -75,9 +79,30 @@ pub fn project(
     }
 }
 
+/// One ACP chat tab (claude/codex/copilot/pi), projected from
+/// `AcpRegistry::snapshot_worlds`. These tabs have no PTY blocks; their
+/// context is the recent chat turns.
+#[derive(Debug, Clone)]
+pub struct AcpTabSnapshot {
+    pub id: SessionId,
+    pub is_active: bool,
+    pub executor: String,
+    pub turns: Vec<(crate::acp_world::AcpRole, String)>,
+    /// Agent text currently streaming, if any.
+    pub in_flight: Option<String>,
+    pub last_prompt: Option<String>,
+    pub cwd: String,
+}
+
 /// Render a slice of snapshots into the markdown-ish section that goes
 /// at the top of the user message.
 pub fn render(snapshots: &[SessionSnapshot]) -> String {
+    render_with_acp(snapshots, &[])
+}
+
+/// `render`, plus a section for ACP chat tabs. The active ACP tab gets
+/// its recent turns verbatim; inactive ones get a one-liner.
+pub fn render_with_acp(snapshots: &[SessionSnapshot], acp: &[AcpTabSnapshot]) -> String {
     let mut out = String::with_capacity(1024);
     out.push_str("# Terminal context\n\n");
     out.push_str(
@@ -86,17 +111,18 @@ pub fn render(snapshots: &[SessionSnapshot]) -> String {
          NEVER show the internal id (e.g. `MWA8BF`) to the user; it is a \
          machine handle, not a human label.\n\n",
     );
-    if snapshots.is_empty() {
+    if snapshots.is_empty() && acp.is_empty() {
         out.push_str("(no open terminal sessions)\n");
         return out;
     }
     let active = snapshots.iter().find(|s| s.is_active);
     let others: Vec<&SessionSnapshot> = snapshots.iter().filter(|s| !s.is_active).collect();
+    let acp_active = acp.iter().find(|s| s.is_active);
 
     if let Some(a) = active {
         out.push_str("## Active session\n");
         render_session_full(&mut out, a);
-    } else {
+    } else if acp_active.is_none() {
         out.push_str("(no session is marked active)\n\n");
     }
 
@@ -106,7 +132,57 @@ pub fn render(snapshots: &[SessionSnapshot]) -> String {
             render_session_brief(&mut out, s);
         }
     }
+
+    if !acp.is_empty() {
+        out.push_str("\n## Agent sessions (interactive AI chat tabs)\n");
+        if let Some(a) = acp_active {
+            out.push_str(&format!(
+                "### Active agent tab: {} [id `{}` — machine-only]\n",
+                a.executor,
+                short_id(&a.id)
+            ));
+            if !a.cwd.is_empty() {
+                out.push_str(&format!("- cwd: `{}`\n", a.cwd));
+            }
+            if a.turns.is_empty() && a.in_flight.is_none() {
+                out.push_str("- (no conversation yet)\n");
+            } else {
+                out.push_str("- recent turns (oldest first):\n");
+                for (role, text) in &a.turns {
+                    out.push_str(&format!(
+                        "  - {}: {}\n",
+                        role.label(),
+                        single_paragraph(text)
+                    ));
+                }
+                if let Some(ref streaming) = a.in_flight {
+                    out.push_str(&format!(
+                        "  - agent (streaming now): {}\n",
+                        single_paragraph(streaming)
+                    ));
+                }
+            }
+        }
+        for s in acp.iter().filter(|s| !s.is_active) {
+            let last = s
+                .last_prompt
+                .as_deref()
+                .map(|p| format!("last prompt: \"{}\"", first_line(p)))
+                .unwrap_or_else(|| "idle".to_string());
+            let cwd = if s.cwd.is_empty() { "—" } else { s.cwd.as_str() };
+            out.push_str(&format!(
+                "- {} tab [id `{}` — machine-only] · cwd `{cwd}` · {last}\n",
+                s.executor,
+                short_id(&s.id)
+            ));
+        }
+    }
     out
+}
+
+/// Collapse a turn to one line so the context section stays scannable.
+fn single_paragraph(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn render_session_full(out: &mut String, s: &SessionSnapshot) {
@@ -132,19 +208,31 @@ fn render_session_full(out: &mut String, s: &SessionSnapshot) {
             f.command, secs
         ));
     }
-    if !s.last_blocks.is_empty() {
-        out.push_str("- recent blocks (oldest first):\n");
-        for b in &s.last_blocks {
-            let exit = b
-                .exit_code
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "?".into());
-            out.push_str(&format!(
-                "  - `$ {}` → exit {} ({} ms)\n",
-                b.command, exit, b.duration_ms
-            ));
+    let (inherited, live): (Vec<&BlockBrief>, Vec<&BlockBrief>) =
+        s.last_blocks.iter().partition(|b| b.inherited);
+    if !inherited.is_empty() {
+        out.push_str("- from previous sessions in this cwd (oldest first, NOT this session's activity):\n");
+        for b in inherited {
+            render_block_line(out, b);
         }
     }
+    if !live.is_empty() {
+        out.push_str("- recent blocks (oldest first):\n");
+        for b in live {
+            render_block_line(out, b);
+        }
+    }
+}
+
+fn render_block_line(out: &mut String, b: &BlockBrief) {
+    let exit = b
+        .exit_code
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "?".into());
+    out.push_str(&format!(
+        "  - `$ {}` → exit {} ({} ms)\n",
+        b.command, exit, b.duration_ms
+    ));
 }
 
 fn render_session_brief(out: &mut String, s: &SessionSnapshot) {
@@ -162,7 +250,8 @@ fn render_session_brief(out: &mut String, s: &SessionSnapshot) {
                     .exit_code
                     .map(|c| c.to_string())
                     .unwrap_or_else(|| "?".into());
-                format!("last: `$ {}` → exit {}", b.command, exit)
+                let prior = if b.inherited { "prior: " } else { "last: " };
+                format!("{prior}`$ {}` → exit {}", b.command, exit)
             })
             .unwrap_or_else(|| "idle".to_string())
     });
@@ -202,6 +291,7 @@ mod tests {
                 exit_code: Some(exit),
                 duration_ms: 10,
                 output_text: String::new(),
+                inherited: false,
             });
         }
         w
@@ -248,6 +338,29 @@ mod tests {
     }
 
     #[test]
+    fn renders_inherited_blocks_separately() {
+        let id = SessionId::new();
+        let mut w = world_with("/tmp/x", None, vec![("live-check", 0)]);
+        w.blocks.push_front(BlockSnapshot {
+            command: "old-build".into(),
+            cwd: PathBuf::from("/tmp/x"),
+            exit_code: Some(0),
+            duration_ms: 10,
+            output_text: String::new(),
+            inherited: true,
+        });
+        let snap = project(id, &w, true, 0);
+        let out = render(&[snap]);
+        assert!(out.contains("from previous sessions in this cwd"));
+        let prior_section = out.split("from previous sessions in this cwd").nth(1).unwrap();
+        assert!(prior_section.contains("old-build"));
+        assert!(out.contains("- recent blocks"));
+        let recent_section = out.split("- recent blocks").nth(1).unwrap();
+        assert!(recent_section.contains("live-check"));
+        assert!(!recent_section.contains("old-build"));
+    }
+
+    #[test]
     fn renders_in_flight_command() {
         let id = SessionId::new();
         let mut w = world_with("/x", None, vec![]);
@@ -261,6 +374,70 @@ mod tests {
         assert!(out.contains("currently running"));
         assert!(out.contains("npm run dev"));
         assert!(out.contains("elapsed 5s"));
+    }
+
+    #[test]
+    fn renders_active_acp_tab_turns() {
+        use crate::acp_world::AcpRole;
+        let acp = AcpTabSnapshot {
+            id: SessionId::new(),
+            is_active: true,
+            executor: "claude".into(),
+            turns: vec![
+                (AcpRole::User, "fix the login bug".into()),
+                (AcpRole::Tool, "Read src/auth.ts".into()),
+                (AcpRole::Agent, "Found it —\nmissing await.".into()),
+            ],
+            in_flight: Some("Patching now".into()),
+            last_prompt: Some("fix the login bug".into()),
+            cwd: "/proj".into(),
+        };
+        let out = render_with_acp(&[], &[acp]);
+        assert!(out.contains("## Agent sessions"));
+        assert!(out.contains("Active agent tab: claude"));
+        assert!(out.contains("user: fix the login bug"));
+        assert!(out.contains("tool: Read src/auth.ts"));
+        // Multi-line turn collapsed to one line.
+        assert!(out.contains("agent: Found it — missing await."));
+        assert!(out.contains("agent (streaming now): Patching now"));
+        assert!(out.contains("`/proj`"));
+        // An active agent tab means we don't complain about no active session.
+        assert!(!out.contains("no session is marked active"));
+    }
+
+    #[test]
+    fn renders_inactive_acp_tab_one_liner() {
+        let acp = AcpTabSnapshot {
+            id: SessionId::new(),
+            is_active: false,
+            executor: "codex".into(),
+            turns: vec![(crate::acp_world::AcpRole::User, "refactor tests".into())],
+            in_flight: None,
+            last_prompt: Some("refactor tests".into()),
+            cwd: "/other".into(),
+        };
+        let pty = project(
+            SessionId::new(),
+            &world_with("/a", None, vec![("ls", 0)]),
+            true,
+            0,
+        );
+        let out = render_with_acp(&[pty], &[acp]);
+        assert!(out.contains("codex tab"));
+        assert!(out.contains("last prompt: \"refactor tests\""));
+        // One-liner only: no turn list for inactive tabs.
+        assert!(!out.contains("recent turns"));
+    }
+
+    #[test]
+    fn render_without_acp_matches_legacy_output() {
+        let pty = project(
+            SessionId::new(),
+            &world_with("/a", None, vec![("ls", 0)]),
+            true,
+            0,
+        );
+        assert_eq!(render(&[pty.clone()]), render_with_acp(&[pty], &[]));
     }
 
     #[test]
