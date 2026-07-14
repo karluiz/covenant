@@ -97,6 +97,10 @@ body.theme-true-dark .canon-search-result:hover {
 }
 /* translucent-black code bg vanishes on pure black — go opaque */
 body.theme-true-dark .canon-preview { background: #0c0c0e; }
+/* --pn-code-bg is scoped to project-notes — unset in the cockpit, the
+   fallback rgb(0 0 0 / 0.28) painted a dark slab on light. Mirror pn's
+   light value. */
+body.theme-light .canon-preview { background: rgb(0 0 0 / 0.04); }
 /* adoption bars: lit-from-the-right gradient + soft glow instead of a slab */
 body.theme-true-dark .canon-bar { background: #1c1c1f; }
 body.theme-true-dark .canon-bar-fill {
@@ -686,7 +690,7 @@ body.theme-true-dark .canon-row .rail-row-actions { background: #000; }
   cursor: pointer;
 }
 .canon-reader-close:hover .settings-esc {
-  color: #fff;
+  color: var(--fg, #fff);
   background: rgb(var(--ink-rgb) / 0.08);
   border-color: rgb(var(--ink-rgb) / 0.16);
 }
@@ -792,7 +796,18 @@ body.tabbar-left .canon-reader { top: 38px; }
   transition: width 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .canon-bar-fill.is-ok { background: var(--ok, #9ece6a); }
-.canon-meter.lift-neg .canon-bar-fill { background: var(--warn, #e0af68); }
+/* --running, not a --warn token: --warn only exists scoped to spec-chat, so
+   it resolved to the dark fallback in both themes (washed out on light). */
+.canon-meter.lift-neg .canon-bar-fill { background: var(--running, #e0af68); }
+
+/* Context-lift verdict — the section's one standout line. */
+.canon-loop-verdict {
+  margin: 2px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #f5f6f7);
+}
 
 /* Skill-row lift chip — actionable earning/not-earning/unmeasured verdict. */
 .canon-lift-badge {
@@ -803,6 +818,14 @@ body.tabbar-left .canon-reader { top: 38px; }
   color: var(--fg-dim);
   white-space: nowrap;
 }
-.canon-lift-badge.lift-earning { color: var(--good, #3fb950); border-color: rgba(63, 185, 80, 0.4); }
-.canon-lift-badge.lift-not-earning { color: #e5534b; border-color: rgba(229, 83, 75, 0.4); }
+/* Semantic tokens (--ok/--fail), not hardcoded greens/reds — DESIGN.md rule 9;
+   both flip correctly on light. */
+.canon-lift-badge.lift-earning {
+  color: var(--ok, #3fb950);
+  border-color: color-mix(in srgb, var(--ok, #3fb950) 40%, transparent);
+}
+.canon-lift-badge.lift-not-earning {
+  color: var(--fail, #e5534b);
+  border-color: color-mix(in srgb, var(--fail, #e5534b) 40%, transparent);
+}
 .canon-lift-badge.lift-unmeasured { color: var(--fg-dim); }

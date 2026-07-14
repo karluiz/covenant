@@ -244,3 +244,49 @@ describe("CanonCockpitView Loop section", () => {
     expect(v.element.textContent).toContain("80%");
   });
 });
+
+describe("CanonCockpitView homologated empty states", () => {
+  it("renders the shared No-project-folder block for every repo-gated section", () => {
+    const v = new CanonCockpitView({ ...opts, groupRootDir: null });
+    v.open();
+    for (const key of ["agents", "commands", "mcp", "spec", "memory", "skills", "context"] as const) {
+      v.showSection(key);
+      expect(
+        v.element.querySelector(".canon-cockpit-empty .rail-empty-title")?.textContent,
+        `section ${key}`,
+      ).toBe("No project folder");
+    }
+    v.close();
+  });
+
+  it("renders the shared empty block with a CTA that routes to the registry when no skills are installed", async () => {
+    const v = new CanonCockpitView(opts); // canonLocalStatus mock: all lists empty
+    v.open(); v.showSection("skills");
+    await Promise.resolve(); await Promise.resolve();
+    const empty = v.element.querySelector(".canon-cockpit-empty") as HTMLElement;
+    expect(empty.textContent).toContain("No skills installed");
+    (empty.querySelector(".rail-empty-btn") as HTMLButtonElement).click();
+    expect(v.element.querySelector('[data-section="registry"].is-active')).toBeTruthy();
+    v.close();
+  });
+
+  it("shows the Loop empty state when the group has no repo and no org", () => {
+    const v = new CanonCockpitView({ ...opts, groupRootDir: null, orgs: [], getActiveOrg: () => null });
+    v.open(); v.showSection("loop");
+    expect(v.element.querySelector(".canon-cockpit-empty")?.textContent).toContain("Nothing to measure yet");
+    v.close();
+  });
+});
+
+describe("CanonCockpitView operators empty state", () => {
+  it("renders the shared empty block with a New operator CTA when the org has none", async () => {
+    vi.mocked(operatorList).mockResolvedValueOnce([]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("operators");
+    await Promise.resolve(); await Promise.resolve();
+    const empty = v.element.querySelector(".canon-cockpit-empty");
+    expect(empty?.textContent).toContain("No operators in this org");
+    expect(empty?.querySelector(".rail-empty-btn")?.textContent).toBe("New operator");
+    v.close();
+  });
+});
