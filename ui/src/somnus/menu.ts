@@ -14,7 +14,9 @@ function place(pop: HTMLElement, x: number, y: number): void {
   pop.style.top = `${Math.min(y, window.innerHeight - r.height - 8)}px`;
 }
 
-function dismissable(pop: HTMLElement): () => void {
+/// Outside-click + Escape dismissal for a body-portaled popover. Escape
+/// stopPropagations so it never bubbles into surface-level Esc handling.
+export function dismissable(pop: HTMLElement): () => void {
   const close = (): void => {
     pop.remove();
     document.removeEventListener("pointerdown", onDown, true);

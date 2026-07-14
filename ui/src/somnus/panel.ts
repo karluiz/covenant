@@ -20,7 +20,7 @@ import { RequestComposer } from "./composer";
 import { CollectionsTree } from "./tree";
 import { EnvEditor } from "./envs";
 import { RequestTabs, type TabView } from "./tabs";
-import { confirmPopover } from "./menu";
+import { confirmPopover, dismissable } from "./menu";
 import { jsonTree, parseJsonBody } from "./json-tree";
 import {
   buildRequest,
@@ -148,7 +148,7 @@ export class SomnusPanel {
     close.className = "rail-btn";
     close.setAttribute("aria-label", "Close");
     close.innerHTML = Icons.x({ size: 15 });
-    close.addEventListener("click", () => this.opts.onClose());
+    close.addEventListener("click", () => this.closeSurface());
     attachTooltip(close, "Close");
     actions.append(this.expandBtn, clearBtn, close);
 
@@ -372,10 +372,16 @@ export class SomnusPanel {
     const tab = this.tabs[this.active];
     if (!tab) return;
     tab.draft = this.composer.getDraft();
+    // Snapshot what we're sending BEFORE any await: if the user keeps typing
+    // during the round-trip, composerDirty replaces tab.draft — stamping
+    // savedKey from the live draft would clear the dirty dot while the server
+    // holds the pre-edit version (silent data loss on closeTab).
+    const sent = tab.draft;
+    const sentKey = draftKey(sent);
     if (tab.treeId) {
       try {
-        await somnusTreeUpdate(tab.treeId, null, JSON.stringify(tab.draft));
-        tab.savedKey = draftKey(tab.draft);
+        await somnusTreeUpdate(tab.treeId, null, JSON.stringify(sent));
+        tab.savedKey = sentKey;
         this.renderTabsBar();
         this.notify("Saved");
         void this.tree.refresh();
@@ -384,10 +390,10 @@ export class SomnusPanel {
       }
       return;
     }
-    this.savePopover(tab.draft, (id, name) => {
+    this.savePopover(sent, (id, name) => {
       tab.treeId = id;
       tab.name = name;
-      tab.savedKey = draftKey(tab.draft);
+      tab.savedKey = sentKey;
       this.renderTabsBar();
     });
   }
@@ -434,7 +440,10 @@ export class SomnusPanel {
     pop.style.position = "fixed";
     pop.style.left = `${Math.max(8, anchor.right - 280)}px`;
     pop.style.top = `${anchor.top + 34}px`;
-    const closePop = (): void => pop.remove();
+    // Outside-click / Escape dismissal — the popover is body-portaled, so
+    // without this it would outlive the surface (dismissable stopPropagations
+    // Escape, so it won't also close the whole surface).
+    const closePop = dismissable(pop);
     cancel.addEventListener("click", closePop);
     save.addEventListener("click", () => {
       const name = nameInput.value.trim() || "Untitled";
