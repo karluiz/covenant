@@ -1,17 +1,16 @@
 /// Inline notch slot — replaces the floating overlay window when Covenant
 /// is in macOS fullscreen. Lives in the bottom of the left vertical
 /// tabbar (`#tabbar-host > #inline-notch-host`) so it never overlaps the
-/// terminal pane. Layout matches docs/mockups/fullscreen-notch-slot-v2.html
-/// (option D combo): active-tab agent header on top, chronological
-/// activity stream below.
+/// terminal pane. The stream renders TURNS (one row per agent work cycle,
+/// aggregated by ui/src/activity/turns.ts), not raw phase events — see
+/// docs/superpowers/specs/2026-07-14-activity-turns-design.md.
 
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import type { ExecutorPhase } from "../notch/store";
 import { attachTooltip } from "./tooltip/tooltip";
 import { Icons } from "./icons";
-
-const MAX_ROWS = 40;
+import { TurnAggregator, liveTail, type Turn } from "./activity/turns";
 
 type StatePayload = {
   session: string;
@@ -29,21 +28,6 @@ type ActiveSessionPayload = {
   tab_label?: string | null;
 };
 
-type Row = {
-  id: string;
-  ts: number;
-  firstTs: number;
-  session: string;
-  tag: string;          // tab label
-  kind: "run" | "ok" | "warn" | "err" | "info";
-  message: string;
-  count: number;
-  /// Cumulative tokens consumed across coalesced repeats of this row.
-  /// Sums tokens_delta values seen on each push. 0 = no model activity
-  /// (purely terminal-driven phase transition).
-  tokens: number;
-};
-
 type StreamScrollAnchor = {
   atLiveTop: boolean;
   rowId: string | null;
@@ -58,36 +42,25 @@ function hash(s: string): number {
   for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0;
   return Math.abs(h);
 }
-function phaseKind(p: ExecutorPhase): Row["kind"] {
+function phaseActive(p: ExecutorPhase): boolean {
   switch (p.kind) {
-    case "done": return "ok";
-    case "waiting": return "warn";
-    case "idle": return "info";
-    default: return "run";
+    case "done":
+    case "waiting":
+    case "idle":
+      return false;
+    default:
+      return true;
   }
 }
 
-/// Map a row kind onto the shared rail `data-spine` vocabulary
+/// Map a turn onto the shared rail `data-spine` vocabulary
 /// (live | run | ok | fail | idle) that colours the left spine.
-function spineFor(kind: Row["kind"]): string {
-  switch (kind) {
-    case "run": return "live";
-    case "ok": return "ok";
-    case "warn": return "run";
-    case "err": return "fail";
-    case "info": return "idle";
-  }
-}
-
-function phaseLabel(p: ExecutorPhase): string {
-  switch (p.kind) {
-    case "thinking": return "thinking";
-    case "running": return `running ${p.cmd}`;
-    case "writing": return `writing ${p.file}`;
-    case "reading": return `reading ${p.file}`;
-    case "waiting": return `waiting · ${p.reason}`;
-    case "done": return p.summary ?? "done";
-    case "idle": return "idle";
+function spineForTurn(t: Turn): string {
+  if (t.waiting) return "run";
+  switch (t.status) {
+    case "live": return "live";
+    case "done": return "ok";
+    case "ended": return "idle";
   }
 }
 
@@ -202,8 +175,9 @@ export function mountInlineNotch(host: HTMLElement): void {
   let dropdownEl: HTMLElement | null = null;
   let dismissDropdown: ((e: Event) => void) | null = null;
 
-  const rows: Row[] = [];
-  let nextRowId = 1;
+  const agg = new TurnAggregator();
+  /// Turn ids the user unfolded to see the event list.
+  const expanded = new Set<string>();
   const phases = new Map<string, { tab: string; agent: string | null; phase: ExecutorPhase }>();
   let activeSession: string | null = null;
   let activeMeta: { tab: string; agent: string | null } | null = null;
@@ -279,19 +253,18 @@ export function mountInlineNotch(host: HTMLElement): void {
   }
 
   function agentCount(agent: string): number {
-    // How many of the buffered rows belong to this agent. Cheap because
-    // MAX_ROWS caps the array; runs on every picker open.
+    // How many buffered turns belong to this agent. Cheap because the
+    // aggregator caps history; runs on every picker open.
     let n = 0;
-    for (const r of rows) {
-      if (phases.get(r.session)?.agent === agent) n++;
+    for (const t of agg.turns) {
+      if (t.agent === agent) n++;
     }
     return n;
   }
 
-  function passes(sessionId: string): boolean {
+  function passes(turn: Turn): boolean {
     if (selectedAgents === null) return true;
-    const agent = phases.get(sessionId)?.agent;
-    return agent != null && selectedAgents.has(agent);
+    return turn.agent != null && selectedAgents.has(turn.agent);
   }
 
   function agentColor(agent: string): string {
@@ -387,7 +360,7 @@ export function mountInlineNotch(host: HTMLElement): void {
       isAll: true,
       selected: selectedAgents === null,
       label: "All agents",
-      count: rows.length,
+      count: agg.turns.length,
       onClick: () => { selectedAgents = null; closeDropdown(); renderPicker(); render(); },
     });
 
@@ -461,7 +434,7 @@ export function mountInlineNotch(host: HTMLElement): void {
         : null) ??
       [...phases.values()].find((p) => p.phase.kind !== "idle") ??
       (activeMeta?.agent ? { ...activeMeta, phase: { kind: "idle" } as ExecutorPhase } : null);
-    const active = !!focus && phaseKind(focus.phase) === "run";
+    const active = !!focus && phaseActive(focus.phase);
     railDot.className = "rail-dot" + (active ? " is-run" : "");
 
     const scrollAnchor = captureStreamScrollAnchor();
@@ -470,30 +443,62 @@ export function mountInlineNotch(host: HTMLElement): void {
     // combined / multi-agent view — otherwise it's redundant noise.
     const showWho = selectedAgents === null || selectedAgents.size > 1;
 
-    // Stream: reverse-chrono, most recent first. Filter by selected agents.
-    streamEl.innerHTML = rows
-      .filter((r) => passes(r.session))
+    // Stream: one row per TURN, reverse-chrono. Filter by selected agents.
+    streamEl.innerHTML = agg.turns
+      .filter(passes)
       .slice()
       .reverse()
-      .map((r) => {
-        const agent = phases.get(r.session)?.agent ?? null;
+      .map((t) => {
         // "[agent] · message" inside rail-name; the agent fragment keeps its
         // per-agent colour as the only identity cue (replacing the old dot).
-        const namePrefix = showWho && agent
-          ? `<span style="color:${agentColor(agent)}">${escapeHtml(fmtAgent(agent))}</span> · `
+        const namePrefix = showWho && t.agent
+          ? `<span style="color:${agentColor(t.agent)}">${escapeHtml(fmtAgent(t.agent))}</span> · `
           : "";
-        const metaParts = [escapeHtml(r.tag)];
-        if (r.count > 1) metaParts.push(`×${r.count}`);
-        if (r.ts > r.firstTs) metaParts.push(fmtDuration(r.ts - r.firstTs));
+        // Live: the latest meaningful event. Frozen: outcome + duration —
+        // the done summary stays available in the tooltip.
+        const tail = t.status === "live"
+          ? liveTail(t)
+          : `${t.status} · ${fmtDuration((t.endedAt ?? t.lastTs) - t.startedAt)}`;
+
+        const cmds = t.events.filter((e) => e.kind === "run").length;
+        const files = new Set(
+          t.events.filter((e) => e.kind === "write").map((e) => e.label),
+        ).size;
+        const metaParts = [escapeHtml(t.tag)];
+        if (cmds > 0) metaParts.push(`${cmds} cmd${cmds === 1 ? "" : "s"}`);
+        if (files > 0) metaParts.push(`${files} file${files === 1 ? "" : "s"}`);
+        if (t.readFiles.size > 0) metaParts.push(`${t.readFiles.size} read`);
         let meta = metaParts.join(" · ");
-        if (r.tokens > 0) meta += ` · <span class="rail-num">${fmtTokens(r.tokens)} tok</span>`;
+        if (t.tokens > 0) meta += ` · <span class="rail-num">${fmtTokens(t.tokens)} tok</span>`;
+
+        const isOpen = expanded.has(t.id);
+        const foldable = t.events.length > 0;
+        const eventsHtml = isOpen && foldable
+          ? `<div class="activity-turn-events">${
+              t.eventsDropped
+                ? `<div class="activity-ev activity-ev-dropped">earlier events dropped</div>`
+                : ""
+            }${t.events
+              .map(
+                (e) => `
+                <div class="activity-ev" data-kind="${e.kind}">
+                  <span class="activity-ev-label">${escapeHtml(e.label)}</span>
+                  <span class="activity-ev-when">${fmtTime(e.ts)}</span>
+                </div>`,
+              )
+              .join("")}</div>`
+          : "";
+
+        const tipTail = t.events.length > 0 ? liveTail(t) : tail;
         return `
-          <div class="rail-row" data-spine="${spineFor(r.kind)}" data-row-id="${escapeHtml(r.id)}" data-tip-message="${escapeHtml(r.message)}" data-tip-tag="${escapeHtml(r.tag)}" tabindex="0">
+          <div class="rail-row activity-turn${isOpen ? " is-expanded" : ""}${foldable ? " is-foldable" : ""}" data-spine="${spineForTurn(t)}" data-row-id="${escapeHtml(t.id)}" data-tip-message="${escapeHtml(tipTail)}" data-tip-tag="${escapeHtml(t.tag)}" tabindex="0">
             <div class="rail-row-line">
-              <span class="rail-name">${namePrefix}${escapeHtml(r.message)}</span>
-              <span class="rail-when">${fmtTime(r.ts)}</span>
+              <span class="activity-chev">${Icons.chevronRight({ size: 11 })}</span>
+              <span class="rail-name">${namePrefix}${escapeHtml(tail)}</span>
+              <span class="rail-when">${fmtTime(t.lastTs)}</span>
             </div>
             <div class="rail-meta">${meta}</div>
+            ${eventsHtml}
           </div>`;
       })
       .join("");
@@ -503,30 +508,15 @@ export function mountInlineNotch(host: HTMLElement): void {
         title: row.dataset.tipMessage ?? "",
         meta: row.dataset.tipTag ?? "",
       });
+      row.addEventListener("click", () => {
+        const id = row.dataset.rowId;
+        if (!id || !row.classList.contains("is-foldable")) return;
+        if (expanded.has(id)) expanded.delete(id);
+        else expanded.add(id);
+        render();
+      });
     });
     restoreStreamScrollAnchor(scrollAnchor);
-  }
-
-  function pushRow(input: Omit<Row, "id" | "firstTs" | "count">): void {
-    const prev = rows[rows.length - 1];
-    // Heartbeats and redraws can generate many identical rows ("thinking",
-    // "running commands", …). Coalesce adjacent repeats into one richer row
-    // so the feed says "what changed" instead of becoming a metronome.
-    if (
-      prev &&
-      prev.session === input.session &&
-      prev.kind === input.kind &&
-      prev.message === input.message &&
-      Date.now() - prev.ts < 30_000
-    ) {
-      prev.ts = input.ts;
-      prev.tag = input.tag;
-      prev.count += 1;
-      prev.tokens += input.tokens;
-      return;
-    }
-    rows.push({ ...input, id: String(nextRowId++), firstTs: input.ts, count: 1 });
-    if (rows.length > MAX_ROWS) rows.splice(0, rows.length - MAX_ROWS);
   }
 
   // Always-on: the host's visibility is now controlled by CSS via
@@ -534,22 +524,26 @@ export function mountInlineNotch(host: HTMLElement): void {
   host.hidden = false;
 
   clearBtn.addEventListener("click", () => {
-    rows.length = 0;
+    agg.clear();
+    expanded.clear();
     render();
   });
 
   const onNotchState = (ev: { payload: StatePayload }): void => {
     const sid = ev.payload.session;
     const tab = ev.payload.tab_label ?? `session ${sid.slice(0, 6)}`;
-    phases.set(sid, { tab, agent: ev.payload.agent ?? null, phase: ev.payload.phase });
-    pushRow({
-      ts: Date.now(),
-      session: sid,
-      tag: tab,
-      kind: phaseKind(ev.payload.phase),
-      message: phaseLabel(ev.payload.phase),
-      tokens: ev.payload.tokens_delta ?? 0,
-    });
+    const agent = ev.payload.agent ?? null;
+    phases.set(sid, { tab, agent, phase: ev.payload.phase });
+    agg.push(
+      {
+        session: sid,
+        tag: tab,
+        agent,
+        phase: ev.payload.phase,
+        tokens: ev.payload.tokens_delta ?? 0,
+      },
+      Date.now(),
+    );
     renderPicker();
     render();
   };
