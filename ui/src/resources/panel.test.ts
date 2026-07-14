@@ -20,8 +20,11 @@ function makeDeps(over: Partial<ResourcesPanelDeps> = {}): ResourcesPanelDeps {
 const snap: ResourcesSnapshot = {
   total_cpu: 3.1, total_mem_bytes: 1_300_000_000, ram_share: 7, mem_total_bytes: 18_000_000_000,
   sessions: [
-    { id: 's1', cpu: 0.0, mem_bytes: 4_600_000 },
-    { id: 's2', cpu: 0.8, mem_bytes: 315_900_000 },
+    { id: 's1', cpu: 0.0, mem_bytes: 4_600_000, top: [] },
+    { id: 's2', cpu: 0.8, mem_bytes: 315_900_000, top: [
+      { name: 'vitest', cpu: 33.2, count: 10 },
+      { name: 'tsc', cpu: 14.5, count: 1 },
+    ] },
   ],
 };
 
@@ -60,6 +63,17 @@ describe('mountResourcesPanel', () => {
     cb(snap);
     const rows = [...host.querySelectorAll('.res-session')];
     expect(rows[0].textContent).toContain('Claude Code');
+  });
+
+  it('renders the hot processes sub-line only for sessions with top entries', async () => {
+    let cb: (s: ResourcesSnapshot) => void = () => {};
+    const deps = makeDeps({ onUpdate: vi.fn(async (h) => { cb = h; return () => {}; }) });
+    mountResourcesPanel(host, deps);
+    await Promise.resolve();
+    cb(snap);
+    const procs = [...host.querySelectorAll('.res-procs')];
+    expect(procs.length).toBe(1);
+    expect(procs[0].textContent).toBe('vitest ×10 33.2% · tsc 14.5%');
   });
 
   it('calls sampleNow when the refresh button is clicked', async () => {

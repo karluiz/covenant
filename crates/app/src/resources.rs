@@ -1,7 +1,9 @@
 //! Resources panel backend: samples per-session process subtrees via `sysinfo`
 //! and emits `resources_update` events while the panel is active.
 
-use karl_metrics::{build_snapshot, MachineTotals, ProcSample, ProcessTable, ResourcesSnapshot};
+use karl_metrics::{
+    build_snapshot, friendly_proc_name, MachineTotals, ProcSample, ProcessTable, ResourcesSnapshot,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System};
@@ -14,6 +16,10 @@ fn table_from_system(sys: &System) -> ProcessTable {
         .map(|(pid, proc_)| ProcSample {
             pid: pid.as_u32(),
             parent_pid: proc_.parent().map(|p| p.as_u32()).unwrap_or(0),
+            name: friendly_proc_name(
+                &proc_.name().to_string_lossy(),
+                proc_.cmd().iter().filter_map(|a| a.to_str()),
+            ),
             cpu: proc_.cpu_usage(),
             mem_bytes: proc_.memory(), // sysinfo >= 0.30 returns bytes
         })
