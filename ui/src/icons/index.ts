@@ -507,4 +507,25 @@ export const Icons = {
   /** Crescent moon — Somnus (REST client) panel. */
   moon: (o?: IconOptions): string =>
     svg(`<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>`, o),
+
+  /** Save (floppy disk) — persist to a collection. Lucide `save`. */
+  save: (o?: IconOptions): string =>
+    svg(
+      `<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V3"/>`,
+      o,
+    ),
+
+  /** More-horizontal — three dots, row-hover overflow menu trigger. Lucide `more-horizontal`. */
+  moreHorizontal: (o?: IconOptions): string =>
+    svg(
+      `<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>`,
+      o,
+    ),
+
+  /** Power button — toggle active state for environments. Lucide `power`. */
+  power: (o?: IconOptions): string =>
+    svg(
+      `<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" x2="12" y1="2" y2="12"/>`,
+      o,
+    ),
 };

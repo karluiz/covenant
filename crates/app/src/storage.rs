@@ -283,6 +283,24 @@ CREATE TABLE IF NOT EXISTS somnus_history (
     created_at_unix_ms  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_somnus_history_created ON somnus_history(created_at_unix_ms DESC);
+
+CREATE TABLE IF NOT EXISTS somnus_tree (
+  id         TEXT PRIMARY KEY,
+  parent_id  TEXT,
+  kind       TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  sort       INTEGER NOT NULL DEFAULT 0,
+  request    TEXT,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_somnus_tree_parent ON somnus_tree(parent_id);
+
+CREATE TABLE IF NOT EXISTS somnus_environments (
+  id        TEXT PRIMARY KEY,
+  name      TEXT NOT NULL,
+  vars      TEXT NOT NULL DEFAULT '[]',
+  is_active INTEGER NOT NULL DEFAULT 0
+);
 ";
 
 #[derive(Debug, Error)]

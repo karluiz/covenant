@@ -1,20 +1,36 @@
 import {
+  somnusEnvActivate,
+  somnusEnvList,
   somnusHistory,
   somnusHistoryClear,
   somnusHistoryDelete,
   somnusSend,
+  somnusTreeCreate,
+  somnusTreeUpdate,
+  type SomnusDraft,
+  type SomnusEnvironment,
   type SomnusHistoryEntry,
-  type SomnusRequest,
   type SomnusResponse,
+  type SomnusTreeNode,
 } from "../api";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { CustomSelect } from "../ui/select";
-import { parseCurl } from "./curl";
+import { RequestComposer } from "./composer";
+import { CollectionsTree } from "./tree";
+import { EnvEditor } from "./envs";
+import { RequestTabs, type TabView } from "./tabs";
+import { confirmPopover, dismissable } from "./menu";
 import { jsonTree, parseJsonBody } from "./json-tree";
-
-const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+import {
+  buildRequest,
+  draftFromEntry,
+  draftKey,
+  emptyDraft,
+  findUnresolvedDraft,
+  parseDraft,
+} from "./draft";
+import { envVarsToMap, findUnresolved } from "./vars";
 
 /// Map an attempt outcome to a rail-row `data-spine` value.
 export function statusSpine(status: number | null, error: string | null): string {
@@ -56,45 +72,41 @@ export function relTimeMs(unixMs: number): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
-function isSendableUrl(u: string): boolean {
-  try {
-    const parsed = new URL(u.trim());
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-interface HeaderRow {
-  row: HTMLElement;
-  key: HTMLInputElement;
-  val: HTMLInputElement;
+interface OpenTab {
+  treeId: string | null;
+  name: string;
+  draft: SomnusDraft;
+  savedKey: string; // draftKey at last load/save — dirty = savedKey !== draftKey(draft)
 }
 
 export class SomnusPanel {
   private root: HTMLElement;
-  private methodSel: CustomSelect;
-  private urlInput: HTMLInputElement;
-  private sendBtn: HTMLButtonElement;
   private expandBtn: HTMLButtonElement;
-  private tabHeadersBtn: HTMLButtonElement;
-  private tabBodyBtn: HTMLButtonElement;
-  private headersHost: HTMLElement;
-  private bodyArea: HTMLTextAreaElement;
   private responseHost: HTMLElement;
   private historyHost: HTMLElement;
-  private headerRows: HeaderRow[] = [];
-  private activeTab: "headers" | "body" = "headers";
   private sending = false;
   private loadedHistory = false;
   private expanded = false;
   private expandTooltipDetach: () => void;
   private onEsc = (e: KeyboardEvent): void => {
     if (e.key === "Escape" && this.expanded) {
+      // Popover wins over surface: window-capture fires before dismissable's
+      // document-capture listener — let Esc dismiss an open popover first.
+      if (document.querySelector(".ui-select__popover")) return;
       e.stopPropagation();
-      this.setExpanded(false);
+      this.closeSurface();
     }
   };
+
+  private composer: RequestComposer;
+  private tree: CollectionsTree;
+  private envEditor: EnvEditor;
+  private reqTabs: RequestTabs;
+  private tabs: OpenTab[] = [];
+  private active = 0;
+  private envs: SomnusEnvironment[] = [];
+  private sideTab: "collections" | "envs" | "history" = "collections";
+  private sideBtns = new Map<"collections" | "envs" | "history", HTMLButtonElement>();
 
   constructor(
     host: HTMLElement,
@@ -128,117 +140,105 @@ export class SomnusPanel {
     clearBtn.setAttribute("aria-label", "Clear history");
     clearBtn.innerHTML = Icons.trash({ size: 15 });
     clearBtn.addEventListener("click", () => {
-      if (!confirm("Clear all Somnus history?")) return;
-      void somnusHistoryClear()
-        .then(() => this.refreshHistory())
-        .catch((e) => console.error("somnus clear failed", e));
+      confirmPopover(clearBtn, "Clear all Somnus history?", "Clear", () => {
+        void somnusHistoryClear()
+          .then(() => this.refreshHistory())
+          .catch((e) => console.error("somnus clear failed", e));
+      });
     });
     attachTooltip(clearBtn, "Clear history");
     const close = document.createElement("button");
     close.className = "rail-btn";
     close.setAttribute("aria-label", "Close");
     close.innerHTML = Icons.x({ size: 15 });
-    close.addEventListener("click", () => this.opts.onClose());
+    close.addEventListener("click", () => this.closeSurface());
     attachTooltip(close, "Close");
     actions.append(this.expandBtn, clearBtn, close);
+
+    const escBtn = document.createElement("button");
+    escBtn.className = "somnus-close";
+    escBtn.setAttribute("aria-label", "Close (Esc)");
+    escBtn.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
+    escBtn.addEventListener("click", () => this.closeSurface());
+    actions.prepend(escBtn);
+
     header.append(titleWrap, actions);
 
-    // ── Composer ──
-    const composer = document.createElement("div");
-    composer.className = "somnus-composer";
-
-    const line = document.createElement("div");
-    line.className = "somnus-line";
-    this.methodSel = new CustomSelect({
-      className: "somnus-method",
-      ariaLabel: "HTTP method",
-      value: "GET",
-      options: METHODS.map((m) => ({ value: m, label: m })),
-      onChange: () => this.syncBodyEnabled(),
+    this.reqTabs = new RequestTabs({
+      onSelect: (i) => this.selectTab(i),
+      onClose: (i) => this.closeTab(i),
+      onNew: () => this.newTab(),
     });
-    this.urlInput = document.createElement("input");
-    this.urlInput.className = "rail-search somnus-url";
-    this.urlInput.type = "text";
-    this.urlInput.placeholder = "https://api.example.com/…  (or paste a curl command)";
-    this.urlInput.spellcheck = false;
-    this.urlInput.addEventListener("input", () => this.syncSendEnabled());
-    this.urlInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !this.sendBtn.disabled) void this.send();
+
+    this.composer = new RequestComposer({
+      onSend: () => void this.send(),
+      onSave: () => void this.saveActive(),
+      onDirty: () => this.composerDirty(),
+      onEnvChange: (id) => void this.setActiveEnv(id),
     });
-    this.urlInput.addEventListener("paste", (e) => {
-      const text = e.clipboardData?.getData("text/plain") ?? "";
-      const parsed = parseCurl(text);
-      if (!parsed) return;
-      e.preventDefault();
-      this.loadRequest({
-        method: parsed.method,
-        url: parsed.url,
-        headers: parsed.headers,
-        body: parsed.body,
-      });
-    });
-    this.sendBtn = document.createElement("button");
-    this.sendBtn.className = "somnus-send";
-    this.sendBtn.type = "button";
-    this.sendBtn.textContent = "Send";
-    this.sendBtn.disabled = true;
-    this.sendBtn.addEventListener("click", () => void this.send());
-    line.append(this.methodSel.element, this.urlInput, this.sendBtn);
 
-    const controls = document.createElement("div");
-    controls.className = "rail-controls";
-    const tabs = document.createElement("div");
-    tabs.className = "rail-tabs somnus-tabs";
-    this.tabHeadersBtn = document.createElement("button");
-    this.tabHeadersBtn.type = "button";
-    this.tabHeadersBtn.className = "rail-tab";
-    this.tabHeadersBtn.textContent = "Headers";
-    this.tabHeadersBtn.dataset.tab = "headers";
-    this.tabHeadersBtn.addEventListener("click", () => this.setTab("headers"));
-    this.tabBodyBtn = document.createElement("button");
-    this.tabBodyBtn.type = "button";
-    this.tabBodyBtn.className = "rail-tab";
-    this.tabBodyBtn.textContent = "Body";
-    this.tabBodyBtn.dataset.tab = "body";
-    this.tabBodyBtn.addEventListener("click", () => this.setTab("body"));
-    tabs.append(this.tabHeadersBtn, this.tabBodyBtn);
-    controls.append(tabs);
-
-    this.headersHost = document.createElement("div");
-    this.headersHost.className = "somnus-headers";
-    const addHeader = document.createElement("button");
-    addHeader.type = "button";
-    addHeader.className = "somnus-add-header";
-    addHeader.textContent = "+ header";
-    addHeader.addEventListener("click", () => this.addHeaderRow("", ""));
-
-    this.bodyArea = document.createElement("textarea");
-    this.bodyArea.className = "somnus-bodybox";
-    this.bodyArea.placeholder = "Request body";
-    this.bodyArea.spellcheck = false;
-
-    composer.append(line, controls, this.headersHost, addHeader, this.bodyArea);
-
-    // ── Scroller: response + history ──
     const body = document.createElement("div");
     body.className = "rail-body";
     this.responseHost = document.createElement("div");
     this.responseHost.className = "somnus-response";
+
+    const side = document.createElement("div");
+    side.className = "somnus-side";
+    const sideTabs = document.createElement("div");
+    sideTabs.className = "rail-tabs somnus-side-tabs";
+    const sideDefs: ["collections" | "envs" | "history", string][] = [
+      ["collections", "Collections"],
+      ["envs", "Env"],
+      ["history", "History"],
+    ];
+    for (const [id, sideLabel] of sideDefs) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "rail-tab";
+      btn.textContent = sideLabel;
+      btn.addEventListener("click", () => this.setSideTab(id));
+      sideTabs.append(btn);
+      this.sideBtns.set(id, btn);
+    }
+    this.tree = new CollectionsTree({
+      onOpen: (node) => this.openNode(node),
+      onEnvImported: () => {
+        void this.refreshEnvs();
+        // Import is not a typing context — safe to re-render the editor list.
+        void this.envEditor.refresh();
+      },
+      notify: (msg, isError) => this.notify(msg, isError),
+    });
+    this.envEditor = new EnvEditor({ onChanged: () => void this.refreshEnvs() });
     this.historyHost = document.createElement("div");
     this.historyHost.className = "somnus-history";
-    body.append(this.responseHost, this.historyHost);
+    side.append(sideTabs, this.tree.element, this.envEditor.element, this.historyHost);
 
-    this.root.append(header, composer, body);
+    body.append(this.responseHost, side);
+    this.root.append(header, this.reqTabs.element, this.composer.element, body);
     host.replaceChildren(this.root);
 
-    this.addHeaderRow("", "");
-    this.setTab("headers");
-    this.syncBodyEnabled();
+    this.root.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void this.saveActive();
+      }
+    });
+
+    this.tabs = [this.freshTab()];
+    this.selectTab(0);
+    this.setSideTab("collections");
+    this.reqTabs.render(this.tabViews(), this.active);
   }
 
   /// Called when the panel opens.
   render(): void {
     if (!this.loadedHistory) void this.refreshHistory();
+    void this.tree.refresh();
+    void this.refreshEnvs();
+    // Only entry point that re-renders the env editor's own list — its
+    // debounced per-field saves must NOT trigger this (see refreshEnvs).
+    void this.envEditor.refresh();
   }
 
   /// Called when the panel hides. Also drops fullscreen if active.
@@ -246,108 +246,269 @@ export class SomnusPanel {
     this.setExpanded(false);
   }
 
-  // ── Composer state ──
+  // ── Tabs / drafts ──
 
-  private setTab(tab: "headers" | "body"): void {
-    this.activeTab = tab;
-    this.tabHeadersBtn.classList.toggle("is-active", tab === "headers");
-    this.tabBodyBtn.classList.toggle("is-active", tab === "body");
-    this.root.classList.toggle("somnus-tab-headers", tab === "headers");
-    this.root.classList.toggle("somnus-tab-body", tab === "body");
+  private freshTab(): OpenTab {
+    const draft = emptyDraft();
+    return { treeId: null, name: "", draft, savedKey: draftKey(draft) };
   }
 
-  private syncBodyEnabled(): void {
-    const enabled = BODY_METHODS.has(this.methodSel.value);
-    this.bodyArea.disabled = !enabled;
-    this.tabBodyBtn.disabled = !enabled;
-    if (!enabled && this.activeTab === "body") this.setTab("headers");
+  private tabViews(): TabView[] {
+    return this.tabs.map((t) => ({
+      title: t.name || t.draft.url.replace(/^https?:\/\//, "") || "Untitled",
+      method: t.draft.method,
+      dirty: draftKey(t.draft) !== t.savedKey,
+    }));
   }
 
-  private syncSendEnabled(): void {
-    this.sendBtn.disabled = this.sending || !isSendableUrl(this.urlInput.value);
+  private renderTabsBar(): void {
+    this.reqTabs.render(this.tabViews(), this.active);
   }
 
-  private addHeaderRow(k: string, v: string): void {
-    const row = document.createElement("div");
-    row.className = "somnus-header-row";
-    const key = document.createElement("input");
-    key.className = "rail-search";
-    key.type = "text";
-    key.placeholder = "Header";
-    key.spellcheck = false;
-    key.value = k;
-    const val = document.createElement("input");
-    val.className = "rail-search";
-    val.type = "text";
-    val.placeholder = "Value";
-    val.spellcheck = false;
-    val.value = v;
-    const rm = document.createElement("button");
-    rm.type = "button";
-    rm.className = "rail-btn";
-    rm.setAttribute("aria-label", "Remove header");
-    rm.innerHTML = Icons.x({ size: 13 });
-    rm.addEventListener("click", () => {
-      row.remove();
-      this.headerRows = this.headerRows.filter((r) => r.row !== row);
-    });
-    row.append(key, val, rm);
-    this.headersHost.append(row);
-    this.headerRows.push({ row, key, val });
+  private composerDirty(): void {
+    const tab = this.tabs[this.active];
+    if (!tab) return;
+    tab.draft = this.composer.getDraft();
+    this.renderTabsBar();
   }
 
-  private currentRequest(): SomnusRequest {
-    const headers: [string, string][] = [];
-    for (const r of this.headerRows) {
-      const k = r.key.value.trim();
-      if (k) headers.push([k, r.val.value]);
-    }
-    const method = this.methodSel.value;
-    return {
-      method,
-      url: this.urlInput.value.trim(),
-      headers,
-      body: BODY_METHODS.has(method) && this.bodyArea.value ? this.bodyArea.value : null,
+  private selectTab(i: number): void {
+    this.active = Math.max(0, Math.min(i, this.tabs.length - 1));
+    this.composer.setDraft(this.tabs[this.active].draft);
+    this.composer.markUnresolved([], false);
+    this.renderTabsBar();
+  }
+
+  private newTab(): void {
+    this.tabs.push(this.freshTab());
+    this.selectTab(this.tabs.length - 1);
+  }
+
+  private closeTab(i: number): void {
+    const tab = this.tabs[i];
+    if (!tab) return;
+    // Capture the tab OBJECT (not the index): while the confirm popover is
+    // pending, another tab may close and shift indices out from under `i`.
+    const doClose = (): void => {
+      const idx = this.tabs.indexOf(tab);
+      if (idx === -1) return;
+      this.tabs.splice(idx, 1);
+      if (this.tabs.length === 0) this.tabs.push(this.freshTab());
+      this.selectTab(this.active >= idx && this.active > 0 ? this.active - 1 : this.active);
     };
+    if (draftKey(tab.draft) !== tab.savedKey) {
+      confirmPopover(this.reqTabs.element, "Discard unsaved changes?", "Discard", doClose);
+    } else {
+      doClose();
+    }
   }
 
-  private loadRequest(req: {
-    method: string;
-    url: string;
-    headers: [string, string][];
-    body: string | null;
-  }): void {
-    this.methodSel.value = METHODS.includes(req.method) ? req.method : "GET";
-    this.urlInput.value = req.url;
-    this.headersHost.replaceChildren();
-    this.headerRows = [];
-    for (const [k, v] of req.headers) this.addHeaderRow(k, v);
-    if (this.headerRows.length === 0) this.addHeaderRow("", "");
-    this.bodyArea.value = req.body ?? "";
-    this.syncBodyEnabled();
-    this.syncSendEnabled();
-    if (req.body) this.setTab("body");
+  /// From the collections tree. Expanded: open-in-tab (dedupe by treeId).
+  /// Rail: replace the single active composer.
+  private openNode(node: SomnusTreeNode): void {
+    const draft = parseDraft(node.request);
+    const tab: OpenTab = { treeId: node.id, name: node.name, draft, savedKey: draftKey(draft) };
+    if (this.expanded) {
+      const existing = this.tabs.findIndex((t) => t.treeId === node.id);
+      if (existing !== -1) {
+        this.selectTab(existing);
+        return;
+      }
+      this.tabs.push(tab);
+      this.selectTab(this.tabs.length - 1);
+    } else {
+      this.tabs[this.active] = tab;
+      this.selectTab(this.active);
+    }
+  }
+
+  private setSideTab(tab: "collections" | "envs" | "history"): void {
+    this.sideTab = tab;
+    for (const [id, btn] of this.sideBtns) btn.classList.toggle("is-active", id === this.sideTab);
+    this.root.classList.toggle("somnus-side-collections", this.sideTab === "collections");
+    this.root.classList.toggle("somnus-side-envs", this.sideTab === "envs");
+    this.root.classList.toggle("somnus-side-history", this.sideTab === "history");
+  }
+
+  // ── Environments ──
+
+  // Fetches the env list for the composer's picker ONLY — must NOT trigger
+  // envEditor.refresh(): this is the callback the editor's own onChanged
+  // fires on every debounced save, and refreshing here would re-render the
+  // list mid-typing and steal focus from whatever input is active. The
+  // editor refreshes itself on panel open (render()) and from its own
+  // create/delete/activate actions, which already call this.refresh().
+  private async refreshEnvs(): Promise<void> {
+    try {
+      this.envs = await somnusEnvList();
+    } catch (e) {
+      console.error("somnus env list failed", e);
+      return;
+    }
+    const active = this.envs.find((e) => e.is_active);
+    this.composer.setEnvs(this.envs, active?.id ?? null);
+  }
+
+  private async setActiveEnv(id: string | null): Promise<void> {
+    try {
+      await somnusEnvActivate(id);
+    } catch (e) {
+      console.error("somnus env activate failed", e);
+    }
+    await this.refreshEnvs();
+    // Composer-picker activation is not a typing context — sync the
+    // editor's active dot.
+    void this.envEditor.refresh();
+  }
+
+  private activeVars(): Map<string, string> {
+    const active = this.envs.find((e) => e.is_active);
+    return active ? envVarsToMap(active.vars) : new Map();
   }
 
   // ── Send / response ──
 
   private async send(): Promise<void> {
     if (this.sending) return;
+    const draft = this.composer.getDraft();
+    const vars = this.activeVars();
+    const missing = findUnresolvedDraft(draft, vars);
+    this.composer.markUnresolved(missing, findUnresolved(draft.url, vars).length > 0);
     this.sending = true;
-    this.sendBtn.textContent = "…";
-    this.syncSendEnabled();
-    const req = this.currentRequest();
+    this.composer.setSending(true);
     try {
-      const resp = await somnusSend(req);
+      const resp = await somnusSend(buildRequest(draft, vars));
       this.renderResponse(resp);
     } catch (e) {
       this.renderError(String(e));
     } finally {
       this.sending = false;
-      this.sendBtn.textContent = "Send";
-      this.syncSendEnabled();
+      this.composer.setSending(false);
       void this.refreshHistory();
     }
+  }
+
+  // ── Save ──
+
+  private async saveActive(): Promise<void> {
+    const tab = this.tabs[this.active];
+    if (!tab) return;
+    tab.draft = this.composer.getDraft();
+    // Snapshot what we're sending BEFORE any await: if the user keeps typing
+    // during the round-trip, composerDirty replaces tab.draft — stamping
+    // savedKey from the live draft would clear the dirty dot while the server
+    // holds the pre-edit version (silent data loss on closeTab).
+    const sent = tab.draft;
+    const sentKey = draftKey(sent);
+    if (tab.treeId) {
+      try {
+        await somnusTreeUpdate(tab.treeId, null, JSON.stringify(sent));
+        tab.savedKey = sentKey;
+        this.renderTabsBar();
+        this.notify("Saved");
+        void this.tree.refresh();
+      } catch (e) {
+        // Stale treeId (node was deleted elsewhere) — fall back to the
+        // create-new-request flow instead of just toasting a phantom error.
+        if (String(e).includes("no tree node")) {
+          tab.treeId = null;
+          this.savePopover(sent, (id, name) => {
+            tab.treeId = id;
+            tab.name = name;
+            tab.savedKey = sentKey;
+            this.renderTabsBar();
+          });
+        } else {
+          this.notify(String(e), true);
+        }
+      }
+      return;
+    }
+    this.savePopover(sent, (id, name) => {
+      tab.treeId = id;
+      tab.name = name;
+      tab.savedKey = sentKey;
+      this.renderTabsBar();
+    });
+  }
+
+  /// Name + destination picker on .ui-select__popover chrome, anchored to the
+  /// composer. Destinations: every collection/folder from the tree.
+  private savePopover(draft: SomnusDraft, onSaved: (id: string, name: string) => void): void {
+    const containers = this.tree.getNodes().filter((n) => n.kind !== "request");
+    if (containers.length === 0) {
+      // No collection yet — create one implicitly so ⌘S always works.
+      void somnusTreeCreate(null, "collection", "My requests", null)
+        .then(() => {
+          void this.tree.refresh().then(() => this.savePopover(draft, onSaved));
+        })
+        .catch((e) => this.notify(String(e), true));
+      return;
+    }
+    const pop = document.createElement("div");
+    pop.className = "ui-select__popover somnus-savepop";
+    const nameInput = document.createElement("input");
+    nameInput.className = "rail-search";
+    nameInput.type = "text";
+    nameInput.placeholder = "Request name";
+    nameInput.spellcheck = false;
+    nameInput.value = draft.url.split("?")[0].split("/").filter(Boolean).slice(-1)[0] ?? "";
+    const destSel = new CustomSelect({
+      className: "somnus-savedest",
+      ariaLabel: "Save into",
+      value: containers[0].id,
+      options: containers.map((c) => ({ value: c.id, label: c.name })),
+    });
+    const row = document.createElement("div");
+    row.className = "somnus-confirm-actions";
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "ui-select__option";
+    save.textContent = "Save";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "ui-select__option";
+    cancel.textContent = "Cancel";
+    row.append(save, cancel);
+    pop.append(nameInput, destSel.element, row);
+    document.body.append(pop);
+    const anchor = this.composer.element.getBoundingClientRect();
+    pop.style.position = "fixed";
+    pop.style.left = `${Math.max(8, anchor.right - 280)}px`;
+    pop.style.top = `${anchor.top + 34}px`;
+    // Outside-click / Escape dismissal — the popover is body-portaled, so
+    // without this it would outlive the surface (dismissable stopPropagations
+    // Escape, so it won't also close the whole surface).
+    const closePop = dismissable(pop);
+    cancel.addEventListener("click", closePop);
+    save.addEventListener("click", () => {
+      const name = nameInput.value.trim() || "Untitled";
+      void somnusTreeCreate(destSel.value, "request", name, JSON.stringify(draft))
+        .then((id) => {
+          closePop();
+          onSaved(id, name);
+          this.notify("Saved");
+          void this.tree.refresh();
+        })
+        .catch((e) => this.notify(String(e), true));
+    });
+    nameInput.focus();
+    nameInput.select();
+  }
+
+  /// DESIGN rule 10: Esc closes the WHOLE surface back to the terminal —
+  /// expanded closes the rail too. The collapse button still returns to rail.
+  private closeSurface(): void {
+    this.setExpanded(false);
+    this.opts.onClose();
+  }
+
+  private notify(msg: string, isError = false): void {
+    const el = document.createElement("div");
+    el.className = `somnus-toast${isError ? " is-error" : ""}`;
+    el.textContent = msg;
+    this.root.append(el);
+    window.setTimeout(() => el.remove(), 4000);
   }
 
   private renderResponse(resp: SomnusResponse): void {
@@ -468,6 +629,18 @@ export class SomnusPanel {
       meta.textContent = bits.join(" · ");
       row.append(line, meta);
 
+      const saveAct = document.createElement("button");
+      saveAct.type = "button";
+      saveAct.className = "rail-row-action";
+      saveAct.setAttribute("aria-label", "Save to collection");
+      saveAct.innerHTML = Icons.save({ size: 13 });
+      attachTooltip(saveAct, "Save to collection");
+      saveAct.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.savePopover(draftFromEntry(entry), () => undefined);
+      });
+      row.append(saveAct);
+
       const del = document.createElement("button");
       del.type = "button";
       del.className = "rail-row-action";
@@ -491,13 +664,18 @@ export class SomnusPanel {
     }
   }
 
+  /// Mirrors openNode: expanded mode pushes a new tab instead of hijacking
+  /// the active one (which would silently discard unsaved edits + treeId).
   private loadEntry(entry: SomnusHistoryEntry): void {
-    this.loadRequest({
-      method: entry.method,
-      url: entry.url,
-      headers: entry.req_headers,
-      body: entry.req_body,
-    });
+    const draft = draftFromEntry(entry);
+    const tab: OpenTab = { treeId: null, name: "", draft, savedKey: draftKey(emptyDraft()) };
+    if (this.expanded) {
+      this.tabs.push(tab);
+      this.selectTab(this.tabs.length - 1);
+    } else {
+      this.tabs[this.active] = tab;
+      this.selectTab(this.active);
+    }
     if (entry.error) {
       this.renderError(entry.error);
     } else if (entry.status !== null) {

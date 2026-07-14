@@ -1510,6 +1510,109 @@ export async function somnusHistoryClear(): Promise<void> {
   return invoke<void>("somnus_history_clear", {});
 }
 
+// Somnus v2 — collections tree + environments ---------------------------
+
+export type SomnusBodyMode = "none" | "json" | "text" | "form";
+
+export type SomnusAuth =
+  | { type: "none" }
+  | { type: "bearer"; token: string }
+  | { type: "basic"; username: string; password: string }
+  | { type: "apikey"; key: string; value: string; placement: "header" | "query" };
+
+/// The composer's persistable state. Stored JSON-encoded in somnus_tree.request
+/// (opaque to Rust). Params and form rows are projections of `url` / `body`,
+/// not separate fields.
+export type SomnusDraft = {
+  method: string;
+  url: string;
+  headers: [string, string][];
+  body: string;
+  body_mode: SomnusBodyMode;
+  auth: SomnusAuth;
+};
+
+export type SomnusTreeKind = "collection" | "folder" | "request";
+
+export type SomnusTreeNode = {
+  id: string;
+  parent_id: string | null;
+  kind: SomnusTreeKind;
+  name: string;
+  sort: number;
+  request: string | null; // JSON-encoded SomnusDraft
+  updated_at: number;
+};
+
+export type SomnusImportNode = {
+  kind: "folder" | "request";
+  name: string;
+  request: string | null; // JSON-encoded SomnusDraft
+  children: SomnusImportNode[];
+};
+
+export type SomnusEnvVar = { key: string; value: string; secret: boolean };
+
+export type SomnusEnvironment = {
+  id: string;
+  name: string;
+  vars: string; // JSON-encoded SomnusEnvVar[]
+  is_active: boolean;
+};
+
+export async function somnusTreeList(): Promise<SomnusTreeNode[]> {
+  return invoke<SomnusTreeNode[]>("somnus_tree_list", {});
+}
+
+export async function somnusTreeCreate(
+  parentId: string | null,
+  kind: SomnusTreeKind,
+  name: string,
+  request: string | null,
+): Promise<string> {
+  return invoke<string>("somnus_tree_create", { parentId, kind, name, request });
+}
+
+export async function somnusTreeUpdate(
+  id: string,
+  name: string | null,
+  request: string | null,
+): Promise<void> {
+  return invoke<void>("somnus_tree_update", { id, name, request });
+}
+
+export async function somnusTreeDelete(id: string): Promise<void> {
+  return invoke<void>("somnus_tree_delete", { id });
+}
+
+export async function somnusTreeDuplicate(id: string): Promise<string> {
+  return invoke<string>("somnus_tree_duplicate", { id });
+}
+
+export async function somnusTreeImport(name: string, nodes: SomnusImportNode[]): Promise<number> {
+  return invoke<number>("somnus_tree_import", { name, nodes });
+}
+
+export async function somnusEnvList(): Promise<SomnusEnvironment[]> {
+  return invoke<SomnusEnvironment[]>("somnus_env_list", {});
+}
+
+export async function somnusEnvCreate(name: string): Promise<string> {
+  return invoke<string>("somnus_env_create", { name });
+}
+
+export async function somnusEnvUpdate(id: string, name: string, vars: string): Promise<void> {
+  return invoke<void>("somnus_env_update", { id, name, vars });
+}
+
+export async function somnusEnvDelete(id: string): Promise<void> {
+  return invoke<void>("somnus_env_delete", { id });
+}
+
+export async function somnusEnvActivate(id: string | null): Promise<void> {
+  return invoke<void>("somnus_env_activate", { id });
+}
+
 // Canon — local Covenant Dependency Lifecycle Catalog ------------------
 
 export interface InstalledRef {
