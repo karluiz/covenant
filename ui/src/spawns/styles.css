@@ -1,21 +1,37 @@
+/* Split-button capsule: [ glyph label caret │ ▷ ]. The picker segment
+   opens the popover; the run segment quick-runs the bound executor.
+   One bordered container so the play stops floating loose. */
 .spawns-chip {
   -webkit-app-region: no-drag;
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 8px;
-  padding: 4px 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  border-radius: 8px;
+  align-items: stretch;
+  margin-left: 6px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border, #232831);
+  background: rgb(var(--ink-rgb) / 0.03);
+  border-radius: 6px;
   color: var(--text, #d5d9de);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
   position: relative;
+  overflow: hidden;
+  transition: border-color 0.15s;
 }
 .spawns-chip:hover {
-  background: transparent;
+  border-color: color-mix(in srgb, var(--spawn-accent, #6dd29a) 55%, transparent);
+}
+.spawns-chip__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+}
+.spawns-chip__div {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border, #232831);
 }
 .spawns-chip__dot {
   width: 8px;
@@ -40,31 +56,27 @@
   display: block;
 }
 .spawns-chip__caret {
-  color: #8a93a0;
-  margin-left: 2px;
+  color: var(--text-muted, #8a93a0);
 }
 
-/* Inline play button — quick-runs the bound executor without opening
-   the popover. Tinted with the executor's brand accent on hover. */
+/* Run segment — quick-runs the bound executor without opening the
+   popover. Docked flush inside the capsule; brand accent on hover. */
 .spawns-chip__run {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 4px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  color: #8a93a0;
+  width: 26px;
+  align-self: stretch;
+  color: var(--text-muted, #8a93a0);
   cursor: pointer;
-  transition: color 0.12s, background 0.12s, transform 0.12s;
+  transition: color 0.12s, background 0.12s;
 }
 .spawns-chip__run:hover {
   color: var(--spawn-accent, #6dd29a);
-  background: color-mix(in srgb, var(--spawn-accent, #6dd29a) 18%, transparent);
-  transform: scale(1.08);
+  background: color-mix(in srgb, var(--spawn-accent, #6dd29a) 16%, transparent);
 }
 .spawns-chip__run:active {
-  transform: scale(0.94);
+  background: color-mix(in srgb, var(--spawn-accent, #6dd29a) 26%, transparent);
 }
 
 .spawns-popover {

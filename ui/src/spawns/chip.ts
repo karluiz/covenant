@@ -102,9 +102,12 @@ export class SpawnsChip {
     const color = brandColor(bound);
     btn.style.setProperty("--spawn-accent", color);
     btn.innerHTML = `
-      ${brandGlyph(bound, "spawns-chip__brand", 13)}
-      <span class="spawns-chip__label">${escHtml(bound?.label ?? "Spawn")}</span>
-      <span class="spawns-chip__caret"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+      <span class="spawns-chip__pick">
+        ${brandGlyph(bound, "spawns-chip__brand", 13)}
+        <span class="spawns-chip__label">${escHtml(bound?.label ?? "Spawn")}</span>
+        <span class="spawns-chip__caret"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+      </span>
+      <span class="spawns-chip__div" aria-hidden="true"></span>
       <span class="spawns-chip__run" role="button" aria-label="Run ${escHtml(bound?.label ?? "executor")}">${Icons.play({ size: 10 })}</span>
     `;
     btn.addEventListener("click", (e) => {

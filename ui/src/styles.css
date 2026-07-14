@@ -14910,12 +14910,11 @@ body.zen-icons #app-titlebar :is(.titlebar-icon-btn, .titlebar-sep) {
         transform 0.38s cubic-bezier(0.33, 0, 0.2, 1);
 }
 body.zen-icons #app-titlebar:not(:hover):not(:focus-within)
-    :is(.titlebar-icon-btn, .titlebar-sep, #tabbar-collapse-all):not(#tabbar-fold):not(#tabbar-fold-right) {
-    /* The two fold toggles stay as permanent anchors — everything else
-       fades. !important + the ids in the selector outgun the legacy
-       `#app-titlebar #tabbar-collapse-all { opacity: 1 !important }`
-       override, which otherwise kept it visible while the zen
-       transform still shifted it up. */
+    :is(.titlebar-icon-btn, .titlebar-sep):not(#tabbar-fold):not(#tabbar-fold-right):not(#tabbar-collapse-all) {
+    /* The fold toggles + collapse-all stay as permanent anchors —
+       everything else fades. Collapse-all is excluded from the fade,
+       so the legacy `#app-titlebar #tabbar-collapse-all { opacity: 1
+       !important }` override keeps it visible like the folds. */
     opacity: 0 !important;
     transform: translateY(-5px) scale(0.94);
     /* grace period: icons linger 300ms after the pointer leaves, so
