@@ -18,7 +18,7 @@
   background: var(--sidebar-bg, #0d0e12);
   border-left: 1px solid var(--border, #23252d);
   border-top: 1px solid var(--border, #23252d);
-  font-family: var(--font-ui);
+  font-family: var(--ui-font, system-ui, sans-serif);
 }
 /* Left-tabbar mode has no horizontal tab strip, so the panel clears only the
    titlebar (same override Project Notes uses). */
@@ -30,33 +30,36 @@ body.sidebar-view-resources #resources-panel {
 
 /* Reflow the workspace so the terminal shrinks to the panel's left edge —
    identical mechanism to body.project-notes-open: force #layout to a single
-   content column and inset the tab-pane by the panel's full rendered width
-   (--right-sidebar-w + the 1px border). The resizer drags --right-sidebar-w,
-   so the panel and the terminal inset both follow live. */
+   content column and inset the tab-pane by the panel width. The panel is
+   border-box, so insetting by exactly --right-sidebar-w slides the
+   terminal's own right border under the panel — the panel's border-left is
+   the single visible divider (a +1px inset exposes both hairlines as a
+   double left border, obvious in light mode). The resizer drags
+   --right-sidebar-w, so the panel and the terminal inset both follow live. */
 body.sidebar-view-resources:not(.tabbar-left) #layout { grid-template-columns: minmax(0, 1fr) !important; }
 body.sidebar-view-resources.tabbar-left #layout { grid-template-columns: var(--tabbar-w) minmax(0, 1fr) !important; }
 body.sidebar-view-resources #activity-sidebar { display: none; }
 body.sidebar-view-resources .tab-pane {
-  right: calc(var(--right-sidebar-w) + 1px) !important;
+  right: var(--right-sidebar-w) !important;
   grid-template-columns: 1fr 0 0 0 !important;
 }
 
-.res-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 13px; color: var(--txt, #e6e7ee); }
+.res-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 13px; color: var(--text-primary, #e6e7ee); }
 .res-head { display: flex; align-items: center; gap: 12px; padding: 13px 14px 5px; }
 .res-title { font-weight: 650; font-size: 15px; letter-spacing: -.1px; }
-.res-sort, .res-refresh { cursor: pointer; color: var(--txt-faint, #8a8d99); font-size: 11px; transition: color .15s; }
+.res-sort, .res-refresh { cursor: pointer; color: var(--muted, #8a8d99); font-size: 11px; transition: color .15s; }
 .res-sort { margin-left: auto; }
-.res-sort:hover, .res-refresh:hover { color: var(--txt, #e6e7ee); }
+.res-sort:hover, .res-refresh:hover { color: var(--text-primary, #e6e7ee); }
 .res-refresh { font-size: 14px; line-height: 1; }
-.res-totals { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 6px 14px 13px; border-bottom: 1px solid var(--line-soft, #1e2027); }
-.res-cap { display: block; font-size: 9px; letter-spacing: 1px; color: var(--txt-faint, #8a8d99); margin-bottom: 2px; }
+.res-totals { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 6px 14px 13px; border-bottom: 1px solid var(--border, #1e2027); }
+.res-cap { display: block; font-size: 9px; letter-spacing: 1px; color: var(--muted, #8a8d99); margin-bottom: 2px; }
 .res-total-cpu, .res-total-mem, .res-total-share { font-size: 15px; font-weight: 550; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .res-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0 12px; }
-.res-group { font-weight: 650; font-size: 10px; letter-spacing: .6px; text-transform: uppercase; color: var(--txt-faint, #8a8d99); margin: 14px 0 2px; padding: 0 14px; }
+.res-group { font-weight: 650; font-size: 10px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted, #8a8d99); margin: 14px 0 2px; padding: 0 14px; }
 .res-group:first-child { margin-top: 6px; }
-.res-session { display: grid; grid-template-columns: 1fr 40px 60px; align-items: baseline; gap: 8px; padding: 4px 14px 4px 22px; color: var(--txt-dim, #b6b9c5); border-radius: 6px; }
-.res-session:hover { background: rgba(255, 255, 255, .03); }
+.res-session { display: grid; grid-template-columns: 1fr 40px 60px; align-items: baseline; gap: 8px; padding: 4px 14px 4px 22px; color: var(--text-secondary, #b6b9c5); }
+.res-session:hover { background: rgb(var(--ink-rgb, 255 255 255) / 0.04); }
 .res-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.res-cpu, .res-mem { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--txt-faint, #8a8d99); }
-.res-procs { font-family: var(--font-mono, ui-monospace, monospace); font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--txt-faint, #8a8d99); padding: 0 14px 4px 30px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.res-empty { color: var(--txt-faint, #8a8d99); padding: 18px 14px; }
+.res-cpu, .res-mem { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted, #8a8d99); }
+.res-procs { font-family: var(--font-mono, ui-monospace, monospace); font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--muted, #8a8d99); padding: 0 14px 4px 30px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-empty { color: var(--muted, #8a8d99); padding: 18px 14px; }
