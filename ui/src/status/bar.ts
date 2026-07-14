@@ -48,6 +48,9 @@ import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
 import { attachTooltip } from "../tooltip/tooltip";
 import { VitalsCluster } from "./vitals";
+import { ContextMenu, type MenuItem } from "../menu/context-menu";
+import { pushInfoToast } from "../notifications/toast";
+import { reviewApi, type ShareState } from "../review/api";
 import {
   subscribeProviderHealth,
   getProviderHealth,
@@ -1145,11 +1148,21 @@ export class StatusBar {
   }
 
   /// Right-click on the mission chip: small popover with "Change
-  /// mission…" and "Remove mission". Reuses .workspace-rowmenu styles
-  /// for visual consistency with the workspace switcher.
+  /// mission…", a share action, and "Remove mission". Reuses
+  /// .workspace-rowmenu styles for visual consistency with the
+  /// workspace switcher.
+  ///
+  /// The menu opens synchronously (optimistically labeled "Share for
+  /// review") so right-click stays instant; we look up the real share
+  /// state in the background and relabel the row to "Copy review link"
+  /// if one already exists by the time it resolves. The full share menu
+  /// (copy/republish/revoke) only lives on the viewer's chip — this
+  /// stays a one-liner.
   private openMissionContextMenu(x: number, y: number): void {
     const sessionId = this.currentSessionId;
-    if (!this.currentMission || !sessionId) return;
+    const mission = this.currentMission;
+    if (!mission || !sessionId) return;
+    let share: ShareState | null = null;
     const menu = document.createElement("div");
     menu.className = "workspace-rowmenu";
     menu.style.position = "fixed";
@@ -1157,6 +1170,7 @@ export class StatusBar {
     menu.style.zIndex = "1001";
     menu.innerHTML = `
       <div class="workspace-rowmenu-item" data-action="edit">Change spec…</div>
+      <div class="workspace-rowmenu-item" data-action="share">Share for review</div>
       <div class="workspace-rowmenu-item workspace-rowmenu-danger" data-action="clear">Remove spec</div>
     `;
     document.body.appendChild(menu);
@@ -1186,7 +1200,48 @@ export class StatusBar {
       cleanup();
       if (action === "edit") this.onMissionEditRequested?.(sessionId);
       else if (action === "clear") this.onMissionClearRequested?.(sessionId);
+      else if (action === "share") {
+        if (share) {
+          void navigator.clipboard.writeText(share.url);
+          pushInfoToast({ message: "Review link copied" });
+        } else {
+          void (async () => {
+            let content: string | null;
+            try {
+              content = await getSessionMissionContent(sessionId);
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.error("get_session_mission_content failed", err);
+              pushInfoToast({ message: "Failed to publish for review" });
+              return;
+            }
+            try {
+              await publishMissionForReview(mission.path, content ?? "");
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.error("review_publish_spec failed", err);
+              pushInfoToast({ message: `Failed to publish for review: ${String(err)}` });
+            }
+          })();
+        }
+      }
     });
+
+    // Fire-and-forget: relabel the share row if the spec turns out to
+    // already be shared. Race guard on mission/session in case the
+    // active tab changed while this was in flight.
+    void reviewApi
+      .getShare(mission.path)
+      .then((s) => {
+        if (!s || this.currentMission !== mission || this.currentSessionId !== sessionId) return;
+        share = s;
+        const shareRow = menu.querySelector<HTMLElement>('[data-action="share"]');
+        if (shareRow) shareRow.textContent = "Copy review link";
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("review_get_share failed", err);
+      });
   }
 
   /// Public entry point for the modal — also called from the tab
@@ -1720,6 +1775,24 @@ function basename(p: string): string {
   return idx >= 0 ? p.slice(idx + 1) : p;
 }
 
+/// Derive a title for the reviewer share record: the spec's first H1
+/// heading if it has one, else the file's basename.
+function deriveShareTitle(content: string, path: string): string {
+  const m = content.match(/^#\s+(.+)$/m);
+  return m ? m[1].trim() : basename(path);
+}
+
+/// Publish `path` for review, copy the link to the clipboard, and toast.
+/// Shared between the viewer header's "Share for review" button and the
+/// mission chip's context menu so both entry points behave identically.
+async function publishMissionForReview(path: string, content: string): Promise<ShareState> {
+  const title = deriveShareTitle(content, path);
+  const share = await reviewApi.publish(path, title);
+  void navigator.clipboard.writeText(share.url);
+  pushInfoToast({ message: "Review link copied — shared as v1" });
+  return share;
+}
+
 /// Build the plan-progress section skeleton (heading + empty list). The
 /// list is filled in by `fillPlanSection` once the plan body resolves.
 function renderPlanSection(plan: MissionPlanInfo): HTMLElement {
@@ -1811,6 +1884,13 @@ class MissionViewerModal {
   /// Cached at openLoading. Lets us decide synchronously whether to
   /// allow Edit. Re-checked on Edit click in case AOM started in between.
   private aomActive = false;
+  /// Reviewer-share state for the current mission, fetched once per
+  /// open (openLoading) and refreshed after publish/republish/revoke.
+  /// `null` means "not shared" (as opposed to "not loaded yet" — the
+  /// header just doesn't render a share affordance until the fetch
+  /// resolves, same tolerance as the AOM status fetch above).
+  private share: ShareState | null = null;
+  private readonly shareMenu = new ContextMenu(document.body);
 
   /// In-modal find (⌘F / Ctrl+F), view mode only. `findOpen` survives a
   /// body re-render (Source⇄Rendered toggle) so the bar reappears and the
@@ -1833,6 +1913,7 @@ class MissionViewerModal {
     this.content = "";
     this.sessionId = null;
     this.mode = "view";
+    this.share = null;
     this.ensureOverlay();
     this.renderAll();
     const body = this.bodyEl();
@@ -1846,6 +1927,23 @@ class MissionViewerModal {
       })
       .catch(() => {
         /* leave default false; backend will still gate on save */
+      });
+    // Fire-and-forget: fetch the reviewer-share state once per open so
+    // the header can show "Share for review" vs the "Shared · vN" chip.
+    const path = mission.path;
+    void reviewApi
+      .getShare(path)
+      .then((share) => {
+        // Race guard: bail if the modal moved on to a different mission
+        // before this resolved.
+        if (this.mission?.path !== path) return;
+        this.share = share;
+        this.renderHeader();
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("review_get_share failed", err);
+        /* leave share null; header falls back to "Share for review" */
       });
   }
 
@@ -1985,6 +2083,24 @@ class MissionViewerModal {
       });
       actions.appendChild(toggleBtn);
 
+      if (this.share) {
+        const shareChip = document.createElement("button");
+        shareChip.type = "button";
+        shareChip.className = "mission-viewer-share review-share-chip";
+        attachTooltip(shareChip, "Review link options");
+        shareChip.innerHTML = `${Icons.share({ size: 12 })}<span>Shared · v${this.share.version}</span>`;
+        shareChip.addEventListener("click", () => this.openShareMenu(shareChip));
+        actions.appendChild(shareChip);
+      } else {
+        const shareBtn = document.createElement("button");
+        shareBtn.type = "button";
+        shareBtn.className = "mission-viewer-share";
+        attachTooltip(shareBtn, "Publish a reviewer link for this spec");
+        shareBtn.innerHTML = `${Icons.share({ size: 12 })}<span>Share for review</span>`;
+        shareBtn.addEventListener("click", () => void this.publishForReview());
+        actions.appendChild(shareBtn);
+      }
+
       const editBtn = document.createElement("button");
       editBtn.type = "button";
       editBtn.className = "mission-viewer-edit";
@@ -2008,6 +2124,84 @@ class MissionViewerModal {
       else this.close();
     });
     actions.appendChild(closeBtn);
+  }
+
+  /// "Share for review" button handler: derive a title, publish, copy
+  /// the link, toast, and re-render the header into the "Shared" chip.
+  private async publishForReview(): Promise<void> {
+    if (!this.mission) return;
+    const path = this.mission.path;
+    try {
+      const share = await publishMissionForReview(path, this.content);
+      if (this.mission?.path !== path) return;
+      this.share = share;
+      this.renderHeader();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("review_publish_spec failed", err);
+      pushInfoToast({ message: `Failed to publish for review: ${String(err)}` });
+    }
+  }
+
+  /// "Shared · vN" chip click: opens the full share menu (copy /
+  /// republish / revoke).
+  private openShareMenu(anchor: HTMLElement): void {
+    if (!this.share || !this.mission) return;
+    const path = this.mission.path;
+    const rect = anchor.getBoundingClientRect();
+    const items: MenuItem[] = [
+      {
+        label: "Copy link",
+        icon: Icons.link2({ size: 13 }),
+        onClick: () => this.copyShareLink(),
+      },
+      {
+        label: "Republish",
+        icon: Icons.refresh({ size: 13 }),
+        onClick: () => this.republishForReview(path),
+      },
+      {
+        label: "Revoke",
+        icon: Icons.trash({ size: 13 }),
+        danger: true,
+        onClick: () => this.revokeShare(path),
+      },
+    ];
+    this.shareMenu.show(rect.left, rect.bottom + 4, items);
+  }
+
+  private copyShareLink(): void {
+    if (!this.share) return;
+    void navigator.clipboard.writeText(this.share.url);
+    pushInfoToast({ message: "Review link copied" });
+  }
+
+  private async republishForReview(path: string): Promise<void> {
+    try {
+      const share = await reviewApi.republish(path);
+      if (this.mission?.path !== path) return;
+      this.share = share;
+      pushInfoToast({ message: `Republished as v${share.version}` });
+      this.renderHeader();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("review_republish_spec failed", err);
+      pushInfoToast({ message: `Failed to republish: ${String(err)}` });
+    }
+  }
+
+  private async revokeShare(path: string): Promise<void> {
+    try {
+      await reviewApi.revoke(path);
+      if (this.mission?.path !== path) return;
+      this.share = null;
+      pushInfoToast({ message: "Review link revoked" });
+      this.renderHeader();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("review_revoke_spec failed", err);
+      pushInfoToast({ message: `Failed to revoke review link: ${String(err)}` });
+    }
   }
 
   private renderBody(): void {

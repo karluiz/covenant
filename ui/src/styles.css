@@ -7703,6 +7703,43 @@ mark.mv-find-hit.is-active {
     border-color: color-mix(in srgb, var(--fg, #d6d8db) 20%, transparent);
 }
 
+/* Share for review — button (unshared) + chip (shared). Same metrics
+   as Edit/Toggle; the chip picks up --accent once a share exists so it
+   reads as an active/positive state at a glance. */
+.mission-viewer-share {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    padding: 3px 9px;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.mission-viewer-share:hover {
+    color: var(--fg, #d6d8db);
+    background: color-mix(in srgb, var(--fg, #d6d8db) 6%, transparent);
+    border-color: color-mix(in srgb, var(--fg, #d6d8db) 20%, transparent);
+}
+
+.mission-viewer-share svg { display: block; }
+
+.review-share-chip {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.review-share-chip:hover {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: var(--accent);
+}
+
 /* Container tweaks for the rendered view — drop the monospace +
    pre-wrap that .mission-viewer-content carries for source mode,
    so the markdown-body typography rules apply cleanly. */
