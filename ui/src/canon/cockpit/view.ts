@@ -8,7 +8,7 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { CanonStatus, Org, Member, Operator, PkgMeta, MarketplaceListing } from "../../api";
+import type { CanonStatus, Org, Member, Operator, PkgMeta, MarketplaceListing, CanonPkgKind } from "../../api";
 import {
   canonOrgMembers,
   canonAddMember,
@@ -21,6 +21,7 @@ import {
   canonSearch,
   canonPreview,
   canonInstallRegistry,
+  canonInstallRegistryUnit,
   scoreSummaryFiltered,
   canonEvalSummary,
   operatorList,
@@ -102,7 +103,7 @@ const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   spec: ["Specs", "Task-anchor specs published in this repo (docs/specs)."],
   memory: ["Memory", "Durable facts this group carries into every executor's managed block."],
   skills: ["Skills", "Skills installed in this group, projected to your executors."],
-  registry: ["Registry", "Browse and install skills and operators shared across the organization."],
+  registry: ["Registry", "Browse and install everything your organization publishes — skills, operators, subagents, commands, context and MCP servers."],
   context: ["Context", "Repo-mined context this group carries into every session."],
   loop: ["Loop", "Adoption, inference footprint, and eval pass-rate for this group."],
 };
@@ -926,7 +927,7 @@ export class CanonCockpitView {
               const pub = iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => {
                 errorEl.hidden = true;
                 pub.disabled = true;
-                void canonPublish(cwd, active.slug, i.name)
+                void canonPublish(cwd, active.slug, i.name, "skill")
                   .then(load)
                   .catch((e) => {
                     errorEl.hidden = false;
@@ -974,19 +975,30 @@ export class CanonCockpitView {
       return el;
     }
 
-    // Skills | Operators kind toggle — same registry surface, two catalogs.
-    let kind: "skills" | "operators" = "skills";
+    // Kind tabs — one registry surface, six catalogs. Operators ride the
+    // marketplace API; every other kind is a /cdlc/packages search.
+    type RegTab = { key: string; label: string; wire: CanonPkgKind | null };
+    const REG_TABS: RegTab[] = [
+      { key: "skills", label: "Skills", wire: "skill" },
+      { key: "operators", label: "Operators", wire: null },
+      { key: "agents", label: "Subagents", wire: "agent" },
+      { key: "commands", label: "Commands", wire: "command" },
+      { key: "context", label: "Context", wire: "context" },
+      { key: "mcp", label: "MCP", wire: "mcp" },
+    ];
+    let tab: RegTab = REG_TABS[0];
     const toggleRow = document.createElement("div");
     toggleRow.className = "canon-reg-kind-toggle";
-    const skillsBtn = document.createElement("button");
-    skillsBtn.type = "button";
-    skillsBtn.className = "canon-reg-kind";
-    skillsBtn.textContent = "Skills";
-    const opsBtn = document.createElement("button");
-    opsBtn.type = "button";
-    opsBtn.className = "canon-reg-kind";
-    opsBtn.textContent = "Operators";
-    toggleRow.append(skillsBtn, opsBtn);
+    const tabBtns = new Map<string, HTMLButtonElement>();
+    for (const t of REG_TABS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "canon-reg-kind";
+      b.textContent = t.label;
+      b.addEventListener("click", () => { applyKindUI(t); runSearch(); });
+      tabBtns.set(t.key, b);
+      toggleRow.appendChild(b);
+    }
 
     const searchRow = document.createElement("div");
     searchRow.className = "canon-cockpit-search-row";
@@ -1005,9 +1017,9 @@ export class CanonCockpitView {
     const results = document.createElement("div");
     results.className = "canon-cockpit-search-results";
 
-    const runSkillsSearch = (active: Org): void => {
+    const runPkgSearch = (active: Org, wire: CanonPkgKind): void => {
       results.replaceChildren(this.note("Searching…"));
-      void canonSearch(active.slug, input.value.trim() || null)
+      void canonSearch(active.slug, input.value.trim() || null, wire)
         .then((rows: PkgMeta[]) => {
           results.replaceChildren();
           if (rows.length === 0) {
@@ -1020,7 +1032,10 @@ export class CanonCockpitView {
               if (!org) return;
               errorEl.hidden = true;
               inst.disabled = true;
-              void canonInstallRegistry(cwd, org.slug, r.name, r.version, this.opts.groupLabel, null)
+              const install = wire === "skill"
+                ? canonInstallRegistry(cwd, org.slug, r.name, r.version, this.opts.groupLabel, null)
+                : canonInstallRegistryUnit(cwd, org.slug, r.name, r.version, wire);
+              void install
                 .then(() => { inst.innerHTML = Icons.check({ size: 15 }); })
                 .catch((e) => {
                   errorEl.hidden = false;
@@ -1029,14 +1044,20 @@ export class CanonCockpitView {
                 });
             });
             const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
+            const meta = wire === "skill"
+              ? `${r.version} · ${installs} · ${r.publisher_login}`
+              : `${installs} · ${r.publisher_login}`;
+            const stats = wire === "skill"
+              ? [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)]
+              : [`shared by ${r.publisher_login}`, installs];
             results.appendChild(skillCard({
               name: r.name,
-              meta: `${r.version} · ${installs} · ${r.publisher_login}`,
+              meta,
               description: r.description,
               className: "canon-search-result",
-              fetchPreview: () => canonPreview(active.slug, r.name, r.version).then((p) => p.skill_md),
+              fetchPreview: () => canonPreview(active.slug, r.name, r.version, wire).then((p) => p.skill_md),
               actions: [inst],
-              stats: [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)],
+              stats,
             }));
           }
         })
@@ -1092,7 +1113,7 @@ export class CanonCockpitView {
 
     const runSearch = (): void => {
       errorEl.hidden = true;
-      if (kind === "operators") {
+      if (tab.wire === null) {
         runOperatorsSearch();
         return;
       }
@@ -1102,21 +1123,22 @@ export class CanonCockpitView {
         errorEl.textContent = "No organization selected.";
         return;
       }
-      runSkillsSearch(active);
+      runPkgSearch(active, tab.wire);
     };
 
-    const applyKindUI = (next: "skills" | "operators"): void => {
-      kind = next;
-      skillsBtn.setAttribute("aria-pressed", String(next === "skills"));
-      skillsBtn.classList.toggle("is-active", next === "skills");
-      opsBtn.setAttribute("aria-pressed", String(next === "operators"));
-      opsBtn.classList.toggle("is-active", next === "operators");
+    const applyKindUI = (next: RegTab): void => {
+      tab = next;
+      for (const [key, b] of tabBtns) {
+        const isActive = key === next.key;
+        b.setAttribute("aria-pressed", String(isActive));
+        b.classList.toggle("is-active", isActive);
+      }
       input.value = "";
-      input.placeholder = next === "skills" ? `Search ${initialActive.slug} registry…` : "Search operators…";
+      input.placeholder = next.wire === null
+        ? "Search operators…"
+        : `Search ${initialActive.slug} ${next.label.toLowerCase()}…`;
     };
-    skillsBtn.addEventListener("click", () => { applyKindUI("skills"); runSearch(); });
-    opsBtn.addEventListener("click", () => { applyKindUI("operators"); runSearch(); });
-    applyKindUI("skills");
+    applyKindUI(REG_TABS[0]);
 
     go.addEventListener("click", runSearch);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
@@ -1207,7 +1229,7 @@ export class CanonCockpitView {
       const orgSlug = active.slug;
       void Promise.all([
         canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] }) as CanonStatus),
-        canonSearch(orgSlug, null).catch(() => [] as PkgMeta[]),
+        canonSearch(orgSlug, null, "skill").catch(() => [] as PkgMeta[]),
       ]).then(([status, pkgs]) => {
         const registrySkills = status.installed.filter((i) => i.source.startsWith("registry:"));
         if (registrySkills.length === 0) return;

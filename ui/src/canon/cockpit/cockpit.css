@@ -384,7 +384,7 @@ body.tabbar-left .canon-cockpit {
 
 /* ── Registry section ──────────────────────────────────────────────── */
 
-/* Skills | Operators kind toggle — segmented, sharp corners (mirrors
+/* Kind tabs — six catalogs, segmented, sharp corners (mirrors
    .wiz-segmented in styles.css, scoped to the cockpit's own tokens). */
 .canon-reg-kind-toggle {
   display: inline-flex;

@@ -14,6 +14,7 @@ vi.mock("../../api", () => ({
   canonSearch: vi.fn().mockResolvedValue([]),
   canonPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
   canonInstallRegistry: vi.fn().mockResolvedValue(undefined),
+  canonInstallRegistryUnit: vi.fn(async () => undefined),
   scoreSummaryFiltered: vi.fn().mockResolvedValue({ total_tokens: 0, total_prompts: 0, total_specs: 0, total_commits: 0 }),
   canonEvalSummary: vi.fn().mockResolvedValue([]),
   operatorList: vi.fn(async () => [] as unknown[]),
@@ -30,7 +31,7 @@ vi.mock("../../api", () => ({
 vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
 import {
-  canonMyOrgs, canonSearch, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
+  canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
   operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, type Operator,
   type MarketplaceListing,
 } from "../../api";
@@ -163,6 +164,39 @@ describe("CanonCockpitView Registry section", () => {
       expect(v.element.textContent).toContain("Zeta");
     });
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("renders all six registry kind tabs", async () => {
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    const tabs = [...v.element.querySelectorAll(".canon-reg-kind")].map((b) => b.textContent);
+    expect(tabs).toEqual(["Skills", "Operators", "Subagents", "Commands", "Context", "MCP"]);
+  });
+
+  it("searches and installs a non-skill kind through canonInstallRegistryUnit", async () => {
+    vi.mocked(canonSearch).mockResolvedValue([
+      { id: 1, kind: "command", name: "deploy", version: "abc123def456", description: "d", publisher_login: "k", installs: 2, sha: "abc" },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    const commandsTab = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-reg-kind")]
+      .find((b) => b.textContent === "Commands")!;
+    commandsTab.click();
+    await vi.waitFor(() => {
+      expect(canonSearch).toHaveBeenLastCalledWith(expect.any(String), null, "command");
+    });
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-search-result")).toBeTruthy();
+    });
+    const install = v.element.querySelector<HTMLButtonElement>(".canon-search-result [aria-label='Install']")!;
+    install.click();
+    await vi.waitFor(() => {
+      expect(canonInstallRegistryUnit).toHaveBeenCalledWith(
+        expect.any(String), expect.any(String), "deploy", "abc123def456", "command",
+      );
+    });
   });
 
   it("installs an operator into the active non-personal org", async () => {
