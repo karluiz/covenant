@@ -190,6 +190,10 @@ describe("CanonCockpitView Registry section", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-search-result")).toBeTruthy();
     });
+    // Non-skill cards hide the content-addressed version + sha chips.
+    const card = v.element.querySelector(".canon-search-result")!;
+    expect(card.textContent).not.toContain("abc123def456");
+    expect(card.textContent).toContain("k");
     const install = v.element.querySelector<HTMLButtonElement>(".canon-search-result [aria-label='Install']")!;
     install.click();
     await vi.waitFor(() => {
