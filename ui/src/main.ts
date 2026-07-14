@@ -97,7 +97,7 @@ import { ContextMinerView } from "./canon/miner/view";
 import { CanonCockpitView } from "./canon/cockpit/view";
 import { canonMyOrgs } from "./api";
 import type { Org } from "./api";
-import { SpawnsChip } from "./spawns/chip";
+import { SpawnsChip, spawnBrandGlyph } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor } from "./spawns/shortcuts";
 import {
@@ -1283,6 +1283,20 @@ async function boot(): Promise<void> {
         const spec = specs.find((s) => s.default) ?? specs[0];
         if (spec) runSpawn(spec.id, sid);
       })();
+    };
+    // "Start agent" menu items ask for the default spawn's brand glyph
+    // synchronously; cache it and refresh in the background on each read.
+    let defaultAgentGlyph: string | null = null;
+    const primeDefaultAgentGlyph = (): void => {
+      void listSpawns().then((specs) => {
+        const spec = specs.find((s) => s.default) ?? specs[0];
+        defaultAgentGlyph = spawnBrandGlyph(spec, 16);
+      });
+    };
+    primeDefaultAgentGlyph();
+    manager.defaultAgentIcon = (): string | null => {
+      primeDefaultAgentGlyph();
+      return defaultAgentGlyph;
     };
     // Group context menu → "Start new agent": preload the default spawn's
     // command line into a fresh tab (runs on the shell's first prompt).
