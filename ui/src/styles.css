@@ -20195,7 +20195,11 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .rail-search input {
   flex: 1; background: none; border: 0; outline: 0; color: var(--fg);
   font-family: var(--ui-font); font-size: var(--fs-body); padding: 8px 0;
+  /* type="search" keeps WebKit's native searchfield chrome (white box in
+     light schemes) unless appearance is reset — somnus.css precedent. */
+  -webkit-appearance: none; appearance: none; border-radius: 0;
 }
+.rail-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .rail-search input::placeholder { color: var(--fg-dim); }
 .rail-select {
   display: flex; align-items: center; gap: 8px; width: 100%;
