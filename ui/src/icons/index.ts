@@ -521,4 +521,11 @@ export const Icons = {
       `<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>`,
       o,
     ),
+
+  /** Power button — toggle active state for environments. Lucide `power`. */
+  power: (o?: IconOptions): string =>
+    svg(
+      `<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" x2="12" y1="2" y2="12"/>`,
+      o,
+    ),
 };
