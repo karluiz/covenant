@@ -374,7 +374,7 @@ Add to the tests module in `crates/app/src/canon_miner.rs`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p karl-app split_by_kind` (use the actual app crate name from `crates/app/Cargo.toml`; check with `grep '^name' crates/app/Cargo.toml`).
+Run: `cargo test -p covenant split_by_kind`.
 Expected: FAIL — `split_by_kind` undefined.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -470,7 +470,7 @@ pub(crate) fn split_by_kind(findings: &[CompiledFinding]) -> KindGroups { /* as 
 
 - [ ] **Step 4: Run tests + build**
 
-Run: `cargo test -p karl_canon compile && cargo build -p <app-crate>`
+Run: `cargo test -p karl_canon compile && cargo build -p covenant`
 Expected: PASS + builds (handler registration resolves).
 
 - [ ] **Step 5: Commit**
@@ -775,7 +775,7 @@ git commit -m "feat(ui): per-finding kind selector, grouped preview, multi-kind 
 
 - [ ] **Step 1: Rust**
 
-Run: `cargo test -p karl_agent -p karl_canon -p <app-crate>`
+Run: `cargo test -p karl_agent -p karl_canon -p covenant`
 Expected: PASS.
 
 - [ ] **Step 2: TS**
