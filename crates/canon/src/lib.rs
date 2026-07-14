@@ -9,7 +9,7 @@ pub mod eval;
 pub mod kind;
 pub mod mcp;
 
-pub use install::{install_from_dir, install_local, read_skill_package, read_source, status, CanonStatus, content_version};
+pub use install::{install_from_dir, install_local, install_unit, read_skill_package, read_source, status, CanonStatus, content_version};
 pub use manifest::{canon_dir, read_manifest, write_manifest};
 pub use project::{
     project, project_with_active, projection_status, ExecutorStatus, ProjState, ProjectionStatus,
