@@ -459,9 +459,9 @@ export class SettingsPanel {
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
       <a href="#sec-covenant" data-target="sec-covenant">Metrics</a>
-      <a href="#sec-onboarding" data-target="sec-onboarding">Onboarding</a>
       <a href="#sec-workspace" data-target="sec-workspace">Workspace</a>
       <a href="#sec-cloud" data-target="sec-cloud">Covenant Cloud</a>
+      <a href="#sec-onboarding" data-target="sec-onboarding">Onboarding</a>
       <a href="#sec-experimental" data-target="sec-experimental">Experimental</a>
       </div>
       <div class="settings-nav-empty" hidden>No matching settings</div>
@@ -1190,22 +1190,6 @@ export class SettingsPanel {
             <small class="settings-hint">Symlinks the bundled shim to <code>/usr/local/bin/covenant</code>. May ask for your administrator password once.</small>
           </div>
         </section>
-        <section class="settings-section" id="sec-onboarding">
-          <h3 class="settings-section-title">Onboarding</h3>
-          <p class="settings-section-desc">Re-run the first-run tour at any time. Useful if you skipped it on install or want a refresher on the keyboard shortcuts and the super-agent.</p>
-          <div class="settings-field">
-            <span class="settings-label">First-run tour</span>
-            <div class="settings-input-row">
-              <button type="button" class="settings-save onboarding-replay" data-action="show-tour">${Icons.refresh({ size: 14 })}<span>Show tour again</span></button>
-              <button type="button" class="settings-toggle" data-action="preview-tour">${Icons.play({ size: 14 })}<span>Preview (no reset)</span></button>
-            </div>
-            <small class="settings-hint">
-              <strong>Show tour again</strong> clears your completion flag and pops the 10-step welcome wizard — finishing it stamps a fresh version so future updates can re-show it.
-              <br />
-              <strong>Preview</strong> opens the wizard without touching persisted state, for QA and demos.
-            </small>
-          </div>
-        </section>
         <section class="settings-section" id="sec-covenant">
           <h3 class="settings-section-title">Metrics</h3>
           <p class="settings-section-desc">Track prompts and commits across your repos.</p>
@@ -1228,6 +1212,22 @@ export class SettingsPanel {
         <section class="settings-section" id="sec-cloud">
           <h3 class="settings-section-title">Covenant Cloud</h3>
           <div id="cloud-sync-root"></div>
+        </section>
+        <section class="settings-section" id="sec-onboarding">
+          <h3 class="settings-section-title">Onboarding</h3>
+          <p class="settings-section-desc">Re-run the first-run tour at any time. Useful if you skipped it on install or want a refresher on the keyboard shortcuts and the super-agent.</p>
+          <div class="settings-field">
+            <span class="settings-label">First-run tour</span>
+            <div class="settings-input-row">
+              <button type="button" class="settings-save onboarding-replay" data-action="show-tour">${Icons.refresh({ size: 14 })}<span>Show tour again</span></button>
+              <button type="button" class="settings-toggle" data-action="preview-tour">${Icons.play({ size: 14 })}<span>Preview (no reset)</span></button>
+            </div>
+            <small class="settings-hint">
+              <strong>Show tour again</strong> clears your completion flag and pops the 10-step welcome wizard — finishing it stamps a fresh version so future updates can re-show it.
+              <br />
+              <strong>Preview</strong> opens the wizard without touching persisted state, for QA and demos.
+            </small>
+          </div>
         </section>
         <section class="settings-section" id="sec-experimental">
           <h3 class="settings-section-title">Experimental</h3>
