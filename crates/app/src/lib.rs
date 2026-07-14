@@ -3788,18 +3788,23 @@ pub fn run() {
         std::env::current_dir().ok().as_deref(),
     ));
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            // `covenant <path>` while already running: the new process
-            // forwards its argv here and exits.
-            cli_open::queue_and_notify(
-                app,
-                cli_open::paths_from_argv(&argv, Some(std::path::Path::new(&cwd))),
-            );
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.set_focus();
-            }
-        }))
+    let builder = tauri::Builder::default();
+    // Single-instance shares the bundle id with the installed app, so a
+    // debug build would forward its argv to the running prod instance and
+    // exit — killing the `tauri dev` loop. Release-only.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+        // `covenant <path>` while already running: the new process
+        // forwards its argv here and exits.
+        cli_open::queue_and_notify(
+            app,
+            cli_open::paths_from_argv(&argv, Some(std::path::Path::new(&cwd))),
+        );
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.set_focus();
+        }
+    }));
+    builder
         .menu(|handle| build_app_menu(handle))
         .on_menu_event(|app, event| {
             // ⌘W / ⌘T accelerators land here (the native menu consumes the
