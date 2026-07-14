@@ -90,6 +90,9 @@ export class SomnusPanel {
   private expandTooltipDetach: () => void;
   private onEsc = (e: KeyboardEvent): void => {
     if (e.key === "Escape" && this.expanded) {
+      // Popover wins over surface: window-capture fires before dismissable's
+      // document-capture listener — let Esc dismiss an open popover first.
+      if (document.querySelector(".ui-select__popover")) return;
       e.stopPropagation();
       this.closeSurface();
     }
