@@ -11,12 +11,14 @@ export interface HeadingGroup {
 
 /// Right-rail panel mounted beside the mission viewer's spec body once a
 /// spec has been shared for review. Polls `review_activity` every 15s,
-/// toasts on newly-seen comments (after the first poll), and lets the
+/// toasts on newly-seen comments and newly-seen verdicts (after the
+/// first poll, which only records a silent baseline), and lets the
 /// reader resolve threads inline.
 export class ReviewPanel {
   readonly el = document.createElement("aside");
   private pollTimer: number | null = null;
   private seenIds = new Set<number>();
+  private seenVerdictKeys = new Set<string>();
   private firstPoll = true;
   private resolvedFoldOpen = false;
   private tooltipDisposers: Array<() => void> = [];
@@ -45,9 +47,22 @@ export class ReviewPanel {
     }
     const fresh = act.comments.filter((c) => !this.seenIds.has(c.id));
     for (const c of act.comments) this.seenIds.add(c.id);
+
+    const freshVerdicts = act.verdicts.filter((v) => !this.seenVerdictKeys.has(verdictKey(v)));
+    for (const v of act.verdicts) this.seenVerdictKeys.add(verdictKey(v));
+
     if (!this.firstPoll && fresh.length > 0) {
       pushInfoToast({
         message: `${fresh.length} new review comment${fresh.length > 1 ? "s" : ""}`,
+      });
+    }
+    const freshLatestVerdict = latestVerdict(freshVerdicts);
+    if (!this.firstPoll && freshLatestVerdict) {
+      pushInfoToast({
+        message:
+          freshLatestVerdict.verdict === "approved"
+            ? "Review verdict: approved"
+            : "Review verdict: changes requested",
       });
     }
     this.firstPoll = false;
@@ -233,6 +248,12 @@ export class ReviewPanel {
 
 function byCreatedAtAsc(a: ReviewComment, b: ReviewComment): number {
   return Date.parse(a.createdAt) - Date.parse(b.createdAt);
+}
+
+/// Verdicts have no stable id from the backend — key them by the tuple
+/// that uniquely identifies one, mirroring how `seenIds` tracks comments.
+function verdictKey(v: ReviewVerdict): string {
+  return `${v.version}:${v.authorName}:${v.createdAt}`;
 }
 
 function latestVerdict(verdicts: ReviewVerdict[]): ReviewVerdict | null {

@@ -1786,7 +1786,15 @@ function deriveShareTitle(content: string, path: string): string {
 /// Publish `path` for review, copy the link to the clipboard, and toast.
 /// Shared between the viewer header's "Share for review" button and the
 /// mission chip's context menu so both entry points behave identically.
-async function publishMissionForReview(path: string, content: string): Promise<ShareState> {
+///
+/// Guards against publishing an empty/whitespace-only spec — both call
+/// sites funnel through here, so a single check covers them (neither
+/// validates non-empty content upstream, so this can't double-toast).
+async function publishMissionForReview(path: string, content: string): Promise<ShareState | null> {
+  if (content.trim().length === 0) {
+    pushInfoToast({ message: "Spec is empty — nothing to share" });
+    return null;
+  }
   const title = deriveShareTitle(content, path);
   const share = await reviewApi.publish(path, title);
   void navigator.clipboard.writeText(share.url);
@@ -2146,6 +2154,7 @@ class MissionViewerModal {
     const path = this.mission.path;
     try {
       const share = await publishMissionForReview(path, this.content);
+      if (share === null) return;
       if (this.mission?.path !== path) return;
       this.share = share;
       this.renderHeader();
