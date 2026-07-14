@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Server repo deploys from `main` only; migrations run at boot — a bad `0008_*.sql` crashes the container. Migrations are additive-only; never edit existing numbered files.
+- Server repo deploys from `main` only; migrations run at boot — a bad `0009_*.sql` crashes the container. Migrations are additive-only; never edit existing numbered files.
 - Server builds with `cargo build --locked` in CI — if a dependency is added, commit the updated `Cargo.lock`. (This plan adds none.)
 - Anchor contract (both repos, must match byte-for-byte): a heading is a line matching `^#{1,6}\s+` **outside fenced code blocks** (``` fences); `anchor_heading` = the text after the hashes, trimmed. No hashes stored.
 - Limits: markdown ≤ 1 MiB, title ≤ 200 chars, comment body ≤ 16 KiB, author_name ≤ 80 chars, verdict note ≤ 4 KiB, ≤ 500 comments per spec. Verdict values: `approved` | `changes_requested`.
@@ -31,7 +31,7 @@
 ### Task 1: Server — migration + data layer + publish endpoint
 
 **Files:**
-- Create: `migrations/0008_spec_reviews.sql`
+- Create: `migrations/0009_spec_reviews.sql`
 - Create: `src/review.rs`
 - Modify: `src/main.rs` (add `mod review;` and routes)
 - Tests: inline `#[cfg(test)]` in `src/review.rs`
@@ -42,7 +42,7 @@
 
 - [ ] **Step 1: Write the migration**
 
-`migrations/0008_spec_reviews.sql`:
+`migrations/0009_spec_reviews.sql`:
 
 ```sql
 CREATE TABLE shared_specs (
@@ -216,7 +216,7 @@ Expected: PASS, clean build.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add migrations/0008_spec_reviews.sql src/review.rs src/main.rs
+git add migrations/0009_spec_reviews.sql src/review.rs src/main.rs
 git commit -m "feat(review): spec share tables + publish endpoint"
 ```
 
@@ -808,4 +808,4 @@ In `MissionViewerModal`: when `this.share` is non-null, wrap content in a flex r
 - [ ] Server worktree: `cargo fmt --all && cargo clippy --all-targets` clean; full `cargo test`.
 - [ ] Desktop worktree: `cargo fmt --all && cargo clippy --workspace --all-targets`; `npm run build && npm test`; `cargo test --workspace` (skip known-hanging telegram tests if they block — run per-crate).
 - [ ] End-to-end against local server: run covenant-server locally (`cargo run`, Postgres up), point the app at it with `COVENANT_BACKEND_URL=http://localhost:8080 npm run tauri:dev`, walk the full loop: publish → browser comment → panel shows it → resolve → republish v2 → browser badge shows update → verdict → panel pins it → revoke → link 404s.
-- [ ] Merge desktop branch to `main` (fast-forward or merge commit per repo habit). Server branch: PR/merge to `main` — **merging deploys it and runs migration 0008 on prod at boot**; call that out in the PR body.
+- [ ] Merge desktop branch to `main` (fast-forward or merge commit per repo habit). Server branch: PR/merge to `main` — **merging deploys it and runs migration 0009 on prod at boot**; call that out in the PR body.
