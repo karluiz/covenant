@@ -6,6 +6,35 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.18 — Start-agent brand icon fix + Beacon release ledger
+
+### Added
+
+- **Beacon release ledger**: the deployments rail replaces the flat run
+  list (status pill + meta strip that double-encoded state and truncated
+  sha/ref at rail width) with a ref-grouped ledger — group header carries
+  the tag/branch, aggregate state and freshest time, a segmented bar
+  renders one segment per run, and child rows are prefix-stripped
+  (glyph + workflow name + run# + time) with hover actions overlaying the
+  run#/time slots instead of reserving right padding
+  (`ui/src/beacon/panel.ts`, `ui/src/beacon/beacon.css`).
+
+### Fixed
+
+- **"Start agent" shows the default executor's brand icon**: the
+  `defaultAgentIcon` hook shipped in v0.9.17 was declared and consumed
+  but never assigned, so the group menu's "Start new agent" and the pane
+  menu's "Start agent" always fell back to sparkles. `main.ts` now caches
+  the default spawn's brand glyph via `spawnBrandGlyph` and refreshes it
+  in the background on each read (`ui/src/main.ts`).
+
+- **Settings save no longer wipes Harnesses config**: the Settings submit
+  handler serialized a stale `this.current`, clobbering `acp_executors`
+  that the Harnesses section persists directly — saving any other tab
+  erased trust/model/env config per executor. Submit now re-reads
+  settings and carries the field through
+  (`ui/src/settings/panel.ts`).
+
 ## v0.9.17 — operator card redesign + canon source-path hints
 
 ### Added
