@@ -18,7 +18,11 @@ vi.mock("../../api", () => ({
   canonEvalSummary: vi.fn().mockResolvedValue([]),
   operatorList: vi.fn(async () => [] as unknown[]),
   operatorDelete: vi.fn().mockResolvedValue(undefined),
+  operatorSetOrg: vi.fn().mockResolvedValue(undefined),
+  operatorCreateFromSoul: vi.fn(async () => ({ id: "op-installed", name: "Zeta Installed" }) as unknown),
   marketplacePublish: vi.fn().mockResolvedValue(undefined),
+  marketplaceSearch: vi.fn(async () => [] as unknown[]),
+  marketplaceInstallCount: vi.fn().mockResolvedValue(undefined),
 }));
 
 // The cockpit's "Create organization" button opens the immersive create
@@ -27,7 +31,8 @@ vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
 import {
   canonMyOrgs, canonSearch, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
-  operatorList, type Operator,
+  operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, type Operator,
+  type MarketplaceListing,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
 
@@ -36,6 +41,11 @@ const OPERATOR_FIXTURE: Operator = {
   persona: "", escalate_threshold: 0.5, model: "claude-sonnet-4-6", hard_constraints: "",
   voice: "Terse", is_default: true, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
   github_access: "Off", acp_enabled: false, perception_enabled: false, org_slug: null,
+};
+
+const LISTING_FIXTURE: MarketplaceListing = {
+  id: "listing-1", name: "Zeta", emoji: "🟣", color: "#a855f7", tags: ["rust"],
+  tagline: "Rust reviewer", author_login: "someone", installs: 4, soul_md: "---\nname: Zeta\n---\nbody",
 };
 
 const opts = {
@@ -138,6 +148,38 @@ describe("CanonCockpitView Registry section", () => {
     input.value = "kyc"; go.click();
     await Promise.resolve(); await Promise.resolve();
     expect(v.element.textContent).toContain("kyc");
+  });
+
+  it("registry toggle switches to operators and renders marketplace results", async () => {
+    vi.mocked(marketplaceSearch).mockResolvedValue([LISTING_FIXTURE]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    const toggle = [...v.element.querySelectorAll(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
+    (toggle as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("Zeta");
+    });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("installs an operator into the active non-personal org", async () => {
+    vi.mocked(marketplaceSearch).mockResolvedValue([LISTING_FIXTURE]);
+    vi.mocked(operatorList).mockResolvedValue([]);
+    vi.mocked(operatorCreateFromSoul).mockResolvedValue({ id: "op-new", name: "Zeta" } as Operator);
+    const orgOpts = { ...opts, orgs: [{ id: 2, slug: "cleverit", name: "Cleverit", role: "owner", personal: false }], getActiveOrg: () => "cleverit" };
+    const v = new CanonCockpitView(orgOpts);
+    v.open();
+    v.showSection("registry");
+    const toggle = [...v.element.querySelectorAll(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
+    (toggle as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(v.element.textContent).toContain("Zeta"));
+    const install = v.element.querySelector(".canon-search-result [aria-label='Install']") as HTMLButtonElement;
+    install.click();
+    await vi.waitFor(() => {
+      expect(operatorCreateFromSoul).toHaveBeenCalled();
+      expect(operatorSetOrg).toHaveBeenCalledWith("op-new", "cleverit");
+    });
   });
 });
 

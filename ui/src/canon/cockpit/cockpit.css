@@ -343,6 +343,30 @@ body.tabbar-left .canon-cockpit {
 
 /* ── Registry section ──────────────────────────────────────────────── */
 
+/* Skills | Operators kind toggle — segmented, sharp corners (mirrors
+   .wiz-segmented in styles.css, scoped to the cockpit's own tokens). */
+.canon-reg-kind-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.canon-reg-kind {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--fg-dim);
+  padding: 6px 14px;
+  cursor: pointer;
+  font-weight: 550;
+  border-right: 1px solid var(--border);
+}
+.canon-reg-kind:last-child { border-right: 0; }
+.canon-reg-kind:hover:not(.is-active) { background: rgb(var(--ink-rgb, 255 255 255) / 0.045); color: var(--fg); }
+.canon-reg-kind.is-active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+
 .canon-cockpit-search-row {
   display: flex;
   gap: 6px;

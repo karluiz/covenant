@@ -8,7 +8,7 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { CanonStatus, Org, Member, Operator, PkgMeta } from "../../api";
+import type { CanonStatus, Org, Member, Operator, PkgMeta, MarketplaceListing } from "../../api";
 import {
   canonOrgMembers,
   canonAddMember,
@@ -25,7 +25,11 @@ import {
   canonEvalSummary,
   operatorList,
   operatorDelete,
+  operatorSetOrg,
+  operatorCreateFromSoul,
   marketplacePublish,
+  marketplaceSearch,
+  marketplaceInstallCount,
 } from "../../api";
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
@@ -34,6 +38,7 @@ import { openOperatorModal, wireOperatorModal, renderOperatorList } from "../../
 import { operatorsForOrg, isStaleOrg } from "../../operator/org-filter";
 import { scheduleCloudPush } from "../../settings/cloud_push";
 import { pushInfoToast } from "../../notifications/toast";
+import { suffixSoulName } from "../../settings/marketplace_install";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { liftRow, groupVerdict } from "./lift";
@@ -91,7 +96,7 @@ const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   spec: ["Specs", "Task-anchor specs published in this repo (docs/specs)."],
   memory: ["Memory", "Durable facts this group carries into every executor's managed block."],
   skills: ["Skills", "Skills installed in this group, projected to your executors."],
-  registry: ["Registry", "Browse and install skills shared across the organization."],
+  registry: ["Registry", "Browse and install skills and operators shared across the organization."],
   context: ["Context", "Repo-mined context this group carries into every session."],
   loop: ["Loop", "Adoption, inference footprint, and eval pass-rate for this group."],
 };
@@ -860,12 +865,25 @@ export class CanonCockpitView {
       return el;
     }
 
+    // Skills | Operators kind toggle — same registry surface, two catalogs.
+    let kind: "skills" | "operators" = "skills";
+    const toggleRow = document.createElement("div");
+    toggleRow.className = "canon-reg-kind-toggle";
+    const skillsBtn = document.createElement("button");
+    skillsBtn.type = "button";
+    skillsBtn.className = "canon-reg-kind";
+    skillsBtn.textContent = "Skills";
+    const opsBtn = document.createElement("button");
+    opsBtn.type = "button";
+    opsBtn.className = "canon-reg-kind";
+    opsBtn.textContent = "Operators";
+    toggleRow.append(skillsBtn, opsBtn);
+
     const searchRow = document.createElement("div");
     searchRow.className = "canon-cockpit-search-row";
     const input = document.createElement("input");
     input.type = "text";
     input.className = "canon-cockpit-search-input";
-    input.placeholder = `Search ${initialActive.slug} registry…`;
     const go = document.createElement("button");
     go.type = "button";
     go.className = "canon-cockpit-search-go";
@@ -878,14 +896,7 @@ export class CanonCockpitView {
     const results = document.createElement("div");
     results.className = "canon-cockpit-search-results";
 
-    const runSearch = (): void => {
-      const active = this.activeOrg();
-      if (!active) {
-        errorEl.hidden = false;
-        errorEl.textContent = "No organization selected.";
-        return;
-      }
-      errorEl.hidden = true;
+    const runSkillsSearch = (active: Org): void => {
       results.replaceChildren(this.note("Searching…"));
       void canonSearch(active.slug, input.value.trim() || null)
         .then((rows: PkgMeta[]) => {
@@ -926,11 +937,83 @@ export class CanonCockpitView {
           errorEl.textContent = this.friendlyError(e);
         });
     };
+
+    const runOperatorsSearch = (): void => {
+      results.replaceChildren(this.note("Searching…"));
+      void marketplaceSearch(input.value.trim() || undefined)
+        .then((rows: MarketplaceListing[]) => {
+          results.replaceChildren();
+          if (rows.length === 0) {
+            results.appendChild(this.note("No operators found."));
+            return;
+          }
+          for (const r of rows) {
+            const inst = iconButton(Icons.download({ size: 15 }), "Install", () => {
+              inst.disabled = true;
+              void (async () => {
+                const existing = new Set((await operatorList()).map((o) => o.name.toLowerCase()));
+                const raw = suffixSoulName(r.soul_md, existing);
+                const created = await operatorCreateFromSoul(raw);
+                const org = this.activeOrg();
+                if (org && !org.personal) await operatorSetOrg(created.id, org.slug);
+                marketplaceInstallCount(r.id).catch(() => {});
+                inst.innerHTML = Icons.check({ size: 15 });
+              })().catch((e) => {
+                inst.disabled = false;
+                errorEl.hidden = false;
+                errorEl.textContent = this.friendlyError(e);
+              });
+            });
+            results.appendChild(skillCard({
+              name: r.name,
+              meta: `@${r.author_login} · ${r.installs} ${r.installs === 1 ? "install" : "installs"}`,
+              description: r.tagline,
+              className: "canon-search-result",
+              fetchPreview: () => Promise.resolve(r.soul_md),
+              actions: [inst],
+            }));
+          }
+        })
+        .catch((e) => {
+          results.replaceChildren();
+          errorEl.hidden = false;
+          errorEl.textContent = this.friendlyError(e);
+        });
+    };
+
+    const runSearch = (): void => {
+      errorEl.hidden = true;
+      if (kind === "operators") {
+        runOperatorsSearch();
+        return;
+      }
+      const active = this.activeOrg();
+      if (!active) {
+        errorEl.hidden = false;
+        errorEl.textContent = "No organization selected.";
+        return;
+      }
+      runSkillsSearch(active);
+    };
+
+    const applyKindUI = (next: "skills" | "operators"): void => {
+      kind = next;
+      skillsBtn.setAttribute("aria-pressed", String(next === "skills"));
+      skillsBtn.classList.toggle("is-active", next === "skills");
+      opsBtn.setAttribute("aria-pressed", String(next === "operators"));
+      opsBtn.classList.toggle("is-active", next === "operators");
+      input.value = "";
+      input.placeholder = next === "skills" ? `Search ${initialActive.slug} registry…` : "Search operators…";
+    };
+    skillsBtn.addEventListener("click", () => { applyKindUI("skills"); runSearch(); });
+    opsBtn.addEventListener("click", () => { applyKindUI("operators"); runSearch(); });
+    applyKindUI("skills");
+
     go.addEventListener("click", runSearch);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
 
     searchRow.append(input, go);
-    el.append(searchRow, errorEl, results);
+    el.append(toggleRow, searchRow, errorEl, results);
     return el;
   }
 
