@@ -137,6 +137,47 @@
 }
 .acp-model-menu[hidden] { display: none; }
 
+/* Trust chip + picker in the header — same chrome as the model chip.
+   YOLO is a standing warning state (amber, `--running`-family token),
+   not just a hover accent — mirrors `.acp-trust-seg` in the executor
+   settings (Task 6). */
+.acp-trust-chip {
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid rgb(var(--ink-rgb) / 0.14);
+  border-radius: 0;
+  padding: 1px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.acp-trust-chip:hover {
+  color: var(--text-primary);
+  border-color: rgb(var(--ink-rgb) / 0.28);
+}
+.acp-trust-chip--yolo {
+  color: var(--running);
+  border-color: color-mix(in srgb, var(--running) 50%, transparent);
+  background: color-mix(in srgb, var(--running) 12%, transparent);
+}
+.acp-trust-menu {
+  position: absolute;
+  top: 100%;
+  /* left set at open time to align with the trust chip */
+  min-width: 140px;
+  margin-top: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-elevated, var(--bg-panel));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 6;
+}
+.acp-trust-menu[hidden] { display: none; }
+.acp-trust-menu .acp-trust-menu-yolo .acp-slash-name { color: var(--running); }
+
 .acp-chat-meta {
   color: var(--text-tertiary, var(--text-secondary));
   font-size: 11px;
