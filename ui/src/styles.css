@@ -2880,6 +2880,9 @@ body:not(.tabbar-left) #new-group {
     display: flex;
     flex-direction: column;
     gap: 1px;
+    /* border-box so the JS-set min-width (= trigger width) includes padding
+       and border — otherwise the popover renders 10px wider than its select. */
+    box-sizing: border-box;
     padding: 4px;
     overflow-y: auto;
     background: var(--bg-overlay, #09090b);
@@ -2897,6 +2900,7 @@ body:not(.tabbar-left) #new-group {
     align-items: center;
     gap: 8px;
     width: 100%;
+    box-sizing: border-box;
     min-height: 32px;
     padding: 6px 8px 6px 6px;
     border: 0;
