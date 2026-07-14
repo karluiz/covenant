@@ -399,6 +399,29 @@
   padding: 2px 6px;
 }
 
+.canon-miner-kindrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0;
+}
+.canon-miner-kindchip {
+  font-family: inherit;
+  font-size: var(--fs-micro, 10px);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-dim);
+  border-radius: 0;
+  cursor: pointer;
+}
+.canon-miner-kindchip:hover { background: rgb(var(--ink-rgb) / 0.06); }
+.canon-miner-kindchip.is-active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--fg);
+}
+
 .canon-miner-card-actions {
   display: flex;
   gap: 6px;

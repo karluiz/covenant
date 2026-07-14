@@ -12,7 +12,7 @@ import { attachTooltip } from "../../tooltip/tooltip";
 import { startSky } from "../../spec-chat/entrance";
 import { pushInfoToast } from "../../notifications/toast";
 import {
-  canonCompileSkill,
+  canonCompileFindings,
   canonMineStart,
   canonMineStop,
   subscribeMinerEvents,
@@ -23,7 +23,10 @@ import {
   compilePreview,
   createMinerState,
   editFindingBody,
+  KIND_LABELS,
+  KIND_ORDER,
   reduceMinerEvent,
+  setFindingKind,
   setFindingStatus,
   type MinerState,
 } from "./state";
@@ -35,16 +38,16 @@ export interface ContextMinerOpts {
 }
 
 // Mirrors `CATEGORIES` in crates/agent/src/context_miner.rs and the private
-// ordering `compilePreview` (state.ts) uses — duplicated here (small, and
-// state.ts doesn't export it) so card groups render in the same order the
-// compiled skill will.
-const CATEGORY_ORDER: string[] = ["convention", "pattern", "gotcha", "domain_rule", "glossary"];
+// ordering `compilePreview` (state.ts) uses — duplicated here (small) so
+// card groups render in the same order the compiled output will.
+const CATEGORY_ORDER: string[] = ["convention", "pattern", "gotcha", "domain_rule", "glossary", "workflow"];
 const CATEGORY_LABELS: Record<string, string> = {
   convention: "Conventions",
   pattern: "Patterns",
   gotcha: "Gotchas",
   domain_rule: "Domain rules",
   glossary: "Glossary",
+  workflow: "Workflows",
 };
 
 function toKebab(raw: string): string {
@@ -243,10 +246,10 @@ export class ContextMinerView {
 
     const note = document.createElement("p");
     note.className = "canon-miner-note";
-    note.textContent = "Mined context is packaged as a skill.";
+    note.textContent = "Findings route to skills, memory, commands or subagents during curation.";
 
     const { wrap: nameWrap, input: nameInput } = this.field(
-      "Skill name",
+      "Package name",
       "e.g. testing-conventions",
       this.skillName,
     );
@@ -284,7 +287,7 @@ export class ContextMinerView {
     startBtn.addEventListener("click", () => {
       errorEl.textContent = "";
       if (!this.skillName) {
-        errorEl.textContent = "Enter a skill name.";
+        errorEl.textContent = "Enter a package name.";
         return;
       }
       void this.start(errorEl, startBtn);
@@ -591,7 +594,21 @@ export class ContextMinerView {
     });
     actions.append(acceptBtn, discardBtn);
 
-    wrapper.append(top, body, evidence, actions);
+    const kindRow = document.createElement("div");
+    kindRow.className = "canon-miner-kindrow";
+    for (const k of KIND_ORDER) {
+      const chip = document.createElement("button");
+      chip.className = card.kind === k ? "canon-miner-kindchip is-active" : "canon-miner-kindchip";
+      chip.textContent = KIND_LABELS[k];
+      chip.addEventListener("click", () => {
+        setFindingKind(this.state, id, k);
+        this.renderCard(id);
+        this.renderPreview();
+      });
+      kindRow.appendChild(chip);
+    }
+
+    wrapper.append(top, body, evidence, kindRow, actions);
   }
 
   // ── Preview zone ─────────────────────────────────────────────────────
@@ -625,12 +642,18 @@ export class ContextMinerView {
     this.footerEl.append(countEl, spacer, writeBtn);
   }
 
+  // ponytail: only skills collision-guard; other kinds dedupe by slug
   private async writeToRepo(writeBtn: HTMLButtonElement, overwrite: boolean): Promise<void> {
     writeBtn.disabled = true;
     try {
       const findings = acceptedFindings(this.state);
-      const path = await canonCompileSkill(this.opts.repoRoot, this.skillName, findings, overwrite);
-      pushInfoToast({ message: `Skill written: ${path}` });
+      const report = await canonCompileFindings(this.opts.repoRoot, this.skillName, findings, overwrite);
+      const parts: string[] = [];
+      if (report.skills) parts.push("1 skill");
+      if (report.memory.length) parts.push(`${report.memory.length} memory`);
+      if (report.commands.length) parts.push(`${report.commands.length} command`);
+      if (report.agents.length) parts.push(`${report.agents.length} subagent`);
+      pushInfoToast({ message: `Written: ${parts.join(", ") || "nothing"}` });
       this.destroy();
     } catch (e) {
       const msg = String(e);
