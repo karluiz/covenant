@@ -29,7 +29,9 @@ import type {
 } from "./manager";
 import { currentFoldedRailStyle } from "./custom-style";
 
-const NEUTRAL_COLOR = "rgba(255,255,255,0.35)";
+// Theme-aware: ink flips white/black with the theme, so the neutral
+// fallback stays visible on both dark and light surfaces.
+const NEUTRAL_COLOR = "rgb(var(--ink-rgb) / 0.35)";
 
 /// First two alphanumeric characters of a name — the tile/badge
 /// monogram. Falls back to a middot for names with no usable chars

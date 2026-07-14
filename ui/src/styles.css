@@ -11058,6 +11058,24 @@ body.tabbar-rail-labels #tabbar-rail {
     outline-offset: 2px;
 }
 
+/* Light: the raw group pastels are tuned for dark surfaces and wash
+   out on a light one — pull text toward ink and deepen the seg fills
+   (DESIGN.md "text via color-mix toward #fff/#000 for contrast",
+   same pattern as body.theme-light .group-chip). */
+body.theme-light .tabbar-rail-glyph-badge,
+body.theme-light .tabbar-rail-labels-head,
+body.theme-light .tabbar-rail-spine-mono {
+    color: color-mix(in srgb, var(--rail-color) 65%, #000);
+}
+
+body.theme-light .tabbar-rail-spine-seg {
+    background: color-mix(in srgb, var(--rail-color) 60%, transparent);
+}
+
+body.theme-light .tabbar-rail-spine-seg:hover {
+    background: color-mix(in srgb, var(--rail-color) 85%, transparent);
+}
+
 /* ---- Drafts page ---- */
 #drafts-page {
   display: grid;
