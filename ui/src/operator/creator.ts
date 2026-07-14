@@ -1432,7 +1432,12 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
     if (tags.length > 0) {
       const line = document.createElement("div");
       line.className = "op-card-tags";
-      line.textContent = tags.slice(0, 4).join(" · ");
+      // Separate text span so the +N counter never gets eaten by the
+      // ellipsis — the text truncates, the counter stays pinned.
+      const text = document.createElement("span");
+      text.className = "op-card-tagtext";
+      text.textContent = tags.slice(0, 4).join(" · ");
+      line.append(text);
       if (tags.length > 4) {
         const more = document.createElement("span");
         more.className = "op-card-tagmore";
