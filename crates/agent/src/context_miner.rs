@@ -169,7 +169,12 @@ fn system_prompt(opts: &MinerOpts) -> String {
          {depth}\n\nCategories: convention (how code is written here), \
          pattern (recurring designs), gotcha (traps that bit or will bite), \
          domain_rule (business/regulatory rules encoded in the code), \
-         glossary (project-specific terms).\n\nWhen you have covered the \
+         glossary (project-specific terms), workflow (a repeatable dev \
+         command sequence: build, test, deploy, migrate).\n\n\
+         Set suggested_kind to route the finding: skill for \
+         convention/pattern/gotcha, memory for durable domain_rule/glossary \
+         facts, command for a workflow. Omit it to accept the default for the \
+         category. You never create personas.\n\nWhen you have covered the \
          focus, reply with a short closing summary WITHOUT tool calls.",
         name = opts.skill_name,
         focus = opts.focus,
