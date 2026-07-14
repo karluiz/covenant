@@ -9,6 +9,7 @@ import {
 } from "../api";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
+import { CustomSelect } from "../ui/select";
 import { parseCurl } from "./curl";
 import { jsonTree, parseJsonBody } from "./json-tree";
 
@@ -72,7 +73,7 @@ interface HeaderRow {
 
 export class SomnusPanel {
   private root: HTMLElement;
-  private methodSel: HTMLSelectElement;
+  private methodSel: CustomSelect;
   private urlInput: HTMLInputElement;
   private sendBtn: HTMLButtonElement;
   private expandBtn: HTMLButtonElement;
@@ -148,15 +149,13 @@ export class SomnusPanel {
 
     const line = document.createElement("div");
     line.className = "somnus-line";
-    this.methodSel = document.createElement("select");
-    this.methodSel.className = "rail-select somnus-method";
-    for (const m of METHODS) {
-      const opt = document.createElement("option");
-      opt.value = m;
-      opt.textContent = m;
-      this.methodSel.append(opt);
-    }
-    this.methodSel.addEventListener("change", () => this.syncBodyEnabled());
+    this.methodSel = new CustomSelect({
+      className: "somnus-method",
+      ariaLabel: "HTTP method",
+      value: "GET",
+      options: METHODS.map((m) => ({ value: m, label: m })),
+      onChange: () => this.syncBodyEnabled(),
+    });
     this.urlInput = document.createElement("input");
     this.urlInput.className = "rail-search somnus-url";
     this.urlInput.type = "text";
@@ -184,7 +183,7 @@ export class SomnusPanel {
     this.sendBtn.textContent = "Send";
     this.sendBtn.disabled = true;
     this.sendBtn.addEventListener("click", () => void this.send());
-    line.append(this.methodSel, this.urlInput, this.sendBtn);
+    line.append(this.methodSel.element, this.urlInput, this.sendBtn);
 
     const controls = document.createElement("div");
     controls.className = "rail-controls";
