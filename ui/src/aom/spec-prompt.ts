@@ -8,6 +8,7 @@ import {
   type SpecPromptState,
   type TabSnapshot,
 } from "./spec-prompt-state";
+import { CustomSelect } from "../ui/select";
 
 /** Provided by the host (main.ts wires this from TabManager). */
 export interface SpecPromptHost {
@@ -152,6 +153,24 @@ function renderToast(host: SpecPromptHost, tab: TabSnapshot, cand: SpecCandidate
       <button type="button" class="spec-prompt-toast-dismiss">Dismiss</button>
     </div>
   `;
+
+  // The heuristic pick is only a default — when several tabs are eligible,
+  // let the user redirect the spec via a select (DESIGN.md rule 14).
+  let tabSelect: CustomSelect | null = null;
+  const eligible = getSpecPromptState().eligibleTabs(cand, host.listTabs());
+  if (eligible.length > 1) {
+    tabSelect = new CustomSelect({
+      options: eligible.map((t) => ({
+        value: t.id,
+        label: host.getTabLabel?.(t.id) ?? t.id,
+      })),
+      value: tab.id,
+      ariaLabel: "Target tab",
+    });
+    const targetEl = el.querySelector(".spec-prompt-toast-target")!;
+    targetEl.textContent = "→ ";
+    targetEl.appendChild(tabSelect.element);
+  }
   stack.appendChild(el);
 
   const close = () => {
@@ -164,9 +183,10 @@ function renderToast(host: SpecPromptHost, tab: TabSnapshot, cand: SpecCandidate
 
   el.querySelector(".spec-prompt-toast-set")!.addEventListener("click", async () => {
     clearTimeout(timer);
-    getSpecPromptState().acceptOnTab(tab.id, cand.path);
+    const targetId = tabSelect?.value || tab.id;
+    getSpecPromptState().acceptOnTab(targetId, cand.path);
     try {
-      await host.setMissionForTab(tab.id, cand.path);
+      await host.setMissionForTab(targetId, cand.path);
     } catch (e) {
       console.error("setMissionForTab failed", e);
     }

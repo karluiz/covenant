@@ -201,6 +201,77 @@ describe("spec-prompt toast rendering", () => {
     expect((toasts[0] as HTMLElement).dataset.tabId).toBe("t3");
   });
 
+  it("Set as spec targets the tab chosen in the toast select", async () => {
+    vi.resetModules();
+    capturedCandidateHandler = null;
+    document.body.innerHTML = "";
+    // jsdom lacks scrollIntoView, which CustomSelect calls on open.
+    Element.prototype.scrollIntoView = () => {};
+
+    vi.mock("../api", async (importOriginal) => {
+      const original = await importOriginal<typeof import("../api")>();
+      return {
+        ...original,
+        specDetectorApi: { start: vi.fn().mockResolvedValue(undefined) },
+        subscribeSpecCandidates: vi.fn().mockImplementation((handler: (c: SpecCandidate) => void) => {
+          capturedCandidateHandler = handler;
+          return Promise.resolve(() => { capturedCandidateHandler = null; });
+        }),
+      };
+    });
+
+    const { startSpecPrompts } = await import("./spec-prompt");
+    const tabs: TabSnapshot[] = [
+      { id: "t1", cwd: "/repo", hasMission: false, hasOperator: true },
+      { id: "t2", cwd: "/repo", hasMission: false, hasOperator: true },
+    ];
+    const host = makeHost(tabs, { activeTabId: "t2" });
+    await startSpecPrompts(host);
+
+    emitCandidate({ path: "/repo/docs/specs/3.20.md", repo_root: "/repo", source: "covenant", goal_snippet: "..." });
+
+    const toast = document.querySelector(".spec-prompt-toast") as HTMLElement;
+    expect(toast.dataset.tabId).toBe("t2"); // heuristic default
+
+    // Redirect to t1 via the select, then accept.
+    (toast.querySelector(".ui-select__button") as HTMLButtonElement).click();
+    (document.querySelector('.ui-select__option[data-value="t1"]') as HTMLButtonElement).click();
+    (toast.querySelector(".spec-prompt-toast-set") as HTMLButtonElement).click();
+
+    expect(host.setMissionForTab).toHaveBeenCalledWith("t1", "/repo/docs/specs/3.20.md");
+  });
+
+  it("renders no select when only one tab is eligible", async () => {
+    vi.resetModules();
+    capturedCandidateHandler = null;
+    document.body.innerHTML = "";
+
+    vi.mock("../api", async (importOriginal) => {
+      const original = await importOriginal<typeof import("../api")>();
+      return {
+        ...original,
+        specDetectorApi: { start: vi.fn().mockResolvedValue(undefined) },
+        subscribeSpecCandidates: vi.fn().mockImplementation((handler: (c: SpecCandidate) => void) => {
+          capturedCandidateHandler = handler;
+          return Promise.resolve(() => { capturedCandidateHandler = null; });
+        }),
+      };
+    });
+
+    const { startSpecPrompts } = await import("./spec-prompt");
+    const tabs: TabSnapshot[] = [
+      { id: "t1", cwd: "/repo", hasMission: false, hasOperator: true },
+    ];
+    const host = makeHost(tabs, { activeTabId: "t1" });
+    await startSpecPrompts(host);
+
+    emitCandidate({ path: "/repo/docs/specs/3.20.md", repo_root: "/repo", source: "covenant", goal_snippet: "..." });
+
+    const toast = document.querySelector(".spec-prompt-toast") as HTMLElement;
+    expect(toast.querySelector(".ui-select__button")).toBeNull();
+    expect(toast.querySelector(".spec-prompt-toast-target")!.textContent).toContain("Tab t1");
+  });
+
   it("a strictly deeper cwd wins even over the active tab", async () => {
     vi.resetModules();
     capturedCandidateHandler = null;

@@ -12888,6 +12888,11 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
   color: var(--text-muted, #888);
   margin-top: 2px;
 }
+.spec-prompt-toast-target .ui-select__button {
+  padding: 2px 6px;
+  min-height: 20px;
+  font-size: 11px;
+}
 .spec-prompt-toast-snippet {
   color: var(--muted, #9aa0a6);
   line-height: 1.4;
