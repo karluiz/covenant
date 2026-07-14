@@ -16068,18 +16068,19 @@ body.theme-light .release-close:hover .settings-esc {
     margin: 4px 0 0;
     padding: 0;
     width: 100%;
-    max-width: 320px;
+    max-width: 340px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
 }
 
 .onboarding-key {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
     font-size: 13px;
     color: var(--text-primary);
+    text-align: left;
 }
 
 .onboarding-key kbd {
@@ -16097,8 +16098,22 @@ body.theme-light .release-close:hover .settings-esc {
     box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
 }
 
-.onboarding-key span {
-    color: color-mix(in srgb, var(--text-primary) 80%, transparent);
+.onboarding-key__text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.onboarding-key__label {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.onboarding-key__desc {
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--muted);
 }
 
 /* Ollama auto-detect banner — only shown on a fresh install when a
@@ -16112,24 +16127,28 @@ body.theme-light .release-close:hover .settings-esc {
 
 .onboarding-provider {
     width: 100%;
-    max-width: 320px;
-    margin-top: 14px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    border: 1px solid color-mix(in srgb, var(--accent, #6ea8fe) 35%, var(--border));
-    background: color-mix(in srgb, var(--accent, #6ea8fe) 8%, transparent);
+    max-width: 340px;
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: 0;
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent, #6ea8fe);
+    background: rgb(var(--ink-rgb, 255 255 255) / 0.03);
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
     gap: 8px;
 }
 
 .onboarding-provider__title {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 12.5px;
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10px;
     font-weight: 600;
-    color: var(--text-primary);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--accent, #6ea8fe) 85%, var(--text-primary));
 }
 
 .onboarding-provider__copy {
@@ -16144,7 +16163,7 @@ body.theme-light .release-close:hover .settings-esc {
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-size: 11px;
     padding: 1px 5px;
-    border-radius: 5px;
+    border-radius: 0;
     background: rgb(var(--ink-rgb, 255 255 255) / 0.06);
 }
 
@@ -16163,22 +16182,54 @@ body.theme-light .release-close:hover .settings-esc {
 }
 
 .onboarding-provider__actions {
+    width: 100%;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
+    margin-top: 2px;
+}
+
+/* Inside the actions row the help link parks at the far right; inline
+   in copy the auto margin computes to 0, so the same class works both
+   places. */
+.onboarding-provider__actions .onboarding-provider__help {
+    margin-left: auto;
+    font-size: 12px;
 }
 
 .onboarding-provider__use {
     align-self: flex-start;
 }
 
+/* Paste-key form: input + save button on one line. */
+.onboarding-provider__row {
+    width: 100%;
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 2px;
+}
+
+.onboarding-provider__row .onboarding-provider__key {
+    flex: 1;
+    min-width: 0;
+}
+
+.onboarding-provider__row .onboarding-primary {
+    --btn-h: 32px;
+    flex: none;
+    padding: 0 14px;
+}
+
 .onboarding-provider__key {
     width: 100%;
     box-sizing: border-box;
+    appearance: none;
+    -webkit-appearance: none;
     font-size: 12.5px;
     padding: 7px 10px;
-    border-radius: 7px;
+    border-radius: 0;
     color: var(--text-primary);
     background: rgb(var(--ink-rgb, 255 255 255) / 0.05);
     border: 1px solid var(--border);

@@ -170,12 +170,34 @@ export class OnboardingPanel {
 
   // The four keys worth knowing on day one. Rendered as a compact list,
   // not a guided tour — we tell the user the shortcut, we don't drag a
-  // scrim across the feature they can't reach.
-  private static readonly KEYS: Array<{ keys: string; label: string }> = [
-    { keys: "⌘K", label: "Ask the super-agent" },
-    { keys: "⌘N", label: "Draft a spec" },
-    { keys: "⌘⇧A", label: "Engage AOM (autonomous)" },
-    { keys: "⌘⇧K", label: "All keyboard shortcuts" },
+  // scrim across the feature they can't reach. Each row carries a
+  // plain-language line: "super-agent" / "spec" / "AOM" mean nothing
+  // to someone who installed the app two minutes ago.
+  private static readonly KEYS: Array<{
+    keys: string;
+    label: string;
+    desc: string;
+  }> = [
+    {
+      keys: "⌘K",
+      label: "Ask the agent",
+      desc: "Chat about anything happening in your terminal",
+    },
+    {
+      keys: "⌘N",
+      label: "Draft a spec",
+      desc: "Turn an idea into a plan an agent can execute",
+    },
+    {
+      keys: "⌘⇧A",
+      label: "Go autonomous",
+      desc: "AOM watches your sessions and acts on its own",
+    },
+    {
+      keys: "⌘⇧K",
+      label: "All shortcuts",
+      desc: "The full keyboard map",
+    },
   ];
 
   private render(): void {
@@ -185,9 +207,9 @@ export class OnboardingPanel {
 
     const rows = OnboardingPanel.KEYS.map(
       (k) =>
-        `<li class="onboarding-key"><kbd>${esc(k.keys)}</kbd><span>${esc(
+        `<li class="onboarding-key"><kbd>${esc(k.keys)}</kbd><span class="onboarding-key__text"><span class="onboarding-key__label">${esc(
           k.label,
-        )}</span></li>`,
+        )}</span><span class="onboarding-key__desc">${esc(k.desc)}</span></span></li>`,
     ).join("");
 
     card.innerHTML = `
@@ -260,11 +282,12 @@ export class OnboardingPanel {
       : "";
 
     host.innerHTML = `
-      <div class="onboarding-provider__title">${Icons.check({ size: 13 })}<span>Get a model running</span></div>
-      <p class="onboarding-provider__copy">Covenant needs a model to act. Pick a zero-setup option — or add your own key in Settings → Providers. <a href="#" class="onboarding-provider__help" data-act="guide">How this works →</a></p>
+      <div class="onboarding-provider__title">One more thing</div>
+      <p class="onboarding-provider__copy">Covenant needs a model to act. Pick a zero-setup option — or add your own key in Settings → Providers.</p>
       <div class="onboarding-provider__actions">
         ${ollamaRow}
         <button type="button" class="onboarding-secondary onboarding-provider__use" data-act="freekey"><span>Use a free cloud key</span></button>
+        <a href="#" class="onboarding-provider__help" data-act="guide">How this works →</a>
       </div>
     `;
     host.hidden = false;
@@ -292,20 +315,20 @@ export class OnboardingPanel {
   /// fresh install gets a hosted model with zero cost to us.
   private renderFreeKeyForm(host: HTMLElement): void {
     host.innerHTML = `
-      <div class="onboarding-provider__title">${Icons.check({ size: 13 })}<span>Use a free cloud key</span></div>
-      <p class="onboarding-provider__copy">Gemini's free tier needs no credit card. Grab a key, paste it, and the agent runs on it — nothing to host.</p>
-      <div class="onboarding-provider__actions">
-        <button type="button" class="onboarding-secondary" data-act="getkey"><span>Get a free key →</span></button>
-      </div>
-      <input class="onboarding-provider__key" type="password" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false" />
-      <div class="onboarding-provider__actions">
+      <div class="onboarding-provider__title">Use a free cloud key</div>
+      <p class="onboarding-provider__copy">Gemini's free tier needs no credit card. <a href="#" class="onboarding-provider__help" data-act="getkey">Get a free key →</a>, paste it below, and the agent runs on it — nothing to host.</p>
+      <div class="onboarding-provider__row">
+        <input class="onboarding-provider__key" type="password" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false" />
         <button type="button" class="onboarding-primary onboarding-provider__use" data-act="savekey"><span>Save &amp; start</span></button>
       </div>
     `;
 
     host
-      .querySelector<HTMLButtonElement>('[data-act="getkey"]')
-      ?.addEventListener("click", () => void openUrl(GEMINI_KEY_URL));
+      .querySelector<HTMLAnchorElement>('[data-act="getkey"]')
+      ?.addEventListener("click", (e) => {
+        e.preventDefault();
+        void openUrl(GEMINI_KEY_URL);
+      });
 
     const input = host.querySelector<HTMLInputElement>(".onboarding-provider__key");
     const save = host.querySelector<HTMLButtonElement>('[data-act="savekey"]');
