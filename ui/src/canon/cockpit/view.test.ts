@@ -16,18 +16,42 @@ vi.mock("../../api", () => ({
   canonInstallRegistry: vi.fn().mockResolvedValue(undefined),
   scoreSummaryFiltered: vi.fn().mockResolvedValue({ total_tokens: 0, total_prompts: 0, total_specs: 0, total_commits: 0 }),
   canonEvalSummary: vi.fn().mockResolvedValue([]),
+  operatorList: vi.fn(async () => [] as unknown[]),
+  operatorDelete: vi.fn().mockResolvedValue(undefined),
+  operatorSetOrg: vi.fn().mockResolvedValue(undefined),
+  operatorCreateFromSoul: vi.fn(async () => ({ id: "op-installed", name: "Zeta Installed" }) as unknown),
+  marketplacePublish: vi.fn().mockResolvedValue(undefined),
+  marketplaceSearch: vi.fn(async () => [] as unknown[]),
+  marketplaceInstallCount: vi.fn().mockResolvedValue(undefined),
 }));
 
 // The cockpit's "Create organization" button opens the immersive create
 // surface; mock it so we can capture and drive its onCreated callback.
 vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
-import { canonMyOrgs, canonSearch, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus } from "../../api";
+import {
+  canonMyOrgs, canonSearch, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
+  operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, type Operator,
+  type MarketplaceListing,
+} from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
+
+const OPERATOR_FIXTURE: Operator = {
+  id: "op-1", name: "Zeta", emoji: "🟣", color: "#a855f7", tags: ["rust"],
+  persona: "", escalate_threshold: 0.5, model: "claude-sonnet-4-6", hard_constraints: "",
+  voice: "Terse", is_default: true, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+  github_access: "Off", acp_enabled: false, perception_enabled: false, org_slug: null,
+};
+
+const LISTING_FIXTURE: MarketplaceListing = {
+  id: "listing-1", name: "Zeta", emoji: "🟣", color: "#a855f7", tags: ["rust"],
+  tagline: "Rust reviewer", author_login: "someone", installs: 4, soul_md: "---\nname: Zeta\n---\nbody",
+};
 
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
   orgs: [{ id: 1, slug: "karluiz", name: "karluiz", role: "owner", personal: true }],
+  orgsFetched: true,
   getActiveOrg: () => "karluiz", setActiveOrg: vi.fn(),
 };
 
@@ -70,6 +94,7 @@ describe("CanonCockpitView create-org flow", () => {
     const createOpts = {
       groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
       orgs: [{ id: 1, slug: "karluiz", name: "karluiz", role: "owner", personal: true }],
+      orgsFetched: true,
       getActiveOrg: () => active,
       setActiveOrg: (slug: string | null) => { active = slug; setActiveOrg(slug); },
     };
@@ -126,6 +151,38 @@ describe("CanonCockpitView Registry section", () => {
     await Promise.resolve(); await Promise.resolve();
     expect(v.element.textContent).toContain("kyc");
   });
+
+  it("registry toggle switches to operators and renders marketplace results", async () => {
+    vi.mocked(marketplaceSearch).mockResolvedValue([LISTING_FIXTURE]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    const toggle = [...v.element.querySelectorAll(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
+    (toggle as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("Zeta");
+    });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("installs an operator into the active non-personal org", async () => {
+    vi.mocked(marketplaceSearch).mockResolvedValue([LISTING_FIXTURE]);
+    vi.mocked(operatorList).mockResolvedValue([]);
+    vi.mocked(operatorCreateFromSoul).mockResolvedValue({ id: "op-new", name: "Zeta" } as Operator);
+    const orgOpts = { ...opts, orgs: [{ id: 2, slug: "cleverit", name: "Cleverit", role: "owner", personal: false }], getActiveOrg: () => "cleverit" };
+    const v = new CanonCockpitView(orgOpts);
+    v.open();
+    v.showSection("registry");
+    const toggle = [...v.element.querySelectorAll(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
+    (toggle as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(v.element.textContent).toContain("Zeta"));
+    const install = v.element.querySelector(".canon-search-result [aria-label='Install']") as HTMLButtonElement;
+    install.click();
+    await vi.waitFor(() => {
+      expect(operatorCreateFromSoul).toHaveBeenCalled();
+      expect(operatorSetOrg).toHaveBeenCalledWith("op-new", "cleverit");
+    });
+  });
 });
 
 describe("CanonCockpitView Context section", () => {
@@ -138,6 +195,33 @@ describe("CanonCockpitView Context section", () => {
     expect(v.element.textContent).toContain("kyc-peru.md");
     (v.element.querySelector(".canon-new-context-btn") as HTMLButtonElement).click();
     expect(called).toBe(true);
+  });
+});
+
+describe("CanonCockpitView Operators section", () => {
+  it("operators section renders the org-filtered roster with a New operator button", async () => {
+    vi.mocked(operatorList).mockResolvedValueOnce([OPERATOR_FIXTURE]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("operators");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".op-card-grid")).toBeTruthy();
+      expect(v.element.textContent).toContain("Zeta");
+      expect(v.element.querySelector("[data-role='op-new']")).toBeTruthy();
+    });
+  });
+
+  it("orgsFetched:false (offline) shows every operator with no stale badge, even one pointed at an unknown org", async () => {
+    const orgAssigned: Operator = { ...OPERATOR_FIXTURE, id: "op-2", name: "Ghost", org_slug: "deleted-org" };
+    vi.mocked(operatorList).mockResolvedValueOnce([OPERATOR_FIXTURE, orgAssigned]);
+    const v = new CanonCockpitView({ ...opts, orgsFetched: false });
+    v.open();
+    v.showSection("operators");
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("Zeta");
+      expect(v.element.textContent).toContain("Ghost");
+      expect(v.element.querySelector(".op-card-badge")).toBeFalsy();
+    });
   });
 });
 

@@ -8,7 +8,7 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { CanonStatus, Org, Member, PkgMeta } from "../../api";
+import type { CanonStatus, Org, Member, Operator, PkgMeta, MarketplaceListing } from "../../api";
 import {
   canonOrgMembers,
   canonAddMember,
@@ -23,21 +23,39 @@ import {
   canonInstallRegistry,
   scoreSummaryFiltered,
   canonEvalSummary,
+  operatorList,
+  operatorDelete,
+  operatorSetOrg,
+  operatorCreateFromSoul,
+  marketplacePublish,
+  marketplaceSearch,
+  marketplaceInstallCount,
 } from "../../api";
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
+import { openOperatorModal, wireOperatorModal, renderOperatorList } from "../../operator/creator";
+import { operatorsForOrg, isStaleOrg } from "../../operator/org-filter";
+import { scheduleCloudPush } from "../../settings/cloud_push";
+import { pushInfoToast } from "../../notifications/toast";
+import { suffixSoulName } from "../../settings/marketplace_install";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { liftRow, groupVerdict } from "./lift";
 
-export type SectionKey = "org" | "members" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
+export type SectionKey = "org" | "members" | "operators" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
 
 export interface CanonCockpitOpts {
   groupId: string;
   groupLabel: string;
   groupRootDir: string | null;
   orgs: Org[];
+  /** False when the initial `canonMyOrgs()` fetch failed (offline/backend
+   *  down) — `orgs` is then an empty placeholder, not a real "belongs to no
+   *  org" result. The operators section uses this to tell "deleted org"
+   *  from "don't know yet" so it never mis-flags or clobbers a valid
+   *  org-assigned operator while offline (see operator/org-filter.ts). */
+  orgsFetched: boolean;
   getActiveOrg: () => string | null;
   setActiveOrg: (slug: string | null) => void;
   /** Launch the repo-mining Context Miner for this group (same flow the
@@ -61,7 +79,8 @@ function loopSubhead(text: string): HTMLElement {
 const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "org", label: "Org" },
   { key: "members", label: "Members" },
-  { key: "agents", label: "Agents" },
+  { key: "operators", label: "Operators" },
+  { key: "agents", label: "Subagents" },
   { key: "commands", label: "Commands" },
   { key: "mcp", label: "MCP" },
   { key: "spec", label: "Specs" },
@@ -76,13 +95,14 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
 const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   org: ["Organization", "The registry this group publishes to and installs from."],
   members: ["Members", "People with access to this organization's Canon."],
-  agents: ["Agents", "Operator personas projected to your executors."],
+  operators: ["Operators", "Versions of you, delegated — org-scoped personas that direct your executors."],
+  agents: ["Subagents", "Repo-level subagent files projected into executor context."],
   commands: ["Commands", "Slash commands projected to your executors."],
   mcp: ["MCP", "Model Context Protocol servers projected to your executors."],
   spec: ["Specs", "Task-anchor specs published in this repo (docs/specs)."],
   memory: ["Memory", "Durable facts this group carries into every executor's managed block."],
   skills: ["Skills", "Skills installed in this group, projected to your executors."],
-  registry: ["Registry", "Browse and install skills shared across the organization."],
+  registry: ["Registry", "Browse and install skills and operators shared across the organization."],
   context: ["Context", "Repo-mined context this group carries into every session."],
   loop: ["Loop", "Adoption, inference footprint, and eval pass-rate for this group."],
 };
@@ -163,6 +183,7 @@ export class CanonCockpitView {
     const body =
       key === "org" ? this.renderOrgSection()
       : key === "members" ? this.renderMembersSection()
+      : key === "operators" ? this.renderOperatorsSection()
       : key === "agents" ? this.renderAgentsSection()
       : key === "commands" ? this.renderCommandsSection()
       : key === "mcp" ? this.renderMcpSection()
@@ -317,6 +338,7 @@ export class CanonCockpitView {
   private refreshOrgs(slug: string): void {
     void canonMyOrgs().then((fresh) => {
       this.opts.orgs = fresh;
+      this.opts.orgsFetched = true;
       this.opts.setActiveOrg(slug);
       this.showSection("org");
     });
@@ -458,6 +480,110 @@ export class CanonCockpitView {
     return row;
   }
 
+  // ── Operators section ────────────────────────────────────────────────
+
+  /** Org-scoped operator roster — the immersive creator (`../../operator/creator`)
+   *  reused verbatim from the settings pane, wired so saves assign/clear the
+   *  active org instead of leaving the operator on whatever org it had. */
+  private renderOperatorsSection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-operators";
+
+    const bar = document.createElement("div");
+    bar.className = "canon-cockpit-actions";
+    const newBtn = iconButton(Icons.plus({ size: 15 }), "New operator", () => {
+      const active = this.activeOrg();
+      const handle = openOperatorModal({ mode: "create" });
+      wireOperatorModal(handle, {
+        assignOrgSlug: active && !active.personal ? active.slug : null,
+        onSaved: () => this.showSection("operators"),
+      });
+    });
+    newBtn.dataset.role = "op-new";
+    bar.appendChild(newBtn);
+    el.appendChild(bar);
+
+    const list = document.createElement("div");
+    list.appendChild(this.note("Loading…"));
+    el.appendChild(list);
+
+    void operatorList()
+      .then((all) => {
+        const known: Set<string> | null = this.opts.orgsFetched
+          ? new Set(this.opts.orgs.map((o) => o.slug))
+          : null;
+        const active = this.activeOrg();
+        const ops = operatorsForOrg(all, active, known);
+        list.replaceChildren();
+        if (ops.length === 0) {
+          list.appendChild(this.note("No operators in this org yet."));
+          return;
+        }
+        list.appendChild(renderOperatorList(ops, {
+          isStale: (op) => isStaleOrg(op, known),
+          onEdit: (op) => {
+            const handle = openOperatorModal({ mode: "edit", existing: op });
+            wireOperatorModal(handle, {
+              // Rescue stale-org operators: saving from the personal view
+              // clears the dead slug back to the personal roster.
+              assignOrgSlug: isStaleOrg(op, known) ? null : undefined,
+              onSaved: () => this.showSection("operators"),
+              onDelete: (o) => this.deleteOperator(o),
+            });
+          },
+          onDuplicate: (op) => {
+            const handle = openOperatorModal({ mode: "create", existing: { ...op, name: `${op.name} copy` } });
+            wireOperatorModal(handle, {
+              assignOrgSlug: active && !active.personal ? active.slug : null,
+              onSaved: () => this.showSection("operators"),
+            });
+          },
+          onPublish: (op) => {
+            void marketplacePublish(op.id)
+              .then(() => pushInfoToast({ message: `${op.name} submitted — pending review` }))
+              .catch((e) => pushInfoToast({ message: `Publish failed: ${this.friendlyError(e)}` }));
+          },
+          onDelete: (op) => this.deleteOperator(op),
+        }));
+      })
+      .catch((e) => {
+        list.replaceChildren();
+        list.appendChild(this.note(`Failed to load operators: ${this.friendlyError(e)}`));
+      });
+
+    return el;
+  }
+
+  /** Ported from `OperatorsPane.deleteOperator` (settings/operators.ts) so the
+   *  cockpit's roster enforces the same guards: can't delete the default
+   *  operator, can't delete the last operator system-wide. */
+  private async deleteOperator(op: Operator): Promise<void> {
+    if (op.is_default) {
+      alert("Cannot delete the default operator. Set a different default first.");
+      return;
+    }
+    const all = await operatorList().catch(() => [] as Operator[]);
+    if (all.length <= 1) {
+      alert("Cannot delete the last operator.");
+      return;
+    }
+    if (!confirm(`Delete operator "${op.name}"? Tabs pinned to it will fall back to the default.`)) {
+      return;
+    }
+    try {
+      await operatorDelete(op.id);
+      // Notify the rest of the app — tabs/manager.ts drops the cache entry
+      // and clears any pane.operator pointer; the status bar re-renders
+      // without the dangling avatar.
+      window.dispatchEvent(new CustomEvent("operator:deleted", { detail: { id: op.id } }));
+      scheduleCloudPush();
+      pushInfoToast({ message: `Deleted operator: ${op.name}` });
+      this.showSection("operators");
+    } catch (e) {
+      alert(`Delete failed: ${e}`);
+    }
+  }
+
   // ── Agents section ───────────────────────────────────────────────────
 
   private renderAgentsSection(): HTMLElement {
@@ -466,7 +592,7 @@ export class CanonCockpitView {
     const cwd = this.opts.groupRootDir;
 
     if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage agents."));
+      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage subagents."));
       return el;
     }
 
@@ -479,7 +605,7 @@ export class CanonCockpitView {
       .then((status) => {
         list.replaceChildren();
         if (status.agents.length === 0) {
-          list.appendChild(this.note("No agents authored yet."));
+          list.appendChild(this.note("No subagents authored yet."));
           return;
         }
         for (const a of status.agents) {
@@ -494,7 +620,7 @@ export class CanonCockpitView {
       })
       .catch((e) => {
         list.replaceChildren();
-        list.appendChild(this.note(`Failed to load agents: ${this.friendlyError(e)}`));
+        list.appendChild(this.note(`Failed to load subagents: ${this.friendlyError(e)}`));
       });
 
     return el;
@@ -750,12 +876,25 @@ export class CanonCockpitView {
       return el;
     }
 
+    // Skills | Operators kind toggle — same registry surface, two catalogs.
+    let kind: "skills" | "operators" = "skills";
+    const toggleRow = document.createElement("div");
+    toggleRow.className = "canon-reg-kind-toggle";
+    const skillsBtn = document.createElement("button");
+    skillsBtn.type = "button";
+    skillsBtn.className = "canon-reg-kind";
+    skillsBtn.textContent = "Skills";
+    const opsBtn = document.createElement("button");
+    opsBtn.type = "button";
+    opsBtn.className = "canon-reg-kind";
+    opsBtn.textContent = "Operators";
+    toggleRow.append(skillsBtn, opsBtn);
+
     const searchRow = document.createElement("div");
     searchRow.className = "canon-cockpit-search-row";
     const input = document.createElement("input");
     input.type = "text";
     input.className = "canon-cockpit-search-input";
-    input.placeholder = `Search ${initialActive.slug} registry…`;
     const go = document.createElement("button");
     go.type = "button";
     go.className = "canon-cockpit-search-go";
@@ -768,14 +907,7 @@ export class CanonCockpitView {
     const results = document.createElement("div");
     results.className = "canon-cockpit-search-results";
 
-    const runSearch = (): void => {
-      const active = this.activeOrg();
-      if (!active) {
-        errorEl.hidden = false;
-        errorEl.textContent = "No organization selected.";
-        return;
-      }
-      errorEl.hidden = true;
+    const runSkillsSearch = (active: Org): void => {
       results.replaceChildren(this.note("Searching…"));
       void canonSearch(active.slug, input.value.trim() || null)
         .then((rows: PkgMeta[]) => {
@@ -816,11 +948,83 @@ export class CanonCockpitView {
           errorEl.textContent = this.friendlyError(e);
         });
     };
+
+    const runOperatorsSearch = (): void => {
+      results.replaceChildren(this.note("Searching…"));
+      void marketplaceSearch(input.value.trim() || undefined)
+        .then((rows: MarketplaceListing[]) => {
+          results.replaceChildren();
+          if (rows.length === 0) {
+            results.appendChild(this.note("No operators found."));
+            return;
+          }
+          for (const r of rows) {
+            const inst = iconButton(Icons.download({ size: 15 }), "Install", () => {
+              inst.disabled = true;
+              void (async () => {
+                const existing = new Set((await operatorList()).map((o) => o.name.toLowerCase()));
+                const raw = suffixSoulName(r.soul_md, existing);
+                const created = await operatorCreateFromSoul(raw);
+                const org = this.activeOrg();
+                if (org && !org.personal) await operatorSetOrg(created.id, org.slug);
+                marketplaceInstallCount(r.id).catch(() => {});
+                inst.innerHTML = Icons.check({ size: 15 });
+              })().catch((e) => {
+                inst.disabled = false;
+                errorEl.hidden = false;
+                errorEl.textContent = this.friendlyError(e);
+              });
+            });
+            results.appendChild(skillCard({
+              name: r.name,
+              meta: `@${r.author_login} · ${r.installs} ${r.installs === 1 ? "install" : "installs"}`,
+              description: r.tagline,
+              className: "canon-search-result",
+              fetchPreview: () => Promise.resolve(r.soul_md),
+              actions: [inst],
+            }));
+          }
+        })
+        .catch((e) => {
+          results.replaceChildren();
+          errorEl.hidden = false;
+          errorEl.textContent = this.friendlyError(e);
+        });
+    };
+
+    const runSearch = (): void => {
+      errorEl.hidden = true;
+      if (kind === "operators") {
+        runOperatorsSearch();
+        return;
+      }
+      const active = this.activeOrg();
+      if (!active) {
+        errorEl.hidden = false;
+        errorEl.textContent = "No organization selected.";
+        return;
+      }
+      runSkillsSearch(active);
+    };
+
+    const applyKindUI = (next: "skills" | "operators"): void => {
+      kind = next;
+      skillsBtn.setAttribute("aria-pressed", String(next === "skills"));
+      skillsBtn.classList.toggle("is-active", next === "skills");
+      opsBtn.setAttribute("aria-pressed", String(next === "operators"));
+      opsBtn.classList.toggle("is-active", next === "operators");
+      input.value = "";
+      input.placeholder = next === "skills" ? `Search ${initialActive.slug} registry…` : "Search operators…";
+    };
+    skillsBtn.addEventListener("click", () => { applyKindUI("skills"); runSearch(); });
+    opsBtn.addEventListener("click", () => { applyKindUI("operators"); runSearch(); });
+    applyKindUI("skills");
+
     go.addEventListener("click", runSearch);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
 
     searchRow.append(input, go);
-    el.append(searchRow, errorEl, results);
+    el.append(toggleRow, searchRow, errorEl, results);
     return el;
   }
 

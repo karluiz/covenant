@@ -6,7 +6,7 @@ const { invokeMock } = vi.hoisted(() => ({
 }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
-import { openOperatorModal, canProceedFromStep1, saveOperator, renderOperatorList, mergeSkillVocab, STARTER_SKILLS } from './operators';
+import { openOperatorModal, canProceedFromStep1, saveOperator, renderOperatorList, mergeSkillVocab, STARTER_SKILLS } from './creator';
 import type { Operator } from '../api';
 
 beforeEach(() => {

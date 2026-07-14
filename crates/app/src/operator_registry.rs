@@ -68,6 +68,9 @@ pub struct Operator {
     /// permission prompts (Perception). Off by default.
     #[serde(default)]
     pub perception_enabled: bool,
+    /// Org this operator belongs to; None = personal org. Registry-only (NOT SOUL frontmatter).
+    #[serde(default)]
+    pub org_slug: Option<String>,
 }
 
 /// What the operator may do with the user's GitHub account. Gates which
@@ -281,6 +284,7 @@ impl OperatorRegistry {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         by_id.insert(op.id, op);
         std::sync::Arc::new(Self {
@@ -466,6 +470,7 @@ impl OperatorRegistry {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         crate::soul::hydrate_operator(&mut op, &soul);
         self.create(storage, op).await
@@ -632,6 +637,25 @@ impl OperatorRegistry {
         Ok(())
     }
 
+    /// Move an operator to an org (`None` = personal org).
+    pub async fn set_org(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        org_slug: Option<String>,
+    ) -> Result<(), RegistryError> {
+        if !self.by_id.read().unwrap().contains_key(&id) {
+            return Err(RegistryError::NotFound(id));
+        }
+        storage
+            .operator_set_org(id.to_string(), org_slug.clone())
+            .await?;
+        if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+            op.org_slug = org_slug;
+        }
+        Ok(())
+    }
+
     pub fn pin_session(&self, session_id: SessionId, id: OperatorId) {
         self.pins.write().unwrap().insert(session_id, id);
     }
@@ -729,6 +753,7 @@ impl OperatorRegistry {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         let id = op.id;
         let name = op.name.clone();
@@ -952,6 +977,7 @@ pub mod commands {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         registry.create(&storage, op).await.map_err(map_err)
     }
@@ -987,6 +1013,7 @@ pub mod commands {
             github_access: existing.github_access,
             acp_enabled: existing.acp_enabled,
             perception_enabled: existing.perception_enabled,
+            org_slug: existing.org_slug.clone(),
         };
         registry.update(&storage, updated).await.map_err(map_err)
     }
@@ -1054,6 +1081,20 @@ pub mod commands {
     }
 
     #[tauri::command]
+    pub async fn operator_set_org(
+        id: String,
+        org_slug: Option<String>,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<(), String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry
+            .set_org(&storage, id, org_slug)
+            .await
+            .map_err(map_err)
+    }
+
+    #[tauri::command]
     pub async fn session_set_operator(
         session_id: String,
         operator_id: Option<String>,
@@ -1106,6 +1147,7 @@ mod voice_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         assert!(matches!(op.voice, VoiceTone::Terse));
     }
@@ -1242,6 +1284,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.clone().expect("soul_path set");
@@ -1286,6 +1329,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         storage.operator_insert(op.clone()).await.unwrap();
 
@@ -1332,6 +1376,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         reg.create(&storage, existing_op.clone()).await.unwrap();
         let existing = reg.list();
@@ -1357,6 +1402,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         let id = op.id;
 
@@ -1412,6 +1458,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.unwrap();
@@ -1458,6 +1505,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            org_slug: None,
         };
         let created = reg.create(&storage, op).await.unwrap();
         assert!(!created.perception_enabled);

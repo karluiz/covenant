@@ -341,6 +341,7 @@ export interface Operator {
   /// prompts in ACP sessions it's assigned to. Default off.
   perception_enabled: boolean;
   soul_path?: string | null;
+  org_slug?: string | null;
 }
 
 /// Payload of the `operator-xp-updated` event emitted after a decision
@@ -397,6 +398,11 @@ export async function operatorSetGithubAccess(
   access: GithubAccess,
 ): Promise<void> {
   return invoke<void>("operator_set_github_access", { id, access });
+}
+
+/** Assign an operator to an org; null returns it to the personal roster. */
+export function operatorSetOrg(id: string, orgSlug: string | null): Promise<void> {
+  return invoke<void>("operator_set_org", { id, orgSlug });
 }
 
 /// One row of the ACP /resume picker (from `session/list`).

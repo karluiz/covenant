@@ -60,6 +60,9 @@ async fn supervisor_emits_duda_then_enojo_on_repeated_failure() {
         soul_path: None,
         soul_mtime_unix_ms: 0,
         github_access: covenant_lib::operator_registry::GithubAccess::Off,
+        acp_enabled: false,
+        perception_enabled: false,
+        org_slug: None,
     };
     storage
         .operator_insert(operator)
