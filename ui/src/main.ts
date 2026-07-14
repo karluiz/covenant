@@ -1402,6 +1402,7 @@ async function boot(): Promise<void> {
   manager.onActiveContextChange = (cwd) => {
     statusBar.setCwd(cwd);
     if (cwd) void ensureDetectorForRepo(cwd);
+    beaconPanel.poke(); // tab/cwd changed → refresh Beacon now, don't wait 25s
   };
   manager.onAnyTabContextChange = (cwd) => {
     if (cwd) void ensureDetectorForRepo(cwd);

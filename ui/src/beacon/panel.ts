@@ -708,6 +708,12 @@ export class BeaconPanel {
     this.timer = window.setInterval(() => void this.fetch(), POLL_MS);
   }
 
+  /// Re-fetch now if the panel is open — the active tab's cwd changed, so the
+  /// on-screen runs are stale until the next poll. No-op while closed.
+  poke(): void {
+    if (this.timer !== null) void this.fetch();
+  }
+
   private async fetch(): Promise<void> {
     const gen = ++this.generation;
     const base = this.opts.getCwd();
