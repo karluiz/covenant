@@ -101,10 +101,10 @@ describe('operator modal', () => {
     expect(live.querySelector('.op-soul-rawwrap')).toBeTruthy();
   });
 
-  it('soul section shows the markdown editor in the middle', () => {
+  it('soul section shows the body editor in the middle', () => {
     const m = openOperatorModal({ mode: 'create' });
     m.setSection('soul');
-    expect(m.el.querySelector('.op-section .md-editor')).toBeTruthy();
+    expect(m.el.querySelector('.op-section .op-soul-body')).toBeTruthy();
   });
 
   it('live operator chip renders in the header', () => {

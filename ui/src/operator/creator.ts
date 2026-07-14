@@ -23,6 +23,7 @@ import {
 } from "../api";
 import { PRESETS, type PresetKey } from "../settings/operator_presets";
 import { setFrontmatterScalar } from "../settings/soul_frontmatter";
+import { healMilkdownEscapes } from "./soul_heal";
 import { renderOperatorChip } from "../settings/operator_chip";
 import { AVATAR_PACK_V2, renderAvatarHtml } from "./avatars";
 import { pushInfoToast } from "../notifications/toast";
@@ -119,6 +120,10 @@ export interface ModalState {
   /// Raw SOUL.md text bound to the split-editor textarea. Authoritative
   /// source for create/update (routed through the from-soul commands).
   soulRaw: string;
+  /// Baseline for the dirty check: soulRaw as loaded at open time (updated
+  /// once the async edit-mode read lands). Close paths compare against this
+  /// before discarding.
+  initialSoulRaw: string;
   /// Operator id when editing an existing persona; drives
   /// `operator_update_from_soul`. Absent in create/duplicate mode.
   existingId?: string;
@@ -211,6 +216,7 @@ export function openOperatorModal(opts: {
     // Edit mode loads it asynchronously below; create starts blank
     // (or from a picked archetype).
     soulRaw: BLANK_SOUL,
+    initialSoulRaw: BLANK_SOUL,
     existingId: opts.mode === "edit" ? opts.existing?.id : undefined,
   };
 
@@ -220,12 +226,16 @@ export function openOperatorModal(opts: {
   if (opts.existing && opts.existing.id) {
     void operatorSoulRead(opts.existing.id)
       .then((raw) => {
+        // Souls saved in the Milkdown era carry escaped block syntax
+        // (\*, \##, \-); heal on load, persisted on the next save.
+        const healed = healMilkdownEscapes(raw);
         if (opts.mode === "create") {
           // Duplicate: keep the body but rename so it doesn't clash.
-          state.soulRaw = setFrontmatterScalar(raw, "name", opts.existing!.name);
+          state.soulRaw = setFrontmatterScalar(healed, "name", opts.existing!.name);
         } else {
-          state.soulRaw = raw;
+          state.soulRaw = healed;
         }
+        state.initialSoulRaw = state.soulRaw;
         render();
       })
       .catch((e) => {
@@ -338,12 +348,41 @@ function closeCreator(el: HTMLElement): void {
   setTimeout(() => el.remove(), 420);
 }
 
+/// Anything the user changed since open that a silent close would lose.
+function isDirty(h: ModalHandle): boolean {
+  const s = h.state;
+  const ex = s.existing;
+  return (
+    s.soulRaw !== s.initialSoulRaw ||
+    s.setAsDefault !== s.isDefault ||
+    s.githubAccess !== (ex?.github_access ?? "Off") ||
+    s.acpEnabled !== (ex?.acp_enabled ?? false) ||
+    s.perceptionEnabled !== (ex?.perception_enabled ?? false)
+  );
+}
+
+/// Single close path for every non-Save exit (Escape, esc pill, scrim,
+/// Cancel). Clean → close. Dirty → arm the Cancel button as an inline
+/// two-step confirm ("Discard changes?", 3s window) instead of losing the
+/// user's work to an accidental Escape.
+function requestClose(h: ModalHandle): void {
+  if (!isDirty(h)) { closeCreator(h.el); return; }
+  const cancel = h.el.querySelector<HTMLButtonElement>(".settings-cancel");
+  if (!cancel || cancel.classList.contains("is-armed")) { closeCreator(h.el); return; }
+  cancel.classList.add("is-armed");
+  cancel.textContent = "Discard changes?";
+  window.setTimeout(() => {
+    cancel.classList.remove("is-armed");
+    cancel.textContent = "Cancel";
+  }, 3000);
+}
+
 function renderForm(h: ModalHandle): DocumentFragment {
   const frag = document.createDocumentFragment();
 
   const scrim = document.createElement("div");
   scrim.className = "scrim";
-  scrim.addEventListener("click", () => closeCreator(h.el));
+  scrim.addEventListener("click", () => requestClose(h));
 
   const creator = document.createElement("div");
   creator.className = "creator";
@@ -375,7 +414,7 @@ function renderHeader(h: ModalHandle): HTMLElement {
   const kbd = document.createElement("div");
   kbd.className = "kbd";
   kbd.textContent = "esc";
-  kbd.addEventListener("click", () => closeCreator(h.el));
+  kbd.addEventListener("click", () => requestClose(h));
   header.append(brand, chipHost, kbd);
   getSoulEditor(h).mountChip(chipHost);
   return header;
@@ -600,12 +639,19 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   const bodyEditor = document.createElement("textarea");
   bodyEditor.className = "op-soul-body";
   bodyEditor.spellcheck = false;
-  bodyEditor.placeholder =
-    "Write this operator's soul — who it is, how it judges, what it will never do without you.";
+  bodyEditor.placeholder = [
+    "Write this operator's soul — a delegation letter to yourself.",
+    "",
+    "## Mandate — whose version of you this is, what slice of your authority it holds",
+    "## Disposition — how this facet of you weighs risk vs. throughput",
+    "## Reflexes — the ALWAYS-YES / ESCALATE decisions you've already made",
+    "## Voice — how this version of you talks",
+  ].join("\n");
   bodyEditor.addEventListener("input", () => {
     view.body = bodyEditor.value;
     h.state.soulRaw = soulRawFromView(view);
     src.value = h.state.soulRaw;
+    scheduleValidate();
   });
   function setBodyValue(md: string): void {
     bodyEditor.value = md;
@@ -620,7 +666,19 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   rawDetails.className = "op-soul-rawwrap";
   const rawSummary = document.createElement("div");
   rawSummary.className = "op-soul-rawhead";
-  rawSummary.textContent = "SOUL.md source";
+  const rawTitle = document.createElement("span");
+  rawTitle.textContent = "SOUL.md source";
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button";
+  copyBtn.className = "op-soul-copy";
+  copyBtn.textContent = "Copy";
+  copyBtn.addEventListener("click", () => {
+    void navigator.clipboard.writeText(src.value).then(() => {
+      copyBtn.textContent = "Copied";
+      window.setTimeout(() => { copyBtn.textContent = "Copy"; }, 1200);
+    });
+  });
+  rawSummary.append(rawTitle, copyBtn);
   const src = document.createElement("textarea");
   src.className = "op-soul-source";
   src.spellcheck = false;
@@ -629,6 +687,30 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
 
   const errLine = document.createElement("div");
   errLine.className = "op-soul-error";
+
+  // Re-validate as the user types (body + hard constraints + structured
+  // controls all funnel here) so errLine never goes stale and Save is
+  // gated on the parse result instead of surfacing the error only after
+  // the backend rejects the save.
+  let validateTimer: number | null = null;
+  function scheduleValidate(): void {
+    if (validateTimer !== null) window.clearTimeout(validateTimer);
+    validateTimer = window.setTimeout(() => {
+      validateTimer = null;
+      void operatorSoulParse(h.state.soulRaw)
+        .then((v) => {
+          if ((h.el as HTMLElement & { __soulEditor?: SoulEditor | null }).__soulEditor !== self) return;
+          if (!v) return;
+          errLine.textContent = v.validation_error ?? "";
+          const save = h.el.querySelector<HTMLButtonElement>(".op-modal-save");
+          if (save) {
+            save.disabled =
+              h.state.soulRaw.trim().length === 0 || !!v.validation_error;
+          }
+        })
+        .catch(() => { /* transient IPC failure — keep last verdict */ });
+    }, 400);
+  }
 
   // Mount the live operator chip into whatever host currently holds it.
   function mountChipInner(host: HTMLElement): void {
@@ -648,6 +730,7 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   function commit(remountSection: boolean): void {
     h.state.soulRaw = soulRawFromView(view);
     src.value = h.state.soulRaw;
+    scheduleValidate();
     const chipHost = h.el.querySelector<HTMLElement>(".op-hero-chip");
     if (chipHost) mountChipInner(chipHost);
     if (remountSection) {
@@ -1051,6 +1134,9 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   // Inner section mount — shared by `commit` and the returned `mountSection`.
   function mountSectionInner(host: HTMLElement, section: SectionKey): void {
     host.innerHTML = "";
+    // Soul section: the host becomes a flex column so the body editor can
+    // fill the full height instead of sitting in a fixed 320px box.
+    host.classList.toggle("is-soul", section === "soul");
     if (section === "start") {
       host.append(
         renderArchetypeGallery((raw) => { void seedFromRaw(raw); }, h.state.soulRaw),
@@ -1063,7 +1149,33 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       const label = document.createElement("div");
       label.className = "op-soul-section-title";
       label.textContent = "The soul";
-      host.append(label, bodyEditor);
+      // The four layers of a soul (AGENTS.md ontology) as one-click
+      // heading inserters — a nudge toward Mandate/Disposition, not just
+      // a bare reflex table.
+      const chips = document.createElement("div");
+      chips.className = "op-soul-layer-chips";
+      const LAYERS: { label: string; heading: string }[] = [
+        { label: "+ Mandate", heading: "## Mandate — whose version of you this is, what slice of your authority it holds" },
+        { label: "+ Disposition", heading: "## Disposition — how this facet of you weighs risk vs. throughput" },
+        { label: "+ Reflexes", heading: "## Reflexes — the ALWAYS-YES / ESCALATE decisions you've already made" },
+        { label: "+ Voice", heading: "## Voice — how this version of you talks" },
+      ];
+      for (const layer of LAYERS) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "op-skills-chip";
+        chip.textContent = layer.label;
+        chip.addEventListener("click", () => {
+          const cur = bodyEditor.value.replace(/\s+$/, "");
+          bodyEditor.value = cur ? `${cur}\n\n${layer.heading}\n\n` : `${layer.heading}\n\n`;
+          view.body = bodyEditor.value;
+          commit(false);
+          bodyEditor.focus();
+          bodyEditor.selectionStart = bodyEditor.selectionEnd = bodyEditor.value.length;
+        });
+        chips.append(chip);
+      }
+      host.append(label, chips, bodyEditor);
     }
   }
 
@@ -1103,10 +1215,28 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   return self;
 }
 
-// ── Footer: default toggle (left), delete + cancel + save (right) ───────────
+// ── Footer: delete + default toggle (left), error + cancel + save (right) ───
 function renderFooter(h: ModalHandle): HTMLElement {
   const foot = document.createElement("div");
   foot.className = "op-modal-footer";
+
+  // Destructive action lives at the far-left edge, away from Cancel/Save,
+  // behind its own two-step confirm (armed in wireOperatorModal).
+  const leftGroup = document.createElement("div");
+  leftGroup.className = "op-modal-footer-left";
+  if (h.state.mode === "edit" && h.state.existing) {
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "op-modal-delete";
+    del.textContent = "Delete";
+    // Class + guard instead of `disabled` — disabled buttons swallow the
+    // mouse events attachTooltip needs to explain WHY it's off.
+    if (h.state.isDefault) {
+      del.classList.add("is-disabled");
+      attachTooltip(del, "Default operator — promote another operator to default first");
+    }
+    leftGroup.append(del);
+  }
 
   const left = document.createElement("label");
   left.className = "op-modal-default-toggle";
@@ -1119,25 +1249,22 @@ function renderFooter(h: ModalHandle): HTMLElement {
   const cbLbl = document.createElement("span");
   cbLbl.textContent = h.state.isDefault ? "Default operator" : "Set as default";
   left.append(cb, cbLbl);
-  foot.append(left);
+  leftGroup.append(left);
+  foot.append(leftGroup);
 
   const right = document.createElement("div");
   right.className = "op-modal-footer-actions settings-actions";
 
-  if (h.state.mode === "edit" && h.state.existing) {
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "op-modal-delete";
-    del.textContent = "Delete";
-    del.disabled = h.state.isDefault;
-    right.append(del);
-  }
+  // Inline save-failure line (replaces the old native alert()).
+  const errOut = document.createElement("span");
+  errOut.className = "op-modal-footer-error";
+  right.append(errOut);
 
   const cancel = document.createElement("button");
   cancel.type = "button";
   cancel.className = "settings-cancel";
   cancel.textContent = "Cancel";
-  cancel.addEventListener("click", () => closeCreator(h.el));
+  cancel.addEventListener("click", () => requestClose(h));
   right.append(cancel);
 
   const save = document.createElement("button");
@@ -1251,6 +1378,8 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
     if (target.classList.contains("op-modal-save")) {
       ev.stopImmediatePropagation();
       ev.preventDefault();
+      const errOut = handle.el.querySelector<HTMLElement>(".op-modal-footer-error");
+      if (errOut) errOut.textContent = "";
       (async () => {
         try {
           // saveOperator now routes through the from-soul commands and
@@ -1307,12 +1436,25 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
           });
         } catch (e) {
           console.error("operator save failed", e);
-          alert(`Save failed: ${e}`);
+          // Inline, next to the Save button — the modal stays open with the
+          // user's work intact; no native alert over the takeover.
+          if (errOut) errOut.textContent = `Save failed: ${e}`;
         }
       })();
     } else if (target.classList.contains("op-modal-delete")) {
       ev.stopImmediatePropagation();
       ev.preventDefault();
+      if (target.classList.contains("is-disabled")) return;
+      // Two-step confirm on the button itself: first click arms for 3s.
+      if (!target.classList.contains("is-armed")) {
+        target.classList.add("is-armed");
+        target.textContent = "Confirm delete";
+        window.setTimeout(() => {
+          target.classList.remove("is-armed");
+          target.textContent = "Delete";
+        }, 3000);
+        return;
+      }
       const existing = handle.state.existing;
       if (!existing) return;
       (async () => {
@@ -1326,8 +1468,12 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
   // press Escape. We don't have a wrapper backdrop in the modal,
   // so add a global Escape listener tied to this modal instance.
   const onKey = (e: KeyboardEvent): void => {
-    if (e.key === "Escape" && document.body.contains(handle.el)) {
-      closeCreator(handle.el);
+    if (!document.body.contains(handle.el)) return;
+    if (e.key === "Escape") {
+      requestClose(handle);
+    } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      const save = handle.el.querySelector<HTMLButtonElement>(".op-modal-save");
+      if (save && !save.disabled) save.click();
     }
   };
   document.addEventListener("keydown", onKey);

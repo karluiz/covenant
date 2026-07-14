@@ -42,7 +42,9 @@
   cursor: pointer;
 }
 .op-creator .stage {
-  flex: 1; display: grid; grid-template-columns: 168px 1fr 1fr; min-height: 0;
+  /* Editor column wider than the read-only source mirror — the source's only
+     non-duplicated content is the front-matter, which fits a narrow column. */
+  flex: 1; display: grid; grid-template-columns: 168px 1.7fr 1fr; min-height: 0;
 }
 .op-creator .op-rail {
   display: flex; flex-direction: column; gap: 4px; padding: 14px 10px;
@@ -70,17 +72,39 @@
   display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
 }
 .op-creator .op-soul-rawhead {
+  display: flex; align-items: center; justify-content: space-between;
   font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase;
   color: var(--text-secondary); margin-bottom: 8px; user-select: none;
 }
+.op-creator .op-soul-copy {
+  font: inherit; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  background: transparent; border: 1px solid var(--border); border-radius: 0;
+  color: var(--text-secondary); padding: 2px 8px; cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.op-creator .op-soul-copy:hover { color: var(--text-primary); border-color: var(--accent); }
 .op-creator .op-soul-live .op-soul-source {
   flex: 1 1 auto; min-height: 0; margin-top: 0;
 }
 .op-creator .op-creator-foot,
 .op-creator .op-modal-footer {
-  display: flex; align-items: center; gap: 10px; padding: 12px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 12px 18px;
   border-top: 1px solid var(--border);
 }
+.op-creator .op-modal-footer-left { display: flex; align-items: center; gap: 16px; }
+.op-creator .op-modal-footer-error {
+  color: var(--fail, #e5484d); font-size: 12px; text-align: right; max-width: 46ch;
+}
+/* Two-step confirm states: armed Cancel ("Discard changes?") and armed
+   Delete ("Confirm delete") go solid danger for their 3s window. */
+.op-creator .settings-cancel.is-armed,
+.op-creator .op-modal-delete.is-armed {
+  color: #fff;
+  background: var(--fail, #e5484d);
+  border-color: var(--fail, #e5484d);
+}
+.op-creator .op-modal-delete.is-disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Everything inside the creator uses border-box so `width:100%` + padding
    stays inside its column instead of overflowing past the right edge. */
@@ -99,6 +123,17 @@
   outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
+/* SOUL.md is a source file — render it as one. Overrides the `font: inherit`
+   the shared input rule above would otherwise give it. */
+.op-creator .op-soul-source {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12.5px; line-height: 1.55;
+}
+/* The Soul section: flex column so the body editor fills the full height of
+   its column instead of a fixed box floating over dead space. */
+.op-creator .op-section.is-soul { display: flex; flex-direction: column; }
+.op-creator .op-section.is-soul .op-soul-body { flex: 1 1 auto; min-height: 0; resize: none; }
+.op-creator .op-soul-layer-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; flex: none; }
 .op-creator .op-section .op-soul-body {
   width: 100%; min-height: 320px; resize: vertical; display: block;
   background: var(--bg); color: var(--text-primary);
