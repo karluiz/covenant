@@ -314,6 +314,12 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zsh_history_imported_at_unix_ms: Option<u64>,
 
+    /// Discord Rich Presence — publish "In <workspace> · N sessions" to
+    /// the user's Discord profile via the local IPC socket. Off by
+    /// default; only workspace name + counts, never commands or paths.
+    #[serde(default)]
+    pub discord_presence_enabled: bool,
+
     /// Familiars: per-session AI companion with its own memory.
     /// BYOK — the user pays Anthropic directly via their own API key,
     /// so there is no premium gate; the feature is purely opt-in.
@@ -736,6 +742,7 @@ impl Default for Settings {
             folded_rail_style: FoldedRailStyle::default(),
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,
+            discord_presence_enabled: false,
             familiars_enabled: false,
             telegram: TelegramSettings::default(),
             cloud_sync: CloudSyncConfig::default(),

@@ -1256,6 +1256,9 @@ export interface Settings {
   /// labels). `null` = built-in system sans default. Terminal and
   /// editor fonts are configured separately.
   ui_font_family: string | null;
+  /// Discord Rich Presence toggle. Off by default; publishes only
+  /// workspace name + session count, never commands or paths.
+  discord_presence_enabled?: boolean;
   /// Familiars feature flag. Both this AND `is_premium` must be true
   /// for the auto-spawn-on-operator-start flow to fire.
   familiars_enabled: boolean;
@@ -1295,6 +1298,20 @@ export async function validateSendGridKey(apiKey: string): Promise<boolean> {
 
 export async function setSettings(settings: Settings): Promise<void> {
   return invoke<void>("set_settings", { settings });
+}
+
+/// Publish a Discord Rich Presence activity. Rejects when Discord isn't
+/// running — callers treat that as "retry on the next tick", not an error.
+export async function discordPresenceSet(
+  details: string,
+  state: string,
+  startUnixSecs: number,
+): Promise<void> {
+  return invoke<void>("discord_presence_set", { details, state, startUnixSecs });
+}
+
+export async function discordPresenceClear(): Promise<void> {
+  return invoke<void>("discord_presence_clear");
 }
 
 export type TabbarPosition = "top" | "left";

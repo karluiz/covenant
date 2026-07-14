@@ -24,6 +24,7 @@ mod context;
 pub mod convergence;
 mod cost;
 mod cross_session;
+mod discord_presence;
 mod drafts;
 pub mod email;
 mod embedder;
@@ -3995,6 +3996,7 @@ pub fn run() {
             app.manage(storage_arc.clone());
             let teammate_runtime = Arc::new(teammate::TeammateRuntime::new());
             app.manage(teammate_runtime.clone());
+            app.manage(discord_presence::DiscordPresence::default());
             app.manage(project_notes::Store::new(storage.conn()));
             app.manage(prompts::PromptStore::new(storage.conn()));
             app.manage(somnus::Store::new(storage.conn()));
@@ -4749,6 +4751,8 @@ pub fn run() {
             set_aom_excluded,
             set_tab_title,
             notch_set_label,
+            discord_presence::discord_presence_set,
+            discord_presence::discord_presence_clear,
             is_aom_excluded,
             clear_all_aom_excluded,
             set_session_mission,
