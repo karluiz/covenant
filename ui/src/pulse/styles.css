@@ -16,7 +16,9 @@
 .pulse-title {
   font-size: var(--fs-title); font-weight: 700;
   letter-spacing: var(--ls-title); text-transform: uppercase;
-  color: var(--num);
+  /* Neutral like ChangesSurface's .cd-title — the accent marks momentum
+     data, not the header wordmark. */
+  color: var(--text-primary);
 }
 .pulse-header-spacer { flex: 1; }
 .pulse-close { background: transparent; border: 0; cursor: pointer; padding: 0; }
