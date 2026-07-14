@@ -681,7 +681,7 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.bot({ size: 28 }),
             title: "No subagents yet",
-            hint: "Author agent files under .claude/agents to project them into executor context.",
+            hint: "Author agent files under .covenant/canon/agents — Canon projects them into every executor.",
           }));
           return;
         }
@@ -727,7 +727,7 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.terminalSquare({ size: 28 }),
             title: "No commands yet",
-            hint: "Author slash commands under .claude/commands to project them to your executors.",
+            hint: "Author slash commands under .covenant/canon/commands — Canon projects them to your executors.",
           }));
           return;
         }
@@ -773,7 +773,7 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.radioTower({ size: 28 }),
             title: "No MCP servers yet",
-            hint: "Declare servers in .mcp.json to project them to your executors.",
+            hint: "Declare servers under .covenant/canon/mcp — Canon projects them to your executors.",
           }));
           return;
         }
@@ -865,7 +865,7 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.database({ size: 28 }),
             title: "No memories yet",
-            hint: "Durable facts authored here ride into every executor's managed context block.",
+            hint: "Author durable facts under .covenant/canon/memory — they ride into every executor's managed block.",
           }));
           return;
         }
@@ -914,7 +914,7 @@ export class CanonCockpitView {
             list.appendChild(this.emptyState({
               icon: Icons.packageBox({ size: 28 }),
               title: "No skills installed",
-              hint: "Install from your organization's registry, or author skills under .claude/skills.",
+              hint: "Install from your organization's registry, or author skills under .covenant/canon/skills.",
               action: { label: "Browse registry", onClick: () => this.showSection("registry") },
             }));
             return;
