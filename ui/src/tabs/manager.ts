@@ -1659,7 +1659,7 @@ export class TabManager {
     // pane (pane.executor is the detected foreground executor, null if idle).
     if (sessionId && !pane?.executor && this.runDefaultAgent) {
       const run = this.runDefaultAgent;
-      addItem("Start agent", () => run(sessionId), Icons.sparkles());
+      addItem("Start agent", () => run(sessionId), this.defaultAgentIcon?.() ?? Icons.sparkles());
     }
 
     // Start an ACP chat tab in this tab's group. Mirrors the group menu's
@@ -1841,6 +1841,11 @@ export class TabManager {
   /// null if no spawn is configured. Wired from main.ts; used by the group
   /// context menu's "Start new agent" item to preload a fresh tab.
   public defaultAgentCmdline: (() => Promise<string | null>) | null = null;
+
+  /// Brand icon HTML for the default agent/executor, or null when unknown
+  /// (callers fall back to the generic sparkles). Sync because context
+  /// menus build synchronously — main.ts serves it from a cache.
+  public defaultAgentIcon: (() => string | null) | null = null;
 
   /// Fires whenever the *active* tab's identity (name, color, or
   /// group membership/color) changes — including activation. Lets the
@@ -7624,7 +7629,7 @@ export class TabManager {
       },
       {
         label: "Start new agent",
-        icon: Icons.sparkles(),
+        icon: this.defaultAgentIcon?.() ?? Icons.sparkles(),
         onClick: () => {
           if (group.collapsed) this.toggleGroupCollapsed(group.id);
           void (async () => {

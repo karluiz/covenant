@@ -44,6 +44,15 @@ function brandColor(spec: SpawnSpec | undefined): string {
   return key ? BRAND_COLORS[key]! : "#6dd29a";
 }
 
+/// Brand-tinted glyph for a spawn, or null when we have no logo for it
+/// (custom spawns, gemini/ollama). Context-menu callers fall back to
+/// their own generic icon on null.
+export function spawnBrandGlyph(spec: SpawnSpec | undefined, size: number): string | null {
+  const key = brandKey(spec);
+  const svg = key ? brandIconSvg(key, size) : null;
+  return svg ? `<span style="color:${brandColor(spec)};">${svg}</span>` : null;
+}
+
 /// Brand glyph for the executor, or a colored dot fallback when we have
 /// no logo for it (custom spawns, gemini/ollama). Tinted via currentColor.
 function brandGlyph(spec: SpawnSpec | undefined, cls: string, size: number): string {
