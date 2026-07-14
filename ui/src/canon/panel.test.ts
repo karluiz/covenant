@@ -209,7 +209,7 @@ describe("CanonPanel", () => {
     expect(p2.activeOrg()?.slug).toBe("cleverit"); // group choice wins
   });
 
-  it("renders Agents, Context and Skills sections", () => {
+  it("renders Subagents, Context and Skills sections", () => {
     const host = document.createElement("div");
     const panel = new CanonPanel({
       groupId: "g-sections", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",

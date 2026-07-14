@@ -1241,14 +1241,10 @@ export interface WireOpts {
 /// surface and the cockpit's immersive create surface (Task 4) share one
 /// implementation of "what happens when Save/Delete/Escape fires."
 export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
-  // Wrap the modal save so we refresh the grid after the underlying
-  // `operator_create` / `operator_update` Tauri command resolves.
-  const origSave = handle.el.querySelector<HTMLButtonElement>(".op-modal-save");
-  // The modal autowires its save button to `saveOperator(h)`; we
-  // observe completion by polling for the modal being torn down.
-  // Simpler: hook a one-shot click that wraps saveOperator + refresh.
-  // We re-bind the save button after each render — use event
-  // delegation off the modal root.
+  // The modal autowires its save button to `saveOperator(h)`; we observe
+  // completion by wrapping saveOperator + refresh in a capturing click
+  // handler on the modal root (event delegation, since the save button is
+  // re-rendered on every full render()).
   handle.el.addEventListener("click", (ev) => {
     const target = ev.target as HTMLElement | null;
     if (!target) return;
@@ -1325,9 +1321,6 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
       })();
     }
   }, true);
-  // Reference origSave to suppress unused-var lints; the capture
-  // listener above pre-empts the inner click handler.
-  void origSave;
 
   // Lightweight close affordance: click outside the inner card or
   // press Escape. We don't have a wrapper backdrop in the modal,

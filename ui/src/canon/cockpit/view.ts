@@ -592,7 +592,7 @@ export class CanonCockpitView {
     const cwd = this.opts.groupRootDir;
 
     if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage agents."));
+      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage subagents."));
       return el;
     }
 
@@ -605,7 +605,7 @@ export class CanonCockpitView {
       .then((status) => {
         list.replaceChildren();
         if (status.agents.length === 0) {
-          list.appendChild(this.note("No agents authored yet."));
+          list.appendChild(this.note("No subagents authored yet."));
           return;
         }
         for (const a of status.agents) {
@@ -620,7 +620,7 @@ export class CanonCockpitView {
       })
       .catch((e) => {
         list.replaceChildren();
-        list.appendChild(this.note(`Failed to load agents: ${this.friendlyError(e)}`));
+        list.appendChild(this.note(`Failed to load subagents: ${this.friendlyError(e)}`));
       });
 
     return el;
