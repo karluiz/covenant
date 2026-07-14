@@ -240,6 +240,15 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
     })
 }
 
+/// Content-addressed version for single-file (non-skill) packages: the first
+/// 12 hex chars of sha256(content). Stable → republishing unchanged content
+/// hits the registry's unique constraint ("already published").
+pub fn content_version(content: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hex = format!("{:x}", Sha256::digest(content.as_bytes()));
+    hex[..12].to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,5 +466,14 @@ mod tests {
         assert_eq!(s.memory.len(), 1);
         assert_eq!(s.memory[0].name, "pref-z");
         assert_eq!(s.memory[0].description.as_deref(), Some("User prefers Z"));
+    }
+
+    #[test]
+    fn content_version_is_short_stable_hex() {
+        let v = content_version("hello");
+        assert_eq!(v.len(), 12);
+        assert_eq!(v, content_version("hello"));
+        assert_ne!(v, content_version("world"));
+        assert!(v.bytes().all(|b| b.is_ascii_hexdigit()));
     }
 }
