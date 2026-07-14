@@ -3,6 +3,7 @@ import type { MinerEvent, MinerFinding } from "../../api";
 export interface FindingCard {
   id: string;
   finding: MinerFinding;
+  kind: string;
   status: "pending" | "accepted" | "discarded";
   editedBody?: string;
 }
@@ -33,7 +34,7 @@ export function reduceMinerEvent(state: MinerState, ev: MinerEvent): void {
       break;
     }
     case "finding":
-      state.findings.push({ id: ev.id, finding: ev.finding, status: "pending" });
+      state.findings.push({ id: ev.id, finding: ev.finding, kind: ev.finding.kind || "skill", status: "pending" });
       break;
     case "run_done":
       state.done = true;
@@ -50,6 +51,11 @@ export function setFindingStatus(state: MinerState, id: string, status: "accepte
   if (c) c.status = status;
 }
 
+export function setFindingKind(state: MinerState, id: string, kind: string): void {
+  const c = state.findings.find((f) => f.id === id);
+  if (c) c.kind = kind;
+}
+
 export function editFindingBody(state: MinerState, id: string, body: string): void {
   const c = state.findings.find((f) => f.id === id);
   if (c) c.editedBody = body;
@@ -58,28 +64,36 @@ export function editFindingBody(state: MinerState, id: string, body: string): vo
 export function acceptedFindings(state: MinerState): MinerFinding[] {
   return state.findings
     .filter((c) => c.status === "accepted")
-    .map((c) => ({ ...c.finding, bodyMd: c.editedBody ?? c.finding.bodyMd }));
+    .map((c) => ({ ...c.finding, kind: c.kind, bodyMd: c.editedBody ?? c.finding.bodyMd }));
 }
 
-const CATEGORY_ORDER: [string, string][] = [
+export const CATEGORY_ORDER: [string, string][] = [
   ["convention", "Conventions"],
   ["pattern", "Patterns"],
   ["gotcha", "Gotchas"],
   ["domain_rule", "Domain rules"],
   ["glossary", "Glossary"],
+  ["workflow", "Workflows"],
 ];
+
+export const KIND_ORDER = ["skill", "memory", "command", "subagent"] as const;
+export const KIND_LABELS: Record<string, string> = {
+  skill: "Skill package", memory: "Memory", command: "Commands", subagent: "Subagents",
+};
 
 export function compilePreview(skillName: string, state: MinerState): string {
   const accepted = acceptedFindings(state);
-  let md = `---\nname: ${skillName}\ndescription: Mined context for ${skillName}\nversion: 1.0.0\n---\n\n# ${skillName}\n`;
-  for (const [key, heading] of CATEGORY_ORDER) {
-    const inCat = accepted.filter((f) => f.category === key);
-    if (inCat.length === 0) continue;
-    md += `\n## ${heading}\n`;
-    for (const f of inCat) {
-      md += `\n### ${f.title}\n\n${f.bodyMd.trim()}\n`;
+  let md = "";
+  for (const kind of KIND_ORDER) {
+    const inKind = accepted.filter((f) => f.kind === kind);
+    if (inKind.length === 0) continue;
+    const target = kind === "skill" ? `.covenant/canon/skills/${skillName}/` : `.covenant/canon/${kind === "subagent" ? "agents" : kind === "command" ? "commands" : "memory"}/`;
+    md += `# ${KIND_LABELS[kind]} → ${target}\n`;
+    for (const f of inKind) {
+      md += `\n## ${f.title}\n\n${(f.bodyMd).trim()}\n`;
       if (f.evidence.length > 0) md += `\nEvidence: ${f.evidence.map((e) => `\`${e}\``).join(", ")}\n`;
     }
+    md += "\n";
   }
-  return md;
+  return md || "No findings accepted yet.";
 }
