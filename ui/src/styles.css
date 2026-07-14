@@ -20201,6 +20201,10 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 }
 .rail-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .rail-search input::placeholder { color: var(--fg-dim); }
+/* The light theme's global `body.theme-light input { background: #fff }`
+   reset (see ~:15385) outspecifies .rail-search input and repaints the
+   white box — same escape hatch the command palette needed. */
+body.theme-light .rail-search input { background: none; border: 0; }
 .rail-select {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--rail-radius);
