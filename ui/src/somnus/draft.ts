@@ -96,8 +96,14 @@ export function buildRequest(draft: SomnusDraft, vars: ReadonlyMap<string, strin
   const merged = [...headers, ...auth.headers];
   let url = draft.url.trim();
   if (auth.query.length) {
-    const resolvedAuthQuery = auth.query.map(([k, v]) => [resolveVars(k, vars), resolveVars(v, vars)] as [string, string]);
-    url = withQueryRows(url, [...queryRows(url), ...resolvedAuthQuery]);
+    // Resolve {{vars}} in EVERY query row (the URL's own rows AND the auth
+    // rows) BEFORE re-serializing: URLSearchParams percent-encodes the braces
+    // ({{tok}} → %7B%7Btok%7D%7D), after which the final resolveVars on the
+    // whole URL can no longer match them.
+    const rows = [...queryRows(url), ...auth.query].map(
+      ([k, v]) => [resolveVars(k, vars), resolveVars(v, vars)] as [string, string],
+    );
+    url = withQueryRows(url, rows);
   }
   const auto = AUTO_CONTENT_TYPE[draft.body_mode];
   const body = draft.body_mode !== "none" && draft.body ? draft.body : null;

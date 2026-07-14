@@ -86,6 +86,17 @@ describe("buildRequest", () => {
     expect(req2.headers).toContainEqual(["Authorization", "Bearer abc"]);
   });
 
+  it("resolves {{vars}} in the URL's own query rows when auth query forces re-serialization", () => {
+    const req = buildRequest(
+      draft({
+        url: "https://x.test/u?q={{tok}}",
+        auth: { type: "apikey", key: "k", value: "static", placement: "query" },
+      }),
+      vars,
+    );
+    expect(req.url).toBe("https://x.test/u?q=T&k=static");
+  });
+
   it("auto-sets Content-Type for json and form modes unless present", () => {
     const j = buildRequest(draft({ url: "https://x.test", body: "{}", body_mode: "json" }), vars);
     expect(j.headers).toContainEqual(["Content-Type", "application/json"]);
