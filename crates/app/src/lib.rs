@@ -4602,7 +4602,6 @@ pub fn run() {
                                     if !content.is_null() {
                                         let _: () =
                                             objc2::msg_send![content, setNeedsDisplay: true];
-                                        let _: () = objc2::msg_send![content, display];
                                     }
                                 }
                             }

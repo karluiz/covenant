@@ -5,7 +5,7 @@
   "identifier": "com.karluiz.covenant",
   "build": {
     "frontendDist": "../../dist",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeDevCommand": {
       "script": "npm run dev",
       "cwd": "../.."

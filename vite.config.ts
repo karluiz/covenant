@@ -51,7 +51,11 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    // Explicit IPv4 loopback: `false` binds whatever `localhost` resolves
+    // to first (often ::1 only), while the webview may pick 127.0.0.1 and
+    // get connection-refused — cached index.html then paints the boot
+    // splash forever with no JS. Must match tauri.conf.json devUrl.
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",
