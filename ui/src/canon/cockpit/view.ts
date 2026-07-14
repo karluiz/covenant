@@ -8,7 +8,7 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { CanonStatus, Org, Member, PkgMeta } from "../../api";
+import type { CanonStatus, Org, Member, Operator, PkgMeta } from "../../api";
 import {
   canonOrgMembers,
   canonAddMember,
@@ -23,15 +23,22 @@ import {
   canonInstallRegistry,
   scoreSummaryFiltered,
   canonEvalSummary,
+  operatorList,
+  operatorDelete,
+  marketplacePublish,
 } from "../../api";
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
+import { openOperatorModal, wireOperatorModal, renderOperatorList } from "../../operator/creator";
+import { operatorsForOrg, isStaleOrg } from "../../operator/org-filter";
+import { scheduleCloudPush } from "../../settings/cloud_push";
+import { pushInfoToast } from "../../notifications/toast";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { liftRow, groupVerdict } from "./lift";
 
-export type SectionKey = "org" | "members" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
+export type SectionKey = "org" | "members" | "operators" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
 
 export interface CanonCockpitOpts {
   groupId: string;
@@ -61,6 +68,7 @@ function loopSubhead(text: string): HTMLElement {
 const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "org", label: "Org" },
   { key: "members", label: "Members" },
+  { key: "operators", label: "Operators" },
   { key: "agents", label: "Agents" },
   { key: "commands", label: "Commands" },
   { key: "mcp", label: "MCP" },
@@ -76,6 +84,7 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
 const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   org: ["Organization", "The registry this group publishes to and installs from."],
   members: ["Members", "People with access to this organization's Canon."],
+  operators: ["Operators", "Versions of you, delegated — org-scoped personas that direct your executors."],
   agents: ["Agents", "Operator personas projected to your executors."],
   commands: ["Commands", "Slash commands projected to your executors."],
   mcp: ["MCP", "Model Context Protocol servers projected to your executors."],
@@ -163,6 +172,7 @@ export class CanonCockpitView {
     const body =
       key === "org" ? this.renderOrgSection()
       : key === "members" ? this.renderMembersSection()
+      : key === "operators" ? this.renderOperatorsSection()
       : key === "agents" ? this.renderAgentsSection()
       : key === "commands" ? this.renderCommandsSection()
       : key === "mcp" ? this.renderMcpSection()
@@ -456,6 +466,106 @@ export class CanonCockpitView {
 
     row.append(input, add);
     return row;
+  }
+
+  // ── Operators section ────────────────────────────────────────────────
+
+  /** Org-scoped operator roster — the immersive creator (`../../operator/creator`)
+   *  reused verbatim from the settings pane, wired so saves assign/clear the
+   *  active org instead of leaving the operator on whatever org it had. */
+  private renderOperatorsSection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-operators";
+
+    const bar = document.createElement("div");
+    bar.className = "canon-cockpit-actions";
+    const newBtn = iconButton(Icons.plus({ size: 15 }), "New operator", () => {
+      const active = this.activeOrg();
+      const handle = openOperatorModal({ mode: "create" });
+      wireOperatorModal(handle, {
+        assignOrgSlug: active && !active.personal ? active.slug : null,
+        onSaved: () => this.showSection("operators"),
+      });
+    });
+    newBtn.dataset.role = "op-new";
+    bar.appendChild(newBtn);
+    el.appendChild(bar);
+
+    const list = document.createElement("div");
+    list.appendChild(this.note("Loading…"));
+    el.appendChild(list);
+
+    void operatorList()
+      .then((all) => {
+        const known = new Set(this.opts.orgs.map((o) => o.slug));
+        const active = this.activeOrg();
+        const ops = operatorsForOrg(all, active, known);
+        list.replaceChildren();
+        if (ops.length === 0) {
+          list.appendChild(this.note("No operators in this org yet."));
+          return;
+        }
+        list.appendChild(renderOperatorList(ops, {
+          isStale: (op) => isStaleOrg(op, known),
+          onEdit: (op) => {
+            const handle = openOperatorModal({ mode: "edit", existing: op });
+            wireOperatorModal(handle, {
+              // Rescue stale-org operators: saving from the personal view
+              // clears the dead slug back to the personal roster.
+              assignOrgSlug: isStaleOrg(op, known) ? null : undefined,
+              onSaved: () => this.showSection("operators"),
+              onDelete: (o) => this.deleteOperator(o),
+            });
+          },
+          onDuplicate: (op) => {
+            const handle = openOperatorModal({ mode: "create", existing: { ...op, name: `${op.name} copy` } });
+            wireOperatorModal(handle, {
+              assignOrgSlug: active && !active.personal ? active.slug : null,
+              onSaved: () => this.showSection("operators"),
+            });
+          },
+          onPublish: (op) => {
+            void marketplacePublish(op.id).then(() => pushInfoToast({ message: `${op.name} submitted — pending review` }));
+          },
+          onDelete: (op) => this.deleteOperator(op),
+        }));
+      })
+      .catch((e) => {
+        list.replaceChildren();
+        list.appendChild(this.note(`Failed to load operators: ${this.friendlyError(e)}`));
+      });
+
+    return el;
+  }
+
+  /** Ported from `OperatorsPane.deleteOperator` (settings/operators.ts) so the
+   *  cockpit's roster enforces the same guards: can't delete the default
+   *  operator, can't delete the last operator system-wide. */
+  private async deleteOperator(op: Operator): Promise<void> {
+    if (op.is_default) {
+      alert("Cannot delete the default operator. Set a different default first.");
+      return;
+    }
+    const all = await operatorList().catch(() => [] as Operator[]);
+    if (all.length <= 1) {
+      alert("Cannot delete the last operator.");
+      return;
+    }
+    if (!confirm(`Delete operator "${op.name}"? Tabs pinned to it will fall back to the default.`)) {
+      return;
+    }
+    try {
+      await operatorDelete(op.id);
+      // Notify the rest of the app — tabs/manager.ts drops the cache entry
+      // and clears any pane.operator pointer; the status bar re-renders
+      // without the dangling avatar.
+      window.dispatchEvent(new CustomEvent("operator:deleted", { detail: { id: op.id } }));
+      scheduleCloudPush();
+      pushInfoToast({ message: `Deleted operator: ${op.name}` });
+      this.showSection("operators");
+    } catch (e) {
+      alert(`Delete failed: ${e}`);
+    }
   }
 
   // ── Agents section ───────────────────────────────────────────────────

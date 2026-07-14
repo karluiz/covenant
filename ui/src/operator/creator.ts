@@ -1354,6 +1354,10 @@ export interface ListHandlers {
   onDelete(op: Operator): void;
   onDuplicate(op: Operator): void;
   onPublish?(op: Operator): void;
+  /** True when the operator's org is one we no longer know about (deleted
+   *  server-side). Renders an "unassigned" badge so the org-scoped cockpit
+   *  roster surfaces stale operators instead of silently hiding them. */
+  isStale?(op: Operator): boolean;
 }
 
 export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElement {
@@ -1368,6 +1372,12 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
     // pattern as the modal hero card.
     card.style.setProperty("--operator-color", op.color);
     card.append(renderOperatorChip(op, "lg"));
+    if (h.isStale?.(op)) {
+      const badge = document.createElement("span");
+      badge.className = "op-card-badge";
+      badge.textContent = `unassigned · ${op.org_slug}`;
+      card.append(badge);
+    }
     const summary = document.createElement("div");
     summary.className = "op-card-summary";
     summary.textContent = `${op.voice} · threshold ${op.escalate_threshold.toFixed(2)} · ${op.model || "—"}`;

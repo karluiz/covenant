@@ -16,14 +16,27 @@ vi.mock("../../api", () => ({
   canonInstallRegistry: vi.fn().mockResolvedValue(undefined),
   scoreSummaryFiltered: vi.fn().mockResolvedValue({ total_tokens: 0, total_prompts: 0, total_specs: 0, total_commits: 0 }),
   canonEvalSummary: vi.fn().mockResolvedValue([]),
+  operatorList: vi.fn(async () => [] as unknown[]),
+  operatorDelete: vi.fn().mockResolvedValue(undefined),
+  marketplacePublish: vi.fn().mockResolvedValue(undefined),
 }));
 
 // The cockpit's "Create organization" button opens the immersive create
 // surface; mock it so we can capture and drive its onCreated callback.
 vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
-import { canonMyOrgs, canonSearch, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus } from "../../api";
+import {
+  canonMyOrgs, canonSearch, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
+  operatorList, type Operator,
+} from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
+
+const OPERATOR_FIXTURE: Operator = {
+  id: "op-1", name: "Zeta", emoji: "🟣", color: "#a855f7", tags: ["rust"],
+  persona: "", escalate_threshold: 0.5, model: "claude-sonnet-4-6", hard_constraints: "",
+  voice: "Terse", is_default: true, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+  github_access: "Off", acp_enabled: false, perception_enabled: false, org_slug: null,
+};
 
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
@@ -138,6 +151,20 @@ describe("CanonCockpitView Context section", () => {
     expect(v.element.textContent).toContain("kyc-peru.md");
     (v.element.querySelector(".canon-new-context-btn") as HTMLButtonElement).click();
     expect(called).toBe(true);
+  });
+});
+
+describe("CanonCockpitView Operators section", () => {
+  it("operators section renders the org-filtered roster with a New operator button", async () => {
+    vi.mocked(operatorList).mockResolvedValueOnce([OPERATOR_FIXTURE]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("operators");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".op-card-grid")).toBeTruthy();
+      expect(v.element.textContent).toContain("Zeta");
+      expect(v.element.querySelector("[data-role='op-new']")).toBeTruthy();
+    });
   });
 });
 

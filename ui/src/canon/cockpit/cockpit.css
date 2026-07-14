@@ -412,6 +412,20 @@ body.tabbar-left.canon-cockpit-open .canon-reader {
   left: var(--tabbar-w);
 }
 
+/* ── Operators section ─────────────────────────────────────────────── */
+
+/* The op-card-grid needs more room than the default 720px content column
+   (it's a multi-column auto-fill grid, same width as the settings pane's
+   operators tab) — widen just this section instead of the shared max-width. */
+.canon-cockpit-section.is-operators {
+  max-width: none;
+}
+.canon-cockpit-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+
 /* ── Context section ───────────────────────────────────────────────── */
 
 .canon-cockpit-context-list {
