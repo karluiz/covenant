@@ -79,9 +79,8 @@ export class ShortcutsPanel {
       <header class="release-header">
         <div>
           <h2>Keyboard shortcuts</h2>
-          <small class="release-subtitle">Press Esc to close</small>
         </div>
-        <button type="button" class="release-close" aria-label="Close">×</button>
+        <button type="button" class="release-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
       </header>
       <div class="release-body shortcuts-body">${sections}</div>
     `;
