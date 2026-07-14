@@ -855,7 +855,7 @@ async function boot(): Promise<void> {
       await teammatePanel.openFor(def);
     } else {
       teammatePanelHost.innerHTML =
-        `<div class="teammate-panel-empty">No operators configured yet. Open Settings → Operators.</div>`;
+        `<div class="teammate-panel-empty">No operators configured yet. Open Canon → Operators.</div>`;
     }
   };
   // Imperative "close the teammate rail" hook for any external caller (the
