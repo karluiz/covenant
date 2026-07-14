@@ -4,6 +4,7 @@ import { CustomSelect } from "../ui/select";
 import { spawnShortcutLabel, acpExecutorFor } from "../spawns/shortcuts";
 import { brandIconSvg } from "../icons/brands";
 import { attachTooltip } from "../tooltip/tooltip";
+import { renderAcpAgentsSection } from "./acp_agents";
 
 /// Known executor presets. Picking one fills in defaults for any
 /// fields the user hasn't customised yet. "Custom" leaves the row
@@ -161,6 +162,13 @@ function escHtml(s: string): string {
 
 export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
   host.innerHTML = "";
+  // Own sub-container for the master-detail pane: `render()` below is
+  // re-invoked on every rail click / add / delete / set-default, and it
+  // clears its container wholesale. Keeping that scoped to `body` (rather
+  // than `host`) lets the ACP agents section, appended once below, survive
+  // those re-renders instead of being wiped alongside the master-detail.
+  const body = document.createElement("div");
+  host.appendChild(body);
 
   let specs = await listSpawns();
   let selectedId: string | null =
@@ -373,18 +381,18 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
   };
 
   const render = (): void => {
-    host.innerHTML = "";
+    body.innerHTML = "";
 
     const title = document.createElement("h3");
     title.className = "settings-section-title";
     title.textContent = "Harnesses";
-    host.appendChild(title);
+    body.appendChild(title);
 
     const desc = document.createElement("p");
     desc.className = "settings-section-desc";
     desc.textContent =
       "Executor processes the operator can launch in a terminal tab. One spawn can be marked default.";
-    host.appendChild(desc);
+    body.appendChild(desc);
 
     const wrap = document.createElement("div");
     wrap.className = "spawns-md";
@@ -451,8 +459,9 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
       detail.appendChild(empty);
     }
     wrap.appendChild(detail);
-    host.appendChild(wrap);
+    body.appendChild(wrap);
   };
 
   render();
+  await renderAcpAgentsSection(host);
 }

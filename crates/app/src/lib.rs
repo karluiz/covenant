@@ -4955,6 +4955,7 @@ pub fn run() {
             acp_commands::acp_get_models,
             acp_commands::acp_mark_ready,
             acp_commands::acp_set_model,
+            acp_commands::acp_set_trust,
             acp_commands::acp_suggest_title,
             acp_commands::acp_list_sessions,
             acp_commands::acp_load_session,

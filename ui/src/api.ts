@@ -1274,6 +1274,8 @@ export interface Settings {
   providers?: Record<string, ProviderEntry>;
   /// Model routing table mapping role names to provider+model.
   model_routes?: Record<string, RouteEntry>;
+  /// Per-executor ACP configuration (trust level, model, args, env).
+  acp_executors?: Record<string, AcpExecutorConfig>;
   /// 4.x — experimental feature flags.
   experimental?: {
     split_panes?: boolean;
@@ -2821,6 +2823,18 @@ export interface SpawnAcpResult {
   acpSessionId: string;
   /// True when a requested resume actually loaded (vs fresh fallback).
   resumed: boolean;
+  /// Effective trust level the session launched with.
+  trust: AcpTrust;
+}
+
+export type AcpTrust = "ask" | "balanced" | "yolo";
+
+export interface AcpExecutorConfig {
+  trust: AcpTrust;
+  model?: string | null;
+  thinking_tokens?: number | null;
+  env?: [string, string][];
+  args?: string[];
 }
 
 /// Executors with an ACP launch profile in the backend
@@ -2857,6 +2871,10 @@ export async function acpGetModels(sessionId: SessionId): Promise<AcpModels> {
 
 export async function acpSetModel(sessionId: SessionId, modelId: string): Promise<void> {
   return invoke<void>("acp_set_model", { sessionId, modelId });
+}
+
+export async function acpSetTrust(sessionId: SessionId, trust: AcpTrust): Promise<void> {
+  return invoke<void>("acp_set_trust", { sessionId, trust });
 }
 
 /// Tell the backend this session's event listener is registered — the

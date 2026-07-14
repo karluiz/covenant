@@ -10,6 +10,26 @@ use crate::safety::{classify, Risk};
 
 use super::protocol::PermissionRequest;
 
+/// Per-session trust level for interactive ACP tabs. `Ask` defers every
+/// permission request to the user; `Balanced` is the historical hybrid
+/// (edits/reads/safe commands auto-allowed); `Yolo` auto-allows
+/// everything — the native equivalent of --dangerously-skip-permissions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcpTrust {
+    Ask,
+    #[default]
+    Balanced,
+    Yolo,
+}
+
+/// YOLO: allow everything. Shares `pick_option`'s floor — never selects
+/// an "always" option (no grant outlives the session), degrades to ""
+/// (caller defers to the user) when only alien/persistent options exist.
+pub fn resolve_yolo(req: &PermissionRequest) -> String {
+    pick_option(req, true)
+}
+
 /// Pick an optionId for a permission request with nobody watching.
 pub fn resolve_headless(req: &PermissionRequest) -> String {
     static NO_LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -214,5 +234,28 @@ mod tests {
         ]))
         .expect("fixture parses");
         assert_eq!(resolve_headless(&r), "r1");
+    }
+
+    #[test]
+    fn yolo_allows_dangerous_execute_without_persisting() {
+        // YOLO allows what Balanced denies…
+        let r = req("execute", Some("sudo rm -rf /tmp/x"));
+        assert_eq!(resolve_yolo(&r), "allow_once");
+        // …but still never picks a persistent grant.
+        let mut only_always = req("edit", None);
+        only_always.options = serde_json::from_value(serde_json::json!([
+            { "optionId": "aa", "kind": "allow_always", "name": "Always allow" }
+        ]))
+        .expect("fixture parses");
+        assert_eq!(resolve_yolo(&only_always), "");
+    }
+
+    #[test]
+    fn trust_default_is_balanced() {
+        assert_eq!(AcpTrust::default(), AcpTrust::Balanced);
+        // Wire format is snake_case lowercase words.
+        assert_eq!(serde_json::to_string(&AcpTrust::Yolo).expect("ser"), "\"yolo\"");
+        let t: AcpTrust = serde_json::from_str("\"ask\"").expect("de");
+        assert_eq!(t, AcpTrust::Ask);
     }
 }

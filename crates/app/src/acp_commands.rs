@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use karl_agent::acp::{
     build_judge_prompt, parse_judge_reply, perception_decide,
-    policy::resolve_headless,
+    policy::{resolve_headless, resolve_yolo, AcpTrust},
     protocol::{
         AvailableCommand, ContentBlock, PermissionRequest, SessionNotification, SessionUpdate,
         ToolCallFields,
@@ -231,6 +231,12 @@ struct AcpTabSession {
     /// Shared between the forwarder task and the command layer via the
     /// registry's `Arc<AcpTabSession>`.
     perception_consecutive: AtomicU32,
+    /// Per-session trust level; written by `acp_set_trust` (Task 5) so a
+    /// live tab can change trust without a restart. The `Arc` shared with
+    /// `hybrid_resolver` at spawn time is the copy actually consulted per
+    /// permission request; this field is that same `Arc`, kept on the tab
+    /// so `acp_set_trust` can reach it.
+    trust: Arc<std::sync::RwLock<AcpTrust>>,
 }
 
 impl AcpTabSession {
@@ -385,20 +391,36 @@ pub struct SpawnAcpResult {
     pub acp_session_id: String,
     /// True when a requested resume actually loaded (vs fresh fallback).
     pub resumed: bool,
+    /// Effective trust level the session launched with.
+    pub trust: AcpTrust,
 }
 
 /// Prepare the isolated `CLAUDE_CONFIG_DIR` the claude ACP adapter runs
 /// against. Needed because the adapter's pinned Agent SDK rejects newer
 /// fields in the user's real `~/.claude/settings.json` (seen live:
 /// `permissions.defaultMode: auto` → session/new dies). The dir gets:
-/// - `settings.json` — `{}` if absent (user-customizable afterwards)
+/// - `settings.json` — `permissions.defaultMode` and `model` are derived
+///   from `cfg` on every spawn; every other (hand-added) key is preserved
 /// - `.claude.json` — minimal onboarding + oauthAccount copied from the
 ///   real state file (rewritten each spawn; cheap and tracks re-login)
 /// - `.credentials.json` — the "Claude Code-credentials" Keychain item
 ///   (0600), same file the CLI itself uses on Linux. Re-copied on every
 ///   spawn so the token is as fresh as the last real Claude Code refresh.
 /// Sync fs + `security`(1) — call inside spawn_blocking.
-fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> {
+fn prepare_claude_acp_config(
+    base: &std::path::Path,
+    cfg: &crate::settings::AcpExecutorConfig,
+) -> Result<PathBuf, String> {
+    // The dir is SHARED by every claude tab (one path, no session id) and
+    // settings.json below is a read-modify-write — two tabs spawning close
+    // together could interleave and boot the adapter against the wrong
+    // defaultMode (worst case: an unintended bypassPermissions). Serialize
+    // the whole prepare. This only guards writers in THIS process — which
+    // is sufficient, Covenant is the only writer. std Mutex is fine: sync
+    // fn inside spawn_blocking, no awaits to hold it across.
+    static PREP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = PREP_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
     let dir = base.join("claude-acp");
     std::fs::create_dir_all(&dir).map_err(|e| format!("claude-acp config dir: {e}"))?;
     #[cfg(unix)]
@@ -407,10 +429,44 @@ fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> 
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
     }
 
+    // settings.json: `permissions.defaultMode` and `model` are DERIVED
+    // from the Harnesses ACP config on every spawn; every other key the
+    // user hand-adds is preserved verbatim.
     let settings = dir.join("settings.json");
-    if !settings.exists() {
-        std::fs::write(&settings, "{}\n").map_err(|e| format!("settings.json: {e}"))?;
+    let mut root: Value = std::fs::read_to_string(&settings)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| json!({}));
+    if !root.is_object() {
+        root = json!({});
     }
+    if let Some(obj) = root.as_object_mut() {
+        let mode = match cfg.trust {
+            AcpTrust::Yolo => "bypassPermissions",
+            _ => "default",
+        };
+        let perms = obj.entry("permissions").or_insert_with(|| json!({}));
+        if !perms.is_object() {
+            *perms = json!({});
+        }
+        if let Some(p) = perms.as_object_mut() {
+            p.insert("defaultMode".into(), json!(mode));
+        }
+        match &cfg.model {
+            Some(m) => {
+                obj.insert("model".into(), json!(m));
+            }
+            None => {
+                obj.remove("model");
+            }
+        }
+    }
+    let rendered = serde_json::to_string_pretty(&root).map_err(|e| format!("settings.json: {e}"))?;
+    // Atomic replace (tmp + rename, same pattern as settings::save) so a
+    // reader — the adapter booting — never sees a half-written file.
+    let tmp = dir.join("settings.json.tmp");
+    std::fs::write(&tmp, rendered).map_err(|e| format!("settings.json: {e}"))?;
+    std::fs::rename(&tmp, &settings).map_err(|e| format!("settings.json: {e}"))?;
 
     // The isolated config dir hides the user's real `~/.claude` from the
     // adapter, so user-level skills/commands/agents vanish from the slash
@@ -487,19 +543,35 @@ fn prepare_claude_acp_config(base: &std::path::Path) -> Result<PathBuf, String> 
     Ok(dir)
 }
 
-/// Hybrid resolver: policy-approved requests are silently granted;
-/// everything else is deferred to the user via `PermissionPending`.
-fn hybrid_resolver() -> PermissionResolver {
-    Arc::new(|req| {
-        let choice = resolve_headless(req);
-        let allows = req
-            .options
-            .iter()
-            .any(|o| o.option_id == choice && o.kind.to_ascii_lowercase().contains("allow"));
-        if allows {
-            PermissionDecision::Select(choice)
-        } else {
-            PermissionDecision::Defer
+/// Trust-aware resolver for interactive tabs. Ask defers everything to
+/// the user; Balanced silently grants policy-approved requests (the
+/// historical hybrid); Yolo grants everything grantable. All levels
+/// share the policy floor: never a persistent "always" grant, and an
+/// unresolvable request always defers instead of guessing.
+fn hybrid_resolver(trust: Arc<std::sync::RwLock<AcpTrust>>) -> PermissionResolver {
+    Arc::new(move |req| {
+        let level = trust.read().map(|g| *g).unwrap_or_default();
+        match level {
+            AcpTrust::Ask => PermissionDecision::Defer,
+            AcpTrust::Balanced => {
+                let choice = resolve_headless(req);
+                let allows = req.options.iter().any(|o| {
+                    o.option_id == choice && o.kind.to_ascii_lowercase().contains("allow")
+                });
+                if allows {
+                    PermissionDecision::Select(choice)
+                } else {
+                    PermissionDecision::Defer
+                }
+            }
+            AcpTrust::Yolo => {
+                let choice = resolve_yolo(req);
+                if choice.is_empty() {
+                    PermissionDecision::Defer
+                } else {
+                    PermissionDecision::Select(choice)
+                }
+            }
         }
     })
 }
@@ -520,21 +592,64 @@ pub async fn spawn_acp_session(
         .unwrap_or_else(|| PathBuf::from("."));
 
     let executor = opts.executor.clone().unwrap_or_else(|| "copilot".into());
+    let cfg = { state.settings.lock().await.acp_executor(&executor) };
     let mut spawn_opts = AcpSpawnOpts::for_executor(&executor, cwd.clone())?;
+
+    // Trust → native mechanism. YOLO is enforced adapter-side where
+    // possible so permission requests aren't even generated; the
+    // trust-aware resolver below covers whatever still leaks through.
+    if cfg.trust == AcpTrust::Yolo {
+        match executor.as_str() {
+            "copilot" => {
+                if let Some(args) = spawn_opts.agent_args.as_mut() {
+                    args.push("--allow-all-tools".to_string());
+                }
+            }
+            "opencode" => {
+                // ponytail: allow-all blob; verified against the installed
+                // opencode (1.14.39) — see task-4-report.md for the check.
+                spawn_opts.env.push((
+                    "OPENCODE_PERMISSION".to_string(),
+                    r#"{"edit":"allow","bash":"allow","webfetch":"allow"}"#.to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+
     if executor == "claude" {
         let base = app
             .path()
             .app_config_dir()
             .map_err(|e| format!("resolve app_config_dir: {e}"))?;
-        let cfg_dir = tokio::task::spawn_blocking(move || prepare_claude_acp_config(&base))
-            .await
-            .map_err(|e| format!("claude config prep: {e}"))??;
+        let cfg_for_prep = cfg.clone();
+        let cfg_dir = tokio::task::spawn_blocking(move || {
+            prepare_claude_acp_config(&base, &cfg_for_prep)
+        })
+        .await
+        .map_err(|e| format!("claude config prep: {e}"))??;
         spawn_opts.env.push((
             "CLAUDE_CONFIG_DIR".to_string(),
             cfg_dir.to_string_lossy().into_owned(),
         ));
+        if let Some(tokens) = cfg.thinking_tokens {
+            spawn_opts
+                .env
+                .push(("MAX_THINKING_TOKENS".to_string(), tokens.to_string()));
+        }
     }
-    let session = AcpSession::spawn(spawn_opts, hybrid_resolver())
+
+    // User escape hatches last: env can override trust-derived entries
+    // (later duplicates win — Command::env replaces), args append after
+    // the adapter's own.
+    spawn_opts.env.extend(cfg.env.iter().cloned());
+    match spawn_opts.agent_args.as_mut() {
+        Some(args) => args.extend(cfg.args.iter().cloned()),
+        None => spawn_opts.extra_args.extend(cfg.args.iter().cloned()),
+    }
+
+    let trust = Arc::new(std::sync::RwLock::new(cfg.trust));
+    let session = AcpSession::spawn(spawn_opts, hybrid_resolver(trust.clone()))
         .await
         .map_err(|e| e.to_string())?;
 
@@ -673,6 +788,7 @@ pub async fn spawn_acp_session(
         models: std::sync::Mutex::new(models),
         ready_tx,
         perception_consecutive: AtomicU32::new(0),
+        trust: trust.clone(),
     });
     let tab_for_task = tab_session.clone();
 
@@ -879,12 +995,31 @@ pub async fn spawn_acp_session(
         }
     });
 
+    // Best-effort default model. Fires for ANY executor whose reported
+    // currentModelId differs from cfg.model — for claude that's normally
+    // a no-op (the model was baked into its settings.json above, so the
+    // ids match), and if they somehow differ the extra request is a
+    // harmless second attempt. copilot/opencode honor `session/set_model`
+    // directly. Errors are ignored — a picky adapter shouldn't fail the
+    // whole spawn over this.
+    if let Some(want) = cfg.model.as_deref() {
+        if model.as_deref() != Some(want) {
+            let _ = session
+                .request(
+                    "session/set_model",
+                    json!({ "sessionId": acp_session_id_out.clone(), "modelId": want }),
+                )
+                .await;
+        }
+    }
+
     state.acp_sessions.insert(session_id, tab_session).await;
     Ok(SpawnAcpResult {
         session_id: session_id.to_string(),
         model,
         acp_session_id: acp_session_id_out,
         resumed,
+        trust: cfg.trust,
     })
 }
 
@@ -1135,6 +1270,36 @@ pub async fn acp_set_model(
         Ok(mut m) => m.current = Some(model_id),
         Err(poisoned) => poisoned.into_inner().current = Some(model_id),
     }
+    Ok(())
+}
+
+/// Switch a live session's trust level. The resolver picks up the new
+/// level on the next permission request; for adapters with native ACP
+/// modes (claude) we also flip `session/set_mode` so the agent stops
+/// generating requests at all in Yolo. Method-not-found is fine — most
+/// adapters don't implement modes.
+#[tauri::command]
+pub async fn acp_set_trust(
+    state: State<'_, AppState>,
+    session_id: String,
+    trust: AcpTrust,
+) -> Result<(), String> {
+    let (_, tab) = require(&state, &session_id).await?;
+    match tab.trust.write() {
+        Ok(mut g) => *g = trust,
+        Err(poisoned) => *poisoned.into_inner() = trust,
+    }
+    let mode = match trust {
+        AcpTrust::Yolo => "bypassPermissions",
+        _ => "default",
+    };
+    let _ = tab
+        .session
+        .request(
+            "session/set_mode",
+            json!({ "sessionId": tab.wire_id(), "modeId": mode }),
+        )
+        .await;
     Ok(())
 }
 
@@ -1533,5 +1698,49 @@ mod tests {
             }
             other => panic!("wrong variant after round-trip: {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod claude_config_tests {
+    use super::*;
+    use crate::settings::AcpExecutorConfig;
+
+    #[test]
+    fn patches_default_mode_and_model_preserving_other_keys() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        // Pre-existing hand-edited file with a custom key.
+        let dir = tmp.path().join("claude-acp");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(
+            dir.join("settings.json"),
+            r#"{ "statusLine": {"type":"command","command":"x"}, "permissions": {"deny":["Bash(rm:*)"]} }"#,
+        )
+        .expect("seed");
+
+        let cfg = AcpExecutorConfig {
+            trust: AcpTrust::Yolo,
+            model: Some("claude-sonnet-4.6".into()),
+            ..Default::default()
+        };
+        let out = prepare_claude_acp_config(tmp.path(), &cfg).expect("prep");
+        let raw = std::fs::read_to_string(out.join("settings.json")).expect("read");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("json");
+        assert_eq!(v["permissions"]["defaultMode"], "bypassPermissions");
+        assert_eq!(v["model"], "claude-sonnet-4.6");
+        // Hand-added keys survive.
+        assert_eq!(v["statusLine"]["type"], "command");
+        assert_eq!(v["permissions"]["deny"][0], "Bash(rm:*)");
+
+        // Downgrade to Balanced: mode derived back, model removed when unset.
+        let cfg2 = AcpExecutorConfig::default();
+        prepare_claude_acp_config(tmp.path(), &cfg2).expect("prep2");
+        let v2: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("settings.json")).expect("read2"),
+        )
+        .expect("json2");
+        assert_eq!(v2["permissions"]["defaultMode"], "default");
+        assert!(v2.get("model").is_none());
+        assert_eq!(v2["permissions"]["deny"][0], "Bash(rm:*)");
     }
 }

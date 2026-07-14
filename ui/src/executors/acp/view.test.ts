@@ -17,7 +17,16 @@ vi.mock("../../api", () => ({
   acpSendPrompt: vi.fn(),
   acpRespondPermission: vi.fn(),
   acpCancel: vi.fn(),
-  subscribeAcpEvents: vi.fn(),
+  subscribeAcpEvents: vi.fn().mockResolvedValue(() => {}),
+  acpGetCommands: vi.fn().mockResolvedValue([]),
+  acpGetModels: vi.fn().mockResolvedValue({ available: [], current: null }),
+  acpMarkReady: vi.fn().mockResolvedValue(undefined),
+  acpSetModel: vi.fn(),
+  acpSetTrust: vi.fn(),
+  acpSuggestTitle: vi.fn(),
+  acpListSessions: vi.fn().mockResolvedValue([]),
+  acpLoadSession: vi.fn(),
+  structureListDir: vi.fn().mockResolvedValue([]),
 }));
 
 import {
@@ -34,6 +43,8 @@ import {
   shellIdOf,
   textExitCodeOf,
   titleFromPrompt,
+  AcpChatView,
+  type AcpChatViewOptions,
   type AcpNoticeItem,
   type AcpPermItem,
   type AcpProseItem,
@@ -41,6 +52,31 @@ import {
   relativeTime,
 } from "./view";
 import type { AcpPermissionRequest, AcpSessionUpdate, AcpTabEvent } from "../../api";
+import { acpSetTrust } from "../../api";
+
+// -----------------------------------------------------------------------
+// AcpChatView DOM harness — this file otherwise tests only the DOM-free
+// reducer (see the header comment above), so there's no existing "mount"
+// pattern to reuse. This is the nearest real seam: construct the actual
+// view against a detached host, same as the tab manager does at the
+// `new AcpChatView({...})` call site (`ui/src/tabs/manager.ts`). The
+// mocked `../../api` module keeps `subscribe()`'s async roster fetches
+// (`acpGetCommands`/`acpGetModels`/`acpMarkReady`) harmless no-ops.
+// -----------------------------------------------------------------------
+async function flush(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function mountView(
+  opts: Partial<AcpChatViewOptions> = {},
+): Promise<{ host: HTMLElement; instance: AcpChatView }> {
+  const host = document.createElement("div");
+  const instance = new AcpChatView({ sessionId: "s1", host, ...opts });
+  await flush();
+  return { host, instance };
+}
 
 function update(su: AcpSessionUpdate): AcpTabEvent {
   return { type: "update", update: { sessionId: "s1", update: su } };
@@ -488,5 +524,28 @@ describe("resolveStickToBottom", () => {
   it("stays released while content keeps streaming below", () => {
     // Reader parked mid-transcript: scrollTop unchanged, height grows.
     expect(resolveStickToBottom(300, 300, 2000, 500, false)).toBe(false);
+  });
+});
+
+describe("AcpChatView trust chip", () => {
+  it("renders the trust chip with the launch trust and yolo warning styling", async () => {
+    const view = await mountView({ trust: "yolo" });
+    const chip = view.host.querySelector<HTMLButtonElement>(".acp-trust-chip");
+    expect(chip).toBeTruthy();
+    expect(chip?.textContent).toContain("YOLO");
+    expect(chip?.classList.contains("acp-trust-chip--yolo")).toBe(true);
+  });
+
+  it("switching trust calls acpSetTrust and updates the chip", async () => {
+    const view = await mountView({ trust: "balanced" });
+    view.host.querySelector<HTMLButtonElement>(".acp-trust-chip")?.click();
+    // Menu rows are <div role="option"> activated on mousedown (same
+    // precedent as the model menu) — not <button>s, so no .click().
+    const yoloItem = view.host.querySelector<HTMLElement>('.acp-trust-menu [data-trust="yolo"]');
+    expect(yoloItem).toBeTruthy();
+    yoloItem?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    await flush();
+    expect(acpSetTrust).toHaveBeenCalledWith(expect.anything(), "yolo");
+    expect(view.host.querySelector(".acp-trust-chip--yolo")).toBeTruthy();
   });
 });

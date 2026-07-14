@@ -23,6 +23,7 @@ import type {
   AcpSessionUpdate,
   AcpTabEvent,
   AcpToolCallFields,
+  AcpTrust,
   SessionId,
 } from "../../api";
 import {
@@ -35,6 +36,7 @@ import {
   acpRespondPermission,
   acpSendPrompt,
   acpSetModel,
+  acpSetTrust,
   acpSuggestTitle,
   closeAcpSession,
   spawnAcpSession,
@@ -51,6 +53,7 @@ import type {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { brandIconSvg } from "../../icons/brands";
 import { Icons } from "../../icons";
+import { attachTooltip } from "../../tooltip/tooltip";
 import { renderMarkdown } from "../../ui/markdown";
 
 /// Coarse relative time for the /resume picker ("3h ago", "2d ago").
@@ -527,6 +530,10 @@ export interface AcpChatViewOptions {
   /// `resumeAcpSessionId` so a crashed agent comes back with its
   /// transcript, and reports the (possibly new) id via `onSessionChange`.
   acpSessionId?: string | null;
+  /// Trust level the session launched with (from `SpawnAcpResult.trust`).
+  /// Defaults to "balanced" — the chip only ever changes the LIVE session
+  /// via `acpSetTrust`; it never touches the executor's stored config.
+  trust?: AcpTrust;
   /// Fired when `restart()` adopts a fresh session, so the owner (tab
   /// manager) can re-point pane.sessionId / pane.acpSessionId and persist.
   onSessionChange?: (sessionId: SessionId, acpSessionId: string) => void;
@@ -566,10 +573,24 @@ export class AcpChatView {
   private modelChipEl!: HTMLButtonElement;
   private modelMenuEl!: HTMLElement;
   private models: AcpModelInfo[] = [];
+  private trustChipEl!: HTMLButtonElement;
+  private trustMenuEl!: HTMLElement;
+  /// Live trust for THIS session only — switching calls `acpSetTrust`, it
+  /// never writes back to the executor's stored config. New tabs still
+  /// inherit the executor's configured default via `SpawnAcpResult.trust`.
+  private trust: AcpTrust;
+  private static readonly TRUST_LABELS: Record<AcpTrust, string> = {
+    ask: "ASK",
+    balanced: "BALANCED",
+    yolo: "YOLO",
+  };
   private readonly closeModelMenuOnOutsideClick = (e: MouseEvent): void => {
     if (e.target instanceof Node && this.modelMenuEl.contains(e.target)) return;
     if (e.target instanceof Node && this.modelChipEl.contains(e.target)) return;
+    if (e.target instanceof Node && this.trustMenuEl.contains(e.target)) return;
+    if (e.target instanceof Node && this.trustChipEl.contains(e.target)) return;
     this.closeModelMenu();
+    this.closeTrustMenu();
   };
 
   private readonly state: AcpStreamState = createAcpStreamState();
@@ -648,6 +669,7 @@ export class AcpChatView {
     this.model = opts.model ?? null;
     this.executor = opts.executor ?? "copilot";
     this.acpSessionId = opts.acpSessionId ?? null;
+    this.trust = opts.trust ?? "balanced";
     this.onSessionChange = opts.onSessionChange;
     this.onTitle = opts.onTitle;
     this.mount();
@@ -724,9 +746,11 @@ export class AcpChatView {
         <span class="acp-chat-logo" aria-hidden="true">${logo}</span>
         <span class="acp-chat-title">${brand.title}</span>
         <button type="button" class="acp-model-chip" hidden></button>
+        <button type="button" class="acp-trust-chip"></button>
         <span class="acp-chat-meta"></span>
         <span class="acp-chat-status" data-state="idle" aria-live="polite">idle</span>
         <div class="acp-model-menu" role="listbox" hidden></div>
+        <div class="acp-trust-menu" role="listbox" hidden></div>
       </div>
       <div class="acp-chat-messages" role="log" aria-live="polite">
         <div class="acp-chat-empty" role="note">
@@ -775,7 +799,15 @@ export class AcpChatView {
       if (this.modelMenuEl.hidden) this.openModelMenu();
       else this.closeModelMenu();
     });
+    this.trustChipEl = requireChild(this.host, ".acp-trust-chip") as HTMLButtonElement;
+    this.trustMenuEl = requireChild(this.host, ".acp-trust-menu");
+    this.trustChipEl.addEventListener("click", () => {
+      if (this.trustMenuEl.hidden) this.openTrustMenu();
+      else this.closeTrustMenu();
+    });
+    attachTooltip(this.trustChipEl, "Trust level — YOLO skips all permission prompts");
     this.renderMeta();
+    this.renderTrustChip();
     this.liveStripEl = requireChild(this.host, ".acp-live-strip");
     this.messagesEl = requireChild(this.host, ".acp-chat-messages");
     this.messagesEl.addEventListener(
@@ -1120,6 +1152,61 @@ export class AcpChatView {
     this.modelChipEl.hidden = this.model === null && this.models.length === 0;
   }
 
+  /// Trust chip — always visible (unlike the model chip, which hides
+  /// without a roster). YOLO gets permanent warning styling, not just a
+  /// hover state, since it's a standing risk posture for the session.
+  private renderTrustChip(): void {
+    this.trustChipEl.textContent = AcpChatView.TRUST_LABELS[this.trust];
+    this.trustChipEl.classList.toggle("acp-trust-chip--yolo", this.trust === "yolo");
+  }
+
+  // -------------------------------------------------------------------------
+  // Trust picker — live-session only (`session/set_trust` via `acpSetTrust`).
+  // Never mutates the executor's stored config; a fresh tab always launches
+  // at the executor's configured default (`SpawnAcpResult.trust`).
+  // -------------------------------------------------------------------------
+
+  private openTrustMenu(): void {
+    this.closeModelMenu();
+    this.trustMenuEl.style.left = `${this.trustChipEl.offsetLeft}px`;
+    this.trustMenuEl.hidden = false;
+    this.renderTrustMenu();
+    document.addEventListener("mousedown", this.closeModelMenuOnOutsideClick);
+  }
+
+  private closeTrustMenu(): void {
+    this.trustMenuEl.hidden = true;
+    this.trustMenuEl.textContent = "";
+    document.removeEventListener("mousedown", this.closeModelMenuOnOutsideClick);
+  }
+
+  private renderTrustMenu(): void {
+    this.trustMenuEl.textContent = "";
+    for (const t of ["ask", "balanced", "yolo"] as AcpTrust[]) {
+      // <div role="option">, same as the model-menu rows — a bare <button>
+      // gets native rounded Aqua chrome in WKWebView (no button reset in
+      // this stylesheet), violating the border-radius-0 rule.
+      const item = document.createElement("div");
+      item.className = "acp-slash-row";
+      item.dataset.trust = t;
+      item.setAttribute("role", "option");
+      if (t === this.trust) item.classList.add("acp-slash-selected");
+      const name = document.createElement("span");
+      name.className = "acp-slash-name";
+      name.textContent = AcpChatView.TRUST_LABELS[t];
+      item.appendChild(name);
+      if (t === "yolo") item.classList.add("acp-trust-menu-yolo");
+      item.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.trust = t;
+        this.renderTrustChip();
+        this.closeTrustMenu();
+        void acpSetTrust(this.sessionId, t);
+      });
+      this.trustMenuEl.appendChild(item);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Model picker — roster from session/new (cached backend-side); switching
   // goes through ACP `session/set_model`. Also opened by the /model slash
@@ -1129,6 +1216,7 @@ export class AcpChatView {
 
   private openModelMenu(): void {
     if (this.models.length === 0) return;
+    this.closeTrustMenu();
     // Anchor under the chip (offsetParent is the header, which is
     // position:relative). Done here, not in CSS — the chip's x depends
     // on the title/meta widths at open time.
@@ -1865,7 +1953,9 @@ export class AcpChatView {
       this.acpSessionId = spawned.acpSessionId;
       this.onSessionChange?.(spawned.sessionId, spawned.acpSessionId);
       this.model = spawned.model ?? this.model;
+      this.trust = spawned.trust;
       this.renderMeta();
+      this.renderTrustChip();
       this.setInFlight(false);
       // A resumed spawn replays the WHOLE transcript as session/update
       // frames. Into a non-empty view that duplicates every prose bubble

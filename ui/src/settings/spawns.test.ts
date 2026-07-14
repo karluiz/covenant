@@ -6,6 +6,14 @@ vi.mock("../spawns/api", () => ({
   upsertSpawn: vi.fn(),
   deleteSpawn: vi.fn(),
 }));
+// renderSpawnsTab now also mounts the ACP agents section (Task 6), which
+// reads/writes Settings via ../api — stub it so master-detail tests don't
+// need real Tauri IPC.
+vi.mock("../api", () => ({
+  getSettings: vi.fn().mockResolvedValue({}),
+  setSettings: vi.fn(),
+}));
+vi.mock("../tooltip/tooltip", () => ({ attachTooltip: vi.fn() }));
 
 import { listSpawns, upsertSpawn, deleteSpawn } from "../spawns/api";
 import { renderSpawnsTab } from "./spawns";
@@ -144,5 +152,26 @@ describe("Launch as ACP tab", () => {
     await flush();
     const calls = vi.mocked(upsertSpawn).mock.calls;
     expect(calls[calls.length - 1]![0].acp).toBe(false);
+  });
+});
+
+describe("ACP agents section mount", () => {
+  it("survives master-detail re-renders (rail click / add / delete) and stays single", async () => {
+    const host = await mount();
+    expect(host.querySelectorAll(".acp-agents")).toHaveLength(1);
+
+    // Rail click re-invokes the internal render() that used to wipe host.
+    host.querySelectorAll<HTMLButtonElement>(".spawns-md-item")[1]!.click();
+    expect(host.querySelectorAll(".acp-agents")).toHaveLength(1);
+
+    // Add: re-render after async persist.
+    host.querySelector<HTMLButtonElement>(".spawns-md-add")!.click();
+    await flush();
+    expect(host.querySelectorAll(".acp-agents")).toHaveLength(1);
+
+    // Delete: re-render after async delete.
+    host.querySelector<HTMLButtonElement>('[data-role="delete"]')!.click();
+    await flush();
+    expect(host.querySelectorAll(".acp-agents")).toHaveLength(1);
   });
 });

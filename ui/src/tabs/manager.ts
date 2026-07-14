@@ -101,7 +101,7 @@ import { detectExecutor } from "../executor";
 import { PiChatView } from "../executors/pi/view";
 import { spawnPiSession, piSetSessionName } from "../api";
 import { AcpChatView } from "../executors/acp/view";
-import { closeAcpSession, spawnAcpSession, type AcpExecutor } from "../api";
+import { closeAcpSession, spawnAcpSession, type AcpExecutor, type AcpTrust } from "../api";
 import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
@@ -4880,6 +4880,7 @@ export class TabManager {
         model: string | null;
         acpSessionId: string;
         resumed: boolean;
+        trust: AcpTrust;
       };
       try {
         spawned = await spawnAcpSession({
@@ -4907,6 +4908,7 @@ export class TabManager {
         model: spawned.model,
         executor,
         acpSessionId: spawned.acpSessionId,
+        trust: spawned.trust,
         // Keep the pane's session pointers fresh across in-view restarts
         // so routing (context menu, prompts) and manifest persistence
         // follow the live session instead of the dead one.
