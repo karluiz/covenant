@@ -1175,7 +1175,7 @@ export class CanonCockpitView {
       input.value = "";
       input.placeholder = next.wire === null
         ? "Search operators…"
-        : `Search ${initialActive.slug} ${next.label.toLowerCase()}…`;
+        : `Search ${initialActive.slug} ${next.wire === "mcp" ? "MCP" : next.label.toLowerCase()}…`;
     };
     applyKindUI(REG_TABS[0]);
 

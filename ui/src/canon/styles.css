@@ -86,7 +86,6 @@ body.theme-true-dark .canon-reader {
    lifts per the True Dark surface rule; accent stays on data only). */
 body.theme-true-dark .canon-skill-row,
 body.theme-true-dark .canon-search-result,
-body.theme-true-dark .canon-context-row,
 body.theme-true-dark .canon-stat {
   background: linear-gradient(180deg, #18181b, #121214);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
@@ -513,7 +512,6 @@ body.theme-true-dark .canon-row .rail-row-actions { background: #000; }
 
 /* ── Rows: installed skills, context files, search results ── */
 .canon-skill-row,
-.canon-context-row,
 .canon-search-result {
   display: flex;
   align-items: center;
@@ -552,12 +550,6 @@ body.theme-true-dark .canon-row .rail-row-actions { background: #000; }
    margin-left:auto on .canon-preview-btn) */
 .canon-card-head button {
   flex-shrink: 0;
-}
-
-.canon-context-row {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  color: var(--text-primary, #f5f6f7);
 }
 
 /* ── Buttons (secondary, house style) ── */
@@ -814,8 +806,7 @@ body.tabbar-left .canon-reader { top: 38px; }
    (mirrors --op-card-fill/--settings-btn-fill: light elevation is white). */
 body.theme-light .canon-stat,
 body.theme-light .canon-skill-row,
-body.theme-light .canon-search-result,
-body.theme-light .canon-context-row {
+body.theme-light .canon-search-result {
   background: #fff;
 }
 

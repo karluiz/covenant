@@ -393,6 +393,7 @@ body.tabbar-left .canon-cockpit {
    .wiz-segmented in styles.css, scoped to the cockpit's own tokens). */
 .canon-reg-kind-toggle {
   display: inline-flex;
+  flex-wrap: wrap;
   border: 1px solid var(--border);
   border-radius: 0;
   overflow: hidden;

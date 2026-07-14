@@ -36,7 +36,7 @@ pub struct PkgMeta {
     pub kind: String,
 }
 
-#[allow(dead_code)] // description/sha/publisher_login are part of the server JSON contract
+#[allow(dead_code)] // description/sha/publisher_login/kind are part of the server JSON contract
 #[derive(Debug, Clone, Deserialize)]
 pub struct PkgFull {
     pub id: i64,
