@@ -5,8 +5,8 @@ import type { Operator, Org } from "../api";
 const op = (name: string, org_slug: string | null): Operator =>
   ({ name, org_slug } as unknown as Operator); // test double: only the filtered fields matter
 
-const acme: Org = { id: "1", slug: "acme", name: "Acme", role: "owner", personal: false };
-const personal: Org = { id: "2", slug: "me", name: "Me", role: "owner", personal: true };
+const acme: Org = { id: 1, slug: "acme", name: "Acme", role: "owner", personal: false };
+const personal: Org = { id: 2, slug: "me", name: "Me", role: "owner", personal: true };
 
 describe("operatorsForOrg", () => {
   const ops = [op("a", null), op("b", "acme"), op("c", "ghost-org")];
