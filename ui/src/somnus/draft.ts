@@ -1,4 +1,4 @@
-import type { SomnusAuth, SomnusBodyMode, SomnusDraft, SomnusHistoryEntry, SomnusRequest } from "../api";
+import type { SomnusBodyMode, SomnusDraft, SomnusHistoryEntry, SomnusRequest } from "../api";
 import { compileAuth } from "./auth";
 import { findUnresolved, resolveVars } from "./vars";
 
@@ -26,8 +26,30 @@ export function parseDraft(json: string | null): SomnusDraft {
     }
     if (typeof r.body === "string") d.body = r.body;
     if (BODY_MODES.includes(r.body_mode as SomnusBodyMode)) d.body_mode = r.body_mode as SomnusBodyMode;
-    const a = r.auth as SomnusAuth | undefined;
-    if (a && typeof a === "object" && ["none", "bearer", "basic", "apikey"].includes(a.type)) d.auth = a;
+    const a = r.auth as Record<string, unknown> | undefined;
+    if (a && typeof a === "object" && typeof a.type === "string" && ["none", "bearer", "basic", "apikey"].includes(a.type)) {
+      // Coalesce missing type-specific fields so a stored partial auth blob
+      // (e.g. {"type":"bearer"} with no token) can't crash findUnresolved
+      // downstream on an `undefined` text field.
+      if (a.type === "bearer") {
+        d.auth = { type: "bearer", token: typeof a.token === "string" ? a.token : "" };
+      } else if (a.type === "basic") {
+        d.auth = {
+          type: "basic",
+          username: typeof a.username === "string" ? a.username : "",
+          password: typeof a.password === "string" ? a.password : "",
+        };
+      } else if (a.type === "apikey") {
+        d.auth = {
+          type: "apikey",
+          key: typeof a.key === "string" ? a.key : "",
+          value: typeof a.value === "string" ? a.value : "",
+          placement: a.placement === "query" ? "query" : "header",
+        };
+      } else {
+        d.auth = { type: "none" };
+      }
+    }
   } catch {
     // garbage → defaults
   }
@@ -59,18 +81,26 @@ export function queryRows(url: string): [string, string][] {
   return [...new URLSearchParams(query).entries()];
 }
 
+// Keep {{var}} literal through re-serialization; resolution happens at send.
+// URLSearchParams.toString() percent-encodes braces ({{tok}} → %7B%7Btok%7D%7D),
+// which would corrupt any row containing an unresolved template var — undo
+// that encoding on the braces only (Postman keeps {{var}} literal too).
+function restoreBraces(s: string): string {
+  return s.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
+}
+
 export function withQueryRows(url: string, rows: [string, string][]): string {
   const { base } = splitUrl(url);
   const sp = new URLSearchParams();
   for (const [k, v] of rows) if (k.trim()) sp.append(k, v);
-  const q = sp.toString();
+  const q = restoreBraces(sp.toString());
   return q ? `${base}?${q}` : base;
 }
 
 export function serializeForm(rows: [string, string][]): string {
   const sp = new URLSearchParams();
   for (const [k, v] of rows) if (k.trim()) sp.append(k, v);
-  return sp.toString();
+  return restoreBraces(sp.toString());
 }
 
 export function parseForm(body: string): [string, string][] {

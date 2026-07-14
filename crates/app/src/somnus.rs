@@ -436,12 +436,15 @@ impl Store {
         let now = Self::now_ms();
         tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
             let c = conn.blocking_lock();
-            c.execute(
+            let rows = c.execute(
                 "UPDATE somnus_tree
                  SET name = COALESCE(?2, name), request = COALESCE(?3, request), updated_at = ?4
                  WHERE id = ?1",
                 params![id, name, request, now],
             )?;
+            if rows == 0 {
+                return Err(StoreError::Invalid(format!("no tree node {id}")));
+            }
             Ok(())
         })
         .await
@@ -1100,6 +1103,13 @@ mod tests {
         let row = rows.iter().find(|r| r.id == id).unwrap();
         assert_eq!(row.name, "newer");
         assert_eq!(row.request.as_deref(), Some(r#"{"method":"POST"}"#));
+    }
+
+    #[tokio::test]
+    async fn tree_update_errors_on_missing_id() {
+        let store = mem_store();
+        let e = store.tree_update("does-not-exist", Some("new".into()), None).await.unwrap_err();
+        assert!(e.to_string().contains("no tree node"), "{e}");
     }
 
     #[tokio::test]

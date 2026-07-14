@@ -40,6 +40,17 @@ describe("form body", () => {
     const rows: [string, string][] = [["a", "1"], ["b", "two words"]];
     expect(parseForm(serializeForm(rows))).toEqual(rows);
   });
+
+  it("keeps {{var}} literal through serializeForm re-serialization", () => {
+    expect(serializeForm([["a", "{{tok}}"]])).toBe("a={{tok}}");
+    expect(parseForm(serializeForm([["a", "{{tok}}"]]))).toEqual([["a", "{{tok}}"]]);
+  });
+});
+
+describe("withQueryRows braces", () => {
+  it("keeps {{var}} literal instead of percent-encoding the braces", () => {
+    expect(withQueryRows("https://x.test/u", [["q", "{{tok}}"]])).toBe("https://x.test/u?q={{tok}}");
+  });
 });
 
 describe("parseDraft", () => {
@@ -50,6 +61,18 @@ describe("parseDraft", () => {
     expect(d.method).toBe("POST");
     expect(d.body_mode).toBe("none");
     expect(d.auth).toEqual({ type: "none" });
+  });
+
+  it("coalesces missing type-specific fields on a partial stored auth object", () => {
+    const d = parseDraft(JSON.stringify({ auth: { type: "bearer" } }));
+    expect(d.auth).toEqual({ type: "bearer", token: "" });
+    expect(() => findUnresolvedDraft(d, vars)).not.toThrow();
+
+    const basic = parseDraft(JSON.stringify({ auth: { type: "basic" } }));
+    expect(basic.auth).toEqual({ type: "basic", username: "", password: "" });
+
+    const apikey = parseDraft(JSON.stringify({ auth: { type: "apikey" } }));
+    expect(apikey.auth).toEqual({ type: "apikey", key: "", value: "", placement: "header" });
   });
 });
 

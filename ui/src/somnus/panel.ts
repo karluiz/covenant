@@ -232,6 +232,9 @@ export class SomnusPanel {
     if (!this.loadedHistory) void this.refreshHistory();
     void this.tree.refresh();
     void this.refreshEnvs();
+    // Only entry point that re-renders the env editor's own list — its
+    // debounced per-field saves must NOT trigger this (see refreshEnvs).
+    void this.envEditor.refresh();
   }
 
   /// Called when the panel hides. Also drops fullscreen if active.
@@ -280,10 +283,14 @@ export class SomnusPanel {
   private closeTab(i: number): void {
     const tab = this.tabs[i];
     if (!tab) return;
+    // Capture the tab OBJECT (not the index): while the confirm popover is
+    // pending, another tab may close and shift indices out from under `i`.
     const doClose = (): void => {
-      this.tabs.splice(i, 1);
+      const idx = this.tabs.indexOf(tab);
+      if (idx === -1) return;
+      this.tabs.splice(idx, 1);
       if (this.tabs.length === 0) this.tabs.push(this.freshTab());
-      this.selectTab(this.active >= i && this.active > 0 ? this.active - 1 : this.active);
+      this.selectTab(this.active >= idx && this.active > 0 ? this.active - 1 : this.active);
     };
     if (draftKey(tab.draft) !== tab.savedKey) {
       confirmPopover(this.reqTabs.element, "Discard unsaved changes?", "Discard", doClose);
@@ -321,6 +328,12 @@ export class SomnusPanel {
 
   // ── Environments ──
 
+  // Fetches the env list for the composer's picker ONLY — must NOT trigger
+  // envEditor.refresh(): this is the callback the editor's own onChanged
+  // fires on every debounced save, and refreshing here would re-render the
+  // list mid-typing and steal focus from whatever input is active. The
+  // editor refreshes itself on panel open (render()) and from its own
+  // create/delete/activate actions, which already call this.refresh().
   private async refreshEnvs(): Promise<void> {
     try {
       this.envs = await somnusEnvList();
@@ -330,7 +343,6 @@ export class SomnusPanel {
     }
     const active = this.envs.find((e) => e.is_active);
     this.composer.setEnvs(this.envs, active?.id ?? null);
-    void this.envEditor.refresh();
   }
 
   private async setActiveEnv(id: string | null): Promise<void> {
@@ -389,7 +401,19 @@ export class SomnusPanel {
         this.notify("Saved");
         void this.tree.refresh();
       } catch (e) {
-        this.notify(String(e), true);
+        // Stale treeId (node was deleted elsewhere) — fall back to the
+        // create-new-request flow instead of just toasting a phantom error.
+        if (String(e).includes("no tree node")) {
+          tab.treeId = null;
+          this.savePopover(sent, (id, name) => {
+            tab.treeId = id;
+            tab.name = name;
+            tab.savedKey = sentKey;
+            this.renderTabsBar();
+          });
+        } else {
+          this.notify(String(e), true);
+        }
       }
       return;
     }
@@ -407,9 +431,11 @@ export class SomnusPanel {
     const containers = this.tree.getNodes().filter((n) => n.kind !== "request");
     if (containers.length === 0) {
       // No collection yet — create one implicitly so ⌘S always works.
-      void somnusTreeCreate(null, "collection", "My requests", null).then(() => {
-        void this.tree.refresh().then(() => this.savePopover(draft, onSaved));
-      });
+      void somnusTreeCreate(null, "collection", "My requests", null)
+        .then(() => {
+          void this.tree.refresh().then(() => this.savePopover(draft, onSaved));
+        })
+        .catch((e) => this.notify(String(e), true));
       return;
     }
     const pop = document.createElement("div");
@@ -631,10 +657,18 @@ export class SomnusPanel {
     }
   }
 
+  /// Mirrors openNode: expanded mode pushes a new tab instead of hijacking
+  /// the active one (which would silently discard unsaved edits + treeId).
   private loadEntry(entry: SomnusHistoryEntry): void {
     const draft = draftFromEntry(entry);
-    this.tabs[this.active] = { treeId: null, name: "", draft, savedKey: draftKey(emptyDraft()) };
-    this.selectTab(this.active);
+    const tab: OpenTab = { treeId: null, name: "", draft, savedKey: draftKey(emptyDraft()) };
+    if (this.expanded) {
+      this.tabs.push(tab);
+      this.selectTab(this.tabs.length - 1);
+    } else {
+      this.tabs[this.active] = tab;
+      this.selectTab(this.active);
+    }
     if (entry.error) {
       this.renderError(entry.error);
     } else if (entry.status !== null) {

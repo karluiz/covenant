@@ -543,6 +543,12 @@ body.somnus-expanded #somnus-panel .rail-header {
   grid-row: 1;
   border-bottom: 1px solid var(--border);
 }
+/* The esc pill (.somnus-close) already covers "close the surface" in
+   expanded mode — the plain × is redundant chrome. Collapse button stays:
+   returning to rail mode is a distinct action from closing. */
+body.somnus-expanded #somnus-panel .rail-header .rail-btn[aria-label="Close"] {
+  display: none;
+}
 body.somnus-expanded #somnus-panel .rail-body {
   display: contents;
 }

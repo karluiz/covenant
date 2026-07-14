@@ -26,7 +26,9 @@ export class EnvEditor {
   private listHost: HTMLElement;
   private envs: SomnusEnvironment[] = [];
   private open = new Set<string>();
-  private saveTimer: number | null = null;
+  // Keyed by env id — editing env B within the debounce window of env A must
+  // not cancel A's pending save (was a single shared timer).
+  private saveTimers = new Map<string, number>();
 
   constructor(private opts: { onChanged: () => void }) {
     this.element = document.createElement("div");
@@ -174,6 +176,7 @@ export class EnvEditor {
         const secret = row.dataset.secret === "1";
         val.type = secret ? "password" : "text";
         eye.innerHTML = secret ? Icons.eyeOff({ size: 13 }) : Icons.eye({ size: 13 });
+        eye.classList.toggle("is-active", secret);
         this.scheduleSave(env.id, nameInput, host);
       });
       row.dataset.secret = v.secret ? "1" : "0";
@@ -216,9 +219,10 @@ export class EnvEditor {
   }
 
   private scheduleSave(id: string, nameInput: HTMLInputElement, host: HTMLElement): void {
-    if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
-    this.saveTimer = window.setTimeout(() => {
-      this.saveTimer = null;
+    const existing = this.saveTimers.get(id);
+    if (existing !== undefined) window.clearTimeout(existing);
+    const timer = window.setTimeout(() => {
+      this.saveTimers.delete(id);
       const name = nameInput.value.trim() || "Untitled";
       void somnusEnvUpdate(id, name, JSON.stringify(this.collectVars(host)))
         .then(() => {
@@ -227,9 +231,14 @@ export class EnvEditor {
             env.name = name;
             env.vars = JSON.stringify(this.collectVars(host));
           }
+          // Cache is already updated above — do NOT re-render here (it would
+          // drop focus mid-typing). onChanged only propagates the env list to
+          // the composer's env picker; the editor refreshes itself only from
+          // panel open / its own create-delete-activate actions.
           this.opts.onChanged();
         })
         .catch((e) => console.error("somnus env save failed", e));
     }, 400);
+    this.saveTimers.set(id, timer);
   }
 }
