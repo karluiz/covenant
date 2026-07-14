@@ -7,8 +7,9 @@ import type { CanonStatus, Org, CanonEvalProgress, Operator } from "../api";
 import {
   canonLocalStatus, canonMyOrgs, canonPublish,
   canonReadLocal, canonReadSource, canonExport, canonRunEvals, onCanonEvalProgress,
-  canonEvalSummary, operatorList, operatorSoulRead,
+  canonEvalSummary, operatorList,
 } from "../api";
+import { openOperatorDetail } from "./operator-detail";
 import { liftClass, type LiftBadge } from "./cockpit/lift";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
@@ -573,7 +574,7 @@ export class CanonPanel {
       { label: "Operators", rows: this.operators.map((o) => ({
         title: o.name,
         meta: o.tags.filter(Boolean).slice(0, 3).join(" · ") || o.model,
-        onOpen: () => openMarkdownReader(o.name, () => operatorSoulRead(o.id)),
+        onOpen: () => openOperatorDetail(o),
       })) },
       { label: "Subagents", rows: s.agents.map((a) => ({ title: a.name, meta: "agent", onOpen: () => openMarkdownReader(a.name, readSource("agent", a.name)) })) },
       { label: "Context", rows: s.contexts.map((c) => ({ title: c.name, meta: c.summary ?? "context", onOpen: () => openMarkdownReader(c.name, readSource("context", c.name)) })) },

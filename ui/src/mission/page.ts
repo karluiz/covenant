@@ -282,7 +282,7 @@ export class MissionPage {
           <p class="mission-page-subtitle">Choose the spec that anchors this tab.</p>
         </div>
       </div>
-      <button type="button" class="mission-page-close" aria-label="Close" title="Close (Esc)">${Icons.x({ size: 14 })}</button>
+      <button type="button" class="mission-page-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
     `;
     this.pageHost.appendChild(header);
 
