@@ -5,6 +5,7 @@
 @import "./executors/pi/pi.css";
 @import "./executors/acp/acp.css";
 @import "./changes/changes.css";
+@import "./review/styles.css";
 
 /* Global scrollbar reset: WKWebView on macOS with the system setting
    "Show scroll bars: Always" renders the native scrollbar on top of
@@ -7529,8 +7530,18 @@ button.status-segment.status-aom.status-aom-warn:hover {
     color: var(--fg, #d6d8db);
 }
 
+/* Row wrapper that holds `.mission-viewer-body` plus the optional review
+   panel (ui/src/review/panel.ts) as a flex sibling once the spec is
+   shared for review. Plain pass-through when no panel is mounted. */
+.mission-viewer-body-row {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
 .mission-viewer-body {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
     padding: 14px 18px;
     /* Column flex so children (textarea + optional conflict banner)

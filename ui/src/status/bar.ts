@@ -51,6 +51,7 @@ import { VitalsCluster } from "./vitals";
 import { ContextMenu, type MenuItem } from "../menu/context-menu";
 import { pushInfoToast } from "../notifications/toast";
 import { reviewApi, type ShareState } from "../review/api";
+import { ReviewPanel } from "../review/panel";
 import {
   subscribeProviderHealth,
   getProviderHealth,
@@ -1891,6 +1892,10 @@ class MissionViewerModal {
   /// resolves, same tolerance as the AOM status fetch above).
   private share: ShareState | null = null;
   private readonly shareMenu = new ContextMenu(document.body);
+  /// Comments + verdict rail, mounted beside the spec body once `share`
+  /// is non-null. Torn down (interval cleared) on revoke, on switching to
+  /// a different mission, and on modal close — see unmountReviewPanel.
+  private reviewPanel: ReviewPanel | null = null;
 
   /// In-modal find (⌘F / Ctrl+F), view mode only. `findOpen` survives a
   /// body re-render (Source⇄Rendered toggle) so the bar reappears and the
@@ -1909,6 +1914,10 @@ class MissionViewerModal {
   }
 
   openLoading(mission: MissionInfo): void {
+    // Reopening (or switching missions) while the modal is already up —
+    // tear down any panel bound to the previous mission's path first, or
+    // its 15s poll leaks and its DOM is stale.
+    this.unmountReviewPanel();
     this.mission = mission;
     this.content = "";
     this.sessionId = null;
@@ -1939,6 +1948,7 @@ class MissionViewerModal {
         if (this.mission?.path !== path) return;
         this.share = share;
         this.renderHeader();
+        if (this.share) this.mountReviewPanel();
       })
       .catch((err) => {
         // eslint-disable-next-line no-console
@@ -1970,6 +1980,7 @@ class MissionViewerModal {
     this.resetFind();
     this.pathTooltipDispose?.();
     this.pathTooltipDispose = null;
+    this.unmountReviewPanel();
     this.overlay.remove();
     this.overlay = null;
     this.mission = null;
@@ -2030,7 +2041,9 @@ class MissionViewerModal {
         </div>
         <div class="mission-viewer-actions"></div>
       </header>
-      <div class="mission-viewer-body"></div>
+      <div class="mission-viewer-body-row">
+        <div class="mission-viewer-body"></div>
+      </div>
       <footer class="mission-viewer-footer" hidden></footer>
     `;
     overlay.appendChild(card);
@@ -2136,6 +2149,7 @@ class MissionViewerModal {
       if (this.mission?.path !== path) return;
       this.share = share;
       this.renderHeader();
+      this.mountReviewPanel();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("review_publish_spec failed", err);
@@ -2183,6 +2197,7 @@ class MissionViewerModal {
       this.share = share;
       pushInfoToast({ message: `Republished as v${share.version}` });
       this.renderHeader();
+      this.mountReviewPanel();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("review_republish_spec failed", err);
@@ -2197,6 +2212,7 @@ class MissionViewerModal {
       this.share = null;
       pushInfoToast({ message: "Review link revoked" });
       this.renderHeader();
+      this.unmountReviewPanel();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("review_revoke_spec failed", err);
@@ -2566,6 +2582,30 @@ class MissionViewerModal {
 
   private bodyEl(): HTMLElement | null {
     return this.overlay?.querySelector<HTMLElement>(".mission-viewer-body") ?? null;
+  }
+
+  /// Mounts the review comments panel as a flex sibling of
+  /// `.mission-viewer-body` and starts its 15s activity poll. No-op if
+  /// already mounted (publish/republish/getShare all call this
+  /// defensively) or if the overlay/mission isn't ready yet.
+  private mountReviewPanel(): void {
+    if (!this.overlay || !this.mission || this.reviewPanel) return;
+    const row = this.overlay.querySelector<HTMLElement>(".mission-viewer-body-row");
+    if (!row) return;
+    const panel = new ReviewPanel(this.mission.path, () => this.content);
+    row.appendChild(panel.el);
+    panel.start();
+    this.reviewPanel = panel;
+  }
+
+  /// Stops the poll and removes the panel. Must run on every teardown
+  /// path (revoke, mission switch, modal close) so the interval never
+  /// outlives the DOM it renders into.
+  private unmountReviewPanel(): void {
+    if (!this.reviewPanel) return;
+    this.reviewPanel.stop();
+    this.reviewPanel.el.remove();
+    this.reviewPanel = null;
   }
 }
 
