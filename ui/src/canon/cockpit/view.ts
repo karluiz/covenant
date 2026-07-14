@@ -50,6 +50,12 @@ export interface CanonCockpitOpts {
   groupLabel: string;
   groupRootDir: string | null;
   orgs: Org[];
+  /** False when the initial `canonMyOrgs()` fetch failed (offline/backend
+   *  down) — `orgs` is then an empty placeholder, not a real "belongs to no
+   *  org" result. The operators section uses this to tell "deleted org"
+   *  from "don't know yet" so it never mis-flags or clobbers a valid
+   *  org-assigned operator while offline (see operator/org-filter.ts). */
+  orgsFetched: boolean;
   getActiveOrg: () => string | null;
   setActiveOrg: (slug: string | null) => void;
   /** Launch the repo-mining Context Miner for this group (same flow the
@@ -332,6 +338,7 @@ export class CanonCockpitView {
   private refreshOrgs(slug: string): void {
     void canonMyOrgs().then((fresh) => {
       this.opts.orgs = fresh;
+      this.opts.orgsFetched = true;
       this.opts.setActiveOrg(slug);
       this.showSection("org");
     });
@@ -502,7 +509,9 @@ export class CanonCockpitView {
 
     void operatorList()
       .then((all) => {
-        const known = new Set(this.opts.orgs.map((o) => o.slug));
+        const known: Set<string> | null = this.opts.orgsFetched
+          ? new Set(this.opts.orgs.map((o) => o.slug))
+          : null;
         const active = this.activeOrg();
         const ops = operatorsForOrg(all, active, known);
         list.replaceChildren();

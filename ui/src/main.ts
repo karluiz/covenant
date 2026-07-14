@@ -95,6 +95,7 @@ import "./canon/miner/miner.css";
 import { ContextMinerView } from "./canon/miner/view";
 import { CanonCockpitView } from "./canon/cockpit/view";
 import { canonMyOrgs } from "./api";
+import type { Org } from "./api";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor } from "./spawns/shortcuts";
@@ -1574,12 +1575,17 @@ async function boot(): Promise<void> {
       },
       onExpand: () => {
         const a = args;
-        void canonMyOrgs().catch(() => []).then((orgs) => {
+        // `.catch(() => null)` (not `[]`) so the cockpit can tell "fetch
+        // failed, offline" from "fetched, caller belongs to no org" — the
+        // operators section needs that distinction to avoid mis-flagging
+        // org-assigned operators as stale while offline.
+        void canonMyOrgs().then((o) => o as Org[] | null).catch(() => null).then((orgsOrNull) => {
           new CanonCockpitView({
             groupId: a.groupId,
             groupLabel: a.groupLabel,
             groupRootDir: manager.groupRootDirFor(a.groupId),
-            orgs,
+            orgs: orgsOrNull ?? [],
+            orgsFetched: orgsOrNull !== null,
             getActiveOrg: () => manager.groupCanonOrg(a.groupId),
             setActiveOrg: (slug) => manager.setGroupCanonOrg(a.groupId, slug),
             onNewContext: () => launchContextMiner(a.groupId, a.groupLabel),

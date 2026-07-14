@@ -520,14 +520,20 @@ export class CanonPanel {
       this.body.replaceChildren(loading);
     }
     try {
-      const [status, orgs, allOps] = await Promise.all([
+      // `orgsOrNull` stays null when the fetch itself failed (offline/down),
+      // distinct from a successful fetch that legitimately returns zero
+      // orgs — operatorsForOrg needs that distinction so an offline caller
+      // doesn't get every org-assigned operator flagged stale (see
+      // operator/org-filter.ts doc comment).
+      const [status, orgsOrNull, allOps] = await Promise.all([
         canonLocalStatus(cwd),
-        canonMyOrgs().catch(() => [] as Org[]),
+        canonMyOrgs().then((o) => o as Org[] | null).catch(() => null),
         operatorList().catch(() => [] as Operator[]),
       ]);
+      const orgs = orgsOrNull ?? [];
       this.orgs = orgs;
       this.updateOrgChip();
-      const known = new Set(orgs.map((o) => o.slug));
+      const known: Set<string> | null = orgsOrNull === null ? null : new Set(orgs.map((o) => o.slug));
       this.operators = operatorsForOrg(allOps, this.activeOrg(), known);
       this.renderStatus(status);
     } catch (e) {

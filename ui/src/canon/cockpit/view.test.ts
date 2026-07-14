@@ -51,6 +51,7 @@ const LISTING_FIXTURE: MarketplaceListing = {
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
   orgs: [{ id: 1, slug: "karluiz", name: "karluiz", role: "owner", personal: true }],
+  orgsFetched: true,
   getActiveOrg: () => "karluiz", setActiveOrg: vi.fn(),
 };
 
@@ -93,6 +94,7 @@ describe("CanonCockpitView create-org flow", () => {
     const createOpts = {
       groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
       orgs: [{ id: 1, slug: "karluiz", name: "karluiz", role: "owner", personal: true }],
+      orgsFetched: true,
       getActiveOrg: () => active,
       setActiveOrg: (slug: string | null) => { active = slug; setActiveOrg(slug); },
     };
@@ -206,6 +208,19 @@ describe("CanonCockpitView Operators section", () => {
       expect(v.element.querySelector(".op-card-grid")).toBeTruthy();
       expect(v.element.textContent).toContain("Zeta");
       expect(v.element.querySelector("[data-role='op-new']")).toBeTruthy();
+    });
+  });
+
+  it("orgsFetched:false (offline) shows every operator with no stale badge, even one pointed at an unknown org", async () => {
+    const orgAssigned: Operator = { ...OPERATOR_FIXTURE, id: "op-2", name: "Ghost", org_slug: "deleted-org" };
+    vi.mocked(operatorList).mockResolvedValueOnce([OPERATOR_FIXTURE, orgAssigned]);
+    const v = new CanonCockpitView({ ...opts, orgsFetched: false });
+    v.open();
+    v.showSection("operators");
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("Zeta");
+      expect(v.element.textContent).toContain("Ghost");
+      expect(v.element.querySelector(".op-card-badge")).toBeFalsy();
     });
   });
 });
