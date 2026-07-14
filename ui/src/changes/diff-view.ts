@@ -1,6 +1,12 @@
 import type { FileDiff, Hunk } from "../api";
 import { highlightInto } from "./highlight";
 
+/// Per-hunk action ("Stage hunk" / "Unstage hunk") rendered in the hunk header.
+export interface HunkAction {
+  label: string;
+  onAct(hunkIndex: number): void;
+}
+
 function el(tag: string, cls?: string, text?: string): HTMLElement {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -8,9 +14,20 @@ function el(tag: string, cls?: string, text?: string): HTMLElement {
   return e;
 }
 
-function renderHunk(h: Hunk, path: string): HTMLElement {
+function renderHunk(h: Hunk, path: string, index: number, action?: HunkAction): HTMLElement {
   const wrap = el("div", "cd-hunk");
-  if (h.header) wrap.appendChild(el("div", "cd-hunk-header", h.header));
+  if (h.header || action) {
+    const hd = el("div", "cd-hunk-header");
+    const label = h.header || `@@ -${h.oldStart} +${h.newStart} @@`;
+    hd.appendChild(el("span", "cd-hunk-label", label));
+    if (action) {
+      const btn = el("button", "cd-hunk-stage", action.label) as HTMLButtonElement;
+      btn.type = "button";
+      btn.addEventListener("click", () => action.onAct(index));
+      hd.appendChild(btn);
+    }
+    wrap.appendChild(hd);
+  }
   for (const line of h.lines) {
     const row = el("div", `cd-line cd-line--${line.kind}`);
     row.appendChild(el("span", "cd-num cd-num-old", line.oldNo === null ? "" : String(line.oldNo)));
@@ -25,7 +42,7 @@ function renderHunk(h: Hunk, path: string): HTMLElement {
   return wrap;
 }
 
-export function renderDiffBody(file: FileDiff): HTMLElement {
+export function renderDiffBody(file: FileDiff, hunkAction?: HunkAction): HTMLElement {
   const root = el("div", "cd-diff");
   root.dataset.path = file.path;
   const body = file.body;
@@ -40,6 +57,6 @@ export function renderDiffBody(file: FileDiff): HTMLElement {
     root.appendChild(el("div", "cd-toolarge", `Diff too large to display (more than ${body.lineCount} lines).`));
     return root;
   }
-  for (const h of body.hunks) root.appendChild(renderHunk(h, file.path));
+  body.hunks.forEach((h, i) => root.appendChild(renderHunk(h, file.path, i, hunkAction)));
   return root;
 }

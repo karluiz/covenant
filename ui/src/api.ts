@@ -1684,6 +1684,12 @@ export async function gitFileDiff(cwd: string, path: string, staged: boolean): P
 export async function gitStage(cwd: string, path: string): Promise<Changes> {
   return invoke<Changes>("git_stage", { cwd, path });
 }
+export async function gitStageHunk(cwd: string, path: string, hunkIndex: number): Promise<Changes> {
+  return invoke<Changes>("git_stage_hunk", { cwd, path, hunkIndex });
+}
+export async function gitUnstageHunk(cwd: string, path: string, hunkIndex: number): Promise<Changes> {
+  return invoke<Changes>("git_unstage_hunk", { cwd, path, hunkIndex });
+}
 export async function gitUnstage(cwd: string, path: string): Promise<Changes> {
   return invoke<Changes>("git_unstage", { cwd, path });
 }

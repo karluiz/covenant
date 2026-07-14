@@ -19,6 +19,14 @@ vi.mock("../api", () => ({
     staged: [],
     unstaged: [{ path: "f.txt", oldPath: null, status: "modified", added: 1, removed: 0, binary: false }],
   })),
+  gitStageHunk: vi.fn(async () => ({
+    staged: [{ path: "f.txt", oldPath: null, status: "modified", added: 1, removed: 0, binary: false }],
+    unstaged: [],
+  })),
+  gitUnstageHunk: vi.fn(async () => ({
+    staged: [],
+    unstaged: [{ path: "f.txt", oldPath: null, status: "modified", added: 1, removed: 0, binary: false }],
+  })),
   gitCommit: vi.fn(async () => ({ staged: [], unstaged: [] })),
   generateCommitMessage: vi.fn(async () => "feat: subject\n\nbody line"),
   gitRepoSummary: vi.fn(async () => ({
@@ -111,6 +119,27 @@ describe("ChangesSurface", () => {
     await tick();
     expect(host.querySelector<HTMLInputElement>(".cd-subj")!.value).toBe("feat: subject");
     expect(host.querySelector<HTMLTextAreaElement>(".cd-commit-body")!.value).toBe("body line");
+  });
+
+  it("Stage hunk calls gitStageHunk with the hunk index and follows the file", async () => {
+    const gitStageHunk = vi.mocked(api.gitStageHunk);
+    const gitFileDiff = vi.mocked(api.gitFileDiff);
+    const s = new ChangesSurface(host);
+    await s.open("/repo");
+
+    host.querySelector<HTMLElement>(".cd-file")!.click();
+    await tick();
+    const btn = host.querySelector<HTMLButtonElement>(".cd-hunk-stage")!;
+    expect(btn.textContent).toBe("Stage hunk");
+
+    const before = gitFileDiff.mock.calls.length;
+    btn.click();
+    await tick(6);
+    expect(gitStageHunk).toHaveBeenCalledWith("/repo", "f.txt", 0);
+    // File moved fully to staged — the diff re-pulls from the staged side.
+    const repull = gitFileDiff.mock.calls.slice(before)
+      .find(([, path, staged]) => path === "f.txt" && staged === true);
+    expect(repull).toBeDefined();
   });
 
   it("re-pulls diff from staged side after staging the currently shown file", async () => {
