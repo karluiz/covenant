@@ -4581,9 +4581,10 @@ pub fn run() {
                     // their default spot on theme changes / fullscreen exit,
                     // dropping the configured trafficLightPosition. tao
                     // re-applies its stored inset in the content view's
-                    // drawRect, but the webview covers that view so it
-                    // almost never redraws on its own — mark it dirty and
-                    // the inset heals on the next display pass.
+                    // drawRect, but the webview fully occludes that view so
+                    // AppKit skips its drawRect (occlusion optimization) —
+                    // setNeedsDisplay alone never heals it on packaged cold
+                    // launches. Force the redraw with an imperative display.
                     #[cfg(target_os = "macos")]
                     if matches!(
                         ev,
@@ -4601,6 +4602,7 @@ pub fn run() {
                                     if !content.is_null() {
                                         let _: () =
                                             objc2::msg_send![content, setNeedsDisplay: true];
+                                        let _: () = objc2::msg_send![content, display];
                                     }
                                 }
                             }
