@@ -6,6 +6,42 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.21 — Operator session visibility + operator detail page
+
+### Added
+
+- **Operator session visibility**: the operator can now answer "what am I
+  working on in this session?" on both tab kinds. PTY tabs seed the world
+  model's block ring + rolling summary from SQLite at spawn, keyed by cwd
+  (session ids don't survive restarts), with inherited blocks rendered
+  under a separate "from previous sessions" header; ACP tabs (claude /
+  codex / copilot / pi) get an in-memory 12-turn `AcpWorldModel` fed from
+  `acp_send_prompt` and the event forwarder, surfaced as an "Agent
+  sessions" section in the operator's Terminal context. A focused ACP tab
+  also provides the tool-sandbox root. No LLM calls added, no schema
+  changes (`crates/app/src/acp_world.rs`, `crates/app/src/acp_commands.rs`,
+  `crates/agent/src/world_snapshot.rs`).
+
+- **Operator detail page**: opening an operator from the Canon rail now
+  lands on a structured detail page — avatar, configuration, capabilities
+  and live soul-file view — instead of the generic markdown reader, with
+  the standard `esc` dismissal pattern (`ui/src/canon/operator-detail.ts`,
+  `ui/src/canon/styles.css`).
+
+- **Spec toast tab selector**: when more than one tab is eligible, the
+  spec-detected toast renders a `CustomSelect` in place of the static
+  target line so "Set as spec" can be redirected; the heuristic pick
+  (deepest cwd → active → first eligible) stays the default
+  (`ui/src/aom/spec-prompt.ts`).
+
+### Fixed
+
+- **Canon census strip orphan cell**: the rail census grid was styled for
+  7 cells (3×2 + full-width Skills row); Operators and Specs joining as
+  kinds left Specs orphaned and Skills as a stray inline strip. Now a
+  2-column × 4-row grid that fills exactly at any rail width
+  (`ui/src/canon/styles.css`).
+
 ## v0.9.20 — Resources panel homologated to rail chrome
 
 ### Added
