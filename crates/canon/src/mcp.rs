@@ -317,6 +317,12 @@ pub(crate) fn mcp_synced(repo_root: &Path, tool: &str, servers: &[(String, McpSe
 /// Strip secrets from an MCP server JSON before it leaves the machine:
 /// every `env` and `headers` VALUE becomes "" (keys survive so the installer
 /// knows what to fill in). Errors on JSON that isn't a valid McpServer.
+///
+/// This is the STRUCTURAL pass only — it cannot reach secrets embedded inside
+/// `args` (`--api-key sk-…`) or a `url` query string, because those fields mix
+/// secrets with load-bearing values (package names, flags, endpoints). The
+/// publish path layers token-shape masking (`safety::mask_secrets`) on top to
+/// catch those; see `canon_publish` in the app crate.
 pub fn blank_mcp_secrets(raw: &str) -> Result<String, CanonError> {
     let mut srv: McpServer = serde_json::from_str(raw)
         .map_err(|e| CanonError::InvalidPackage(format!("mcp json: {e}")))?;

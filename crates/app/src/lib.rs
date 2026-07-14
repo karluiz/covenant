@@ -2554,9 +2554,15 @@ async fn canon_publish(
         .await
         .map_err(|e| format!("canon_publish join: {e}"))?
         .map_err(|e| e.to_string())?;
-    // MCP configs may carry secrets in env/headers — blank the values.
+    // MCP configs may carry secrets. Structural blank of env/headers values,
+    // then token-shape masking over the whole JSON to scrub secrets hidden in
+    // args (`--api-key sk-…`) or a url query string that the structural pass
+    // can't reach.
     let content = if kind == "mcp" {
-        karl_canon::blank_mcp_secrets(&content).map_err(|e| e.to_string())?
+        let blanked = karl_canon::blank_mcp_secrets(&content).map_err(|e| e.to_string())?;
+        // ponytail: token-shape mask only — a custom-format token in args still
+        // slips; extend safety::mask_secrets' patterns if a provider needs it.
+        safety::mask_secrets(&blanked)
     } else {
         content
     };
