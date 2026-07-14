@@ -211,7 +211,7 @@ describe('operator list grid', () => {
     expect(root.textContent).toContain('Terse');
   });
 
-  it('renders one pill per tag, and no tag row when tags are empty', () => {
+  it('renders tags as one quiet line with +N overflow, and no tag line when tags are empty', () => {
     const base = {
       id: '1', name: 'Maya', emoji: '🟣', color: '#a855f7',
       persona: '', escalate_threshold: 0.5, model: 'gpt-4o',
@@ -224,12 +224,29 @@ describe('operator list grid', () => {
     const ops: Operator[] = [
       { ...base, id: '1', tags: ['reviewer', 'rust'] },
       { ...base, id: '2', name: 'Kiro', tags: [] },
+      { ...base, id: '3', name: 'Hex', tags: ['a', 'b', 'c', 'd', 'e', 'f'] },
     ];
     const root = renderOperatorList(ops, { onEdit(){}, onDelete(){}, onDuplicate(){} });
     const cards = root.querySelectorAll('.op-card');
-    const pills = cards[0]!.querySelectorAll('.op-card-tag');
-    expect([...pills].map((p) => p.textContent)).toEqual(['reviewer', 'rust']);
+    expect(cards[0]!.querySelector('.op-card-tags')!.textContent).toBe('reviewer · rust');
     expect(cards[1]!.querySelector('.op-card-tags')).toBeNull();
+    expect(cards[2]!.querySelector('.op-card-tags')!.textContent).toBe('a · b · c · d +2');
+    expect(cards[2]!.querySelector('.op-card-tagmore')!.textContent).toBe(' +2');
+  });
+
+  it('renders the delegation gauge and the default badge', () => {
+    const ops: Operator[] = [{
+      id: '1', name: 'Maya', emoji: '🟣', color: '#a855f7',
+      tags: [], persona: '', escalate_threshold: 0.9, model: 'gpt-4o',
+      hard_constraints: '', is_default: true,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0, voice: 'Terse',
+      github_access: 'Off', acp_enabled: false, perception_enabled: false,
+    }];
+    const root = renderOperatorList(ops, { onEdit(){}, onDelete(){}, onDuplicate(){} });
+    expect(root.querySelector('.op-card-gauge-val')!.textContent).toBe('0.90');
+    expect((root.querySelector('.op-card-bar-fill') as HTMLElement).style.width).toBe('90%');
+    expect(root.querySelector('.op-card-badge')!.textContent).toBe('default');
+    expect(root.querySelector('.op-card-mandate')!.textContent).toBe('personal · Terse');
   });
 
   it('mergeSkillVocab dedupes case-insensitively, starters first, casing preserved', () => {

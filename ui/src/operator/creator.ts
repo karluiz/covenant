@@ -1357,35 +1357,90 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
   const root = document.createElement("div");
   root.className = "op-card-grid";
   for (const op of ops) {
+    // The card is a delegation credential: identity (spine + avatar + name +
+    // mandate line), disposition (escalation gauge), harness (model chip +
+    // capability marks), then one quiet tag line. The operator's color lives
+    // in the 2px spine + avatar tile — a mark, not a wash.
     const card = document.createElement("div");
     card.className = "op-card";
-    // Bleed the operator's color into the card itself (background tint,
-    // border, hover state) — without this, --operator-color only reaches
-    // the chip inside and the card around it looks generic gray. Same
-    // pattern as the modal hero card.
     card.style.setProperty("--operator-color", op.color);
-    card.append(renderOperatorChip(op, "lg"));
-    if (h.isStale?.(op)) {
-      const badge = document.createElement("span");
-      badge.className = "op-card-badge";
-      badge.textContent = `unassigned · ${op.org_slug}`;
-      card.append(badge);
+
+    const head = document.createElement("div");
+    head.className = "op-card-head";
+    const avatar = document.createElement("span");
+    avatar.className = "op-card-avatar";
+    avatar.innerHTML = renderAvatarHtml(op.emoji || "🟣", 26);
+    const id = document.createElement("span");
+    id.className = "op-card-id";
+    const name = document.createElement("span");
+    name.className = "op-card-name";
+    name.textContent = op.name;
+    const mandate = document.createElement("span");
+    mandate.className = "op-card-mandate";
+    mandate.textContent = [op.org_slug ?? "personal", op.voice].filter(Boolean).join(" · ");
+    id.append(name, mandate);
+    const badges = document.createElement("span");
+    badges.className = "op-card-badges";
+    if (op.is_default) {
+      const b = document.createElement("span");
+      b.className = "op-card-badge";
+      b.textContent = "default";
+      badges.append(b);
     }
-    const summary = document.createElement("div");
-    summary.className = "op-card-summary";
-    summary.textContent = `${op.voice} · threshold ${op.escalate_threshold.toFixed(2)} · ${op.model || "—"}`;
-    card.append(summary);
+    if (h.isStale?.(op)) {
+      const b = document.createElement("span");
+      b.className = "op-card-badge is-warn";
+      b.textContent = "unassigned";
+      attachTooltip(b, `Org "${op.org_slug}" is gone — edit to reassign`);
+      badges.append(b);
+    }
+    head.append(avatar, id, badges);
+    card.append(head);
+
+    const pct = Math.round(Math.min(1, Math.max(0, op.escalate_threshold)) * 100);
+    const gauge = document.createElement("div");
+    gauge.className = "op-card-gauge";
+    gauge.innerHTML =
+      `<div class="op-card-gauge-top">` +
+      `<span class="op-card-gauge-lbl">Escalation threshold</span>` +
+      `<span class="op-card-gauge-val">${op.escalate_threshold.toFixed(2)}</span></div>` +
+      `<div class="op-card-bar"><span class="op-card-bar-fill" style="width:${pct}%"></span></div>`;
+    card.append(gauge);
+
+    const rig = document.createElement("div");
+    rig.className = "op-card-rig";
+    const model = document.createElement("span");
+    model.className = "op-card-model";
+    model.textContent = op.model || "—";
+    const caps = document.createElement("span");
+    caps.className = "op-card-caps";
+    const cap = (label: string, on: boolean, tip: string): HTMLElement => {
+      const c = document.createElement("span");
+      c.className = on ? "op-card-cap is-on" : "op-card-cap";
+      c.textContent = label;
+      attachTooltip(c, tip);
+      return c;
+    };
+    caps.append(
+      cap("GH", op.github_access !== "Off", `GitHub tools: ${op.github_access}`),
+      cap("ACP", op.acp_enabled, op.acp_enabled ? "ACP chat enabled" : "ACP chat off"),
+    );
+    rig.append(model, caps);
+    card.append(rig);
+
     const tags = op.tags.map((t) => t.trim()).filter(Boolean);
     if (tags.length > 0) {
-      const tagsRow = document.createElement("div");
-      tagsRow.className = "op-card-tags";
-      for (const tag of tags) {
-        const pill = document.createElement("span");
-        pill.className = "op-card-tag";
-        pill.textContent = tag;
-        tagsRow.append(pill);
+      const line = document.createElement("div");
+      line.className = "op-card-tags";
+      line.textContent = tags.slice(0, 4).join(" · ");
+      if (tags.length > 4) {
+        const more = document.createElement("span");
+        more.className = "op-card-tagmore";
+        more.textContent = ` +${tags.length - 4}`;
+        attachTooltip(more, tags.slice(4).join(", "));
+        line.append(more);
       }
-      card.append(tagsRow);
+      card.append(line);
     }
     const actions = document.createElement("div");
     actions.className = "op-card-actions";

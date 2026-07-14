@@ -37,90 +37,198 @@ body.theme-dark .op-chip {
   gap: 12px;
   width: 100%;
 }
+/* Operator card — a delegation credential. Identity lives in a 2px color
+ * spine + tinted avatar tile (a mark, not a wash); the escalation gauge is
+ * the card's instrument; actions reveal on hover (.rail-row-actions
+ * pattern). --operator-color set inline per card by renderOperatorList(). */
 .op-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 14px;
-  /* Flat operator-color tinted surface + hairline. Elevation is surface
-   * tone, not gradients/shadows (DESIGN.md). --operator-color is set inline
-   * per-card by renderOperatorList(); falls back to --accent if absent. */
-  border: 1px solid color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 26%, transparent);
+  padding: 14px 14px 12px 17px; /* +3 left for the spine */
+  border: 1px solid var(--border, #1c2027);
   border-radius: 0;
-  background: color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 7%, transparent);
-  transition: border-color 160ms ease, background 160ms ease;
+  background: var(--op-card-fill, rgb(var(--ink-rgb, 255 255 255) / 0.03));
+  transition: border-color 120ms ease;
+}
+.op-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--operator-color, var(--accent, #7aa2f7));
 }
 .op-card:hover {
-  border-color: color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 42%, transparent);
-  background: color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 12%, transparent);
+  border-color: color-mix(in srgb, var(--operator-color, var(--accent, #7aa2f7)) 45%, var(--border, #1c2027));
 }
-body.theme-light .op-card {
-  background: color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 8%, #fff);
-  border-color: color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 32%, var(--border, rgba(0,0,0,0.08)));
-}
-body.theme-light .op-card:hover {
-  border-color: color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 48%, var(--border, rgba(0,0,0,0.08)));
-  background: color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 14%, #fff);
-}
-.op-card-summary {
-  font-size: 12px;
-  opacity: 0.72;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
-body:not(.theme-light) .op-card-summary,
-body.theme-dark .op-card-summary {
-  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 76%, transparent);
-  opacity: 1;
-}
-.op-card-tags {
+
+.op-card-head {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.op-card-avatar {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--operator-color, var(--accent, #7aa2f7)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--operator-color, var(--accent, #7aa2f7)) 40%, transparent);
+}
+.op-card-avatar .op-avatar-pixel { image-rendering: pixelated; display: block; }
+.op-card-id { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.op-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--text-primary, #f5f6f7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.op-card-mandate {
+  font-size: 10.5px;
+  color: var(--fg-dim, #8b929b);
+  text-transform: lowercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.op-card-badges {
+  margin-left: auto;
+  flex: none;
+  align-self: flex-start;
+  display: flex;
   gap: 4px;
 }
-.op-card-tag {
-  font-size: 10px;
-  line-height: 1;
-  padding: 3px 7px;
-  border-radius: 0;
-  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 64%, transparent);
-  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.12);
-  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
-  white-space: nowrap;
+.op-card-badge {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  color: var(--operator-color, var(--accent, #7aa2f7));
+  border: 1px solid color-mix(in srgb, var(--operator-color, var(--accent, #7aa2f7)) 45%, transparent);
 }
+.op-card-badge.is-warn {
+  color: var(--running, #e0af68);
+  border-color: color-mix(in srgb, var(--running, #e0af68) 45%, transparent);
+}
+
+/* Disposition — the escalation gauge. */
+.op-card-gauge { display: flex; flex-direction: column; gap: 5px; }
+.op-card-gauge-top { display: flex; align-items: baseline; }
+.op-card-gauge-lbl {
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, #5c626c);
+}
+.op-card-gauge-val {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, #f5f6f7);
+}
+.op-card-bar {
+  height: 3px;
+  position: relative;
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.1);
+}
+.op-card-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--operator-color, var(--accent, #7aa2f7));
+}
+
+/* Harness — model chip + capability marks. */
+.op-card-rig { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.op-card-model {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--fg-dim, #8b929b);
+  border: 1px solid var(--border, #1c2027);
+  padding: 3px 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.op-card-caps { margin-left: auto; display: flex; gap: 4px; flex: none; }
+.op-card-cap {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  padding: 2px 5px;
+  color: var(--text-tertiary, #5c626c);
+  border: 1px solid var(--border, #1c2027);
+}
+.op-card-cap.is-on {
+  color: var(--fg-dim, #8b929b);
+  border-color: color-mix(in srgb, var(--operator-color, var(--accent, #7aa2f7)) 35%, var(--border, #1c2027));
+}
+
+/* Tags — one quiet mono line, never a wall. */
+.op-card-tags {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--fg-dim, #8b929b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.op-card-tagmore { color: var(--text-tertiary, #5c626c); }
+
+/* Actions — hover-reveal, top-right (.rail-row-actions pattern). Opaque
+ * fill so they occlude the badges beneath. */
 .op-card-actions {
+  position: absolute;
+  top: 9px;
+  right: 9px;
   display: flex;
-  gap: 6px;
-  margin-top: auto;
+  gap: 2px;
+  background: var(--bg-overlay, #11141a);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.op-card:hover .op-card-actions,
+.op-card-actions:focus-within {
+  opacity: 1;
 }
 /* Layout-only; visual styling comes from .settings-btn. */
 .op-card-btn { flex: 1; }
 
-/* Icon-only card actions — square buttons that fit a narrow card. */
 .op-card-iconbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 24px;
+  height: 24px;
   padding: 0;
+  border: 0;
   border-radius: 0;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 70%, transparent);
-  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.12);
-  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  color: var(--fg-dim, #8b929b);
+  background: none;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.op-card-iconbtn svg { width: 16px; height: 16px; }
+.op-card-iconbtn svg { width: 13px; height: 13px; }
 .op-card-iconbtn:hover {
   color: var(--text-primary, #f5f6f7);
-  background: rgb(var(--ink-rgb, 255 255 255) / 0.09);
-  border-color: rgb(var(--ink-rgb, 255 255 255) / 0.2);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.08);
 }
 .op-card-iconbtn.is-danger:hover {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger, #e5484d);
+  background: color-mix(in srgb, var(--danger, #e5484d) 12%, transparent);
 }
 
 /* Two-step operator modal — palette aligned with the release log

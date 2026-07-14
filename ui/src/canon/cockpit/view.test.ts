@@ -220,7 +220,8 @@ describe("CanonCockpitView Operators section", () => {
     await vi.waitFor(() => {
       expect(v.element.textContent).toContain("Zeta");
       expect(v.element.textContent).toContain("Ghost");
-      expect(v.element.querySelector(".op-card-badge")).toBeFalsy();
+      // No STALE badge (the default badge may legitimately render).
+      expect(v.element.querySelector(".op-card-badge.is-warn")).toBeFalsy();
     });
   });
 });
