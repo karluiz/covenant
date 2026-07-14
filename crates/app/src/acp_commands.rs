@@ -412,6 +412,16 @@ fn prepare_claude_acp_config(
     base: &std::path::Path,
     cfg: &crate::settings::AcpExecutorConfig,
 ) -> Result<PathBuf, String> {
+    // The dir is SHARED by every claude tab (one path, no session id) and
+    // settings.json below is a read-modify-write — two tabs spawning close
+    // together could interleave and boot the adapter against the wrong
+    // defaultMode (worst case: an unintended bypassPermissions). Serialize
+    // the whole prepare. This only guards writers in THIS process — which
+    // is sufficient, Covenant is the only writer. std Mutex is fine: sync
+    // fn inside spawn_blocking, no awaits to hold it across.
+    static PREP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = PREP_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
     let dir = base.join("claude-acp");
     std::fs::create_dir_all(&dir).map_err(|e| format!("claude-acp config dir: {e}"))?;
     #[cfg(unix)]
@@ -453,7 +463,11 @@ fn prepare_claude_acp_config(
         }
     }
     let rendered = serde_json::to_string_pretty(&root).map_err(|e| format!("settings.json: {e}"))?;
-    std::fs::write(&settings, rendered).map_err(|e| format!("settings.json: {e}"))?;
+    // Atomic replace (tmp + rename, same pattern as settings::save) so a
+    // reader — the adapter booting — never sees a half-written file.
+    let tmp = dir.join("settings.json.tmp");
+    std::fs::write(&tmp, rendered).map_err(|e| format!("settings.json: {e}"))?;
+    std::fs::rename(&tmp, &settings).map_err(|e| format!("settings.json: {e}"))?;
 
     // The isolated config dir hides the user's real `~/.claude` from the
     // adapter, so user-level skills/commands/agents vanish from the slash
@@ -982,10 +996,13 @@ pub async fn spawn_acp_session(
         }
     });
 
-    // Best-effort default model for non-claude executors: claude already
-    // got its model baked into the isolated settings.json above;
-    // copilot/opencode honor `session/set_model` directly. Errors are
-    // ignored — a picky adapter shouldn't fail the whole spawn over this.
+    // Best-effort default model. Fires for ANY executor whose reported
+    // currentModelId differs from cfg.model — for claude that's normally
+    // a no-op (the model was baked into its settings.json above, so the
+    // ids match), and if they somehow differ the extra request is a
+    // harmless second attempt. copilot/opencode honor `session/set_model`
+    // directly. Errors are ignored — a picky adapter shouldn't fail the
+    // whole spawn over this.
     if let Some(want) = cfg.model.as_deref() {
         if model.as_deref() != Some(want) {
             let _ = session
