@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.20 — Resources panel homologated to rail chrome
+
+### Added
+
+- **Resources rail homologation (proposal B)**: the Resources panel drops
+  its one-off header for the shared rail system — `.rail-header` with
+  activity dot, uppercase label, mono totals sub (`77.1% · 5.44 GB`) and
+  icon `.rail-btn` sort/refresh with tooltips; collapsible
+  `.rail-group-head` groups with count chips; flat hairline rows with a
+  2px semantic load spine (`--running` ≥15% machine CPU, `--fail` ≥60%)
+  and a proportional load bar behind each row so magnitude reads without
+  reading numbers. Active CPU renders in `--num`; the hot-process
+  sub-line moves inside the row; the empty state adopts `.rail-empty`
+  (`ui/src/resources/panel.ts`, `ui/src/resources/panel.css`).
+
 ## v0.9.19 — Activity turn-level rows + titlebar spawns capsule
 
 ### Added
