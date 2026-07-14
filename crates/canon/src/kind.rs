@@ -1,7 +1,8 @@
 //! The context-kind contract: the enumerable classes Canon carries into an
 //! executor's context — Agent, Context, Memory, Command, Mcp, Spec, Skill (the
-//! full CDLC roadmap). Skill is the only packageable kind; Spec is surface-only
-//! (repo-root `docs/specs`, not projected).
+//! full CDLC roadmap). Skill, Agent, Command, Context and Mcp are packageable;
+//! Spec is surface-only (repo-root `docs/specs`, not projected) and Memory is
+//! repo-local.
 
 use crate::manifest::{canon_dir, read_manifest};
 use crate::project::{parse_frontmatter_str, parse_summary, read_dir_md};
@@ -208,6 +209,7 @@ mod tests {
         let ctx = units.iter().find(|u| u.kind == ContextKind::Context).unwrap();
         assert_eq!(ctx.name, "kyc");
         assert_eq!(ctx.summary.as_deref(), Some("KYC rules for Peru"));
+        assert!(ctx.packageable);
         let skill = units.iter().find(|u| u.kind == ContextKind::Skill).unwrap();
         assert_eq!(skill.name, "testing");
         assert!(skill.packageable);
