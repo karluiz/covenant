@@ -181,6 +181,16 @@ export class CanonCockpitView {
   }
 
   private renderSection(key: SectionKey): HTMLElement {
+    let headAction: HTMLElement | undefined;
+    if (key === "context" && this.opts.groupRootDir && this.opts.onNewContext) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "canon-sec-head-action";
+      btn.textContent = "New context";
+      btn.hidden = true; // revealed once the list confirms it has files
+      btn.addEventListener("click", () => this.opts.onNewContext?.());
+      headAction = btn;
+    }
     const body =
       key === "org" ? this.renderOrgSection()
       : key === "members" ? this.renderMembersSection()
@@ -192,28 +202,34 @@ export class CanonCockpitView {
       : key === "memory" ? this.renderMemorySection()
       : key === "skills" ? this.renderSkillsSection()
       : key === "registry" ? this.renderRegistrySection()
-      : key === "context" ? this.renderContextSection()
+      : key === "context" ? this.renderContextSection(headAction)
       : this.renderLoopSection();
     // Full-bleed header (divider spans the whole pane) + a contained content
     // column below it — the Capabilities layout.
     const wrap = document.createElement("div");
     wrap.className = "canon-cockpit-section-wrap";
-    wrap.append(this.sectionHead(SECTION_HEAD[key][0], SECTION_HEAD[key][1]), body);
+    wrap.append(this.sectionHead(SECTION_HEAD[key][0], SECTION_HEAD[key][1], headAction), body);
     return wrap;
   }
 
-  /** A consistent section header: title + one-line description. Gives every
-   *  section the same top structure instead of dropping straight into content. */
-  private sectionHead(title: string, desc: string): HTMLElement {
+  /** A consistent section header: title + one-line description, with an
+   *  optional right-aligned action (e.g. Context's "New context"). Gives
+   *  every section the same top structure instead of dropping straight
+   *  into content. */
+  private sectionHead(title: string, desc: string, action?: HTMLElement): HTMLElement {
     const head = document.createElement("header");
     head.className = "canon-cockpit-sec-head";
+    const text = document.createElement("div");
+    text.className = "canon-cockpit-sec-text";
     const h = document.createElement("h2");
     h.className = "canon-cockpit-sec-title";
     h.textContent = title;
     const p = document.createElement("p");
     p.className = "canon-cockpit-sec-desc";
     p.textContent = desc;
-    head.append(h, p);
+    text.append(h, p);
+    head.appendChild(text);
+    if (action) head.appendChild(action);
     return head;
   }
 
@@ -1173,7 +1189,7 @@ export class CanonCockpitView {
 
   // ── Context section ──────────────────────────────────────────────────
 
-  private renderContextSection(): HTMLElement {
+  private renderContextSection(headAction?: HTMLElement): HTMLElement {
     const el = document.createElement("div");
     el.className = "canon-cockpit-section is-context";
     const cwd = this.opts.groupRootDir;
@@ -1182,13 +1198,6 @@ export class CanonCockpitView {
       el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to mine and manage context."));
       return el;
     }
-
-    const newBtn = document.createElement("button");
-    newBtn.type = "button";
-    newBtn.className = "canon-new-context-btn";
-    newBtn.textContent = "New context";
-    newBtn.addEventListener("click", () => this.opts.onNewContext?.());
-    el.appendChild(newBtn);
 
     const list = document.createElement("div");
     list.className = "canon-cockpit-context-list";
@@ -1209,6 +1218,7 @@ export class CanonCockpitView {
           }));
           return;
         }
+        if (headAction) headAction.hidden = false;
         for (const c of status.contexts) {
           const pub = this.unitPublishAction(cwd, "context", c.name);
           list.appendChild(skillCard({

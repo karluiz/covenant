@@ -561,7 +561,7 @@ body.theme-true-dark .canon-row .rail-row-actions { background: #000; }
 }
 
 /* ── Buttons (secondary, house style) ── */
-.canon-new-context-btn,
+.canon-sec-head-action,
 .canon-card-head button {
   background: transparent;
   color: var(--muted, #6c7280);
@@ -573,13 +573,13 @@ body.theme-true-dark .canon-row .rail-row-actions { background: #000; }
   white-space: nowrap;
   transition: color 120ms, border-color 120ms, background 120ms;
 }
-.canon-new-context-btn:hover,
+.canon-sec-head-action:hover,
 .canon-card-head button:hover {
   color: var(--text-primary, #f5f6f7);
   border-color: var(--canon-accent, var(--accent, #7aa2f7));
   background: var(--canon-lift-1);
 }
-.canon-new-context-btn { margin-bottom: 8px; }
+.canon-sec-head-action { flex-shrink: 0; }
 
 /* Compact square icon buttons (Preview / Install / Publish) */
 .canon-icon-btn {

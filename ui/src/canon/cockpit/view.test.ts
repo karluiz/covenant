@@ -224,15 +224,31 @@ describe("CanonCockpitView Registry section", () => {
 });
 
 describe("CanonCockpitView Context section", () => {
-  it("lists context files and invokes onNewContext (moved from the rail — see panel.test.ts)", async () => {
+  it("lists context files and invokes onNewContext via the section-head action (moved from the rail — see panel.test.ts)", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({ installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }], memory: [], commands: [], mcp: [], specs: [] });
     let called = false;
     const v = new CanonCockpitView({ ...opts, onNewContext: () => { called = true; } });
     v.open(); v.showSection("context");
-    await Promise.resolve(); await Promise.resolve();
-    expect(v.element.textContent).toContain("kyc-peru.md");
-    (v.element.querySelector(".canon-new-context-btn") as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("kyc-peru.md");
+    });
+    const headBtn = v.element.querySelector<HTMLButtonElement>(".canon-sec-head-action")!;
+    expect(headBtn.hidden).toBe(false);
+    headBtn.click();
     expect(called).toBe(true);
+  });
+
+  it("context head action is hidden while empty; empty-state CTA is the single affordance", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView({ ...opts, onNewContext: () => {} });
+    v.open(); v.showSection("context");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".rail-empty-btn")).toBeTruthy();
+    });
+    const headBtn = v.element.querySelector<HTMLButtonElement>(".canon-sec-head-action")!;
+    expect(headBtn.hidden).toBe(true);
   });
 });
 
