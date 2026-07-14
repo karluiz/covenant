@@ -16,10 +16,9 @@ use discord_rich_presence::{
 use std::sync::Mutex;
 use tauri::State;
 
-/// Discord application id for "Covenant". Register the app at
-/// discord.com/developers (one-time, free), paste its Application ID
-/// here, and upload the logo as an asset named `covenant`.
-const DISCORD_APP_ID: &str = "0"; // TODO(karluiz): real Application ID
+/// Discord application id for "Covenant" (discord.com/developers).
+/// The logo lives there as a Rich Presence asset named `covenant`.
+const DISCORD_APP_ID: &str = "1526388703260442756";
 
 #[derive(Default)]
 pub struct DiscordPresence {
@@ -28,9 +27,6 @@ pub struct DiscordPresence {
 
 impl DiscordPresence {
     fn set(&self, details: &str, state: &str, start_unix_secs: i64) -> Result<(), String> {
-        if DISCORD_APP_ID == "0" {
-            return Err("discord app id not configured".into());
-        }
         let mut guard = self.client.lock().map_err(|e| e.to_string())?;
         if guard.is_none() {
             let mut client = DiscordIpcClient::new(DISCORD_APP_ID);
