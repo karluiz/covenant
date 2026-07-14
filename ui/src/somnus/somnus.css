@@ -44,8 +44,8 @@ body.sidebar-view-somnus #somnus-panel .rail-panel {
 }
 
 /* Sharp corners (Tasker precedent — radius 0 everywhere). The bare
-   input.rail-search / select.rail-select elements otherwise keep WebKit's
-   native rounded chrome, so reset appearance and restyle explicitly. */
+   input.rail-search element otherwise keeps WebKit's native rounded
+   chrome, so reset appearance and restyle explicitly. */
 #somnus-panel input.rail-search {
   -webkit-appearance: none;
   appearance: none;
@@ -57,16 +57,12 @@ body.sidebar-view-somnus #somnus-panel .rail-panel {
   font-family: var(--ui-font);
   font-size: var(--fs-body);
 }
-#somnus-panel select.rail-select {
-  /* Native menulist chrome keeps its own rounding regardless of
-     border-radius — kill appearance and draw the chevron ourselves. */
-  -webkit-appearance: none;
-  appearance: none;
-  border-radius: 0;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8f98' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 15 5 5 5-5'/%3E%3Cpath d='m7 9 5-5 5 5'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  padding-right: 22px;
+/* Method picker is a CustomSelect; drop the settings-chrome min-height so
+   the button stretches to match the sibling url input's height. */
+#somnus-panel .somnus-method .ui-select__button {
+  min-height: 0;
+  height: 100%;
+  padding: 0 8px;
 }
 
 /* ── Composer ── */
