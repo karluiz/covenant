@@ -100,6 +100,17 @@
 
 /* ── Covenant Settings Page ─────────────────────────────────────────────── */
 
+/* Pulse speaks Covenant teal — the Score-family hue (achievements, profile,
+   score popup) — not amber, which app-wide means running/warning. Scoped
+   override so --num keeps its amber meaning everywhere else. Covers the
+   cockpit page, the Pulse frame title, and the Settings summary strip. */
+.pulse-frame,
+.covenant-page,
+.pulse-mini { --num: #45c4b2; }
+body.theme-light .pulse-frame,
+body.theme-light .covenant-page,
+body.theme-light .pulse-mini { --num: #0d9488; }
+
 .covenant-page {
   padding: 4px 0 32px;
   color: var(--text-primary);
@@ -149,8 +160,8 @@
   border-radius: 0;
   padding: 14px 16px;
 }
-/* Totals read neutral — amber is reserved for momentum (streak + today),
-   so the accent means something instead of tinting every number. */
+/* Totals read neutral — the teal accent is reserved for momentum (streak +
+   today), so the accent means something instead of tinting every number. */
 .cov-stat .v { font-size: 26px; color: var(--text-primary); font-weight: 500; font-variant-numeric: tabular-nums; }
 .cov-stat .l { font-size: var(--fs-micro); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
 .cov-stat--hero .v { font-size: 40px; }
@@ -205,7 +216,7 @@
 }
 .cov-cell {
   /* Empty cells must stay visible — they draw the full 53-week grid the
-     amber activity sits in (per the approved mockup). Below ~8% ink they
+     teal activity sits in (per the approved mockup). Below ~8% ink they
      vanish against --bg-elevated and the grid reads as floating cells. */
   background: rgb(var(--ink-rgb) / 0.12);
   border-radius: 0;
@@ -1022,5 +1033,5 @@ body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f;
 .cov-skel-heat { height: 190px; grid-column: 1 / -1; }
 .cov-skel-block { height: 130px; }
 
-/* Streak flame — SVG icon (no emoji in chrome), amber like the streak. */
+/* Streak flame — SVG icon (no emoji in chrome), teal like the streak. */
 .cov-flame { display: inline-flex; vertical-align: -2px; color: var(--num); margin-left: 2px; }
