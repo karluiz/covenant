@@ -1227,7 +1227,7 @@ export interface WireOpts {
   /** After a successful save. Receives the saved operator. */
   onSaved: (op: Operator) => void | Promise<void>;
   /** Delete button in edit mode. Omit to hide/ignore. */
-  onDelete?: (op: Operator) => void;
+  onDelete?: (op: Operator) => void | Promise<void>;
   /**
    * Org to assign after a successful save. `undefined` = don't touch;
    * a string = assign to that org; `null` = clear to personal (used to
@@ -1320,7 +1320,7 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
       const existing = handle.state.existing;
       if (!existing) return;
       (async () => {
-        opts.onDelete?.(existing);
+        await opts.onDelete?.(existing);
         closeCreator(handle.el);
       })();
     }

@@ -122,7 +122,7 @@ export class OperatorsPane {
   private openModalWith(handle: ModalHandle): void {
     wireOperatorModal(handle, {
       onSaved: () => this.refresh(),
-      onDelete: (op) => void this.deleteOperator(op),
+      onDelete: (op) => this.deleteOperator(op),
     });
   }
 
