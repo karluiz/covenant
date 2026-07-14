@@ -6,6 +6,90 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.16 — operators move to Canon + ACP trust config
+
+### Added
+
+- **Operators live in Canon**: the operator roster is now org-scoped and
+  managed from the Canon cockpit's new Operators section (immersive
+  creator, duplicate/publish/delete), with an Operators census cell +
+  fold in the rail panel. The old marketplace folds into the cockpit
+  registry as a Skills | Operators toggle, and operators carry an
+  `org_slug` (`ui/src/canon/cockpit/view.ts`, `ui/src/operator/`,
+  `crates/app/src/operators.rs`).
+
+- **ACP executor config in Harnesses**: per-executor trust levels
+  (Ask / Balanced / YOLO) plus model, thinking, env and args knobs in
+  Settings → Harnesses; spawns map trust to each harness's native flags,
+  and every ACP tab shows a live trust chip you can switch in place
+  (`ui/src/settings/`, `ui/src/acp/`, `crates/app/src/acp*`).
+
+- **Canon cockpit homologated empty states**: all 12 sections render the
+  same icon + title + hint + CTA block, centered in the content pane,
+  replacing bare one-line notes (`ui/src/canon/cockpit/view.ts`,
+  `cockpit.css`).
+
+- **Changes: hunk-level staging + diff surface redesign**: stage or
+  unstage individual hunks via `git apply --cached`, inside a redesigned
+  full-screen diff with an overview pane and split composer
+  (`ui/src/changes/`).
+
+- **Discord Rich Presence**: opt-in presence with workspace + session
+  count on your Discord profile, wired to the real Covenant Application
+  ID (`crates/app/src/presence.rs`).
+
+- **Zen icons**: an Appearance toggle fades titlebar buttons (including
+  fold/collapse toggles) until hover revives them (`ui/src/settings/`).
+
+- **Onboarding polish**: legible shortcut rows with per-key kbd chips and
+  a restyled provider card, shown only when no provider is configured;
+  the Onboarding tab moves ahead of Experimental (`ui/src/onboarding/`).
+
+- **Pulse color pass v2**: the momentum dashboard speaks Covenant teal
+  through a scoped `--num` token instead of amber (`ui/src/pulse/`).
+
+- **OpenTelemetry exporter**: opt-in OTEL metrics export
+  (`crates/metrics/`).
+
+### Changed
+
+- **Settings retires the Operators section**: the roster lives in Canon;
+  the pane keeps only Autonomous Mode. Repo-level "Agents" rename to
+  **Subagents** across Canon and the operator UI; dead operators-pane /
+  marketplace-tab CSS removed (`ui/src/settings/`, `ui/src/canon/`).
+
+### Fixed
+
+- **Light-mode legibility pass**: folded-rail group colors, `.rail-search`
+  inputs repainted by the global light input reset, shortcut label/kbd
+  ink, the Canon Loop section (semantic `--running`/`--ok`/`--fail`
+  tokens, styled verdict, white cards instead of ink smudges), and the
+  ui-select popover now sizes border-box to match its trigger
+  (`ui/src/styles.css`, `ui/src/canon/styles.css`, `ui/src/ui/select.css`).
+
+- **Dropdown homologation**: the Somnus method picker and the Activity
+  agent filter move off native `<select>` onto the shared CustomSelect /
+  `.ui-select__*` chrome (`ui/src/somnus/`, `ui/src/activity/`).
+
+- **Dev/prod coexistence**: the single-instance plugin is release-only,
+  so `tauri dev` no longer exits when prod Covenant is running
+  (`crates/app/src/main.rs`).
+
+- **ACP robustness**: chat keeps following the live edge while streaming,
+  trust writes recover from lock poisoning, the shared claude-acp
+  `settings.json` is serialized and written atomically, and trust-menu
+  rows select on mousedown (`ui/src/acp/`, `crates/app/src/acp*`).
+
+- **Operators safety**: org-assigned operators are no longer clobbered
+  when the orgs fetch fails offline, publish failures surface as toasts,
+  and the ⌘⇧O picker routes New/Edit to the immersive creator
+  (`ui/src/operator/org-filter.ts`, `ui/src/canon/cockpit/view.ts`).
+
+- **Misc**: spawns popover lands flush under its chip at any UI zoom;
+  AOM spec candidates scope to the active tab instead of broadcasting;
+  onboarding overlay centers vertically (`ui/src/spawns/`,
+  `ui/src/aom/`, `ui/src/styles.css`).
+
 ## v0.9.15 — canon org rename + tooltip zoom fix
 
 ### Added
