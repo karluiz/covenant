@@ -16932,6 +16932,43 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
   flex-shrink: 0;
 }
+/* Turn rows: chevron unfolds the meaningful-event audit trail. */
+.activity-turn .activity-chev {
+  display: inline-flex; align-items: center;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  visibility: hidden;
+  transition: transform 120ms ease;
+}
+.activity-turn.is-foldable { cursor: pointer; }
+.activity-turn.is-foldable .activity-chev { visibility: visible; }
+.activity-turn.is-expanded .activity-chev { transform: rotate(90deg); }
+.activity-turn-events {
+  display: flex; flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-left: 17px; /* chevron width + gap: events align under rail-name */
+}
+.activity-ev {
+  display: flex; align-items: baseline; gap: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  min-width: 0;
+}
+.activity-ev-label {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.activity-ev[data-kind="wait"] .activity-ev-label { color: var(--running); }
+.activity-ev[data-kind="done"] .activity-ev-label { color: var(--ok); }
+.activity-ev-when {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.activity-ev-dropped { color: var(--text-tertiary); font-style: italic; }
+
 /* Agent-filter dropdown: surface + rows come from the canonical
    .ui-select__popover / .ui-select__option chrome; these rules only add
    the picker's extras (group heads, separator, per-row count, agent dot). */

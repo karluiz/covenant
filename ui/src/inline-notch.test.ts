@@ -108,12 +108,14 @@ describe("mountInlineNotch", () => {
     const host = mount();
     const stream = host.querySelector<HTMLElement>(".rail-body")!;
 
+    // One turn per session — spread across sessions so the stream holds
+    // multiple rows for the anchor to latch onto.
     for (let i = 0; i < 5; i++) {
       fireNotchState({
         kind: "executor_state_changed",
-        session: "01J00000000000000000000000",
+        session: `01J0000000000000000000000${i}`,
         agent: "pi",
-        tab_label: "pi 1",
+        tab_label: `pi ${i}`,
         phase: { kind: "running", cmd: `cmd-${i}` },
       });
     }
@@ -146,9 +148,9 @@ describe("mountInlineNotch", () => {
     stream.scrollTop = 20;
     fireNotchState({
       kind: "executor_state_changed",
-      session: "01J00000000000000000000000",
+      session: "01J0000000000000000000000X",
       agent: "pi",
-      tab_label: "pi 1",
+      tab_label: "pi new",
       phase: { kind: "running", cmd: "cmd-new" },
     });
 
