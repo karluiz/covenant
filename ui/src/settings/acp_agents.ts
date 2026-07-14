@@ -56,11 +56,12 @@ export async function renderAcpAgentsSection(host: HTMLElement): Promise<void> {
     configs[ex.id] = { ...defaultCfg(ex.id), ...(settings.acp_executors?.[ex.id] ?? {}) };
   }
 
-  const persist = async (): Promise<void> => {
-    // Read-modify-write on fresh settings so we never clobber a
-    // concurrent change from another settings tab.
+  const persist = async (id: string): Promise<void> => {
+    // Read-modify-write on fresh settings, touching only the edited
+    // executor's key, so we never clobber concurrent changes to other
+    // settings or to sibling acp_executors entries.
     const fresh = await getSettings();
-    fresh.acp_executors = { ...(fresh.acp_executors ?? {}), ...configs };
+    fresh.acp_executors = { ...(fresh.acp_executors ?? {}), [id]: configs[id]! };
     await setSettings(fresh);
   };
 
@@ -97,7 +98,7 @@ export async function renderAcpAgentsSection(host: HTMLElement): Promise<void> {
         for (const other of seg.querySelectorAll("button")) {
           other.setAttribute("aria-pressed", String(other === b));
         }
-        void persist();
+        void persist(ex.id);
       });
       seg.appendChild(b);
     }
@@ -114,7 +115,7 @@ export async function renderAcpAgentsSection(host: HTMLElement): Promise<void> {
       model.value = cfg.model ?? "";
       model.addEventListener("change", () => {
         cfg.model = model.value.trim() || null;
-        void persist();
+        void persist(ex.id);
       });
       fields.appendChild(model);
     }
@@ -129,7 +130,7 @@ export async function renderAcpAgentsSection(host: HTMLElement): Promise<void> {
       thinking.addEventListener("change", () => {
         const n = parseInt(thinking.value, 10);
         cfg.thinking_tokens = Number.isFinite(n) && n > 0 ? n : null;
-        void persist();
+        void persist(ex.id);
       });
       fields.appendChild(thinking);
     }
@@ -151,7 +152,7 @@ export async function renderAcpAgentsSection(host: HTMLElement): Promise<void> {
           const i = l.indexOf("=");
           return [l.slice(0, i).trim(), l.slice(i + 1)] as [string, string];
         });
-      void persist();
+      void persist(ex.id);
     });
     fields.appendChild(env);
 
@@ -162,7 +163,7 @@ export async function renderAcpAgentsSection(host: HTMLElement): Promise<void> {
     args.value = (cfg.args ?? []).join(" ");
     args.addEventListener("change", () => {
       cfg.args = args.value.split(/\s+/).filter(Boolean);
-      void persist();
+      void persist(ex.id);
     });
     fields.appendChild(args);
 

@@ -49,6 +49,9 @@ describe("renderAcpAgentsSection", () => {
       acp_executors: Record<string, { trust: string }>;
     };
     expect(saved.acp_executors.claude.trust).toBe("yolo");
+    // Only the touched executor's key is written — unchanged in-memory
+    // configs for siblings must not clobber concurrent edits.
+    expect(Object.keys(saved.acp_executors)).toEqual(["claude"]);
   });
 
   it("shows thinking budget input only on the claude card", async () => {
