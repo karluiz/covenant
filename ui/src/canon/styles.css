@@ -411,12 +411,12 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
 }
 
 /* ── Census strip: the whole inventory in one glance ──
-   3-column count grid; the 7th cell (Skills, the primary kind) spans the
-   full bottom row. Zero counts sit dim and inert; populated cells light up
-   and jump to their fold. */
+   2-column count grid — 8 kinds fill it exactly (4 even rows), no orphan
+   cells at any rail width. Zero counts sit dim and inert; populated cells
+   light up and jump to their fold. */
 .canon-census {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   flex-shrink: 0;
   border-bottom: 1px solid var(--canon-line);
 }
@@ -434,15 +434,9 @@ body.theme-true-dark .canon-stat.is-hero .canon-stat-val {
   border-radius: 0;
   cursor: default;
 }
-.canon-census-cell:nth-child(3n),
+.canon-census-cell:nth-child(2n),
 .canon-census-cell:last-child { border-right: 0; }
-.canon-census-cell:last-child {
-  grid-column: 1 / -1;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 8px;
-  border-bottom: 0;
-}
+.canon-census-cell:nth-last-child(-n + 2) { border-bottom: 0; }
 .canon-census-cell.has { cursor: pointer; }
 .canon-census-cell.has:hover { background: var(--canon-lift-1); }
 .canon-census-n {
