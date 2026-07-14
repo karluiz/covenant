@@ -16,6 +16,8 @@ pub struct CompiledFinding {
     pub body_md: String,
     pub evidence: Vec<String>,
     pub confidence: String,
+    #[serde(default)]
+    pub kind: String,
 }
 
 const CATEGORY_ORDER: &[(&str, &str)] = &[
@@ -83,6 +85,63 @@ pub fn write_skill_package(
     Ok(dir)
 }
 
+/// Kebab-case a finding title into a filename slug.
+pub fn slugify(title: &str) -> String {
+    let mut out = String::new();
+    let mut prev_dash = false;
+    for ch in title.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash && !out.is_empty() {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+/// Slug not already used on disk or in `taken`; suffixes -2, -3, … on collision.
+fn unique_slug(dir: &Path, base: &str, taken: &mut std::collections::HashSet<String>) -> String {
+    let base = if base.is_empty() { "entry".to_string() } else { base.to_string() };
+    let mut candidate = base.clone();
+    let mut n = 1;
+    while taken.contains(&candidate) || dir.join(format!("{candidate}.md")).exists() {
+        n += 1;
+        candidate = format!("{base}-{n}");
+    }
+    taken.insert(candidate.clone());
+    candidate
+}
+
+fn write_md_entries(dir: &Path, findings: &[CompiledFinding]) -> Result<Vec<PathBuf>, CanonError> {
+    std::fs::create_dir_all(dir)?;
+    let mut taken = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for f in findings {
+        let slug = unique_slug(dir, &slugify(&f.title), &mut taken);
+        let mut md = format!("---\ndescription: {}\n---\n\n# {}\n\n{}\n", f.title, f.title, f.body_md.trim());
+        if !f.evidence.is_empty() {
+            let refs: Vec<String> = f.evidence.iter().map(|e| format!("`{e}`")).collect();
+            md.push_str(&format!("\nEvidence: {}\n", refs.join(", ")));
+        }
+        let path = dir.join(format!("{slug}.md"));
+        std::fs::write(&path, md)?;
+        out.push(path);
+    }
+    Ok(out)
+}
+
+pub fn write_memory_entry(repo_root: &Path, findings: &[CompiledFinding]) -> Result<Vec<PathBuf>, CanonError> {
+    write_md_entries(&canon_dir(repo_root).join("memory"), findings)
+}
+pub fn write_command_entry(repo_root: &Path, findings: &[CompiledFinding]) -> Result<Vec<PathBuf>, CanonError> {
+    write_md_entries(&canon_dir(repo_root).join("commands"), findings)
+}
+pub fn write_subagent_entry(repo_root: &Path, findings: &[CompiledFinding]) -> Result<Vec<PathBuf>, CanonError> {
+    write_md_entries(&canon_dir(repo_root).join("agents"), findings)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,7 +153,60 @@ mod tests {
             body_md: format!("Always do {title}."),
             evidence: vec!["src/lib.rs:12".into()],
             confidence: "high".into(),
+            kind: "skill".into(),
         }
+    }
+
+    fn finding_k(cat: &str, title: &str, kind: &str) -> CompiledFinding {
+        CompiledFinding {
+            category: cat.into(), title: title.into(),
+            body_md: format!("Always do {title}."),
+            evidence: vec!["src/lib.rs:12".into()],
+            confidence: "high".into(), kind: kind.into(),
+        }
+    }
+
+    #[test]
+    fn slugify_kebabs_and_trims() {
+        assert_eq!(slugify("PEP screening required!"), "pep-screening-required");
+        assert_eq!(slugify("  Multiple   spaces  "), "multiple-spaces");
+    }
+
+    #[test]
+    fn memory_writes_one_file_per_finding_with_description() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let paths = write_memory_entry(root, &[
+            finding_k("domain_rule", "PEP check", "memory"),
+            finding_k("glossary", "KYC term", "memory"),
+        ]).unwrap();
+        assert_eq!(paths.len(), 2);
+        let pep = std::fs::read_to_string(root.join(".covenant/canon/memory/pep-check.md")).unwrap();
+        assert!(pep.contains("description: PEP check"), "frontmatter: {pep}");
+        assert!(pep.contains("Always do PEP check."));
+        assert!(root.join(".covenant/canon/memory/kyc-term.md").exists());
+    }
+
+    #[test]
+    fn memory_dedupes_colliding_slugs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let paths = write_memory_entry(root, &[
+            finding_k("domain_rule", "Same Title", "memory"),
+            finding_k("glossary", "Same Title", "memory"),
+        ]).unwrap();
+        assert!(paths[0].ends_with("same-title.md"));
+        assert!(paths[1].ends_with("same-title-2.md"));
+    }
+
+    #[test]
+    fn command_and_subagent_write_to_their_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_command_entry(root, &[finding_k("workflow", "Run tests", "command")]).unwrap();
+        write_subagent_entry(root, &[finding_k("convention", "Reviewer", "subagent")]).unwrap();
+        assert!(root.join(".covenant/canon/commands/run-tests.md").exists());
+        assert!(root.join(".covenant/canon/agents/reviewer.md").exists());
     }
 
     #[test]
