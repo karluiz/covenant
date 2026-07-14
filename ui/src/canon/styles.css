@@ -809,6 +809,16 @@ body.tabbar-left .canon-reader { top: 38px; }
   color: var(--text-primary, #f5f6f7);
 }
 
+/* Light elevation pass — the 3% ink tint reads as dirty gray smudges on the
+   white overlay. Crisp white cells/cards on the hairline grid instead
+   (mirrors --op-card-fill/--settings-btn-fill: light elevation is white). */
+body.theme-light .canon-stat,
+body.theme-light .canon-skill-row,
+body.theme-light .canon-search-result,
+body.theme-light .canon-context-row {
+  background: #fff;
+}
+
 /* Skill-row lift chip — actionable earning/not-earning/unmeasured verdict. */
 .canon-lift-badge {
   font-size: 10px;

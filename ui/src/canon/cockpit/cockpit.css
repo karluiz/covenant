@@ -130,8 +130,36 @@ body.tabbar-left .canon-cockpit {
 }
 
 /* ── Homologated empty state — reuses the rail's .rail-empty chrome
-   (styles.css), rescaled for the wide content column. Every section shows
-   the same icon + title + hint block when it has nothing to render. */
+   (styles.css). A lone empty state centers in the FULL content pane (both
+   axes), not the top of the 720px column: the section wrap fills the
+   scroller, the empty's holder soaks the free height, and .rail-empty's own
+   flex centering does the rest. */
+.canon-cockpit-section-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.canon-cockpit-section-wrap > .canon-cockpit-section {
+  flex: 1 1 auto;
+}
+/* Section whose only content is the empty block — or whose list holds only
+   it — escapes the 720px column so the block centers pane-wide. */
+.canon-cockpit-section:has(> .canon-cockpit-empty:only-child),
+.canon-cockpit-section:has(> div > .canon-cockpit-empty:only-child) {
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+}
+.canon-cockpit-section > .canon-cockpit-empty:only-child,
+.canon-cockpit-section > div:has(> .canon-cockpit-empty:only-child) {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.canon-cockpit-section > div > .canon-cockpit-empty:only-child {
+  flex: 1 1 auto;
+}
 .canon-cockpit-section .canon-cockpit-empty {
   height: auto;
   min-height: 240px;
