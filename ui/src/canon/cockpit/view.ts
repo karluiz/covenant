@@ -229,6 +229,53 @@ export class CanonCockpitView {
     return p;
   }
 
+  /** Homologated empty state — every section renders the same icon + title +
+   *  hint block (the rail's .rail-empty chrome) when it has nothing to show.
+   *  `note()` stays for transient states (Loading… / errors / search-empty). */
+  private emptyState(opts: {
+    icon: string;
+    title: string;
+    hint: string;
+    action?: { label: string; onClick: () => void };
+  }): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "rail-empty canon-cockpit-empty";
+    el.innerHTML = opts.icon
+      + `<div class="rail-empty-title">${opts.title}</div>`
+      + `<div class="rail-empty-hint">${opts.hint}</div>`;
+    if (opts.action) {
+      const actions = document.createElement("div");
+      actions.className = "rail-empty-actions";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "rail-empty-btn";
+      btn.textContent = opts.action.label;
+      btn.addEventListener("click", opts.action.onClick);
+      actions.appendChild(btn);
+      el.appendChild(actions);
+    }
+    return el;
+  }
+
+  /** Shared empty state for org-gated sections (Members, Registry). */
+  private emptyNoOrg(hint: string): HTMLElement {
+    return this.emptyState({
+      icon: Icons.boxes({ size: 28 }),
+      title: "No organization",
+      hint,
+      action: { label: "Open Org", onClick: () => this.showSection("org") },
+    });
+  }
+
+  /** Shared empty state for repo-gated sections (Subagents, Commands, …). */
+  private emptyNoRepo(hint: string): HTMLElement {
+    return this.emptyState({
+      icon: Icons.folderPlus({ size: 28 }),
+      title: "No project folder",
+      hint,
+    });
+  }
+
   /** An uppercase section-group label (e.g. "Switch organization"). */
   private groupLabel(text: string): HTMLElement {
     const l = document.createElement("div");
@@ -299,7 +346,16 @@ export class CanonCockpitView {
       }
       el.appendChild(card);
     } else {
-      el.appendChild(this.note("No organization selected."));
+      el.appendChild(this.emptyState({
+        icon: Icons.boxes({ size: 28 }),
+        title: "No organization selected",
+        hint: this.opts.orgs.length > 0
+          ? "Pick an organization below to load its Canon."
+          : "Create an organization to publish and install skills across your team.",
+        action: this.opts.orgs.length === 0
+          ? { label: "Create organization", onClick: () => openCreateOrgExperience({ onCreated: (slug) => this.refreshOrgs(slug) }) }
+          : undefined,
+      }));
     }
 
     // Switch organization — a labeled list of every org the caller belongs to.
@@ -329,7 +385,9 @@ export class CanonCockpitView {
       el.appendChild(list);
     }
 
-    el.appendChild(this.renderCreateOrgRow());
+    // The empty state above already carries the create action when the
+    // caller belongs to no org — don't render the button twice.
+    if (active || this.opts.orgs.length > 0) el.appendChild(this.renderCreateOrgRow());
     return el;
   }
 
@@ -365,7 +423,7 @@ export class CanonCockpitView {
     el.className = "canon-cockpit-section is-members";
     const active = this.activeOrg();
     if (!active) {
-      el.appendChild(this.note("No organization selected."));
+      el.appendChild(this.emptyNoOrg("Members are people with access to an organization's Canon — pick or create one first."));
       return el;
     }
 
@@ -385,7 +443,13 @@ export class CanonCockpitView {
         .then((members) => {
           list.replaceChildren();
           if (members.length === 0) {
-            list.appendChild(this.note("No members yet."));
+            list.appendChild(this.emptyState({
+              icon: Icons.github({ size: 28 }),
+              title: "No members yet",
+              hint: isOwner
+                ? "Add teammates by their GitHub login to share this organization's Canon."
+                : "The organization owner can add teammates by GitHub login.",
+            }));
             return;
           }
           for (const m of members) {
@@ -491,14 +555,7 @@ export class CanonCockpitView {
 
     const bar = document.createElement("div");
     bar.className = "canon-cockpit-actions";
-    const newBtn = iconButton(Icons.plus({ size: 15 }), "New operator", () => {
-      const active = this.activeOrg();
-      const handle = openOperatorModal({ mode: "create" });
-      wireOperatorModal(handle, {
-        assignOrgSlug: active && !active.personal ? active.slug : null,
-        onSaved: () => this.showSection("operators"),
-      });
-    });
+    const newBtn = iconButton(Icons.plus({ size: 15 }), "New operator", () => this.openNewOperator());
     newBtn.dataset.role = "op-new";
     bar.appendChild(newBtn);
     el.appendChild(bar);
@@ -516,7 +573,12 @@ export class CanonCockpitView {
         const ops = operatorsForOrg(all, active, known);
         list.replaceChildren();
         if (ops.length === 0) {
-          list.appendChild(this.note("No operators in this org yet."));
+          list.appendChild(this.emptyState({
+            icon: Icons.headphones({ size: 28 }),
+            title: "No operators in this org",
+            hint: "Operators are versions of you — org-scoped personas that direct your executors.",
+            action: { label: "New operator", onClick: () => this.openNewOperator() },
+          }));
           return;
         }
         list.appendChild(renderOperatorList(ops, {
@@ -552,6 +614,17 @@ export class CanonCockpitView {
       });
 
     return el;
+  }
+
+  /** Open the immersive operator creator scoped to the active org — shared
+   *  by the actions-bar button and the empty state's CTA. */
+  private openNewOperator(): void {
+    const active = this.activeOrg();
+    const handle = openOperatorModal({ mode: "create" });
+    wireOperatorModal(handle, {
+      assignOrgSlug: active && !active.personal ? active.slug : null,
+      onSaved: () => this.showSection("operators"),
+    });
   }
 
   /** Ported from `OperatorsPane.deleteOperator` (settings/operators.ts) so the
@@ -592,7 +665,7 @@ export class CanonCockpitView {
     const cwd = this.opts.groupRootDir;
 
     if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage subagents."));
+      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to manage subagents."));
       return el;
     }
 
@@ -605,7 +678,11 @@ export class CanonCockpitView {
       .then((status) => {
         list.replaceChildren();
         if (status.agents.length === 0) {
-          list.appendChild(this.note("No subagents authored yet."));
+          list.appendChild(this.emptyState({
+            icon: Icons.bot({ size: 28 }),
+            title: "No subagents yet",
+            hint: "Author agent files under .claude/agents to project them into executor context.",
+          }));
           return;
         }
         for (const a of status.agents) {
@@ -634,7 +711,7 @@ export class CanonCockpitView {
     const cwd = this.opts.groupRootDir;
 
     if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage commands."));
+      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to manage commands."));
       return el;
     }
 
@@ -647,7 +724,11 @@ export class CanonCockpitView {
       .then((status) => {
         list.replaceChildren();
         if (status.commands.length === 0) {
-          list.appendChild(this.note("No commands authored yet."));
+          list.appendChild(this.emptyState({
+            icon: Icons.terminalSquare({ size: 28 }),
+            title: "No commands yet",
+            hint: "Author slash commands under .claude/commands to project them to your executors.",
+          }));
           return;
         }
         for (const c of status.commands) {
@@ -676,7 +757,7 @@ export class CanonCockpitView {
     const cwd = this.opts.groupRootDir;
 
     if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage MCP servers."));
+      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to manage MCP servers."));
       return el;
     }
 
@@ -689,7 +770,11 @@ export class CanonCockpitView {
       .then((status) => {
         list.replaceChildren();
         if (status.mcp.length === 0) {
-          list.appendChild(this.note("No MCP servers authored yet."));
+          list.appendChild(this.emptyState({
+            icon: Icons.radioTower({ size: 28 }),
+            title: "No MCP servers yet",
+            hint: "Declare servers in .mcp.json to project them to your executors.",
+          }));
           return;
         }
         for (const m of status.mcp) {
@@ -718,7 +803,7 @@ export class CanonCockpitView {
     const cwd = this.opts.groupRootDir;
 
     if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to see specs."));
+      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to see its specs."));
       return el;
     }
 
@@ -731,7 +816,11 @@ export class CanonCockpitView {
       .then((status) => {
         list.replaceChildren();
         if (status.specs.length === 0) {
-          list.appendChild(this.note("No specs published yet."));
+          list.appendChild(this.emptyState({
+            icon: Icons.fileText({ size: 28 }),
+            title: "No specs published",
+            hint: "Specs published to docs/specs anchor tasks for your executors.",
+          }));
           return;
         }
         for (const sp of status.specs) {
@@ -760,7 +849,7 @@ export class CanonCockpitView {
     const cwd = this.opts.groupRootDir;
 
     if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage memory."));
+      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to manage memory."));
       return el;
     }
 
@@ -773,7 +862,11 @@ export class CanonCockpitView {
       .then((status) => {
         list.replaceChildren();
         if (status.memory.length === 0) {
-          list.appendChild(this.note("No memories authored yet."));
+          list.appendChild(this.emptyState({
+            icon: Icons.database({ size: 28 }),
+            title: "No memories yet",
+            hint: "Durable facts authored here ride into every executor's managed context block.",
+          }));
           return;
         }
         for (const m of status.memory) {
@@ -801,7 +894,7 @@ export class CanonCockpitView {
     el.className = "canon-cockpit-section is-skills";
     const cwd = this.opts.groupRootDir;
     if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage skills."));
+      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to manage skills."));
       return el;
     }
 
@@ -818,7 +911,12 @@ export class CanonCockpitView {
         .then((status) => {
           list.replaceChildren();
           if (status.installed.length === 0) {
-            list.appendChild(this.note("No skills installed."));
+            list.appendChild(this.emptyState({
+              icon: Icons.packageBox({ size: 28 }),
+              title: "No skills installed",
+              hint: "Install from your organization's registry, or author skills under .claude/skills.",
+              action: { label: "Browse registry", onClick: () => this.showSection("registry") },
+            }));
             return;
           }
           const active = this.activeOrg();
@@ -868,11 +966,11 @@ export class CanonCockpitView {
     const cwd = this.opts.groupRootDir;
 
     if (!initialActive) {
-      el.appendChild(this.note("No organization selected — pick or create one in the Org section to browse its registry."));
+      el.appendChild(this.emptyNoOrg("Pick or create an organization to browse and install from its registry."));
       return el;
     }
     if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to install packages."));
+      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to install packages."));
       return el;
     }
 
@@ -1035,17 +1133,17 @@ export class CanonCockpitView {
     el.className = "canon-cockpit-section is-context";
     const cwd = this.opts.groupRootDir;
 
+    if (!cwd) {
+      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to mine and manage context."));
+      return el;
+    }
+
     const newBtn = document.createElement("button");
     newBtn.type = "button";
     newBtn.className = "canon-new-context-btn";
     newBtn.textContent = "New context";
     newBtn.addEventListener("click", () => this.opts.onNewContext?.());
     el.appendChild(newBtn);
-
-    if (!cwd) {
-      el.appendChild(this.note("No project folder linked for this group — point it at a repo from the rail to manage context."));
-      return el;
-    }
 
     const list = document.createElement("div");
     list.className = "canon-cockpit-context-list";
@@ -1056,7 +1154,14 @@ export class CanonCockpitView {
       .then((status) => {
         list.replaceChildren();
         if (status.contexts.length === 0) {
-          list.appendChild(this.note("No context files yet."));
+          list.appendChild(this.emptyState({
+            icon: Icons.noteText({ size: 28 }),
+            title: "No context files yet",
+            hint: "Mine this repo into curated context every session carries.",
+            action: this.opts.onNewContext
+              ? { label: "New context", onClick: () => this.opts.onNewContext?.() }
+              : undefined,
+          }));
           return;
         }
         for (const c of status.contexts) {
@@ -1081,6 +1186,17 @@ export class CanonCockpitView {
     el.className = "canon-cockpit-section is-loop canon-loop canon-cockpit-loop-body";
     const cwd = this.opts.groupRootDir;
     const active = this.activeOrg();
+
+    // Nothing to observe without a repo or an org — the homologated empty
+    // state instead of three silently-empty boxes.
+    if (!cwd && !active) {
+      el.appendChild(this.emptyState({
+        icon: Icons.zap({ size: 28 }),
+        title: "Nothing to measure yet",
+        hint: "Link a repo and pick an organization to see adoption, inference footprint and eval lift.",
+      }));
+      return el;
+    }
 
     // Adoption — org-wide installs for this group's registry-sourced skills.
     // Needs both a local skill list (to know what's registry-sourced) and an

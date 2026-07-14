@@ -129,6 +129,19 @@ body.tabbar-left .canon-cockpit {
   font-size: var(--fs-body, 12px);
 }
 
+/* ── Homologated empty state — reuses the rail's .rail-empty chrome
+   (styles.css), rescaled for the wide content column. Every section shows
+   the same icon + title + hint block when it has nothing to render. */
+.canon-cockpit-section .canon-cockpit-empty {
+  height: auto;
+  min-height: 240px;
+  justify-content: center;
+  padding: 48px 24px;
+}
+.canon-cockpit-section .canon-cockpit-empty .rail-empty-hint {
+  max-width: 340px;
+}
+
 .canon-cockpit-section input,
 .canon-cockpit-section button {
   border-radius: 0;
