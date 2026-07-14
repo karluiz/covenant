@@ -235,8 +235,7 @@ struct AcpTabSession {
     /// live tab can change trust without a restart. The `Arc` shared with
     /// `hybrid_resolver` at spawn time is the copy actually consulted per
     /// permission request; this field is that same `Arc`, kept on the tab
-    /// so `acp_set_trust` (not yet wired — Task 5) can reach it.
-    #[allow(dead_code)]
+    /// so `acp_set_trust` can reach it.
     trust: Arc<std::sync::RwLock<AcpTrust>>,
 }
 
@@ -1271,6 +1270,35 @@ pub async fn acp_set_model(
         Ok(mut m) => m.current = Some(model_id),
         Err(poisoned) => poisoned.into_inner().current = Some(model_id),
     }
+    Ok(())
+}
+
+/// Switch a live session's trust level. The resolver picks up the new
+/// level on the next permission request; for adapters with native ACP
+/// modes (claude) we also flip `session/set_mode` so the agent stops
+/// generating requests at all in Yolo. Method-not-found is fine — most
+/// adapters don't implement modes.
+#[tauri::command]
+pub async fn acp_set_trust(
+    state: State<'_, AppState>,
+    session_id: String,
+    trust: AcpTrust,
+) -> Result<(), String> {
+    let (_, tab) = require(&state, &session_id).await?;
+    if let Ok(mut g) = tab.trust.write() {
+        *g = trust;
+    }
+    let mode = match trust {
+        AcpTrust::Yolo => "bypassPermissions",
+        _ => "default",
+    };
+    let _ = tab
+        .session
+        .request(
+            "session/set_mode",
+            json!({ "sessionId": tab.wire_id(), "modeId": mode }),
+        )
+        .await;
     Ok(())
 }
 
