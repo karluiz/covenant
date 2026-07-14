@@ -3,6 +3,7 @@ import { Icons } from "../icons";
 import { brandIconSvg } from "../icons/brands";
 import { attachTooltip } from "../tooltip/tooltip";
 import { spawnShortcutLabel, acpExecutorFor } from "./shortcuts";
+import { zoom } from "../zoom";
 
 const escHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -145,9 +146,14 @@ export class SpawnsChip {
   private open(): void {
     const pop = document.createElement("div");
     pop.className = "spawns-popover";
+    // Rects are visual px under the app's CSS zoom on <html>, while the
+    // fixed popover's top/left are layout px (re-scaled by that zoom) —
+    // divide by z or the menu drifts down-right as zoom grows (same fix
+    // as the tasker date menu, positionDateMenu).
+    const z = zoom.level();
     const rect = this.button!.getBoundingClientRect();
-    pop.style.top = `${Math.round(rect.bottom + 4)}px`;
-    pop.style.left = `${Math.round(rect.left)}px`;
+    pop.style.top = `${Math.round(rect.bottom / z + 4)}px`;
+    pop.style.left = `${Math.round(rect.left / z)}px`;
     const boundId = this.deps.getBoundId();
     pop.innerHTML =
       this.specs
