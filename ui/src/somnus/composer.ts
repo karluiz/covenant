@@ -47,7 +47,6 @@ export class RequestComposer {
   private authTypeSel: CustomSelect;
   private authFields: HTMLElement;
   private auth: SomnusAuth = { type: "none" };
-  private activeTab: ComposerTab = "params";
   private syncing = false;
   private sending = false;
 
@@ -278,7 +277,7 @@ export class RequestComposer {
     });
     this.bodyArea.value = d.body;
     this.bodyModeSel.value = d.body_mode;
-    this.auth = d.auth;
+    this.auth = { ...d.auth };
     this.authTypeSel.value = d.auth.type;
     this.renderAuthFields();
     this.renderParamRows(queryRows(d.url));
@@ -318,12 +317,10 @@ export class RequestComposer {
   }
 
   private setTab(tab: ComposerTab): void {
-    this.activeTab = tab;
     for (const [id, { btn }] of this.tabBtns) {
       btn.classList.toggle("is-active", id === tab);
       this.element.classList.toggle(`somnus-tab-${id}`, id === tab);
     }
-    this.element.dataset.activeTab = this.activeTab;
   }
 
   private addRowButton(label: string, onClick: () => void): HTMLButtonElement {
@@ -491,8 +488,9 @@ export class RequestComposer {
   }
 
   private readAuth(): SomnusAuth {
-    // `this.auth` is mutated in place by the field listeners.
-    return this.auth;
+    // `this.auth` is mutated in place by the field listeners — hand out a
+    // copy so callers never hold a live reference into composer state.
+    return { ...this.auth };
   }
 
   private updateBadges(): void {
