@@ -9923,11 +9923,15 @@ body.theme-light .markdown-body ::selection {
     font-size: 11px;
     line-height: 1.2;
     text-align: center;
-    color: #e8e9ec;
+    color: var(--text-primary);
     background: var(--bg-panel);
     border: 1px solid var(--border);
     border-radius: 0;
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+body.theme-light .shortcut-keys kbd {
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
 }
 
 .shortcut-text {
@@ -9935,7 +9939,7 @@ body.theme-light .markdown-body ::selection {
 }
 
 .shortcut-label {
-    color: #e8e9ec;
+    color: var(--text-primary);
     font-weight: 500;
 }
 
@@ -16083,24 +16087,19 @@ body.theme-light .release-close:hover .settings-esc {
     text-align: left;
 }
 
-.onboarding-key kbd {
+/* Per-key chips share .shortcut-keys chrome with the shortcuts panel;
+   here they only get a fixed column so labels align across rows, and a
+   slight size bump for the hero context. */
+.onboarding-key__keys {
     flex: none;
-    min-width: 56px;
-    box-sizing: border-box;
-    text-align: center;
-    font-family:
-        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    min-width: 96px;
+    padding-top: 0;
+}
+
+.onboarding-key__keys kbd {
+    min-width: 24px;
+    padding: 4px 7px;
     font-size: 12px;
-    letter-spacing: 0.04em;
-    padding: 6px 10px;
-    border-radius: 0;
-    color: var(--text-primary);
-    background: rgb(var(--ink-rgb, 255 255 255) / 0.06);
-    border: 1px solid
-        color-mix(in srgb, var(--border) 60%, rgb(var(--ink-rgb, 255 255 255) / 0.35));
-    /* Keycap depth stays a dark bottom edge in BOTH themes — ink-rgb
-       would flip it to a white glow on dark. */
-    box-shadow: inset 0 -1.5px 0 rgba(0, 0, 0, 0.22);
 }
 
 .onboarding-key__text {
