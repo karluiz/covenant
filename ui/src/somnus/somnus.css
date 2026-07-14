@@ -106,24 +106,6 @@ body.sidebar-view-somnus #somnus-panel .rail-panel {
 .somnus-composer .rail-controls {
   padding: 0;
 }
-.somnus-header-row {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-.somnus-header-row .rail-search {
-  flex: 1 1 50%;
-  min-width: 0;
-}
-.somnus-add-header {
-  align-self: flex-start;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font-size: var(--fs-micro);
-  cursor: pointer;
-  padding: 0;
-}
 .somnus-bodybox {
   width: 100%;
   min-height: 72px;
@@ -139,13 +121,288 @@ body.sidebar-view-somnus #somnus-panel .rail-panel {
 .somnus-bodybox:disabled {
   opacity: 0.4;
 }
-/* Tab visibility: composer shows headers OR body */
-.rail-panel.somnus-tab-headers .somnus-bodybox {
+
+/* ── v2: kv rows (params / headers / form / env vars) ── */
+.somnus-kv-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.somnus-kv-row .rail-search {
+  flex: 1 1 50%;
+  min-width: 0;
+}
+.somnus-add-row {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  padding: 0;
+}
+
+/* ── v2: composer tabs / panes ── */
+.somnus-pane {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+}
+.somnus-composer.somnus-tab-params .somnus-pane-params,
+.somnus-composer.somnus-tab-auth .somnus-pane-auth,
+.somnus-composer.somnus-tab-headers .somnus-pane-headers,
+.somnus-composer.somnus-tab-body .somnus-pane-body {
+  display: flex;
+}
+.somnus-badge {
+  margin-left: 4px;
+  font-size: 9px;
+  color: var(--text-tertiary);
+}
+.rail-tab.is-active .somnus-badge {
+  color: var(--accent);
+}
+.somnus-envline {
+  display: flex;
+  min-width: 0;
+}
+.somnus-envsel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.somnus-var-warn {
+  font-size: var(--fs-micro);
+  color: var(--fail);
+}
+.somnus-var-warn.hidden {
   display: none;
 }
-.rail-panel.somnus-tab-body .somnus-headers,
-.rail-panel.somnus-tab-body .somnus-add-header {
+.somnus-url.is-unresolved {
+  border-color: var(--fail);
+}
+.somnus-auth-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.somnus-bodybar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.somnus-format {
+  font-size: var(--fs-micro);
+}
+/* body-mode projections: textarea is canonical; form rows replace it */
+.somnus-composer .somnus-form,
+.somnus-composer .somnus-body-hint,
+.somnus-composer .somnus-format {
   display: none;
+}
+.somnus-composer.somnus-body-json .somnus-format {
+  display: inline-block;
+}
+.somnus-composer.somnus-body-form .somnus-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.somnus-composer.somnus-body-form .somnus-bodybox,
+.somnus-composer.somnus-body-none .somnus-bodybox {
+  display: none;
+}
+.somnus-composer.somnus-body-none .somnus-body-hint {
+  display: block;
+}
+
+/* ── v2: method chip — tokens only (DESIGN rule 9) ── */
+.somnus-chip {
+  flex: 0 0 auto;
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+.somnus-chip[data-method="GET"] { color: var(--ok); }
+.somnus-chip[data-method="POST"] { color: var(--accent); }
+.somnus-chip[data-method="PUT"],
+.somnus-chip[data-method="PATCH"] { color: var(--running); }
+.somnus-chip[data-method="DELETE"] { color: var(--danger); }
+
+/* ── v2: side (collections / env / history) ── */
+.somnus-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.somnus-side-tabs {
+  padding: 0 var(--rail-pad-x);
+}
+.somnus-tree,
+.somnus-envs,
+.somnus-history {
+  display: none;
+  min-height: 0;
+}
+.rail-panel.somnus-side-collections .somnus-tree,
+.rail-panel.somnus-side-envs .somnus-envs,
+.rail-panel.somnus-side-history .somnus-history {
+  display: block;
+}
+.somnus-tree-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 4px var(--rail-pad-x);
+}
+.somnus-tree-toolbar input[type="file"].hidden {
+  display: none;
+}
+.somnus-tree-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.somnus-chevron {
+  display: inline-flex;
+  color: var(--text-tertiary);
+  transition: transform 120ms ease;
+}
+.somnus-chevron.is-open {
+  transform: rotate(90deg);
+}
+.somnus-env-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px var(--rail-pad-x) 8px;
+  border-left: var(--rail-spine) solid var(--border);
+  margin-left: var(--rail-pad-x);
+}
+/* password inputs keep the sharp-corner reset (light-theme gotcha) */
+#somnus-panel input[type="password"] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-elevated);
+  padding: 6px 8px;
+  outline: 0;
+  font-family: var(--ui-font);
+  font-size: var(--fs-body);
+}
+
+/* ── v2: request tab strip (expanded only) ── */
+.somnus-tabsbar {
+  display: none;
+  align-items: stretch;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+.somnus-reqtab {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 10px;
+  border-right: 1px solid var(--border);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.somnus-reqtab.is-active {
+  background: var(--bg-elevated);
+  color: var(--text-primary, #e6e8ee);
+}
+.somnus-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--running);
+}
+.somnus-reqtab-close {
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  opacity: 0;
+}
+.somnus-reqtab:hover .somnus-reqtab-close,
+.somnus-reqtab.is-active .somnus-reqtab-close {
+  opacity: 1;
+}
+.somnus-reqtab-new {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 10px;
+}
+
+/* ── v2: menu / confirm / save poppers (ui-select chrome carries the surface) ── */
+.somnus-menu,
+.somnus-confirm,
+.somnus-savepop {
+  z-index: 1000;
+  min-width: 180px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ui-select__option.is-danger {
+  color: var(--danger);
+}
+.somnus-confirm-label {
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  padding: 4px 6px;
+}
+.somnus-confirm-actions {
+  display: flex;
+  gap: 2px;
+}
+.somnus-savepop {
+  width: 280px;
+}
+.somnus-savepop .rail-search {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-elevated);
+  padding: 6px 8px;
+  outline: 0;
+  font-size: var(--fs-body);
+}
+
+/* ── v2: toast + esc pill ── */
+.somnus-toast {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 5;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-overlay);
+  font-size: var(--fs-micro);
+  color: var(--text-secondary);
+}
+.somnus-toast.is-error {
+  border-color: var(--fail);
+}
+.somnus-close {
+  display: none;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+body.somnus-expanded #somnus-panel .somnus-close {
+  display: inline-flex;
 }
 
 /* ── Response ── */
@@ -273,14 +530,13 @@ body.somnus-expanded #layout > #somnus-panel {
   border-left: none;
   z-index: 80;
 }
-/* Spec layout: history = full-height left column; composer on top of the
-   main area, response below it. The DOM stays rail-shaped (header, composer,
-   .rail-body > response+history), so the panel becomes the grid and
-   .rail-body dissolves via display:contents to lift its children into it. */
+/* Spec layout: DOM is header, tabsbar, composer, .rail-body(response, side)
+   — tabsbar/composer are direct children of .rail-panel, and .rail-body
+   dissolves via display:contents, so all five land as grid items. */
 body.somnus-expanded #somnus-panel .rail-panel {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 body.somnus-expanded #somnus-panel .rail-header {
   grid-column: 1 / -1;
@@ -290,24 +546,30 @@ body.somnus-expanded #somnus-panel .rail-header {
 body.somnus-expanded #somnus-panel .rail-body {
   display: contents;
 }
-body.somnus-expanded #somnus-panel .somnus-history {
+body.somnus-expanded #somnus-panel .somnus-side {
   grid-column: 1;
-  grid-row: 2 / 4;
+  grid-row: 2 / 5;
   min-height: 0;
   overflow-y: auto;
   border-right: 1px solid var(--border);
 }
-body.somnus-expanded #somnus-panel .somnus-composer {
+body.somnus-expanded #somnus-panel .somnus-tabsbar {
+  display: flex;
   grid-column: 2;
   grid-row: 2;
+}
+body.somnus-expanded #somnus-panel .somnus-composer {
+  grid-column: 2;
+  grid-row: 3;
   padding: 12px 16px;
+  border-bottom: none;
 }
 body.somnus-expanded #somnus-panel .somnus-bodybox {
   min-height: 140px;
 }
 body.somnus-expanded #somnus-panel .somnus-response {
   grid-column: 2;
-  grid-row: 3;
+  grid-row: 4;
   min-height: 0;
   overflow-y: auto;
   padding: 12px 16px;
