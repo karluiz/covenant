@@ -1183,8 +1183,10 @@ export class AcpChatView {
   private renderTrustMenu(): void {
     this.trustMenuEl.textContent = "";
     for (const t of ["ask", "balanced", "yolo"] as AcpTrust[]) {
-      const item = document.createElement("button");
-      item.type = "button";
+      // <div role="option">, same as the model-menu rows — a bare <button>
+      // gets native rounded Aqua chrome in WKWebView (no button reset in
+      // this stylesheet), violating the border-radius-0 rule.
+      const item = document.createElement("div");
       item.className = "acp-slash-row";
       item.dataset.trust = t;
       item.setAttribute("role", "option");
@@ -1194,7 +1196,8 @@ export class AcpChatView {
       name.textContent = AcpChatView.TRUST_LABELS[t];
       item.appendChild(name);
       if (t === "yolo") item.classList.add("acp-trust-menu-yolo");
-      item.addEventListener("click", () => {
+      item.addEventListener("mousedown", (e) => {
+        e.preventDefault();
         this.trust = t;
         this.renderTrustChip();
         this.closeTrustMenu();

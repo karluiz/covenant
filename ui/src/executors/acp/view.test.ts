@@ -539,8 +539,11 @@ describe("AcpChatView trust chip", () => {
   it("switching trust calls acpSetTrust and updates the chip", async () => {
     const view = await mountView({ trust: "balanced" });
     view.host.querySelector<HTMLButtonElement>(".acp-trust-chip")?.click();
-    const yoloItem = view.host.querySelector<HTMLButtonElement>('.acp-trust-menu [data-trust="yolo"]');
-    yoloItem?.click();
+    // Menu rows are <div role="option"> activated on mousedown (same
+    // precedent as the model menu) — not <button>s, so no .click().
+    const yoloItem = view.host.querySelector<HTMLElement>('.acp-trust-menu [data-trust="yolo"]');
+    expect(yoloItem).toBeTruthy();
+    yoloItem?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     await flush();
     expect(acpSetTrust).toHaveBeenCalledWith(expect.anything(), "yolo");
     expect(view.host.querySelector(".acp-trust-chip--yolo")).toBeTruthy();
