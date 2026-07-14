@@ -295,6 +295,17 @@ pub fn mask_secrets(text: &str) -> String {
                     .unwrap(),
                 "jwt",
             ),
+            // Full PEM block first (redacts the key BODY, not just the header)
+            // — lazy to the first END so multiple keys each match their own.
+            (
+                Regex::new(
+                    r"(?s)-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----.*?-----END (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----",
+                )
+                .unwrap(),
+                "pem",
+            ),
+            // Fallback: a header with no matching END (malformed) still gets its
+            // delimiter line redacted.
             (
                 Regex::new(r"-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----").unwrap(),
                 "pem",
@@ -479,5 +490,30 @@ mod tests {
     fn mask_secrets_idempotent_on_already_redacted() {
         let already = "before [REDACTED:anthropic] after";
         assert_eq!(super::mask_secrets(already), already);
+    }
+
+    // Guards the canon_publish MCP path: structural blank (env/headers) leaves
+    // secrets in args/url untouched, so token-shape masking must catch them.
+    #[test]
+    fn mask_secrets_scrubs_tokens_in_blanked_mcp_args_and_url() {
+        let stdio = r#"{"command":"npx","args":["-y","mcp","--api-key","sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUV"],"env":{"K":"v"}}"#;
+        let masked = super::mask_secrets(&karl_canon::blank_mcp_secrets(stdio).unwrap());
+        assert!(!masked.contains("sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUV"), "arg token must be scrubbed");
+        assert!(masked.contains("[REDACTED:anthropic]"));
+
+        let remote = r#"{"type":"http","url":"https://x.example/sse?token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"}"#;
+        let masked = super::mask_secrets(&karl_canon::blank_mcp_secrets(remote).unwrap());
+        assert!(!masked.contains("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"), "url token must be scrubbed");
+        assert!(masked.contains("[REDACTED:github]"));
+    }
+
+    #[test]
+    fn mask_secrets_redacts_full_pem_body_not_just_header() {
+        let pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAsecretKeyMaterial123\nabcDEFghiJKL456\n-----END RSA PRIVATE KEY-----";
+        let masked = super::mask_secrets(pem);
+        assert!(!masked.contains("MIIEowIBAAKCAQEAsecretKeyMaterial123"), "key body must be redacted");
+        assert!(!masked.contains("abcDEFghiJKL456"), "key body must be redacted");
+        assert!(masked.contains("[REDACTED:pem]"));
+        assert!(!masked.contains("PRIVATE KEY"), "no PEM markers should survive");
     }
 }
