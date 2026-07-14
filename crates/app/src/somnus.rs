@@ -149,6 +149,8 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
     #[error("blocking task panicked: {0}")]
     Join(String),
+    #[error("somnus: {0}")]
+    Invalid(String),
 }
 
 /// One row of somnus_history, as the UI consumes it.
@@ -328,6 +330,352 @@ impl Store {
     }
 }
 
+// ── Collections tree + environments (v2) ────────────────────────────
+//
+// `request` (tree) and `vars` (environments) are opaque JSON strings —
+// the frontend owns their shape (SomnusDraft / SomnusEnvVar[] in api.ts).
+// Rust stores and returns them verbatim.
+
+pub const TREE_KINDS: [&str; 3] = ["collection", "folder", "request"];
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SomnusTreeNode {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub kind: String,
+    pub name: String,
+    pub sort: i64,
+    pub request: Option<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SomnusImportNode {
+    pub kind: String,
+    pub name: String,
+    pub request: Option<String>,
+    #[serde(default)]
+    pub children: Vec<SomnusImportNode>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SomnusEnvironment {
+    pub id: String,
+    pub name: String,
+    pub vars: String,
+    pub is_active: bool,
+}
+
+impl Store {
+    pub async fn tree_list(&self) -> Result<Vec<SomnusTreeNode>, StoreError> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<SomnusTreeNode>, StoreError> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, parent_id, kind, name, sort, request, updated_at
+                 FROM somnus_tree ORDER BY sort ASC, rowid ASC",
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(SomnusTreeNode {
+                        id: row.get(0)?,
+                        parent_id: row.get(1)?,
+                        kind: row.get(2)?,
+                        name: row.get(3)?,
+                        sort: row.get(4)?,
+                        request: row.get(5)?,
+                        updated_at: row.get(6)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    pub async fn tree_create(
+        &self,
+        parent_id: Option<String>,
+        kind: String,
+        name: String,
+        request: Option<String>,
+    ) -> Result<String, StoreError> {
+        if !TREE_KINDS.contains(&kind.as_str()) {
+            return Err(StoreError::Invalid(format!("bad tree kind {kind}")));
+        }
+        let conn = self.conn.clone();
+        let id = ulid::Ulid::new().to_string();
+        let id_out = id.clone();
+        let now = Self::now_ms();
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO somnus_tree (id, parent_id, kind, name, sort, request, updated_at)
+                 VALUES (?1, ?2, ?3, ?4,
+                   1 + COALESCE((SELECT MAX(sort) FROM somnus_tree WHERE parent_id IS ?2), 0),
+                   ?5, ?6)",
+                params![id, parent_id, kind, name, request, now],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))??;
+        Ok(id_out)
+    }
+
+    /// Partial update: `None` fields keep their stored value.
+    pub async fn tree_update(
+        &self,
+        id: &str,
+        name: Option<String>,
+        request: Option<String>,
+    ) -> Result<(), StoreError> {
+        let conn = self.conn.clone();
+        let id = id.to_owned();
+        let now = Self::now_ms();
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "UPDATE somnus_tree
+                 SET name = COALESCE(?2, name), request = COALESCE(?3, request), updated_at = ?4
+                 WHERE id = ?1",
+                params![id, name, request, now],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    /// Recursive delete: the node and all descendants, one statement.
+    pub async fn tree_delete(&self, id: &str) -> Result<(), StoreError> {
+        let conn = self.conn.clone();
+        let id = id.to_owned();
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "DELETE FROM somnus_tree WHERE id IN (
+                   WITH RECURSIVE d(id) AS (
+                     SELECT ?1
+                     UNION ALL
+                     SELECT t.id FROM somnus_tree t JOIN d ON t.parent_id = d.id
+                   ) SELECT id FROM d)",
+                params![id],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    /// Deep copy of a subtree next to the original; root gets " copy".
+    pub async fn tree_duplicate(&self, id: &str) -> Result<String, StoreError> {
+        let conn = self.conn.clone();
+        let id = id.to_owned();
+        let now = Self::now_ms();
+        tokio::task::spawn_blocking(move || -> Result<String, StoreError> {
+            let mut c = conn.blocking_lock();
+            let tx = c.transaction()?;
+            // BFS order guarantees parents precede children.
+            let rows: Vec<(String, Option<String>, String, String, Option<String>)> = {
+                let mut stmt = tx.prepare(
+                    "WITH RECURSIVE d(id) AS (
+                       SELECT ?1
+                       UNION ALL
+                       SELECT t.id FROM somnus_tree t JOIN d ON t.parent_id = d.id
+                     )
+                     SELECT s.id, s.parent_id, s.kind, s.name, s.request
+                     FROM somnus_tree s JOIN d ON s.id = d.id",
+                )?;
+                let mapped = stmt.query_map(params![id], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                })?;
+                mapped.collect::<Result<Vec<_>, _>>()?
+            };
+            if rows.is_empty() {
+                return Err(StoreError::Invalid(format!("no tree node {id}")));
+            }
+            let mut remap: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            for (old_id, _, _, _, _) in &rows {
+                remap.insert(old_id.clone(), ulid::Ulid::new().to_string());
+            }
+            let mut new_root = String::new();
+            for (old_id, parent, kind, name, request) in &rows {
+                let is_root = *old_id == id;
+                let new_id = remap[old_id].clone();
+                if is_root {
+                    new_root = new_id.clone();
+                }
+                // Root keeps its original parent; descendants remap to their copied parent.
+                let new_parent = if is_root {
+                    parent.clone()
+                } else {
+                    parent.as_ref().map(|p| remap.get(p).cloned().unwrap_or_else(|| p.clone()))
+                };
+                let new_name = if is_root { format!("{name} copy") } else { name.clone() };
+                tx.execute(
+                    "INSERT INTO somnus_tree (id, parent_id, kind, name, sort, request, updated_at)
+                     VALUES (?1, ?2, ?3, ?4,
+                       1 + COALESCE((SELECT MAX(sort) FROM somnus_tree WHERE parent_id IS ?2), 0),
+                       ?5, ?6)",
+                    params![new_id, new_parent, kind, new_name, request, now],
+                )?;
+            }
+            tx.commit()?;
+            Ok(new_root)
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    /// Import a whole collection atomically. Creates the root collection
+    /// named `name`, inserts `nodes` beneath it, returns the request count.
+    pub async fn tree_import(
+        &self,
+        name: String,
+        nodes: Vec<SomnusImportNode>,
+    ) -> Result<u32, StoreError> {
+        for n in &nodes {
+            validate_import_kinds(n)?;
+        }
+        let conn = self.conn.clone();
+        let now = Self::now_ms();
+        tokio::task::spawn_blocking(move || -> Result<u32, StoreError> {
+            let mut c = conn.blocking_lock();
+            let tx = c.transaction()?;
+            let root = ulid::Ulid::new().to_string();
+            tx.execute(
+                "INSERT INTO somnus_tree (id, parent_id, kind, name, sort, request, updated_at)
+                 VALUES (?1, NULL, 'collection', ?2,
+                   1 + COALESCE((SELECT MAX(sort) FROM somnus_tree WHERE parent_id IS NULL), 0),
+                   NULL, ?3)",
+                params![root, name, now],
+            )?;
+            fn insert_nodes(
+                tx: &rusqlite::Transaction<'_>,
+                parent: &str,
+                nodes: &[SomnusImportNode],
+                now: i64,
+                count: &mut u32,
+            ) -> Result<(), rusqlite::Error> {
+                for (i, n) in nodes.iter().enumerate() {
+                    let id = ulid::Ulid::new().to_string();
+                    tx.execute(
+                        "INSERT INTO somnus_tree (id, parent_id, kind, name, sort, request, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        params![id, parent, n.kind, n.name, (i + 1) as i64, n.request, now],
+                    )?;
+                    if n.kind == "request" {
+                        *count += 1;
+                    }
+                    insert_nodes(tx, &id, &n.children, now, count)?;
+                }
+                Ok(())
+            }
+            let mut count = 0u32;
+            insert_nodes(&tx, &root, &nodes, now, &mut count)?;
+            tx.commit()?;
+            Ok(count)
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    pub async fn env_list(&self) -> Result<Vec<SomnusEnvironment>, StoreError> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<SomnusEnvironment>, StoreError> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, name, vars, is_active FROM somnus_environments ORDER BY rowid ASC",
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(SomnusEnvironment {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        vars: row.get(2)?,
+                        is_active: row.get::<_, i64>(3)? != 0,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    pub async fn env_create(&self, name: String) -> Result<String, StoreError> {
+        let conn = self.conn.clone();
+        let id = ulid::Ulid::new().to_string();
+        let id_out = id.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO somnus_environments (id, name, vars, is_active) VALUES (?1, ?2, '[]', 0)",
+                params![id, name],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))??;
+        Ok(id_out)
+    }
+
+    pub async fn env_update(&self, id: &str, name: String, vars: String) -> Result<(), StoreError> {
+        let conn = self.conn.clone();
+        let id = id.to_owned();
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "UPDATE somnus_environments SET name = ?2, vars = ?3 WHERE id = ?1",
+                params![id, name, vars],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    pub async fn env_delete(&self, id: &str) -> Result<(), StoreError> {
+        let conn = self.conn.clone();
+        let id = id.to_owned();
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM somnus_environments WHERE id = ?1", params![id])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    /// At most one active environment; `None` deactivates all.
+    pub async fn env_activate(&self, id: Option<String>) -> Result<(), StoreError> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StoreError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "UPDATE somnus_environments
+                 SET is_active = CASE WHEN id = ?1 THEN 1 ELSE 0 END",
+                params![id],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+}
+
+fn validate_import_kinds(n: &SomnusImportNode) -> Result<(), StoreError> {
+    if n.kind != "folder" && n.kind != "request" {
+        return Err(StoreError::Invalid(format!("bad import kind {}", n.kind)));
+    }
+    for c in &n.children {
+        validate_import_kinds(c)?;
+    }
+    Ok(())
+}
+
 // ── Tauri commands ──────────────────────────────────────────────────
 
 use tauri::State;
@@ -366,6 +714,81 @@ pub async fn somnus_history_delete(store: State<'_, Store>, id: String) -> Resul
 #[tauri::command]
 pub async fn somnus_history_clear(store: State<'_, Store>) -> Result<(), String> {
     store.clear().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_tree_list(store: State<'_, Store>) -> Result<Vec<SomnusTreeNode>, String> {
+    store.tree_list().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_tree_create(
+    store: State<'_, Store>,
+    parent_id: Option<String>,
+    kind: String,
+    name: String,
+    request: Option<String>,
+) -> Result<String, String> {
+    store.tree_create(parent_id, kind, name, request).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_tree_update(
+    store: State<'_, Store>,
+    id: String,
+    name: Option<String>,
+    request: Option<String>,
+) -> Result<(), String> {
+    store.tree_update(&id, name, request).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_tree_delete(store: State<'_, Store>, id: String) -> Result<(), String> {
+    store.tree_delete(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_tree_duplicate(store: State<'_, Store>, id: String) -> Result<String, String> {
+    store.tree_duplicate(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_tree_import(
+    store: State<'_, Store>,
+    name: String,
+    nodes: Vec<SomnusImportNode>,
+) -> Result<u32, String> {
+    store.tree_import(name, nodes).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_env_list(store: State<'_, Store>) -> Result<Vec<SomnusEnvironment>, String> {
+    store.env_list().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_env_create(store: State<'_, Store>, name: String) -> Result<String, String> {
+    store.env_create(name).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_env_update(
+    store: State<'_, Store>,
+    id: String,
+    name: String,
+    vars: String,
+) -> Result<(), String> {
+    store.env_update(&id, name, vars).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_env_delete(store: State<'_, Store>, id: String) -> Result<(), String> {
+    store.env_delete(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn somnus_env_activate(store: State<'_, Store>, id: Option<String>) -> Result<(), String> {
+    store.env_activate(id).await.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -614,5 +1037,157 @@ mod tests {
         assert_eq!(store.list(10).await.unwrap().len(), 1);
         store.clear().await.unwrap();
         assert_eq!(store.list(10).await.unwrap().len(), 0);
+    }
+
+    // ── v2: collections tree ──
+
+    async fn mk_collection(store: &Store, name: &str) -> String {
+        store.tree_create(None, "collection".into(), name.into(), None).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn tree_create_and_list_roundtrip() {
+        let store = mem_store();
+        let col = mk_collection(&store, "My API").await;
+        let folder = store
+            .tree_create(Some(col.clone()), "folder".into(), "Auth".into(), None)
+            .await
+            .unwrap();
+        let req_json = r#"{"method":"GET","url":"https://{{base_url}}/users","headers":[],"body":"","body_mode":"none","auth":{"type":"none"}}"#;
+        let req_id = store
+            .tree_create(Some(folder.clone()), "request".into(), "List users".into(), Some(req_json.into()))
+            .await
+            .unwrap();
+        let rows = store.tree_list().await.unwrap();
+        assert_eq!(rows.len(), 3);
+        let req_row = rows.iter().find(|r| r.id == req_id).unwrap();
+        assert_eq!(req_row.parent_id.as_deref(), Some(folder.as_str()));
+        assert_eq!(req_row.kind, "request");
+        assert_eq!(req_row.request.as_deref(), Some(req_json));
+    }
+
+    #[tokio::test]
+    async fn tree_sort_increments_per_sibling_group() {
+        let store = mem_store();
+        let col = mk_collection(&store, "A").await;
+        let r1 = store.tree_create(Some(col.clone()), "request".into(), "one".into(), None).await.unwrap();
+        let r2 = store.tree_create(Some(col.clone()), "request".into(), "two".into(), None).await.unwrap();
+        let rows = store.tree_list().await.unwrap();
+        let s = |id: &str| rows.iter().find(|r| r.id == id).unwrap().sort;
+        assert!(s(&r1) < s(&r2));
+    }
+
+    #[tokio::test]
+    async fn tree_create_rejects_bad_kind() {
+        let store = mem_store();
+        let e = store.tree_create(None, "blob".into(), "x".into(), None).await.unwrap_err();
+        assert!(e.to_string().contains("kind"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn tree_update_renames_and_saves_request() {
+        let store = mem_store();
+        let col = mk_collection(&store, "A").await;
+        let id = store.tree_create(Some(col), "request".into(), "old".into(), None).await.unwrap();
+        store.tree_update(&id, Some("new".into()), Some(r#"{"method":"POST"}"#.into())).await.unwrap();
+        let rows = store.tree_list().await.unwrap();
+        let row = rows.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(row.name, "new");
+        assert_eq!(row.request.as_deref(), Some(r#"{"method":"POST"}"#));
+        // Partial update: rename only must not clobber the stored request.
+        store.tree_update(&id, Some("newer".into()), None).await.unwrap();
+        let rows = store.tree_list().await.unwrap();
+        let row = rows.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(row.name, "newer");
+        assert_eq!(row.request.as_deref(), Some(r#"{"method":"POST"}"#));
+    }
+
+    #[tokio::test]
+    async fn tree_delete_is_recursive() {
+        let store = mem_store();
+        let col = mk_collection(&store, "A").await;
+        let folder = store.tree_create(Some(col.clone()), "folder".into(), "f".into(), None).await.unwrap();
+        store.tree_create(Some(folder.clone()), "request".into(), "leaf".into(), None).await.unwrap();
+        store.tree_delete(&col).await.unwrap();
+        assert!(store.tree_list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn tree_duplicate_copies_subtree_with_new_ids() {
+        let store = mem_store();
+        let col = mk_collection(&store, "A").await;
+        let folder = store.tree_create(Some(col.clone()), "folder".into(), "f".into(), None).await.unwrap();
+        store
+            .tree_create(Some(folder.clone()), "request".into(), "leaf".into(), Some("{}".into()))
+            .await
+            .unwrap();
+        let copy_id = store.tree_duplicate(&folder).await.unwrap();
+        let rows = store.tree_list().await.unwrap();
+        assert_eq!(rows.len(), 5); // col + f + leaf + "f copy" + copied leaf
+        let copy = rows.iter().find(|r| r.id == copy_id).unwrap();
+        assert_eq!(copy.name, "f copy");
+        assert_eq!(copy.parent_id.as_deref(), Some(col.as_str()));
+        let copied_leaf = rows.iter().find(|r| r.parent_id.as_deref() == Some(copy_id.as_str())).unwrap();
+        assert_eq!(copied_leaf.name, "leaf");
+        assert_eq!(copied_leaf.request.as_deref(), Some("{}"));
+    }
+
+    #[tokio::test]
+    async fn tree_import_builds_structure_and_counts_requests() {
+        let store = mem_store();
+        let nodes = vec![
+            SomnusImportNode {
+                kind: "folder".into(),
+                name: "Users".into(),
+                request: None,
+                children: vec![SomnusImportNode {
+                    kind: "request".into(),
+                    name: "List".into(),
+                    request: Some("{}".into()),
+                    children: vec![],
+                }],
+            },
+            SomnusImportNode { kind: "request".into(), name: "Ping".into(), request: Some("{}".into()), children: vec![] },
+        ];
+        let count = store.tree_import("Imported".into(), nodes).await.unwrap();
+        assert_eq!(count, 2);
+        let rows = store.tree_list().await.unwrap();
+        assert_eq!(rows.len(), 4); // collection + folder + 2 requests
+        let root = rows.iter().find(|r| r.kind == "collection").unwrap();
+        assert_eq!(root.name, "Imported");
+        assert!(root.parent_id.is_none());
+    }
+
+    // ── v2: environments ──
+
+    #[tokio::test]
+    async fn env_crud_roundtrip() {
+        let store = mem_store();
+        let id = store.env_create("Staging".into()).await.unwrap();
+        store
+            .env_update(&id, "Staging".into(), r#"[{"key":"base_url","value":"https://stg.test","secret":false}]"#.into())
+            .await
+            .unwrap();
+        let envs = store.env_list().await.unwrap();
+        assert_eq!(envs.len(), 1);
+        assert_eq!(envs[0].name, "Staging");
+        assert!(envs[0].vars.contains("base_url"));
+        assert!(!envs[0].is_active);
+        store.env_delete(&id).await.unwrap();
+        assert!(store.env_list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn env_activate_is_exclusive_and_clearable() {
+        let store = mem_store();
+        let a = store.env_create("A".into()).await.unwrap();
+        let b = store.env_create("B".into()).await.unwrap();
+        store.env_activate(Some(a.clone())).await.unwrap();
+        store.env_activate(Some(b.clone())).await.unwrap();
+        let envs = store.env_list().await.unwrap();
+        assert!(!envs.iter().find(|e| e.id == a).unwrap().is_active);
+        assert!(envs.iter().find(|e| e.id == b).unwrap().is_active);
+        store.env_activate(None).await.unwrap();
+        assert!(store.env_list().await.unwrap().iter().all(|e| !e.is_active));
     }
 }
