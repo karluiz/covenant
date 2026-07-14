@@ -84,6 +84,15 @@ export function mountResourcesPanel(host: HTMLElement, deps: ResourcesPanelDeps)
           `<span class="res-mem">${m ? fmtBytes(m.mem_bytes) : '—'}</span>`;
         (r.querySelector('.res-name') as HTMLElement).textContent = g.titleFor(id);
         body.appendChild(r);
+        // Hot processes inside the session subtree — the "why" behind the numbers.
+        if (m && m.top && m.top.length > 0) {
+          const p = document.createElement('div');
+          p.className = 'res-procs';
+          p.textContent = m.top
+            .map((t) => `${t.name}${t.count > 1 ? ` ×${t.count}` : ''} ${fmtPct(t.cpu)}`)
+            .join(' · ');
+          body.appendChild(p);
+        }
       }
     }
   };

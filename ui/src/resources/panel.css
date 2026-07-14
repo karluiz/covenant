@@ -58,4 +58,5 @@ body.sidebar-view-resources .tab-pane {
 .res-session:hover { background: rgba(255, 255, 255, .03); }
 .res-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .res-cpu, .res-mem { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--txt-faint, #8a8d99); }
+.res-procs { font-family: var(--font-mono, ui-monospace, monospace); font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--txt-faint, #8a8d99); padding: 0 14px 4px 30px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .res-empty { color: var(--txt-faint, #8a8d99); padding: 18px 14px; }

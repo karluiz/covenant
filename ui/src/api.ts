@@ -270,7 +270,8 @@ export async function clearAllAomExcluded(): Promise<void> {
   return invoke<void>("clear_all_aom_excluded");
 }
 
-export interface ResourcesSessionMetric { id: string; cpu: number; mem_bytes: number; }
+export interface ResourcesTopProc { name: string; cpu: number; count: number; }
+export interface ResourcesSessionMetric { id: string; cpu: number; mem_bytes: number; top: ResourcesTopProc[]; }
 export interface ResourcesSnapshot {
   total_cpu: number;
   total_mem_bytes: number;
