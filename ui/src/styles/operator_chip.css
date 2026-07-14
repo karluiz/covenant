@@ -33,7 +33,7 @@ body.theme-dark .op-chip {
 
 .op-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
   width: 100%;
 }
@@ -177,16 +177,24 @@ body.theme-dark .op-chip {
   border-color: color-mix(in srgb, var(--operator-color, var(--accent, #7aa2f7)) 35%, var(--border, #1c2027));
 }
 
-/* Tags — one quiet mono line, never a wall. */
+/* Tags — one quiet mono line, never a wall. Flex keeps the +N counter
+ * visible: the text span truncates, the counter never does. */
 .op-card-tags {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10.5px;
   color: var(--fg-dim, #8b929b);
+  min-width: 0;
+}
+.op-card-tagtext {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.op-card-tagmore { color: var(--text-tertiary, #5c626c); }
+.op-card-tagmore { flex: none; color: var(--text-tertiary, #5c626c); }
 
 /* Actions — hover-reveal, top-right (.rail-row-actions pattern). Opaque
  * fill so they occlude the badges beneath. */
@@ -196,6 +204,7 @@ body.theme-dark .op-chip {
   right: 9px;
   display: flex;
   gap: 2px;
+  padding: 2px;
   background: var(--bg-overlay, #11141a);
   opacity: 0;
   transition: opacity 120ms ease;
@@ -207,12 +216,15 @@ body.theme-dark .op-chip {
 /* Layout-only; visual styling comes from .settings-btn. */
 .op-card-btn { flex: 1; }
 
-.op-card-iconbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
+/* High specificity on purpose: the cockpit's generic button reset
+ * (.canon-cockpit-section button — border, 28px height, 0 12px padding)
+ * outranks a single class and turned these into empty bordered boxes. */
+.op-card .op-card-actions .op-card-iconbtn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-width: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -221,12 +233,16 @@ body.theme-dark .op-chip {
   background: none;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.op-card-iconbtn svg { width: 13px; height: 13px; }
-.op-card-iconbtn:hover {
+.op-card .op-card-actions .op-card-iconbtn svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+.op-card .op-card-actions .op-card-iconbtn:hover {
   color: var(--text-primary, #f5f6f7);
   background: rgb(var(--ink-rgb, 255 255 255) / 0.08);
 }
-.op-card-iconbtn.is-danger:hover {
+.op-card .op-card-actions .op-card-iconbtn.is-danger:hover {
   color: var(--danger, #e5484d);
   background: color-mix(in srgb, var(--danger, #e5484d) 12%, transparent);
 }
