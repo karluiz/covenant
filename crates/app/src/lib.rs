@@ -2507,6 +2507,12 @@ async fn canon_publish(
             .await;
     }
     let k = parse_unit_kind(&kind)?;
+    if matches!(
+        k,
+        karl_canon::ContextKind::Spec | karl_canon::ContextKind::Memory
+    ) {
+        return Err(format!("kind {kind} is not publishable"));
+    }
     let n = name.clone();
     let content = tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, k, &n))
         .await
