@@ -295,6 +295,26 @@ export class CanonCockpitView {
     return s;
   }
 
+  /** Upload-to-registry icon button for a single-file unit row, or null
+   *  when no org is active (nothing to publish into). Shared by the
+   *  Subagents/Commands/MCP/Context sections. */
+  private unitPublishAction(cwd: string, kind: CanonPkgKind, name: string): HTMLButtonElement | null {
+    const active = this.activeOrg();
+    if (!active) return null;
+    const pub = iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => {
+      pub.disabled = true;
+      void canonPublish(cwd, active.slug, name, kind)
+        .then(() => { pushInfoToast({ message: `Published ${name} to ${active.slug}` }); pub.disabled = false; })
+        .catch((e) => {
+          const msg = this.friendlyError(e);
+          pushInfoToast({ message: msg.includes("already published") || msg.includes("Conflict")
+            ? `${name} is already published (unchanged)` : `Publish failed: ${msg}` });
+          pub.disabled = false;
+        });
+    });
+    return pub;
+  }
+
   // ── Org section ──────────────────────────────────────────────────────
 
   /** A sharp identity monogram tile (shares the .canon-mono styling with the
@@ -687,12 +707,13 @@ export class CanonCockpitView {
           return;
         }
         for (const a of status.agents) {
+          const pub = this.unitPublishAction(cwd, "agent", a.name);
           list.appendChild(skillCard({
             name: a.name,
             meta: "agent",
             className: "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "agent", a.name),
-            actions: [],
+            actions: pub ? [pub] : [],
           }));
         }
       })
@@ -733,12 +754,13 @@ export class CanonCockpitView {
           return;
         }
         for (const c of status.commands) {
+          const pub = this.unitPublishAction(cwd, "command", c.name);
           list.appendChild(skillCard({
             name: c.name,
             meta: c.description ?? "command",
             className: "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "command", c.name),
-            actions: [],
+            actions: pub ? [pub] : [],
           }));
         }
       })
@@ -779,12 +801,13 @@ export class CanonCockpitView {
           return;
         }
         for (const m of status.mcp) {
+          const pub = this.unitPublishAction(cwd, "mcp", m.name);
           list.appendChild(skillCard({
             name: m.name,
             meta: m.description ?? m.transport,
             className: "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "mcp", m.name),
-            actions: [],
+            actions: pub ? [pub] : [],
           }));
         }
       })
@@ -1187,10 +1210,14 @@ export class CanonCockpitView {
           return;
         }
         for (const c of status.contexts) {
-          const row = document.createElement("div");
-          row.className = "canon-context-row";
-          row.textContent = c.name;
-          list.appendChild(row);
+          const pub = this.unitPublishAction(cwd, "context", c.name);
+          list.appendChild(skillCard({
+            name: c.name,
+            meta: c.summary ?? "context",
+            className: "canon-skill-row",
+            fetchPreview: () => canonReadSource(cwd, "context", c.name),
+            actions: pub ? [pub] : [],
+          }));
         }
       })
       .catch((e) => {

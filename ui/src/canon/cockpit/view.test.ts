@@ -32,7 +32,7 @@ vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
 import {
   canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
-  operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, type Operator,
+  operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, canonPublish, type Operator,
   type MarketplaceListing,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
@@ -233,6 +233,82 @@ describe("CanonCockpitView Context section", () => {
     expect(v.element.textContent).toContain("kyc-peru.md");
     (v.element.querySelector(".canon-new-context-btn") as HTMLButtonElement).click();
     expect(called).toBe(true);
+  });
+});
+
+describe("CanonCockpitView unit publish actions", () => {
+  it("subagent rows publish to the registry with kind agent", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
+    });
+    const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
+    pub.click();
+    await vi.waitFor(() => {
+      expect(canonPublish).toHaveBeenCalledWith(expect.any(String), expect.any(String), "reviewer", "agent");
+    });
+  });
+
+  it("command rows publish to the registry with kind command", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [], memory: [], commands: [{ name: "deploy", description: null }], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("commands");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
+    });
+    const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
+    pub.click();
+    await vi.waitFor(() => {
+      expect(canonPublish).toHaveBeenCalledWith(expect.any(String), expect.any(String), "deploy", "command");
+    });
+  });
+
+  it("mcp rows publish to the registry with kind mcp", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [{ name: "figma", description: null, transport: "stdio" }], specs: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("mcp");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
+    });
+    const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
+    pub.click();
+    await vi.waitFor(() => {
+      expect(canonPublish).toHaveBeenCalledWith(expect.any(String), expect.any(String), "figma", "mcp");
+    });
+  });
+
+  it("context rows render as skillCard rows with a publish action, kind context", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("context");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
+    });
+    const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
+    pub.click();
+    await vi.waitFor(() => {
+      expect(canonPublish).toHaveBeenCalledWith(expect.any(String), expect.any(String), "kyc-peru.md", "context");
+    });
+  });
+
+  it("does not render a publish action when no org is active", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const v = new CanonCockpitView({ ...opts, orgs: [], getActiveOrg: () => null });
+    v.open(); v.showSection("agents");
+    await Promise.resolve(); await Promise.resolve();
+    expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeNull();
   });
 });
 
