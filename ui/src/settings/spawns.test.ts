@@ -6,6 +6,14 @@ vi.mock("../spawns/api", () => ({
   upsertSpawn: vi.fn(),
   deleteSpawn: vi.fn(),
 }));
+// renderSpawnsTab now also mounts the ACP agents section (Task 6), which
+// reads/writes Settings via ../api — stub it so master-detail tests don't
+// need real Tauri IPC.
+vi.mock("../api", () => ({
+  getSettings: vi.fn().mockResolvedValue({}),
+  setSettings: vi.fn(),
+}));
+vi.mock("../tooltip/tooltip", () => ({ attachTooltip: vi.fn() }));
 
 import { listSpawns, upsertSpawn, deleteSpawn } from "../spawns/api";
 import { renderSpawnsTab } from "./spawns";

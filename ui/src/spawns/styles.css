@@ -442,3 +442,86 @@
   outline: none;
   border-color: var(--accent, #b794f4);
 }
+
+/* Settings → Harnesses → "ACP agents" (per-executor launch config) */
+.acp-agents {
+  margin-top: 24px;
+}
+.acp-agents-title {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, #5a6873);
+}
+.acp-agents-sub {
+  font-size: 11px;
+  color: var(--muted, #5a6873);
+  margin: 4px 0 10px;
+}
+.acp-agents-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+}
+.acp-agent-card {
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.08);
+  border-radius: 0;
+  padding: 10px;
+}
+.acp-agent-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--text, #d5d9de);
+  font-size: 12px;
+}
+.acp-agent-brand {
+  display: inline-flex;
+  color: var(--muted, #5a6873);
+}
+.acp-trust-seg {
+  display: inline-flex;
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.08);
+}
+.acp-trust-seg button {
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text, #d5d9de);
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.acp-trust-seg button[aria-pressed="true"] {
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.1);
+}
+.acp-trust-seg button.acp-trust-yolo[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--running) 18%, transparent);
+  color: var(--running);
+}
+.acp-agent-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.acp-agent-fields input,
+.acp-agent-fields textarea {
+  appearance: none;
+  border-radius: 0;
+  background: transparent;
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.08);
+  color: var(--text, #d5d9de);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  resize: vertical;
+}
+.acp-agent-fields input:focus,
+.acp-agent-fields textarea:focus {
+  outline: none;
+  border-color: var(--accent, #b794f4);
+}
