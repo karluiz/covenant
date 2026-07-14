@@ -202,7 +202,11 @@ export class SomnusPanel {
     }
     this.tree = new CollectionsTree({
       onOpen: (node) => this.openNode(node),
-      onEnvImported: () => void this.refreshEnvs(),
+      onEnvImported: () => {
+        void this.refreshEnvs();
+        // Import is not a typing context — safe to re-render the editor list.
+        void this.envEditor.refresh();
+      },
       notify: (msg, isError) => this.notify(msg, isError),
     });
     this.envEditor = new EnvEditor({ onChanged: () => void this.refreshEnvs() });
@@ -352,6 +356,9 @@ export class SomnusPanel {
       console.error("somnus env activate failed", e);
     }
     await this.refreshEnvs();
+    // Composer-picker activation is not a typing context — sync the
+    // editor's active dot.
+    void this.envEditor.refresh();
   }
 
   private activeVars(): Map<string, string> {
