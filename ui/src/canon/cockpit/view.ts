@@ -539,7 +539,9 @@ export class CanonCockpitView {
             });
           },
           onPublish: (op) => {
-            void marketplacePublish(op.id).then(() => pushInfoToast({ message: `${op.name} submitted — pending review` }));
+            void marketplacePublish(op.id)
+              .then(() => pushInfoToast({ message: `${op.name} submitted — pending review` }))
+              .catch((e) => pushInfoToast({ message: `Publish failed: ${this.friendlyError(e)}` }));
           },
           onDelete: (op) => this.deleteOperator(op),
         }));
