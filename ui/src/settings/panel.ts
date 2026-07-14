@@ -16,7 +16,6 @@ import { cliInstalled, installCli, listMonospaceFonts } from "../api";
 
 import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
-import { OperatorsPane } from "./operators";
 import { renderTelegramSection, type TelegramSettings } from "./telegram";
 import { renderCodeIntelligenceSection, type CodeIntelligenceSettings } from "./code_intelligence";
 import { renderProvidersTab } from "./providers";
@@ -197,7 +196,6 @@ async function setSettings(settings: Settings): Promise<void> {
 export class SettingsPanel {
   private isOpenState = false;
   private current: Settings | null = null;
-  private operatorsPane: OperatorsPane | null = null;
   private panelBody: HTMLElement | null = null;
   private covenantMounted = false;
   private cloudSyncMounted = false;
@@ -411,7 +409,6 @@ export class SettingsPanel {
     this.isOpenState = false;
     this.current = null;
     this.panelBody = null;
-    this.operatorsPane = null;
     this.covenantMounted = false;
     this.cloudSyncMounted = false;
 
@@ -451,7 +448,7 @@ export class SettingsPanel {
       <a href="#sec-models" data-target="sec-models">Inference</a>
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
-      <a href="#sec-operators" data-target="sec-operators">Operators</a>
+      <a href="#sec-operators" data-target="sec-operators">Autonomous Mode</a>
       <a href="#sec-spawns" data-target="sec-spawns">Harnesses</a>
       <a href="#sec-updates" data-target="sec-updates">Updates</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
@@ -979,13 +976,11 @@ export class SettingsPanel {
         </section>
         <section class="settings-section" id="sec-code-intel"></section>
         <section class="settings-section" id="sec-operators">
-          <h3 class="settings-section-title">Operators</h3>
+          <h3 class="settings-section-title">Autonomous Mode</h3>
           <p class="settings-section-desc">
-            Roster of personas the autonomous orchestrator can use. One operator
-            is marked default and is used for any tab without an explicit pin.
+            Autonomous Operator Mode budget and the experimental operator mind.
+            Manage the operator roster in the Canon cockpit.
           </p>
-          <div id="operators-pane" class="operators-pane"></div>
-          <h4 class="settings-subsection-title">Autonomous Operator Mode (AOM)</h4>
           <p class="settings-hint" style="margin: 0 0 6px;">
             Press <kbd>⌘⇧A</kbd> to enter AOM. Every tab is auto-enabled
             for the Operator while AOM is on; ⌘⇧A again reverts. The
@@ -1674,13 +1669,6 @@ export class SettingsPanel {
       });
     }
 
-    const opMount = form.querySelector<HTMLElement>("#operators-pane");
-    if (opMount) {
-      this.operatorsPane = new OperatorsPane(opMount);
-      await this.operatorsPane.open();
-      if (generation !== this.openGeneration || !this.isOpenState) return;
-    }
-
     const spawnsHost = form.querySelector<HTMLElement>("#sec-spawns");
     if (spawnsHost) {
       await renderSpawnsTab(spawnsHost);
@@ -1977,7 +1965,7 @@ export class SettingsPanel {
       "sec-appearance": "theme dark light color font opacity accent sidebar folded rail collapsed",
       "sec-terminal": "shell font cursor scrollback keybindings shortcut hotkey",
       "sec-code-intel": "lsp language server rust-analyzer code intelligence diagnostics autocomplete hover",
-      "sec-operators": "operator agent soul persona achievements skills",
+      "sec-operators": "autonomous aom budget mind operator achievements",
       "sec-spawns": "spawn preset launch quick action",
       "sec-updates": "update version release auto-update channel",
       "sec-notifications": "email sendgrid notify alert sound",
