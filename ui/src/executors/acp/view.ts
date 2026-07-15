@@ -679,6 +679,8 @@ export class AcpChatView {
   /// events within a short window after this are residual momentum from
   /// the jump and must not break `stickToBottom`.
   private jumpedAt = 0;
+  private _baseH = 0;
+  private lastSentText = "";
 
   constructor(opts: AcpChatViewOptions) {
     this.host = opts.host;
@@ -970,6 +972,16 @@ export class AcpChatView {
           this.hideSlashMenu();
           return;
         }
+      }
+      // Arrow-up in an empty composer → recall the last user message
+      // (shell-style history). Only when the caret is at position 0.
+      if (e.key === "ArrowUp" && this.inputEl.value === "" && this.lastSentText) {
+        e.preventDefault();
+        this.inputEl.value = this.lastSentText;
+        this.syncComposer();
+        // Place caret at end.
+        this.inputEl.setSelectionRange(this.lastSentText.length, this.lastSentText.length);
+        return;
       }
       if (e.key !== "Enter") return;
       // Chat convention: Enter sends, ⇧↩ inserts a newline. ⌘↩ keeps
@@ -1867,6 +1879,19 @@ export class AcpChatView {
       btn.addEventListener("click", () => void this.restart());
       el.appendChild(btn);
     }
+    // Retry affordance on error notices — resends the last user message.
+    if (item.variant === "error" && this.lastSentText) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "acp-restart-btn";
+      btn.textContent = "Retry";
+      btn.addEventListener("click", () => {
+        this.inputEl.value = this.lastSentText;
+        this.syncComposer();
+        void this.handleSend();
+      });
+      el.appendChild(btn);
+    }
     return el;
   }
 
@@ -1908,6 +1933,7 @@ export class AcpChatView {
     // Only mentions whose @token survived editing become attachments.
     const attachments = [...this.mentions].filter((p) => text.includes(`@${p}`));
     this.mentions.clear();
+    this.lastSentText = text;
     this.inputEl.value = "";
     this.syncComposer();
     this.pendingImages = [];
@@ -2044,8 +2070,13 @@ export class AcpChatView {
   /// Send when there is nothing to send.
   private syncComposer(): void {
     const el = this.inputEl;
+    // Snapshot the one-row height on first call so we never shrink below it,
+    // then only grow when content genuinely overflows the single row.
+    if (!this._baseH) {
+      this._baseH = el.offsetHeight;
+    }
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    el.style.height = `${Math.max(this._baseH, Math.min(el.scrollHeight, 200))}px`;
     this.sendBtn.disabled =
       el.value.trim().length === 0 && this.pendingImages.length === 0;
   }
