@@ -99,7 +99,7 @@ import { canonMyOrgs } from "./api";
 import type { Org } from "./api";
 import { SpawnsChip, spawnBrandGlyph } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
-import { buildSpawnCmdline, acpExecutorFor } from "./spawns/shortcuts";
+import { buildSpawnCmdline, acpExecutorFor, quickCallAcp } from "./spawns/shortcuts";
 import {
   TeammatePanel,
   buildTaskInjection,
@@ -1256,7 +1256,7 @@ async function boot(): Promise<void> {
         // ACP spawn: opens a chat tab — there is no in-terminal ACP mode.
         // Eligibility re-checked here in case the command was edited after
         // the flag was set.
-        const acpExec = spec.acp ? acpExecutorFor(spec) : null;
+        const acpExec = spec.acp || quickCallAcp() ? acpExecutorFor(spec) : null;
         if (acpExec) {
           await manager.createAcpTab({
             cwd: manager.activeCwd(),

@@ -35,6 +35,17 @@ export function buildSpawnCmdline(
   return [spec.command, ...args].join(" ");
 }
 
+/// Global "quick-call uses ACP" preference. When ON, the ▷ play button
+/// (and dropdown quick-run) opens an ACP chat tab for any ACP-eligible
+/// executor, regardless of the spawn's own `acp` flag. ponytail: UI-only
+/// pref, localStorage — no Rust settings round-trip.
+const QUICK_CALL_ACP_KEY = "covenant.quickCallAcp";
+export const quickCallAcp = (): boolean =>
+  localStorage.getItem(QUICK_CALL_ACP_KEY) === "1";
+export const setQuickCallAcp = (on: boolean): void => {
+  localStorage.setItem(QUICK_CALL_ACP_KEY, on ? "1" : "0");
+};
+
 /// ACP executor a spawn maps to, or null when it can't drive an ACP tab.
 /// Runs the full cmdline through detectExecutor so `gh copilot` (command
 /// "gh", args ["copilot"]) resolves like it does everywhere else.

@@ -1,7 +1,7 @@
 import type { SpawnSpec } from "../spawns/types";
 import { listSpawns, upsertSpawn, deleteSpawn } from "../spawns/api";
 import { CustomSelect } from "../ui/select";
-import { spawnShortcutLabel, acpExecutorFor } from "../spawns/shortcuts";
+import { spawnShortcutLabel, acpExecutorFor, quickCallAcp, setQuickCallAcp } from "../spawns/shortcuts";
 import { brandIconSvg } from "../icons/brands";
 import { attachTooltip } from "../tooltip/tooltip";
 import { renderAcpAgentsSection } from "./acp_agents";
@@ -393,6 +393,19 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
     desc.textContent =
       "Executor processes the operator can launch in a terminal tab. One spawn can be marked default.";
     body.appendChild(desc);
+
+    // Global "quick-call uses ACP" toggle — makes the ▷ play button open an
+    // ACP chat tab for any ACP-eligible executor, without per-spawn setup.
+    const qcRow = document.createElement("label");
+    qcRow.className = "spawns-md-acp";
+    const qcCheck = document.createElement("input");
+    qcCheck.type = "checkbox";
+    qcCheck.checked = quickCallAcp();
+    qcCheck.addEventListener("change", () => setQuickCallAcp(qcCheck.checked));
+    const qcText = document.createElement("span");
+    qcText.textContent = "Use ACP for the quick-call ▷ button (open chat, not terminal)";
+    qcRow.append(qcCheck, qcText);
+    body.appendChild(qcRow);
 
     const wrap = document.createElement("div");
     wrap.className = "spawns-md";
