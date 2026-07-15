@@ -3079,6 +3079,13 @@ export interface MinerFinding {
   bodyMd: string;
   evidence: string[];
   confidence: string;
+  kind: string;
+}
+export interface CompileReport {
+  skills: string | null;
+  memory: string[];
+  commands: string[];
+  agents: string[];
 }
 export type MinerEvent =
   | { kind: "text_delta"; text: string }
@@ -3094,8 +3101,8 @@ export async function canonMineStart(repoRoot: string, skillName: string, focus:
 export async function canonMineStop(runId: string): Promise<void> {
   return invoke<void>("canon_mine_stop", { runId });
 }
-export async function canonCompileSkill(repoRoot: string, skillName: string, findings: MinerFinding[], overwrite: boolean): Promise<string> {
-  return invoke<string>("canon_compile_skill", { repoRoot, skillName, findings, overwrite });
+export async function canonCompileFindings(repoRoot: string, skillName: string, findings: MinerFinding[], overwrite: boolean): Promise<CompileReport> {
+  return invoke<CompileReport>("canon_compile_findings", { repoRoot, skillName, findings, overwrite });
 }
 export async function subscribeMinerEvents(runId: string, cb: (ev: MinerEvent) => void): Promise<UnlistenFn> {
   return listen<MinerEvent>(`canon://miner/${runId}`, (e) => cb(e.payload));

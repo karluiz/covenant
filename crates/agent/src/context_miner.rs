@@ -9,7 +9,8 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const CATEGORIES: &[&str] = &["convention", "pattern", "gotcha", "domain_rule", "glossary"];
+pub const CATEGORIES: &[&str] =
+    &["convention", "pattern", "gotcha", "domain_rule", "glossary", "workflow"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -26,9 +27,22 @@ pub struct MinerFinding {
     pub evidence: Vec<String>,
     #[serde(default = "default_confidence")]
     pub confidence: String,
+    #[serde(default, alias = "suggested_kind")]
+    pub kind: String,
 }
 fn default_confidence() -> String {
     "medium".into()
+}
+
+/// Category → default destination kind. `subagent` is intentionally
+/// unreachable here: the agent never promotes a finding to a persona; that
+/// is a manual re-route in curation.
+pub fn default_kind(category: &str) -> &'static str {
+    match category {
+        "domain_rule" | "glossary" => "memory",
+        "workflow" => "command",
+        _ => "skill",
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -91,7 +105,7 @@ impl MinerOpts {
 }
 
 pub(crate) fn parse_finding(v: &Value) -> Option<MinerFinding> {
-    let f: MinerFinding = serde_json::from_value(v.clone()).ok()?;
+    let mut f: MinerFinding = serde_json::from_value(v.clone()).ok()?;
     if !CATEGORIES.contains(&f.category.as_str()) {
         return None;
     }
@@ -100,6 +114,12 @@ pub(crate) fn parse_finding(v: &Value) -> Option<MinerFinding> {
     }
     if f.body_md.trim().is_empty() {
         return None;
+    }
+    // Fill/repair kind. Trust only skill|memory|command from the model
+    // (`suggested_kind` deserialized into `f.kind` via serde alias); anything
+    // else — including "subagent" — falls back to the category default.
+    if !matches!(f.kind.as_str(), "skill" | "memory" | "command") {
+        f.kind = default_kind(&f.category).to_string();
     }
     Some(f)
 }
@@ -119,7 +139,8 @@ pub fn miner_tool_specs() -> Value {
                 "title": { "type": "string" },
                 "body_md": { "type": "string" },
                 "evidence": { "type": "array", "items": { "type": "string" }, "description": "path:line references backing the finding" },
-                "confidence": { "type": "string", "enum": ["high", "medium", "low"] }
+                "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+                "suggested_kind": { "type": "string", "enum": ["skill", "memory", "command"], "description": "Where this finding belongs: skill (conventions/patterns/gotchas), memory (durable domain facts/glossary), or command (a repeatable workflow). Omit to let the category decide." }
             }
         }
     }));
@@ -148,7 +169,12 @@ fn system_prompt(opts: &MinerOpts) -> String {
          {depth}\n\nCategories: convention (how code is written here), \
          pattern (recurring designs), gotcha (traps that bit or will bite), \
          domain_rule (business/regulatory rules encoded in the code), \
-         glossary (project-specific terms).\n\nWhen you have covered the \
+         glossary (project-specific terms), workflow (a repeatable dev \
+         command sequence: build, test, deploy, migrate).\n\n\
+         Set suggested_kind to route the finding: skill for \
+         convention/pattern/gotcha, memory for durable domain_rule/glossary \
+         facts, command for a workflow. Omit it to accept the default for the \
+         category. You never create personas.\n\nWhen you have covered the \
          focus, reply with a short closing summary WITHOUT tool calls.",
         name = opts.skill_name,
         focus = opts.focus,
@@ -469,6 +495,39 @@ mod tests {
         }));
         assert!(ok.is_some());
         assert!(parse_finding(&serde_json::json!({"category": "nope"})).is_none());
+    }
+
+    #[test]
+    fn default_kind_maps_categories() {
+        assert_eq!(default_kind("domain_rule"), "memory");
+        assert_eq!(default_kind("glossary"), "memory");
+        assert_eq!(default_kind("workflow"), "command");
+        assert_eq!(default_kind("convention"), "skill");
+        assert_eq!(default_kind("pattern"), "skill");
+        assert_eq!(default_kind("gotcha"), "skill");
+        assert_eq!(default_kind("nonsense"), "skill");
+    }
+
+    #[test]
+    fn parse_finding_fills_kind_from_category_when_absent() {
+        let v = json!({ "category": "domain_rule", "title": "PEP check", "body_md": "Do X." });
+        let f = parse_finding(&v).expect("valid finding");
+        assert_eq!(f.kind, "memory");
+    }
+
+    #[test]
+    fn parse_finding_honors_suggested_kind_but_never_subagent() {
+        let v = json!({ "category": "pattern", "title": "T", "body_md": "B", "suggested_kind": "memory" });
+        assert_eq!(parse_finding(&v).unwrap().kind, "memory");
+        let sub = json!({ "category": "pattern", "title": "T", "body_md": "B", "suggested_kind": "subagent" });
+        // agent may never route to subagent; falls back to category default
+        assert_eq!(parse_finding(&sub).unwrap().kind, "skill");
+    }
+
+    #[test]
+    fn workflow_is_a_valid_category() {
+        let v = json!({ "category": "workflow", "title": "Run tests", "body_md": "npm test from root." });
+        assert!(parse_finding(&v).is_some());
     }
 
     #[test]

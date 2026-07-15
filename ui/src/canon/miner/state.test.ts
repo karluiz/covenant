@@ -5,14 +5,15 @@ import {
   createMinerState,
   editFindingBody,
   reduceMinerEvent,
+  setFindingKind,
   setFindingStatus,
 } from "./state";
 import type { MinerEvent } from "../../api";
 
-const finding = (id: string, title: string, category = "convention"): MinerEvent => ({
+const finding = (id: string, title: string, category = "convention", kind = "skill"): MinerEvent => ({
   kind: "finding",
   id,
-  finding: { category, title, bodyMd: `Do ${title}.`, evidence: ["src/a.rs:1"], confidence: "high" },
+  finding: { category, title, bodyMd: `Do ${title}.`, evidence: ["src/a.rs:1"], confidence: "high", kind },
 });
 
 describe("reduceMinerEvent", () => {
@@ -45,15 +46,39 @@ describe("reduceMinerEvent", () => {
     expect(out[0].bodyMd).toBe("Edited body.");
   });
 
-  it("compilePreview groups by category in fixed order", () => {
+  it("compilePreview groups accepted findings by destination kind", () => {
     const s = createMinerState();
-    reduceMinerEvent(s, finding("f1", "trap", "gotcha"));
-    reduceMinerEvent(s, finding("f2", "style", "convention"));
+    reduceMinerEvent(s, finding("f1", "trap", "gotcha", "memory"));
+    reduceMinerEvent(s, finding("f2", "style", "convention", "skill"));
     setFindingStatus(s, "f1", "accepted");
     setFindingStatus(s, "f2", "accepted");
     const md = compilePreview("my-skill", s);
-    expect(md.indexOf("## Conventions")).toBeGreaterThan(-1);
-    expect(md.indexOf("## Conventions")).toBeLessThan(md.indexOf("## Gotchas"));
+    expect(md.indexOf("Skill package")).toBeGreaterThan(-1);
+    expect(md.indexOf("Skill package")).toBeLessThan(md.indexOf("Memory"));
     expect(md).toContain("`src/a.rs:1`");
+  });
+});
+
+function seed() {
+  const s = createMinerState();
+  const ev: MinerEvent = { kind: "finding", id: "a", finding: { category: "domain_rule", title: "PEP", bodyMd: "x", evidence: [], confidence: "high", kind: "memory" } };
+  reduceMinerEvent(s, ev);
+  return s;
+}
+
+describe("miner kind routing", () => {
+  it("carries kind from the finding event", () => {
+    const s = seed();
+    expect(s.findings[0].kind).toBe("memory");
+  });
+  it("re-routes a finding kind", () => {
+    const s = seed();
+    setFindingKind(s, "a", "subagent");
+    expect(s.findings[0].kind).toBe("subagent");
+  });
+  it("accepted findings expose their kind", () => {
+    const s = seed();
+    setFindingStatus(s, "a", "accepted");
+    expect(acceptedFindings(s)[0].kind).toBe("memory");
   });
 });

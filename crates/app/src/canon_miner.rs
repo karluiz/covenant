@@ -4,7 +4,11 @@
 use karl_agent::context_miner::{
     run_miner, MinerDepth, MinerEvent, MinerOpts, MinerSink,
 };
-use karl_canon::compile::{write_skill_package, CompiledFinding};
+use karl_canon::compile::{
+    write_command_entry, write_memory_entry, write_skill_package, write_subagent_entry,
+    CompiledFinding,
+};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -127,21 +131,73 @@ pub async fn canon_mine_stop(runs: State<'_, MinerRuns>, run_id: String) -> Resu
     Ok(())
 }
 
+// ponytail: no lifetimes, owned clones at curation scale
+#[derive(Default)]
+pub(crate) struct KindGroups {
+    pub skills: Vec<CompiledFinding>,
+    pub memory: Vec<CompiledFinding>,
+    pub commands: Vec<CompiledFinding>,
+    pub agents: Vec<CompiledFinding>,
+}
+
+pub(crate) fn split_by_kind(findings: &[CompiledFinding]) -> KindGroups {
+    let mut g = KindGroups::default();
+    for f in findings {
+        match f.kind.as_str() {
+            "memory" => g.memory.push(f.clone()),
+            "command" => g.commands.push(f.clone()),
+            "subagent" => g.agents.push(f.clone()),
+            _ => g.skills.push(f.clone()),
+        }
+    }
+    g
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileReport {
+    pub skills: Option<String>,
+    pub memory: Vec<String>,
+    pub commands: Vec<String>,
+    pub agents: Vec<String>,
+}
+
 #[tauri::command]
-pub async fn canon_compile_skill(
+pub async fn canon_compile_findings(
     repo_root: String,
     skill_name: String,
     findings: Vec<CompiledFinding>,
     overwrite: bool,
-) -> Result<String, String> {
+) -> Result<CompileReport, String> {
     let root = PathBuf::from(&repo_root);
-    let dir = tokio::task::spawn_blocking(move || {
-        write_skill_package(&root, &skill_name, None, &findings, overwrite)
+    tokio::task::spawn_blocking(move || {
+        let g = split_by_kind(&findings);
+        let mut report = CompileReport::default();
+        if !g.skills.is_empty() {
+            let dir = write_skill_package(&root, &skill_name, None, &g.skills, overwrite)
+                .map_err(|e| e.to_string())?;
+            report.skills = Some(dir.to_string_lossy().into_owned());
+        }
+        let strvec = |v: Vec<std::path::PathBuf>| {
+            v.into_iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect()
+        };
+        if !g.memory.is_empty() {
+            report.memory = strvec(write_memory_entry(&root, &g.memory).map_err(|e| e.to_string())?);
+        }
+        if !g.commands.is_empty() {
+            report.commands =
+                strvec(write_command_entry(&root, &g.commands).map_err(|e| e.to_string())?);
+        }
+        if !g.agents.is_empty() {
+            report.agents =
+                strvec(write_subagent_entry(&root, &g.agents).map_err(|e| e.to_string())?);
+        }
+        Ok::<_, String>(report)
     })
     .await
     .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
-    Ok(dir.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
@@ -158,5 +214,20 @@ mod tests {
         runs.remove(&id);
         // Stopping an unknown id is a no-op, not a panic.
         runs.stop("missing");
+    }
+
+    #[test]
+    fn split_by_kind_groups_findings() {
+        use karl_canon::compile::CompiledFinding;
+        let f = |kind: &str| CompiledFinding {
+            category: "pattern".into(), title: format!("t {kind}"),
+            body_md: "b".into(), evidence: vec![], confidence: "high".into(), kind: kind.into(),
+        };
+        let all = vec![f("skill"), f("memory"), f("memory"), f("command"), f("subagent")];
+        let g = super::split_by_kind(&all);
+        assert_eq!(g.skills.len(), 1);
+        assert_eq!(g.memory.len(), 2);
+        assert_eq!(g.commands.len(), 1);
+        assert_eq!(g.agents.len(), 1);
     }
 }

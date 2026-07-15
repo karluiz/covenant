@@ -4967,7 +4967,7 @@ pub fn run() {
             canon_install_registry_unit,
             canon_miner::canon_mine_start,
             canon_miner::canon_mine_stop,
-            canon_miner::canon_compile_skill,
+            canon_miner::canon_compile_findings,
             git_file_diff,
             git_stage,
             git_unstage,
