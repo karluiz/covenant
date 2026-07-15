@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.26 — Borderless ACP empty-state + stuck mouse-mode fix
+
+### Changed
+
+- **Borderless ACP empty-state**: the "panel, not a terminal" intro no
+  longer sits in a centered bordered card. It's now a left-anchored
+  conversation opener — a mono kicker (`<executor> · ACP SESSION`) with a
+  hairline accent, the brand headline, per-executor copy, and iconed tips
+  (card / shield / stack) in place of boxed rows. Applies across all ACP
+  executors (Claude, Copilot, pi, OpenCode). Markup in
+  `ui/src/executors/acp/view.ts`; layout in `ui/src/executors/acp/acp.css`.
+
+### Fixed
+
+- **Stuck mouse/focus modes after a TUI exits**: `term.write()` is async in
+  xterm v5, so `term.modes` only reflects a parsed chunk from inside the
+  write callback. The belt-and-suspenders DECRST cleanup that clears leftover
+  mouse-tracking / focus-reporting modes now runs inside that callback (and
+  flushes pending writes before the prompt-start check), so a TUI that exits
+  without disabling those modes is reliably detected instead of racing
+  xterm's parser. Fix in `ui/src/tabs/manager.ts`.
+
 ## v0.9.25 — Collapsible review rail + link recovery
 
 ### Added
