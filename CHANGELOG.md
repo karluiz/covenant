@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.30 — Global quick-call ACP toggle in Harnesses
+
+### Added
+
+- **"Use ACP for the quick-call ▷ button"**: a Harnesses-level checkbox that
+  makes the quick-call ▷ button open an ACP chat tab for any ACP-eligible
+  executor (claude / copilot / pi), independent of each spawn's own `acp` flag.
+  Non-ACP executors (hermes / codex / opencode) fall back to the terminal path
+  unchanged. The preference is stored in `localStorage` and read by `runSpawn`.
+  `ui/src/spawns/shortcuts.ts`, `ui/src/main.ts`, `ui/src/settings/spawns.ts`.
+
 ## v0.9.29 — ACP chat column + arrow-up recall + error retry
 
 ### Added
