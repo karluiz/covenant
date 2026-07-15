@@ -1774,13 +1774,13 @@ body:not(.tabbar-left) #new-group {
 .tab-pane.tab-pane-acp > .editor-host {
     flex: 0 0 min(46%, 760px);
     min-width: 0;
-    border-left: 1px solid rgb(var(--ink-rgb) / 0.08);
+    border-left: 1px solid var(--border);
 }
 .tab-pane.tab-pane-acp > .acp-structure-host {
     flex: 0 0 var(--right-sidebar-w);
     min-width: 0;
     overflow: hidden;
-    border-left: 1px solid rgb(var(--ink-rgb) / 0.08);
+    border-left: 1px solid var(--border);
     background: var(--bg-panel);
 }
 .tab-pane.tab-pane-acp > .acp-structure-host[hidden] {
@@ -3178,7 +3178,7 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
 
 .ctx-menu {
     position: fixed;
-    z-index: 1100;
+    z-index: 1200;
     min-width: 180px;
     background: var(--bg-overlay);
     border: 1px solid var(--border);
@@ -4302,29 +4302,23 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 .route-cadence-desc { font-size: 11.5px; color: var(--muted); }
 
 .route-row {
-    display: grid;
-    grid-template-columns: 3px minmax(150px, 1.1fr) minmax(240px, 1.35fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0 16px;
-    padding: 10px 12px 10px 0;
+    gap: 8px 14px;
+    padding: 11px 14px;
     background: var(--bg);
     border: 1px solid var(--border);
     border-top: none;
-    transition: background 0.12s ease;
+    transition: box-shadow 0.12s ease, background 0.12s ease;
 }
 .route-cadence .route-row:first-of-type { border-top: 1px solid var(--border); }
-.route-row:hover { background: var(--panel, var(--bg)); }
+/* spine via inset shadow so it survives flex-wrap onto a second line */
+.route-row:hover,
+.route-row:focus-within { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
 
-.route-spine {
-    align-self: stretch;
-    background: var(--accent);
-    opacity: 0;
-    transition: opacity 0.12s ease;
-}
-.route-row:hover .route-spine,
-.route-row:focus-within .route-spine { opacity: 0.55; }
-
-.route-id { padding-left: 13px; min-width: 0; cursor: default; }
+/* identity grows to absorb slack (no far-right void on wide); wraps first when narrow */
+.route-id { flex: 1 1 200px; min-width: 160px; cursor: default; }
 .route-name {
     display: flex;
     align-items: center;
@@ -4345,9 +4339,7 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     margin-top: 2px;
     font-size: 11.5px;
     color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    max-width: 40ch;
 }
 
 /* N-of-4 frequency meter */
@@ -4356,9 +4348,11 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 .route-freq.is-hot i { background: var(--running); }
 .route-freq i.off { background: var(--border); }
 
-/* provider → model, inline */
-.route-pair { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.route-pair .model-route-select { flex: 1 1 0; min-width: 0; }
+/* provider → model, inline. Fixed widths: don't stretch on a wide panel,
+   the whole pair just wraps to its own line when the row gets narrow. */
+.route-pair { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.route-pair .model-route-select { width: 148px; }
+.route-pair .model-route-select.is-model { width: 164px; }
 .route-pair .model-route-select .ui-select__button { font-family: inherit; font-size: 12.5px; }
 .route-pair .model-route-select.is-model .ui-select__button {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -4366,9 +4360,9 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 }
 .route-arrow { flex: none; color: var(--muted); font-size: 12px; }
 
-/* reachability chip */
+/* reachability chip — sits after the pair; id's flex-grow pushes the group right */
 .route-chip {
-    justify-self: end;
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -4392,11 +4386,10 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 .route-chip.is-err    { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, var(--border)); }
 .route-chip.is-idle   { color: var(--muted); font-style: italic; }
 
-/* full-width warning line (operator on a local provider) — spans the grid */
+/* full-width warning line (operator on a local provider) — breaks to its own row */
 .route-warn {
-    grid-column: 2 / -1;
-    margin: 4px 0 0;
-    padding-left: 13px;
+    flex: 1 1 100%;
+    margin: 2px 0 0;
     font-size: 11.5px;
     color: var(--running);
 }

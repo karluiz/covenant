@@ -138,10 +138,6 @@ function renderRoleRow(
   const wrap = document.createElement("div");
   wrap.className = "route-row";
 
-  const spine = document.createElement("div");
-  spine.className = "route-spine";
-  wrap.appendChild(spine);
-
   // identity: name (+ kbd + freq) over its one-line job
   const id = document.createElement("div");
   id.className = "route-id";
