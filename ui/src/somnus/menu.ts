@@ -53,36 +53,3 @@ export function showMenu(x: number, y: number, items: MenuItem[]): void {
   }
   place(pop, x, y);
 }
-
-/// Inline destructive confirm (never window.confirm — DESIGN rule 1).
-export function confirmPopover(
-  anchor: HTMLElement,
-  label: string,
-  actionLabel: string,
-  onYes: () => void,
-): void {
-  const pop = popover("somnus-confirm");
-  const close = dismissable(pop);
-  const text = document.createElement("div");
-  text.className = "somnus-confirm-label";
-  text.textContent = label;
-  const row = document.createElement("div");
-  row.className = "somnus-confirm-actions";
-  const yes = document.createElement("button");
-  yes.type = "button";
-  yes.className = "ui-select__option is-danger";
-  yes.textContent = actionLabel;
-  yes.addEventListener("click", () => {
-    close();
-    onYes();
-  });
-  const no = document.createElement("button");
-  no.type = "button";
-  no.className = "ui-select__option";
-  no.textContent = "Cancel";
-  no.addEventListener("click", close);
-  row.append(yes, no);
-  pop.append(text, row);
-  const r = anchor.getBoundingClientRect();
-  place(pop, r.left, r.bottom + 4);
-}

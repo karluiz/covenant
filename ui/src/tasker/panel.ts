@@ -190,7 +190,9 @@ export class TaskerPanel {
         <button class="rail-btn${this.viewMode === "list" ? " is-on" : ""}" type="button" data-view="list" aria-label="List view">${Icons.listView({ size: 15 })}</button>
         <button class="rail-btn${this.viewMode === "board" ? " is-on" : ""}" type="button" data-view="board" aria-label="Board view">${Icons.boardView({ size: 15 })}</button>
         <button class="rail-btn tasker-btn-new-project" type="button" aria-label="New project">${Icons.folder({ size: 15 })}</button>
-        <button class="tasker-esc-btn" type="button" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
+        ${this.viewMode === "board"
+          ? `<button class="tasker-esc-btn" type="button" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>`
+          : ""}
       </div>
     </div>`;
   }

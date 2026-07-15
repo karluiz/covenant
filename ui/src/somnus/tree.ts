@@ -12,7 +12,8 @@ import {
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { emptyDraft, parseDraft } from "./draft";
-import { confirmPopover, showMenu, type MenuItem } from "./menu";
+import { showMenu, type MenuItem } from "./menu";
+import { openConfirmPrompt } from "../workspaces/confirm-prompt";
 import { parsePostman } from "./postman";
 
 export interface TreeRow {
@@ -202,10 +203,15 @@ export class CollectionsTree {
         label: "Delete",
         danger: true,
         onPick: () =>
-          confirmPopover(row, `Delete "${node.name}" and everything inside?`, "Delete", () => {
-            void somnusTreeDelete(node.id)
-              .then(() => this.refresh())
-              .catch((e) => this.opts.notify(String(e), true));
+          openConfirmPrompt({
+            label: "Somnus",
+            message: `Delete "${node.name}" and everything inside?`,
+            confirmText: "Delete",
+            onConfirm: () => {
+              void somnusTreeDelete(node.id)
+                .then(() => this.refresh())
+                .catch((e) => this.opts.notify(String(e), true));
+            },
           }),
       },
     );

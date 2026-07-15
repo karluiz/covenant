@@ -20,7 +20,8 @@ import { RequestComposer } from "./composer";
 import { CollectionsTree } from "./tree";
 import { EnvEditor } from "./envs";
 import { RequestTabs, type TabView } from "./tabs";
-import { confirmPopover, dismissable } from "./menu";
+import { dismissable } from "./menu";
+import { openConfirmPrompt } from "../workspaces/confirm-prompt";
 import { jsonTree, parseJsonBody } from "./json-tree";
 import {
   buildRequest,
@@ -140,20 +141,19 @@ export class SomnusPanel {
     clearBtn.setAttribute("aria-label", "Clear history");
     clearBtn.innerHTML = Icons.trash({ size: 15 });
     clearBtn.addEventListener("click", () => {
-      confirmPopover(clearBtn, "Clear all Somnus history?", "Clear", () => {
-        void somnusHistoryClear()
-          .then(() => this.refreshHistory())
-          .catch((e) => console.error("somnus clear failed", e));
+      openConfirmPrompt({
+        label: "Somnus",
+        message: "Clear all Somnus history?",
+        confirmText: "Clear",
+        onConfirm: () => {
+          void somnusHistoryClear()
+            .then(() => this.refreshHistory())
+            .catch((e) => console.error("somnus clear failed", e));
+        },
       });
     });
     attachTooltip(clearBtn, "Clear history");
-    const close = document.createElement("button");
-    close.className = "rail-btn";
-    close.setAttribute("aria-label", "Close");
-    close.innerHTML = Icons.x({ size: 15 });
-    close.addEventListener("click", () => this.closeSurface());
-    attachTooltip(close, "Close");
-    actions.append(this.expandBtn, clearBtn, close);
+    actions.append(this.expandBtn, clearBtn);
 
     const escBtn = document.createElement("button");
     escBtn.className = "somnus-close";
@@ -297,7 +297,12 @@ export class SomnusPanel {
       this.selectTab(this.active >= idx && this.active > 0 ? this.active - 1 : this.active);
     };
     if (draftKey(tab.draft) !== tab.savedKey) {
-      confirmPopover(this.reqTabs.element, "Discard unsaved changes?", "Discard", doClose);
+      openConfirmPrompt({
+        label: "Somnus",
+        message: "Discard unsaved changes?",
+        confirmText: "Discard",
+        onConfirm: doClose,
+      });
     } else {
       doClose();
     }

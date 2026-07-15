@@ -91,14 +91,7 @@ export class ProjectNotesPanel {
     fsBtn.innerHTML = Icons.maximize({ size: 15 });
     fsBtn.addEventListener("click", () => this.toggleFullscreen());
     attachTooltip(fsBtn, "Toggle fullscreen");
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "rail-btn";
-    closeBtn.setAttribute("aria-label", "Close");
-    closeBtn.innerHTML = Icons.x({ size: 15 });
-    closeBtn.addEventListener("click", () => this.close());
-    attachTooltip(closeBtn, "Close");
     actions.appendChild(fsBtn);
-    actions.appendChild(closeBtn);
 
     header.appendChild(titleEl);
     header.appendChild(actions);

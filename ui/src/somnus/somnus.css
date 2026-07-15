@@ -236,7 +236,14 @@ body.sidebar-view-somnus #somnus-panel .rail-panel {
   min-height: 0;
 }
 .somnus-side-tabs {
+  /* .rail-tabs sets height:100% (meant for the fixed .rail-controls bar);
+     here the strip is a flex-column child of .somnus-side, so 100% inflates
+     it to the whole column and shoves the tree to the bottom. Pin it. */
+  flex: 0 0 auto;
+  height: var(--rail-controls-h);
+  align-items: center;
   padding: 0 var(--rail-pad-x);
+  border-bottom: 1px solid var(--border);
 }
 .somnus-tree,
 .somnus-envs,
@@ -257,8 +264,11 @@ body.sidebar-view-somnus #somnus-panel .rail-panel {
 .somnus-tree-toolbar input[type="file"].hidden {
   display: none;
 }
-.somnus-tree-row {
-  display: flex;
+/* .rail-row defaults to flex-direction:column (two-line rows elsewhere);
+   Somnus's tree/env rows are single-line, so put them back on one row. */
+.somnus-tree-row,
+.somnus-env-row {
+  flex-direction: row;
   gap: 6px;
   align-items: center;
 }
@@ -343,7 +353,6 @@ body.sidebar-view-somnus #somnus-panel .rail-panel {
 
 /* ── v2: menu / confirm / save poppers (ui-select chrome carries the surface) ── */
 .somnus-menu,
-.somnus-confirm,
 .somnus-savepop {
   z-index: 1000;
   min-width: 180px;
@@ -354,15 +363,6 @@ body.sidebar-view-somnus #somnus-panel .rail-panel {
 }
 .ui-select__option.is-danger {
   color: var(--danger);
-}
-.somnus-confirm-label {
-  font-size: var(--fs-meta);
-  color: var(--text-secondary);
-  padding: 4px 6px;
-}
-.somnus-confirm-actions {
-  display: flex;
-  gap: 2px;
 }
 .somnus-savepop {
   width: 280px;
@@ -542,12 +542,6 @@ body.somnus-expanded #somnus-panel .rail-header {
   grid-column: 1 / -1;
   grid-row: 1;
   border-bottom: 1px solid var(--border);
-}
-/* The esc pill (.somnus-close) already covers "close the surface" in
-   expanded mode — the plain × is redundant chrome. Collapse button stays:
-   returning to rail mode is a distinct action from closing. */
-body.somnus-expanded #somnus-panel .rail-header .rail-btn[aria-label="Close"] {
-  display: none;
 }
 body.somnus-expanded #somnus-panel .rail-body {
   display: contents;

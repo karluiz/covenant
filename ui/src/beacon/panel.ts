@@ -684,13 +684,7 @@ export class BeaconPanel {
     refresh.innerHTML = Icons.refresh({ size: 15 });
     refresh.addEventListener("click", () => this.render());
     attachTooltip(refresh, "Refresh");
-    const close = document.createElement("button");
-    close.className = "rail-btn";
-    close.setAttribute("aria-label", "Close");
-    close.innerHTML = Icons.x({ size: 15 });
-    close.addEventListener("click", () => this.opts.onClose());
-    attachTooltip(close, "Close");
-    actions.append(refresh, close);
+    actions.append(refresh);
 
     header.append(titleWrap, actions);
 

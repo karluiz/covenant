@@ -9,7 +9,7 @@ import {
 } from "../api";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
-import { confirmPopover } from "./menu";
+import { openConfirmPrompt } from "../workspaces/confirm-prompt";
 
 function parseVars(json: string): SomnusEnvVar[] {
   try {
@@ -115,13 +115,18 @@ export class EnvEditor {
     attachTooltip(del, "Delete environment");
     del.addEventListener("click", (e) => {
       e.stopPropagation();
-      confirmPopover(row, `Delete environment "${env.name}"?`, "Delete", () => {
-        void somnusEnvDelete(env.id)
-          .then(() => {
-            this.opts.onChanged();
-            return this.refresh();
-          })
-          .catch((err) => console.error("somnus env delete failed", err));
+      openConfirmPrompt({
+        label: "Somnus",
+        message: `Delete environment "${env.name}"?`,
+        confirmText: "Delete",
+        onConfirm: () => {
+          void somnusEnvDelete(env.id)
+            .then(() => {
+              this.opts.onChanged();
+              return this.refresh();
+            })
+            .catch((err) => console.error("somnus env delete failed", err));
+        },
       });
     });
     row.append(act, del);
