@@ -1786,6 +1786,17 @@ body:not(.tabbar-left) #new-group {
 .tab-pane.tab-pane-acp > .acp-structure-host[hidden] {
     display: none;
 }
+/* When a GLOBAL right rail is selected (Activity/Teammate/Tasker/Beacon/
+   Somnus/Resources) it REPLACES the per-tab right column — the shell-tab
+   rules below do that by collapsing the .tab-pane grid + hiding .tab-blocks.
+   ACP panes are flex, not that grid, so their Files/editor + structure
+   columns ignored those rules and STACKED beside the global rail
+   (chat | files | BEACON). Hide them so the global rail wins, same as
+   shell tabs. Restored when the rail closes — [hidden] attr is untouched. */
+body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .sidebar-view-beacon, .sidebar-view-somnus, .sidebar-view-resources):not(.blocks-globally-collapsed)
+    .tab-pane.tab-pane-acp > :is(.editor-host, .acp-structure-host) {
+    display: none !important;
+}
 
 .tab-terminal {
     height: 100%;
