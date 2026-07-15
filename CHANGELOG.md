@@ -6,6 +6,33 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.29 — ACP chat column + arrow-up recall + error retry
+
+### Added
+
+- **Arrow-up history recall**: pressing ↑ in an empty ACP composer recalls the
+  last sent message (shell-style single-entry history), with the caret placed at
+  the end. `ui/src/executors/acp/view.ts`.
+
+- **Error retry button**: error notices now render a "Retry" button that
+  pre-fills the composer with the last sent message and re-sends it — one click
+  to retry a failed prompt instead of retyping or copy-pasting.
+  `ui/src/executors/acp/view.ts`.
+
+### Changed
+
+- **Centered 760px chat column**: transcript children and the empty state are
+  now capped at `min(760px, 100%)` and centered via `align-items: center` on the
+  scroll container — matching the narrow-column layout of Claude.ai / ChatGPT
+  instead of full-bleed text. `ui/src/executors/acp/acp.css`.
+
+### Fixed
+
+- **Composer auto-grow collapse**: `syncComposer()` now snapshots the textarea's
+  baseline height on first call and never shrinks below it, fixing a bug where
+  the composer could collapse to 0px after clearing text on some zoom levels.
+  `ui/src/executors/acp/view.ts`.
+
 ## v0.9.28 — Faster tab switching (incremental pill swap)
 
 ### Changed
