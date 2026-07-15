@@ -1674,7 +1674,7 @@ body:not(.tabbar-left) #new-group {
     from { opacity: 0; }
 }
 .tab-pane.pane-crosscut {
-    animation: pane-crosscut 140ms ease-out;
+    animation: pane-crosscut 90ms ease-out;
     z-index: 5;
     /* The panes themselves are transparent — xterm's theme background
        is rgba(0,0,0,0) and the surface tint lives on #workspace, an

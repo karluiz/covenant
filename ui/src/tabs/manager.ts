@@ -6202,7 +6202,14 @@ export class TabManager {
 
     this.activeId = id;
     this.tabLastActive.set(id, Date.now());
-    this.renderTabbar();
+    // Fast path: on a plain tab switch the strip structure is unchanged —
+    // only which pill carries `.active` moves. A full renderTabbar() wipes
+    // the strip (innerHTML="") and rebuilds every pill with fresh
+    // listeners/badges/operator-chips, which is the dominant tab-switch
+    // cost once a user keeps many tabs open. Move the class in place;
+    // fall back to a full rebuild only when the target pill isn't painted
+    // yet (freshly created tab activated before its pill exists).
+    if (!this.setActivePill(id)) this.renderTabbar();
     this.onTabActivated?.();
     this.onActiveContextChange?.(activePane(tab).cwd);
     this.emitActiveMission();
@@ -6838,6 +6845,22 @@ export class TabManager {
       // must be explicitly hidden when their tab is no longer in front.
       if (t.kind === "browser") t.browser?.hide();
     }
+  }
+
+  /** Move the `.active` highlight to the target pill and reslide the glass
+   *  indicator + collapsed rail, without rebuilding the whole strip. Returns
+   *  false when the target pill isn't in the DOM yet, so activate() can fall
+   *  back to a full renderTabbar(). */
+  private setActivePill(id: string): boolean {
+    const pills = Array.from(
+      this.tabbarHost.querySelectorAll<HTMLElement>(".tab-btn"),
+    );
+    const target = pills.find((el) => el.dataset.tabId === id) ?? null;
+    if (!target) return false; // pill not painted yet — caller full-renders
+    for (const el of pills) el.classList.toggle("active", el === target);
+    positionGlassIndicator(this.tabbarHost);
+    this.onAfterRender?.();
+    return true;
   }
 
   private renderTabbar(): void {
