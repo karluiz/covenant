@@ -4309,10 +4309,10 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     padding: 11px 14px;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-top: none;
     transition: box-shadow 0.12s ease, background 0.12s ease;
 }
-.route-cadence .route-row:first-of-type { border-top: 1px solid var(--border); }
+/* collapse the shared border between stacked rows into a single hairline */
+.route-row + .route-row { margin-top: -1px; }
 /* spine via inset shadow so it survives flex-wrap onto a second line */
 .route-row:hover,
 .route-row:focus-within { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
