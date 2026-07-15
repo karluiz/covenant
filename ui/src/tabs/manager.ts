@@ -3438,20 +3438,23 @@ export class TabManager {
       sessionId = await spawnSession(
         {
           onOutput: (chunk) => {
-            term.write(chunk);
+            term.write(chunk, () => {
+              // Belt-and-suspenders: if a TUI exits without disabling mouse
+              // tracking OR focus reporting we may not get a prompt_start (no
+              // shell integration, or the event arrives later). Detect the stuck
+              // state right after xterm processes the chunk — either mode still on
+              // while back on the normal buffer means the app forgot to clean up.
+              // The check runs inside the write callback so term.modes reflects
+              // the state AFTER xterm parsed this chunk (write() is async in v5).
+              if (
+                (term.modes.mouseTrackingMode !== "none" ||
+                  term.modes.sendFocusMode) &&
+                term.buffer.active.type === "normal"
+              ) {
+                term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l");
+              }
+            });
             if (tabRef.current?.pane.hidden) tabRef.current.wroteWhileHidden = true;
-            // Belt-and-suspenders: if a TUI exits without disabling mouse
-            // tracking OR focus reporting we may not get a prompt_start (no
-            // shell integration, or the event arrives later). Detect the stuck
-            // state right after xterm processes the chunk — either mode still on
-            // while back on the normal buffer means the app forgot to clean up.
-            if (
-              (term.modes.mouseTrackingMode !== "none" ||
-                term.modes.sendFocusMode) &&
-              term.buffer.active.type === "normal"
-            ) {
-              term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l");
-            }
           },
           onSessionEvent: (event) => {
             blocks?.handleEvent(event);
@@ -3510,13 +3513,16 @@ export class TabManager {
               // prompt. These TUIs live on the alt buffer, so either mode still
               // on at a normal-buffer prompt is stuck state — clear it by writing
               // the DECRSTs to xterm (updates its mode; not sent to PTY).
-              if (
-                (term.modes.mouseTrackingMode !== "none" ||
-                  term.modes.sendFocusMode) &&
-                term.buffer.active.type === "normal"
-              ) {
-                term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l");
-              }
+              // Flush pending writes first so term.modes is up-to-date.
+              term.write("", () => {
+                if (
+                  (term.modes.mouseTrackingMode !== "none" ||
+                    term.modes.sendFocusMode) &&
+                  term.buffer.active.type === "normal"
+                ) {
+                  term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l");
+                }
+              });
               if (initialCmdPending !== null) {
                 const cmd = initialCmdPending;
                 initialCmdPending = null;
