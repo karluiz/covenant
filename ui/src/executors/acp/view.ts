@@ -68,6 +68,15 @@ export function relativeTime(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+/// A resume title is junk when it's empty or just a bare slash-command
+/// (`/model`, `/respawn`) — the agent titles a session off its first user
+/// message, so sessions opened only to switch a setting surface as noise.
+/// Exported for tests.
+export function isJunkResumeTitle(title: string | null | undefined): boolean {
+  const t = (title ?? "").trim();
+  return t.length === 0 || /^\/[\w-]+$/.test(t);
+}
+
 /// Quick-view lightbox for a pasted image. One at a time — opening
 /// replaces any existing overlay. Dismiss: click anywhere or Escape.
 function openImagePreview(dataUrl: string): void {
@@ -541,6 +550,10 @@ export interface AcpChatViewOptions {
   /// user prompt (typed or replayed) — ACP tabs have no PTY, so the
   /// screen-based summarizer titler never sees them.
   onTitle?: (title: string) => void;
+  /// Fired by the `/rename <name>` composer command. Owner sets the tab's
+  /// authoritative customName (unlike onTitle, which is the auto-derived
+  /// defaultTitle the titler can still overwrite).
+  onRename?: (name: string) => void;
 }
 
 interface ToolCardDom {
@@ -575,6 +588,7 @@ export class AcpChatView {
   private models: AcpModelInfo[] = [];
   private trustChipEl!: HTMLButtonElement;
   private trustMenuEl!: HTMLElement;
+  private resumeMenuEl!: HTMLElement;
   /// Live trust for THIS session only — switching calls `acpSetTrust`, it
   /// never writes back to the executor's stored config. New tabs still
   /// inherit the executor's configured default via `SpawnAcpResult.trust`.
@@ -592,6 +606,10 @@ export class AcpChatView {
     this.closeModelMenu();
     this.closeTrustMenu();
   };
+  private readonly closeResumeMenuOnOutsideClick = (e: MouseEvent): void => {
+    if (e.target instanceof Node && this.resumeMenuEl.contains(e.target)) return;
+    this.closeResumeMenu();
+  };
 
   private readonly state: AcpStreamState = createAcpStreamState();
   private unlisten: (() => void) | null = null;
@@ -600,6 +618,7 @@ export class AcpChatView {
   private acpSessionId: string | null;
   private readonly onSessionChange?: (sessionId: SessionId, acpSessionId: string) => void;
   private readonly onTitle?: (title: string) => void;
+  private readonly onRename?: (name: string) => void;
   /// One title per view — first real user prompt wins.
   private titleSent = false;
   /// Set once an LLM-generated title actually lands. Until then the tab
@@ -672,6 +691,7 @@ export class AcpChatView {
     this.trust = opts.trust ?? "balanced";
     this.onSessionChange = opts.onSessionChange;
     this.onTitle = opts.onTitle;
+    this.onRename = opts.onRename;
     this.mount();
     void this.subscribe();
   }
@@ -685,6 +705,7 @@ export class AcpChatView {
       this.liveStripTimer = null;
     }
     document.removeEventListener("mousedown", this.closeModelMenuOnOutsideClick);
+    document.removeEventListener("mousedown", this.closeResumeMenuOnOutsideClick);
     if (this.unlisten) {
       try {
         this.unlisten();
@@ -768,6 +789,7 @@ export class AcpChatView {
       <form class="acp-chat-input" autocomplete="off">
         <div class="acp-slash-menu" role="listbox" hidden></div>
         <div class="acp-slash-menu acp-mention-menu" role="listbox" hidden></div>
+        <div class="acp-resume-menu" role="listbox" hidden></div>
         <div class="acp-image-strip" hidden></div>
         <button type="button" class="acp-jump-present" hidden>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M8 13l4.5-4.5M8 13 3.5 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -800,6 +822,7 @@ export class AcpChatView {
       if (this.modelMenuEl.hidden) this.openModelMenu();
       else this.closeModelMenu();
     });
+    this.resumeMenuEl = requireChild(this.host, ".acp-resume-menu");
     this.trustChipEl = requireChild(this.host, ".acp-trust-chip") as HTMLButtonElement;
     this.trustMenuEl = requireChild(this.host, ".acp-trust-menu");
     this.trustChipEl.addEventListener("click", () => {
@@ -975,6 +998,11 @@ export class AcpChatView {
     }
     if (!roster.some((c) => c.name === "resume")) {
       roster = [...roster, { name: "resume", description: "Load a past conversation" }];
+    }
+    // /rename is a Covenant-native tab command, not a wire command — handleSend
+    // intercepts it so it never reaches the agent as prompt text.
+    if (!roster.some((c) => c.name === "rename")) {
+      roster = [...roster, { name: "rename", description: "Rename this tab", input: { hint: "<name>" } }];
     }
     this.slashItems = filterSlashCommands(roster, this.inputEl.value);
     if (this.slashItems.length === 0) {
@@ -1279,23 +1307,30 @@ export class AcpChatView {
       this.appendNotice(`resume: ${String(err)}`, "error");
       return;
     }
+    // Drop the live session and throwaway sessions whose only title is a bare
+    // slash-command (`/model`, `/respawn`) — those were opened, tweaked, and
+    // abandoned; they're the noise the resume list used to drown in.
     const others = listings
-      .filter((l) => l.sessionId !== this.acpSessionId)
+      .filter((l) => l.sessionId !== this.acpSessionId && !isJunkResumeTitle(l.title))
       .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
     if (others.length === 0) {
       this.appendNotice("No past conversations to resume.", "info");
       return;
     }
-    this.modelMenuEl.style.left = `${this.modelChipEl.offsetLeft}px`;
-    this.modelMenuEl.hidden = false;
-    this.modelMenuEl.textContent = "";
+    this.closeModelMenu();
+    this.resumeMenuEl.hidden = false;
+    this.resumeMenuEl.textContent = "";
+    const header = document.createElement("div");
+    header.className = "acp-resume-header";
+    header.textContent = "Resume a conversation";
+    this.resumeMenuEl.appendChild(header);
     for (const l of others.slice(0, 20)) {
       const row = document.createElement("div");
       row.className = "acp-slash-row";
       row.setAttribute("role", "option");
       const name = document.createElement("span");
-      name.className = "acp-slash-name";
-      name.textContent = (l.title ?? l.sessionId).slice(0, 64);
+      name.className = "acp-slash-desc";
+      name.textContent = (l.title ?? l.sessionId).slice(0, 80);
       row.appendChild(name);
       if (l.updatedAt) {
         const hint = document.createElement("span");
@@ -1307,13 +1342,19 @@ export class AcpChatView {
         e.preventDefault();
         void this.pickResume(l.sessionId);
       });
-      this.modelMenuEl.appendChild(row);
+      this.resumeMenuEl.appendChild(row);
     }
-    document.addEventListener("mousedown", this.closeModelMenuOnOutsideClick);
+    document.addEventListener("mousedown", this.closeResumeMenuOnOutsideClick);
+  }
+
+  private closeResumeMenu(): void {
+    this.resumeMenuEl.hidden = true;
+    this.resumeMenuEl.textContent = "";
+    document.removeEventListener("mousedown", this.closeResumeMenuOnOutsideClick);
   }
 
   private async pickResume(acpSessionId: string): Promise<void> {
-    this.closeModelMenu();
+    this.closeResumeMenu();
     this.resetTranscript();
     this.appendNotice("Loading conversation…", "info");
     try {
@@ -1846,6 +1887,22 @@ export class AcpChatView {
     const text = this.inputEl.value.trim();
     const images = this.pendingImages;
     if ((text.length === 0 && images.length === 0) || this.state.inFlight) return;
+    // /rename is a Covenant tab command — rename the tab, never send it to the
+    // agent (which just replies "no output" to unknown slash text).
+    const rename = /^\/rename(?:\s+(.*))?$/.exec(text);
+    if (rename) {
+      const name = (rename[1] ?? "").trim();
+      this.hideSlashMenu();
+      this.inputEl.value = "";
+      this.syncComposer();
+      if (name.length === 0) {
+        this.appendNotice("Usage: /rename <name>", "info");
+      } else {
+        this.onRename?.(name);
+        this.appendNotice(`Renamed tab to "${name}".`, "info");
+      }
+      return;
+    }
     this.hideSlashMenu();
     this.hideMentionMenu();
     // Only mentions whose @token survived editing become attachments.

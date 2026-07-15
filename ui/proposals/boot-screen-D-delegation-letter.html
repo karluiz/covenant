@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Boot Screen D — Delegation Letter</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-panel: #11141a;
+    --accent: #7aa2f7;
+    --ok: #9ece6a;
+    --running: #e0af68;
+    --text-primary: #f5f6f7;
+    --text-secondary: #8b929b;
+    --text-tertiary: #5c626c;
+    --border: #1c2027;
+    --ink-rgb: 255 255 255;
+    --ui-font: "SF Pro Text", system-ui, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /*
+   * Proposal D: Delegation Letter
+   * ──────────────────────────────
+   * Leans into the ontology: the operator is a projection of the
+   * principal's judgment. The boot screen reads like a brief status
+   * card — who is being summoned, on whose authority, with what
+   * capability. Left-aligned, editorial. A single accent spine
+   * (same pattern as group headers) anchors the block.
+   */
+
+  .boot {
+    display: flex;
+    gap: 0;
+    max-width: 400px;
+    padding: 32px;
+  }
+
+  /* Accent spine — same 2px convention as group headers and tabs */
+  .boot-spine {
+    width: 2px;
+    flex: none;
+    background: var(--accent);
+    opacity: 0.5;
+    margin-right: 24px;
+    animation: spine-grow 0.6s ease forwards;
+    transform-origin: top;
+  }
+
+  @keyframes spine-grow {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
+  }
+
+  .boot-body {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    animation: fade-in 0.5s ease 0.2s both;
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .boot-kicker {
+    font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .boot-operator {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .boot-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgb(var(--ink-rgb) / 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    flex: none;
+  }
+
+  .boot-id {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .boot-name {
+    font-family: var(--ui-font);
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+  }
+
+  .boot-mandate {
+    font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-tertiary);
+  }
+
+  /* Status rows */
+  .boot-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .boot-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-secondary);
+  }
+
+  .boot-step .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: none;
+  }
+
+  .dot.done { background: var(--ok); }
+  .dot.active {
+    background: var(--running);
+    animation: dot-pulse 1.2s ease infinite;
+  }
+
+  @keyframes dot-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  .boot-step .label { color: var(--text-secondary); }
+  .boot-step .value { color: var(--text-primary); margin-left: auto; }
+
+  .boot-footer {
+    font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-tertiary);
+    opacity: 0.6;
+  }
+</style>
+</head>
+<body>
+
+<div class="boot">
+  <div class="boot-spine"></div>
+  <div class="boot-body">
+    <div class="boot-kicker">Summoning operator</div>
+
+    <div class="boot-operator">
+      <div class="boot-avatar">🟣</div>
+      <div class="boot-id">
+        <div class="boot-name">The Architect</div>
+        <div class="boot-mandate">personal · terse · 0.50</div>
+      </div>
+    </div>
+
+    <div class="boot-steps">
+      <div class="boot-step">
+        <span class="dot done"></span>
+        <span class="label">executor</span>
+        <span class="value">Claude Sonnet 4.6</span>
+      </div>
+      <div class="boot-step">
+        <span class="dot done"></span>
+        <span class="label">soul</span>
+        <span class="value">loaded</span>
+      </div>
+      <div class="boot-step">
+        <span class="dot active"></span>
+        <span class="label">session</span>
+        <span class="value">handshake</span>
+      </div>
+    </div>
+
+    <div class="boot-footer">covenant v0.9.26 · acp</div>
+  </div>
+</div>
+
+</body>
+</html>

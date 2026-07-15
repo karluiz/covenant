@@ -139,6 +139,16 @@ Every right-rail panel (Blocks, Files, Beacon, Notes, Teammate, …) uses the sh
 
 New panels **must** compose `.rail-*` classes, not re-invent header/footer/rows. (Gotcha: a panel's left divider belongs on the panel *host* element, not on `.rail-panel` — see Beacon.)
 
+### Registry / catalog tabs
+
+When one surface fronts several **kinds** of thing (the Canon Registry: skills, operators, subagents, commands, context, MCP), the kind switcher is a **hairline-baseline tab row**, never a segmented-button group (pills read as form chrome). Each tab is `icon + label + count`:
+
+- **Icon carries identity** — the row is scannable by glyph before you read a word. Reuse the kind's canonical glyph (`sparkles` skills · `headphones` operators · `bot` subagents · `terminalSquare` commands · `fileText` context · `radioTower` MCP). Icon rests at `opacity: 0.7`, lifts to full + `--accent` when active.
+- **Active = 2px `--accent` underline** on the shared baseline (mirrors `.cap-section-tab`). No fills, no boxes.
+- **Count badge** is mono `--fs-micro`, hidden until its census resolves, `--accent` when active. Never block the row on counts — fill each badge as its fetch lands.
+
+Reference: `.canon-reg-kind` in `canon/cockpit/cockpit.css`.
+
 ### Radii
 
 6px (`--rail-radius`) is the default for cards, rows, and controls. 0 for tabs. Anything larger belongs to full-screen immersive surfaces only.

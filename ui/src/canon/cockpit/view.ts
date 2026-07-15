@@ -1028,29 +1028,56 @@ export class CanonCockpitView {
       return el;
     }
 
-    // Kind tabs — one registry surface, six catalogs. Operators ride the
-    // marketplace API; every other kind is a /cdlc/packages search.
-    type RegTab = { key: string; label: string; wire: CanonPkgKind | null };
+    // Kind tabs — one registry surface, six catalogs. Each kind wears the
+    // icon that carries its identity (see DESIGN.md § Registry / catalog tabs)
+    // so the row is scannable by glyph before you read a word; active state is
+    // the shared accent underline. Operators ride the marketplace API; every
+    // other kind is a /cdlc/packages search.
+    type RegTab = { key: string; label: string; wire: CanonPkgKind | null; icon: string };
     const REG_TABS: RegTab[] = [
-      { key: "skills", label: "Skills", wire: "skill" },
-      { key: "operators", label: "Operators", wire: null },
-      { key: "agents", label: "Subagents", wire: "agent" },
-      { key: "commands", label: "Commands", wire: "command" },
-      { key: "context", label: "Context", wire: "context" },
-      { key: "mcp", label: "MCP", wire: "mcp" },
+      { key: "skills", label: "Skills", wire: "skill", icon: Icons.sparkles({ size: 15 }) },
+      { key: "operators", label: "Operators", wire: null, icon: Icons.headphones({ size: 15 }) },
+      { key: "agents", label: "Subagents", wire: "agent", icon: Icons.bot({ size: 15 }) },
+      { key: "commands", label: "Commands", wire: "command", icon: Icons.terminalSquare({ size: 15 }) },
+      { key: "context", label: "Context", wire: "context", icon: Icons.fileText({ size: 15 }) },
+      { key: "mcp", label: "MCP", wire: "mcp", icon: Icons.radioTower({ size: 15 }) },
     ];
     let tab: RegTab = REG_TABS[0];
     const toggleRow = document.createElement("div");
     toggleRow.className = "canon-reg-kind-toggle";
     const tabBtns = new Map<string, HTMLButtonElement>();
+    const countEls = new Map<string, HTMLElement>();
     for (const t of REG_TABS) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "canon-reg-kind";
-      b.textContent = t.label;
+      const ico = document.createElement("span");
+      ico.className = "canon-reg-kind-ico";
+      ico.innerHTML = t.icon;
+      const lbl = document.createElement("span");
+      lbl.textContent = t.label;
+      const ct = document.createElement("span");
+      ct.className = "canon-reg-kind-ct";
+      ct.hidden = true;
+      countEls.set(t.key, ct);
+      b.append(ico, lbl, ct);
       b.addEventListener("click", () => { applyKindUI(t); runSearch(); });
       tabBtns.set(t.key, b);
       toggleRow.appendChild(b);
+    }
+
+    // Per-catalog counts. No census endpoint for the remote registry, so fan
+    // out one empty-query search per kind and fill each badge as it resolves —
+    // non-blocking, cached for the cockpit's lifetime.
+    // ponytail: 6 parallel searches on open; a canon_registry_census command
+    // returning all counts in one call is the upgrade path if this shows up hot.
+    for (const t of REG_TABS) {
+      const ct = countEls.get(t.key);
+      if (!ct) continue;
+      const load = t.wire === null
+        ? marketplaceSearch().then((rows) => rows.length)
+        : canonSearch(initialActive.slug, null, t.wire).then((rows) => rows.length);
+      void load.then((n) => { ct.textContent = String(n); ct.hidden = false; }).catch(() => {});
     }
 
     const searchRow = document.createElement("div");

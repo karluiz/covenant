@@ -1,0 +1,338 @@
+<title>Inference Tab — Routing Matrix</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    /* Covenant tokens (see docs/DESIGN.md) — neutrals biased toward the iris accent */
+    --bg:            #0b0d10;
+    --bg-elev:       #11141a;
+    --bg-row:        #0e1116;
+    --bg-row-hover:  #131722;
+    --accent:        #7aa2f7;
+    --accent-soft:   rgba(122,162,247,0.14);
+    --ok:            #9ece6a;
+    --warn:          #e0af68;
+    --err:           #f7768e;
+    --text-1:        #f5f6f7;
+    --text-2:        #8b929b;
+    --text-3:        #5c626c;
+    --border:        #1c2027;
+    --border-soft:   #171b21;
+    --ui-font: "SF Pro Text", system-ui, -apple-system, sans-serif;
+    --mono-font: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --ls-title: 0.09em;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:           #f4f5f7;
+      --bg-elev:      #ffffff;
+      --bg-row:       #ffffff;
+      --bg-row-hover: #f6f8fc;
+      --accent:       #3b5bdb;
+      --accent-soft:  rgba(59,91,219,0.09);
+      --ok:           #2f9e44;
+      --warn:         #e08a1e;
+      --err:          #e03131;
+      --text-1:       #14161a;
+      --text-2:       #5c626c;
+      --text-3:       #9aa0a8;
+      --border:       #dfe2e8;
+      --border-soft:  #e9ebf0;
+    }
+  }
+  :root[data-theme="dark"]  { color-scheme: dark;  --bg:#0b0d10;--bg-elev:#11141a;--bg-row:#0e1116;--bg-row-hover:#131722;--accent:#7aa2f7;--accent-soft:rgba(122,162,247,0.14);--ok:#9ece6a;--warn:#e0af68;--err:#f7768e;--text-1:#f5f6f7;--text-2:#8b929b;--text-3:#5c626c;--border:#1c2027;--border-soft:#171b21; }
+  :root[data-theme="light"] { color-scheme: light; --bg:#f4f5f7;--bg-elev:#ffffff;--bg-row:#ffffff;--bg-row-hover:#f6f8fc;--accent:#3b5bdb;--accent-soft:rgba(59,91,219,0.09);--ok:#2f9e44;--warn:#e08a1e;--err:#e03131;--text-1:#14161a;--text-2:#5c626c;--text-3:#9aa0a8;--border:#dfe2e8;--border-soft:#e9ebf0; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: var(--ui-font);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 40px 28px 80px; }
+
+  /* ── proposal chrome ────────────────────────────────── */
+  .eyebrow {
+    font-size: 11px; letter-spacing: var(--ls-title); text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin: 0 0 10px;
+  }
+  h1 { font-size: 26px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 8px; text-wrap: balance; }
+  .lede { color: var(--text-2); font-size: 15px; max-width: 62ch; margin: 0 0 6px; }
+  .meta { color: var(--text-3); font-size: 12.5px; font-family: var(--mono-font); margin: 4px 0 0; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 34px 0 10px; }
+  @media (max-width: 720px) { .split { grid-template-columns: 1fr; } }
+  .note {
+    border: 1px solid var(--border); background: var(--bg-elev);
+    padding: 16px 18px;
+  }
+  .note h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: var(--ls-title); text-transform: uppercase; color: var(--text-2); font-weight: 600; }
+  .note.bad h3 { color: var(--err); }
+  .note.good h3 { color: var(--ok); }
+  .note ul { margin: 0; padding-left: 16px; color: var(--text-2); font-size: 13.5px; }
+  .note li { margin: 5px 0; }
+
+  .section-label {
+    font-size: 11.5px; letter-spacing: var(--ls-title); text-transform: uppercase;
+    color: var(--text-2); font-weight: 600; margin: 48px 0 4px;
+  }
+  .section-sub { color: var(--text-3); font-size: 13px; margin: 0 0 18px; }
+
+  /* ── THE MOCKUP: the redesigned Inference tab ───────── */
+  .panel {
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    padding: 26px 26px 30px;
+  }
+  .panel-head {
+    font-size: 11.5px; letter-spacing: var(--ls-title); text-transform: uppercase;
+    color: var(--text-1); font-weight: 700; margin: 0 0 12px;
+  }
+  .panel-intro { color: var(--text-2); font-size: 13.5px; max-width: 64ch; margin: 0 0 26px; }
+
+  /* cadence group */
+  .cadence { margin-bottom: 26px; }
+  .cadence:last-child { margin-bottom: 0; }
+  .cadence-head {
+    display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border-soft);
+  }
+  .cadence-title {
+    font-size: 11px; letter-spacing: var(--ls-title); text-transform: uppercase;
+    font-weight: 700; color: var(--text-1);
+  }
+  .cadence-desc { font-size: 12px; color: var(--text-3); }
+  .cadence-desc b { color: var(--text-2); font-weight: 600; }
+
+  /* one route = one row */
+  .route {
+    display: grid;
+    grid-template-columns: 3px minmax(150px, 1.1fr) minmax(230px, 1.3fr) auto;
+    align-items: center;
+    gap: 0 16px;
+    padding: 11px 12px 11px 0;
+    background: var(--bg-row);
+    border: 1px solid var(--border-soft);
+    border-top: none;
+    transition: background 0.12s ease;
+  }
+  .cadence .route:first-of-type { border-top: 1px solid var(--border-soft); }
+  .route:hover { background: var(--bg-row-hover); }
+  .route-spine { align-self: stretch; background: var(--accent); opacity: 0; transition: opacity 0.12s ease; }
+  .route:hover .route-spine, .route.is-focus .route-spine { opacity: 0.55; }
+
+  .route-id { padding-left: 13px; min-width: 0; }
+  .route-name { font-size: 13.5px; font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap: 7px; }
+  .route-kbd {
+    font-family: var(--mono-font); font-size: 10px; color: var(--text-2);
+    border: 1px solid var(--border); padding: 0 4px; line-height: 15px; border-radius: 2px;
+  }
+  .route-job { font-size: 12px; color: var(--text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* provider → model, inline */
+  .route-route { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .sel {
+    flex: 1 1 0; min-width: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    padding: 6px 9px; cursor: pointer; user-select: none;
+    transition: border-color 0.12s ease;
+  }
+  .sel:hover { border-color: var(--accent); }
+  .sel-val { font-size: 12.5px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sel.model .sel-val { font-family: var(--mono-font); font-size: 12px; }
+  .sel-caret { color: var(--text-3); flex: none; }
+  .route-arrow { color: var(--text-3); flex: none; font-size: 12px; }
+
+  /* reachability chip */
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono-font); font-size: 11.5px; white-space: nowrap;
+    padding: 3px 9px 3px 8px; border: 1px solid var(--border);
+    justify-self: end;
+  }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .chip.ok  { color: var(--ok);  border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+  .chip.ok .dot  { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+  .chip.native { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+  .chip.native .dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); }
+  .chip.warn .dot { background: var(--warn); }
+
+  /* frequency meter — encodes how often this route fires */
+  .freq { display: inline-flex; gap: 2px; margin-left: 9px; vertical-align: middle; }
+  .freq i { width: 3px; height: 10px; background: var(--border); display: inline-block; }
+  .freq.hot i { background: var(--warn); }
+  .freq i.off { background: var(--border) !important; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 16px 22px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
+  .legend span { font-size: 11.5px; color: var(--text-3); display: inline-flex; align-items: center; gap: 7px; }
+  .legend .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+  .why { margin-top: 44px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .why { grid-template-columns: 1fr; } }
+  .why .note h3 { color: var(--accent); }
+
+  a.svglink { color: inherit; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Design proposal · Settings › Inference</p>
+  <h1>Inference as a routing matrix, not a stack of cards</h1>
+  <p class="lede">Six roles, each on its own provider + model. Today they're six tall, near-identical cards — you scroll to see two at a time and can't compare the routing at a glance. The tab's whole job is one decision: <em>cheap where it's frequent, powerful where it counts.</em> The redesign makes that decision visible.</p>
+  <p class="meta">source: ui/src/settings/model_routes.ts · 6 roles · unchanged data model</p>
+
+  <div class="split">
+    <div class="note bad">
+      <h3>What's off today</h3>
+      <ul>
+        <li>Provider + model stacked vertically → each route is ~260px tall; only 2 fit on screen.</li>
+        <li>Six identical cards, no visual hierarchy — the hot-path routes look the same as the rare ones.</li>
+        <li>The one insight the intro sells — mix cheap &amp; frequent vs. powerful &amp; rare — is nowhere in the layout.</li>
+        <li>Status + hint are two separate full-width lines of prose per card.</li>
+      </ul>
+    </div>
+    <div class="note good">
+      <h3>What the redesign does</h3>
+      <ul>
+        <li>One route = one row. All six visible without scrolling; provider→model inline.</li>
+        <li>Grouped by <b>cadence</b> — the structure teaches the cost tradeoff it's asking you to make.</li>
+        <li>A frequency meter per row: how hot the path is, so "keep it cheap" is obvious.</li>
+        <li>Reachability collapses to one compact chip. Same selects, same backend — pure layout.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="section-label">The redesigned tab</p>
+  <p class="section-sub">Live mockup with real routes. Hover a row for its spine.</p>
+
+  <div class="panel">
+    <p class="panel-head">Inference</p>
+    <p class="panel-intro">Covenant routes each kind of LLM work to its own provider + model. Pick a provider, then a model it serves — the chip confirms it's reachable.</p>
+
+    <!-- HOT PATH -->
+    <div class="cadence">
+      <div class="cadence-head">
+        <span class="cadence-title">Hot path</span>
+        <span class="cadence-desc">Fires on <b>every command</b> — favour a cheap, fast model.</span>
+      </div>
+
+      <div class="route">
+        <div class="route-spine"></div>
+        <div class="route-id">
+          <div class="route-name">Summary <span class="freq hot" title="fires constantly"><i></i><i></i><i></i><i></i></span></div>
+          <div class="route-job">Rolling world-model summaries, per session</div>
+        </div>
+        <div class="route-route">
+          <div class="sel"><span class="sel-val">azure</span><span class="sel-caret">▾</span></div>
+          <span class="route-arrow">→</span>
+          <div class="sel model"><span class="sel-val">gpt-4o-mini</span><span class="sel-caret">▾</span></div>
+        </div>
+        <span class="chip ok"><span class="dot"></span>reachable · 6</span>
+      </div>
+
+      <div class="route">
+        <div class="route-spine"></div>
+        <div class="route-id">
+          <div class="route-name">Triage <span class="freq hot" title="fires often"><i></i><i></i><i></i><i class="off"></i></span></div>
+          <div class="route-job">Cheap gate before an expensive operator call</div>
+        </div>
+        <div class="route-route">
+          <div class="sel"><span class="sel-val">azure</span><span class="sel-caret">▾</span></div>
+          <span class="route-arrow">→</span>
+          <div class="sel model"><span class="sel-val">gpt-4o-mini</span><span class="sel-caret">▾</span></div>
+        </div>
+        <span class="chip ok"><span class="dot"></span>reachable · 6</span>
+      </div>
+    </div>
+
+    <!-- DELIBERATE -->
+    <div class="cadence">
+      <div class="cadence-head">
+        <span class="cadence-title">Deliberate</span>
+        <span class="cadence-desc">Fires on demand — <b>spend where it counts.</b></span>
+      </div>
+
+      <div class="route is-focus">
+        <div class="route-spine"></div>
+        <div class="route-id">
+          <div class="route-name">Chat <span class="route-kbd">⌘K</span> <span class="freq" title="on demand"><i></i><i class="off"></i><i class="off"></i><i class="off"></i></span></div>
+          <div class="route-job">Answers when you ⌘K the agent</div>
+        </div>
+        <div class="route-route">
+          <div class="sel"><span class="sel-val">azure</span><span class="sel-caret">▾</span></div>
+          <span class="route-arrow">→</span>
+          <div class="sel model"><span class="sel-val">gpt-4o</span><span class="sel-caret">▾</span></div>
+        </div>
+        <span class="chip ok"><span class="dot"></span>reachable · 6</span>
+      </div>
+
+      <div class="route">
+        <div class="route-spine"></div>
+        <div class="route-id">
+          <div class="route-name">Operator <span class="freq" title="on demand"><i></i><i class="off"></i><i class="off"></i><i class="off"></i></span></div>
+          <div class="route-job">Autonomous agent that runs tools across your sessions</div>
+        </div>
+        <div class="route-route">
+          <div class="sel"><span class="sel-val">anthropic</span><span class="sel-caret">▾</span></div>
+          <span class="route-arrow">→</span>
+          <div class="sel model"><span class="sel-val">claude-opus-4-8</span><span class="sel-caret">▾</span></div>
+        </div>
+        <span class="chip native"><span class="dot"></span>anthropic</span>
+      </div>
+
+      <div class="route">
+        <div class="route-spine"></div>
+        <div class="route-id">
+          <div class="route-name">Spec Creator <span class="freq" title="on demand"><i></i><i class="off"></i><i class="off"></i><i class="off"></i></span></div>
+          <div class="route-job">The immersive Spec Creator's research agent</div>
+        </div>
+        <div class="route-route">
+          <div class="sel"><span class="sel-val">anthropic</span><span class="sel-caret">▾</span></div>
+          <span class="route-arrow">→</span>
+          <div class="sel model"><span class="sel-val">claude-opus-4-8</span><span class="sel-caret">▾</span></div>
+        </div>
+        <span class="chip native"><span class="dot"></span>anthropic</span>
+      </div>
+
+      <div class="route">
+        <div class="route-spine"></div>
+        <div class="route-id">
+          <div class="route-name">Context Miner <span class="freq" title="on demand"><i></i><i class="off"></i><i class="off"></i><i class="off"></i></span></div>
+          <div class="route-job">The Canon Context Miner's repo-scanning agent</div>
+        </div>
+        <div class="route-route">
+          <div class="sel"><span class="sel-val">azure</span><span class="sel-caret">▾</span></div>
+          <span class="route-arrow">→</span>
+          <div class="sel model"><span class="sel-val">gpt-4o</span><span class="sel-caret">▾</span></div>
+        </div>
+        <span class="chip ok"><span class="dot"></span>reachable · 6</span>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><span class="dot" style="background:var(--ok)"></span>reachable, N models listed</span>
+      <span><span class="dot" style="background:var(--accent)"></span>anthropic (native, always on)</span>
+      <span><span class="dot" style="background:var(--warn)"></span>pick a model / not listed</span>
+      <span><span class="freq hot" style="margin:0"><i></i><i></i><i></i><i></i></span>&nbsp;call frequency</span>
+    </div>
+  </div>
+
+  <div class="why">
+    <div class="note">
+      <h3>Density</h3>
+      <p style="margin:0;color:var(--text-2);font-size:13.5px">All six routes on one screen. Change one, compare against the other five without scrolling — which is the actual task.</p>
+    </div>
+    <div class="note">
+      <h3>Structure = meaning</h3>
+      <p style="margin:0;color:var(--text-2);font-size:13.5px">Grouping by cadence isn't decoration: it's the exact tradeoff the intro asks you to make, moved from prose into layout.</p>
+    </div>
+    <div class="note">
+      <h3>Zero backend cost</h3>
+      <p style="margin:0;color:var(--text-2);font-size:13.5px">Same <span style="font-family:var(--mono-font);font-size:12px">CustomSelect</span>, same probe cache, same <span style="font-family:var(--mono-font);font-size:12px">model_routes</span> shape. Only the row markup + CSS change; hint text moves to a hover/expand.</p>
+    </div>
+  </div>
+</div>

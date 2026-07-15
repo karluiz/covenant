@@ -62,6 +62,13 @@ body.canon-open .tab-blocks { display: none !important; }
 body.canon-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
   right: 0 !important;
 }
+/* ACP panes are flex, not the shell grid, so `grid-template-columns: 1fr 0 0 0`
+   above doesn't collapse their per-tab Files/editor columns — they'd stack
+   beside Canon (chat | files | canon). Hide them so Canon reuses that space,
+   same as the sidebar-view-* rails in styles.css. */
+body.canon-open .tab-pane-acp > :is(.editor-host, .acp-structure-host) {
+  display: none !important;
+}
 
 body.tabbar-left .canon-panel { top: 38px; }
 

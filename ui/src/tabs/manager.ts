@@ -4735,7 +4735,15 @@ export class TabManager {
 
     const boot = document.createElement("div");
     boot.className = "acp-boot";
-    boot.textContent = `Starting ${executorTitle}…`;
+    const wave = document.createElement("div");
+    wave.className = "acp-boot-wave";
+    for (let i = 0; i < 5; i++) wave.appendChild(document.createElement("span"));
+    const bootText = document.createElement("div");
+    bootText.className = "acp-boot-text";
+    bootText.innerHTML =
+      `<div class="acp-boot-title">Starting <strong>${executorTitle}</strong></div>` +
+      `<div class="acp-boot-sub">covenant · acp session</div>`;
+    boot.append(wave, bootText);
     acpPaneHost0.appendChild(boot);
 
     const tab: Tab = {
@@ -4897,6 +4905,7 @@ export class TabManager {
       } catch (err) {
         console.warn("spawnAcpSession failed", err);
         boot.classList.add("acp-boot-error");
+        boot.innerHTML = "";
         boot.textContent = `Could not start ${executorTitle}: ${String(err)}`;
         return;
       }
@@ -4933,6 +4942,9 @@ export class TabManager {
           t.defaultTitle = title;
           this.renderTabbar();
         },
+        // `/rename <name>` in the ACP composer — authoritative customName,
+        // same path as double-click / context-menu rename.
+        onRename: (name) => this.commitTabRename(id, name),
       });
       tab.acpView = view;
       pane0Acp.acpView = view;

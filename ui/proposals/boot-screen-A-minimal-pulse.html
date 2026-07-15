@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Boot Screen A — Minimal Pulse</title>
+<style>
+  /* ── Covenant tokens (subset) ── */
+  :root {
+    --bg: #0b0d10;
+    --bg-panel: #11141a;
+    --accent: #7aa2f7;
+    --text-primary: #f5f6f7;
+    --text-secondary: #8b929b;
+    --text-tertiary: #5c626c;
+    --border: #1c2027;
+    --ink-rgb: 255 255 255;
+    --ui-font: "SF Pro Text", system-ui, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--ui-font);
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /*
+   * Proposal A: Minimal Pulse
+   * ─────────────────────────
+   * A single accent ring pulses quietly around the executor's mark.
+   * The text stays terse. Feels like a system booting — calm, confident.
+   * No decoration beyond the ring + one line of copy.
+   */
+
+  .boot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+  }
+
+  .boot-ring {
+    position: relative;
+    width: 64px;
+    height: 64px;
+  }
+
+  .boot-ring::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1.5px solid var(--accent);
+    border-radius: 50%;
+    opacity: 0.35;
+    animation: pulse-ring 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  .boot-ring::after {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border: 1.5px solid var(--accent);
+    border-radius: 50%;
+    opacity: 0.7;
+    animation: pulse-ring 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.3s;
+  }
+
+  .boot-mark {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .boot-mark svg {
+    width: 24px;
+    height: 24px;
+    color: var(--accent);
+    opacity: 0.9;
+  }
+
+  @keyframes pulse-ring {
+    0%, 100% { transform: scale(1); opacity: 0.35; }
+    50% { transform: scale(1.12); opacity: 0.7; }
+  }
+
+  .boot-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .boot-label span {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .boot-dots::after {
+    content: "";
+    animation: dots 1.5s steps(4, end) infinite;
+  }
+
+  @keyframes dots {
+    0% { content: ""; }
+    25% { content: "."; }
+    50% { content: ".."; }
+    75% { content: "..."; }
+  }
+</style>
+</head>
+<body>
+
+<div class="boot">
+  <div class="boot-ring">
+    <div class="boot-mark">
+      <!-- Covenant mark (headphones icon from the app) -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+        <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/>
+        <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/>
+      </svg>
+    </div>
+  </div>
+  <div class="boot-label">starting <span>Claude</span><span class="boot-dots"></span></div>
+</div>
+
+</body>
+</html>

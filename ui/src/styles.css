@@ -17031,6 +17031,12 @@ body.project-notes-open .tab-blocks {
 body.project-notes-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
   right: 0 !important;
 }
+/* ACP panes are flex, not the shell grid, so `grid-template-columns: 1fr 0 0 0`
+   above doesn't collapse their per-tab Files/editor columns — hide them so the
+   Project Notes rail reuses that space instead of stacking beside it. */
+body.project-notes-open .tab-pane-acp > :is(.editor-host, .acp-structure-host) {
+  display: none !important;
+}
 /* Project-notes active styling now comes from the shared
    .titlebar-view-btn.titlebar-view-active rule. */
 

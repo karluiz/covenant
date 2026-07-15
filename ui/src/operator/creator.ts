@@ -411,9 +411,11 @@ function renderHeader(h: ModalHandle): HTMLElement {
   const chipHost = document.createElement("div");
   chipHost.className = "op-hero-chip";
   chipHost.style.flex = "1";
-  const kbd = document.createElement("div");
-  kbd.className = "kbd";
-  kbd.textContent = "esc";
+  const kbd = document.createElement("button");
+  kbd.type = "button";
+  kbd.className = "settings-close";
+  kbd.setAttribute("aria-label", "Close (Esc)");
+  kbd.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
   kbd.addEventListener("click", () => requestClose(h));
   header.append(brand, chipHost, kbd);
   getSoulEditor(h).mountChip(chipHost);

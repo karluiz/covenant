@@ -50,9 +50,10 @@ import {
   type AcpProseItem,
   type AcpToolItem,
   relativeTime,
+  isJunkResumeTitle,
 } from "./view";
 import type { AcpPermissionRequest, AcpSessionUpdate, AcpTabEvent } from "../../api";
-import { acpSetTrust } from "../../api";
+import { acpSetTrust, acpSendPrompt } from "../../api";
 
 // -----------------------------------------------------------------------
 // AcpChatView DOM harness — this file otherwise tests only the DOM-free
@@ -90,6 +91,33 @@ describe("relativeTime", () => {
     expect(relativeTime(new Date(now - 2 * 3_600_000).toISOString())).toBe("2h ago");
     expect(relativeTime(new Date(now - 3 * 86_400_000).toISOString())).toBe("3d ago");
     expect(relativeTime("not-a-date")).toBe("");
+  });
+});
+
+describe("isJunkResumeTitle", () => {
+  it("flags empty and bare slash-command titles, keeps real prompts", () => {
+    expect(isJunkResumeTitle(null)).toBe(true);
+    expect(isJunkResumeTitle("  ")).toBe(true);
+    expect(isJunkResumeTitle("/model")).toBe(true);
+    expect(isJunkResumeTitle("/respawn")).toBe(true);
+    expect(isJunkResumeTitle("puedes realizar /respawn ?")).toBe(false);
+    expect(isJunkResumeTitle("hola")).toBe(false);
+    expect(isJunkResumeTitle("quiero mejorar este screen")).toBe(false);
+  });
+});
+
+describe("/rename composer command", () => {
+  it("renames the tab and never reaches the wire", async () => {
+    const onRename = vi.fn();
+    const { host } = await mountView({ onRename });
+    const ta = host.querySelector(".acp-chat-textarea") as HTMLTextAreaElement;
+    const form = host.querySelector(".acp-chat-input") as HTMLFormElement;
+    ta.value = "/rename my session";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await flush();
+    expect(onRename).toHaveBeenCalledWith("my session");
+    expect(acpSendPrompt).not.toHaveBeenCalled();
+    expect(ta.value).toBe("");
   });
 });
 

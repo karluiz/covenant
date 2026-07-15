@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Boot Screen B — Terminal Boot Sequence</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-panel: #11141a;
+    --accent: #7aa2f7;
+    --ok: #9ece6a;
+    --running: #e0af68;
+    --text-primary: #f5f6f7;
+    --text-secondary: #8b929b;
+    --text-tertiary: #5c626c;
+    --border: #1c2027;
+    --ink-rgb: 255 255 255;
+    --ui-font: "SF Pro Text", system-ui, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /*
+   * Proposal B: Terminal Boot Sequence
+   * ───────────────────────────────────
+   * Leans into Covenant's identity as a terminal. Boot lines appear
+   * one by one with a typewriter cadence. Each step gets a status
+   * indicator (done/pending). The last line has a blinking cursor.
+   * Feels like watching a machine come alive — earned, not decorative.
+   */
+
+  .boot {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 40px;
+    max-width: 420px;
+  }
+
+  .boot-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .boot-header svg {
+    width: 20px;
+    height: 20px;
+    color: var(--accent);
+  }
+
+  .boot-header span {
+    font-size: 11px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .boot-line {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    opacity: 0;
+    animation: line-in 0.3s ease forwards;
+  }
+
+  .boot-line:nth-child(1) { animation-delay: 0.2s; }
+  .boot-line:nth-child(2) { animation-delay: 0.7s; }
+  .boot-line:nth-child(3) { animation-delay: 1.2s; }
+  .boot-line:nth-child(4) { animation-delay: 1.7s; }
+
+  @keyframes line-in {
+    to { opacity: 1; }
+  }
+
+  .boot-status {
+    width: 14px;
+    flex: none;
+    text-align: center;
+    font-size: 11px;
+  }
+
+  .boot-status.done { color: var(--ok); }
+  .boot-status.pending { color: var(--running); }
+
+  .boot-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--running);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .boot-line code {
+    color: var(--text-primary);
+  }
+
+  .boot-cursor {
+    display: inline-block;
+    width: 7px;
+    height: 15px;
+    background: var(--accent);
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
+  .boot-version {
+    margin-top: 24px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    letter-spacing: 0.03em;
+  }
+</style>
+</head>
+<body>
+
+<div class="boot">
+  <div class="boot-header">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z"/>
+      <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/>
+    </svg>
+    <span>Covenant</span>
+  </div>
+
+  <div class="boot-line">
+    <span class="boot-status done">&#10003;</span>
+    <span>pty session <code>spawn</code></span>
+  </div>
+
+  <div class="boot-line">
+    <span class="boot-status done">&#10003;</span>
+    <span>shell integration <code>osc 133</code></span>
+  </div>
+
+  <div class="boot-line">
+    <span class="boot-status done">&#10003;</span>
+    <span>operator soul loaded</span>
+  </div>
+
+  <div class="boot-line">
+    <span class="boot-status pending"><span class="boot-spinner"></span></span>
+    <span>connecting to <code>Claude</code><span class="boot-cursor"></span></span>
+  </div>
+
+  <div class="boot-version">covenant v0.9.26</div>
+</div>
+
+</body>
+</html>

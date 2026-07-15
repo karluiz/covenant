@@ -389,12 +389,15 @@ body.tabbar-left .canon-cockpit {
 
 /* ── Registry section ──────────────────────────────────────────────── */
 
-/* Kind tabs — six catalogs on one hairline baseline, accent underline on
-   the active one (mirrors .cap-section-tab in styles.css: quiet text, no
-   boxes — the segmented-button look read as form chrome). */
+/* Kind tabs — six catalogs on one hairline baseline (DESIGN.md § Registry /
+   catalog tabs). Each carries its identity icon so the row is scannable by
+   glyph; active state is the accent underline (mirrors .cap-section-tab — no
+   boxes, the segmented-button look read as form chrome). A live count badge
+   per catalog fills in once its census fetch resolves. */
 .canon-reg-kind-toggle {
   display: flex;
   flex-wrap: wrap;
+  gap: 2px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 12px;
 }
@@ -405,19 +408,36 @@ body.tabbar-left .canon-cockpit {
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   border-radius: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   color: var(--fg-dim);
-  padding: 6px 2px 8px;
-  margin-right: 18px;
+  padding: 8px 11px 9px;
   cursor: pointer;
-  font-weight: 550;
+  font-weight: 500;
   white-space: nowrap;
-  transition: color 0.1s;
+  transition: color 0.12s, background 0.12s;
 }
-.canon-reg-kind:hover:not(.is-active) { color: var(--fg); }
+.canon-reg-kind-ico {
+  display: inline-flex;
+  opacity: 0.7;
+  transition: opacity 0.12s, color 0.12s;
+}
+.canon-reg-kind-ct {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--fg-dim);
+}
+.canon-reg-kind:hover:not(.is-active) {
+  color: var(--fg);
+  background: rgb(var(--ink-rgb) / 0.03);
+}
 .canon-reg-kind.is-active {
   color: var(--fg);
   border-bottom-color: var(--accent);
 }
+.canon-reg-kind.is-active .canon-reg-kind-ico { opacity: 1; color: var(--accent); }
+.canon-reg-kind.is-active .canon-reg-kind-ct { color: var(--accent); }
 
 .canon-cockpit-search-row {
   display: flex;

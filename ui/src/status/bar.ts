@@ -45,6 +45,7 @@ import { brandIconSvg, telegramIconSvg } from "../icons/brands";
 import { renderMarkdown } from "../ui/markdown";
 import { highlightMatches, clearMarks } from "./find-highlight";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
+import { draftsApi } from "../drafts/api";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
 import { attachTooltip } from "../tooltip/tooltip";
 import { VitalsCluster } from "./vitals";
@@ -1216,6 +1217,12 @@ export class StatusBar {
               pushInfoToast({ message: "Failed to publish for review" });
               return;
             }
+            if (!content && mission.path) {
+              try {
+                const spec = await draftsApi.readSpecBody(mission.path);
+                content = spec.body;
+              } catch { /* fall through */ }
+            }
             try {
               await publishMissionForReview(mission.path, content ?? "");
             } catch (err) {
@@ -1259,6 +1266,18 @@ export class StatusBar {
       console.error("get_session_mission_content failed", err);
       this.modal.showError(String(err));
       return;
+    }
+    // Fallback: if the in-memory content is null/empty but we have a
+    // path, read directly from disk. This covers races where the
+    // backend session lost the mission doc (e.g. session re-attach,
+    // watcher hasn't caught up) but the frontend still has MissionInfo.
+    if (!content && mission.path) {
+      try {
+        const spec = await draftsApi.readSpecBody(mission.path);
+        content = spec.body;
+      } catch {
+        // disk read failed too — fall through with empty content
+      }
     }
     // Race guard: if the user closed the modal before the fetch
     // returned, don't pop it back open.

@@ -104,19 +104,22 @@
 
 /* Exit affordance: an `esc` chip, not an × — the house convention for
    full-screen surfaces (see DESIGN.md). Matches the cockpit's esc button. */
+/* Bare button; the visible pill is the inner .settings-esc, hover targets it
+   (house convention — see the cockpit/reader close buttons). */
 .canon-miner-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: 0;
+  padding: 0;
   border: 0;
   background: none;
-  color: var(--fg-dim);
   cursor: pointer;
 }
-.canon-miner-close:hover { color: var(--fg); background: rgb(var(--ink-rgb) / 0.06); }
+.canon-miner-close:hover .settings-esc {
+  color: #fff;
+  background: rgb(var(--ink-rgb) / 0.08);
+  border-color: rgb(var(--ink-rgb) / 0.16);
+}
 
 .canon-miner-body {
   flex: 1;
