@@ -1873,6 +1873,7 @@ function fillPlanSection(section: HTMLElement, body: string | null): void {
 /// editor). We surface a banner with Reload (use disk content) and
 /// Overwrite (force-write past the conflict).
 const MISSION_VIEW_KIND_KEY = "covenant.mission-viewer.view-kind";
+const REVIEW_PANEL_COLLAPSED_KEY = "covenant.mission-viewer.review-collapsed";
 
 class MissionViewerModal {
   private overlay: HTMLElement | null = null;
@@ -1904,6 +1905,10 @@ class MissionViewerModal {
   /// is non-null. Torn down (interval cleared) on revoke, on switching to
   /// a different mission, and on modal close — see unmountReviewPanel.
   private reviewPanel: ReviewPanel | null = null;
+  /// Whether the review rail is collapsed (spec body full-width). Persisted
+  /// so the choice survives reopen. Toggled from a header button that only
+  /// shows once the spec is shared.
+  private reviewPanelCollapsed = loadReviewPanelCollapsed();
 
   /// In-modal find (⌘F / Ctrl+F), view mode only. `findOpen` survives a
   /// body re-render (Source⇄Rendered toggle) so the bar reappears and the
@@ -2105,6 +2110,19 @@ class MissionViewerModal {
       actions.appendChild(toggleBtn);
 
       if (this.share) {
+        const collapseBtn = document.createElement("button");
+        collapseBtn.type = "button";
+        collapseBtn.className = "mission-viewer-share review-collapse-toggle";
+        attachTooltip(
+          collapseBtn,
+          this.reviewPanelCollapsed ? "Show review panel" : "Hide review panel",
+        );
+        collapseBtn.innerHTML = this.reviewPanelCollapsed
+          ? Icons.panelRightOpen({ size: 13 })
+          : Icons.panelRightClose({ size: 13 });
+        collapseBtn.addEventListener("click", () => this.toggleReviewPanel());
+        actions.appendChild(collapseBtn);
+
         const shareChip = document.createElement("button");
         shareChip.type = "button";
         shareChip.className = "mission-viewer-share review-share-chip";
@@ -2159,6 +2177,7 @@ class MissionViewerModal {
       this.share = share;
       this.renderHeader();
       this.mountReviewPanel();
+      this.openShareMenuFromChip();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("review_publish_spec failed", err);
@@ -2174,8 +2193,14 @@ class MissionViewerModal {
     const rect = anchor.getBoundingClientRect();
     const items: MenuItem[] = [
       {
-        label: "Copy link",
+        label: compactUrl(this.share.url),
         icon: Icons.link2({ size: 13 }),
+        onClick: () => this.copyShareLink(),
+      },
+      { divider: true },
+      {
+        label: "Copy link",
+        icon: Icons.copy({ size: 13 }),
         onClick: () => this.copyShareLink(),
       },
       {
@@ -2193,6 +2218,14 @@ class MissionViewerModal {
     this.shareMenu.show(rect.left, rect.bottom + 4, items);
   }
 
+  /// Opens the share menu anchored on the "Shared · vN" chip in the
+  /// current header. Used right after publish/republish so the reviewer
+  /// link is visible immediately, not just silently copied.
+  private openShareMenuFromChip(): void {
+    const chip = this.overlay?.querySelector<HTMLElement>(".review-share-chip");
+    if (chip) this.openShareMenu(chip);
+  }
+
   private copyShareLink(): void {
     if (!this.share) return;
     void navigator.clipboard.writeText(this.share.url);
@@ -2207,6 +2240,7 @@ class MissionViewerModal {
       pushInfoToast({ message: `Republished as v${share.version}` });
       this.renderHeader();
       this.mountReviewPanel();
+      this.openShareMenuFromChip();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("review_republish_spec failed", err);
@@ -2602,9 +2636,22 @@ class MissionViewerModal {
     const row = this.overlay.querySelector<HTMLElement>(".mission-viewer-body-row");
     if (!row) return;
     const panel = new ReviewPanel(this.mission.path, () => this.content);
+    panel.el.classList.toggle("review-panel--collapsed", this.reviewPanelCollapsed);
     row.appendChild(panel.el);
     panel.start();
     this.reviewPanel = panel;
+  }
+
+  /// Collapse/expand the review rail. Persists the choice and re-renders
+  /// the header so the toggle icon/tooltip flip.
+  private toggleReviewPanel(): void {
+    this.reviewPanelCollapsed = !this.reviewPanelCollapsed;
+    saveReviewPanelCollapsed(this.reviewPanelCollapsed);
+    this.reviewPanel?.el.classList.toggle(
+      "review-panel--collapsed",
+      this.reviewPanelCollapsed,
+    );
+    this.renderHeader();
   }
 
   /// Stops the poll and removes the panel. Must run on every teardown
@@ -2673,6 +2720,30 @@ function loadMissionViewKind(): "rendered" | "source" {
 function saveMissionViewKind(kind: "rendered" | "source"): void {
   try {
     localStorage.setItem(MISSION_VIEW_KIND_KEY, kind);
+  } catch {
+    /* private mode / quota — leave the runtime value as the source of truth */
+  }
+}
+
+/// Strips the scheme and truncates the middle so a long review URL fits a
+/// menu row while still showing host + token tail. The full URL is what
+/// gets copied — this is display-only.
+function compactUrl(url: string): string {
+  const bare = url.replace(/^https?:\/\//, "");
+  return bare.length > 42 ? `${bare.slice(0, 22)}…${bare.slice(-16)}` : bare;
+}
+
+function loadReviewPanelCollapsed(): boolean {
+  try {
+    return localStorage.getItem(REVIEW_PANEL_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveReviewPanelCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(REVIEW_PANEL_COLLAPSED_KEY, collapsed ? "1" : "0");
   } catch {
     /* private mode / quota — leave the runtime value as the source of truth */
   }

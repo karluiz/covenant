@@ -14,6 +14,12 @@
     font-family: var(--ui-font);
 }
 
+/* Collapsed: header toggle hides the rail, spec body reclaims full width.
+   Higher specificity than the base rule so display:none wins reliably. */
+.review-panel.review-panel--collapsed {
+    display: none;
+}
+
 .review-panel::-webkit-scrollbar {
     width: 6px;
 }
