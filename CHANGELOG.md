@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.24 — Sidebar close homologation (rails drop the ×)
+
+### Changed
+
+- **One close convention across sidebars**: rail/sidebar panel headers no
+  longer carry a redundant close `×` — a rail is dismissed by its own
+  titlebar toggle (or re-pressing its icon). The labelled `esc` pill is now
+  reserved for full-screen, immersive, and modal surfaces. Removed the rail
+  `×` from Tasker (list), Somnus, Beacon, and Project; Tasker board and
+  Somnus expanded keep `esc`. Rewrote DESIGN.md Hard rule 10 to codify this.
+  Touches `ui/src/tasker/panel.ts`, `ui/src/somnus/panel.ts`,
+  `ui/src/beacon/panel.ts`, `ui/src/project-notes/panel.ts`, `docs/DESIGN.md`.
+
+- **Somnus confirms use the shared prompt**: folded Somnus's bespoke
+  `confirmPopover` into the shared `openConfirmPrompt`, dropping the dead
+  menu helper and its CSS (`ui/src/somnus/envs.ts`, `tree.ts`, `menu.ts`,
+  `somnus.css`).
+
 ## v0.9.23 — macOS traffic-light drift fix (no launch freeze)
 
 ### Fixed
