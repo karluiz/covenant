@@ -144,6 +144,36 @@ fn write_skill_dirs(repo_root: &Path, name: &str, content: &str) -> Result<(), C
     Ok(())
 }
 
+/// Remove `canon-*` skill dirs under SKILL_DIRS whose name isn't in `keep`.
+/// Makes skill projection reconciling: a source that's gone (uninstalled or
+/// hand-deleted) stops shadowing executors on the next `project()`. Touches
+/// ONLY `canon-`-prefixed dirs — user-authored skill dirs are never removed.
+fn prune_stale_skill_dirs(
+    repo_root: &Path,
+    keep: &std::collections::HashSet<String>,
+) -> Result<(), CanonError> {
+    for base in SKILL_DIRS {
+        let dir = repo_root.join(base);
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue, // dir doesn't exist yet → nothing to prune
+        };
+        for entry in entries {
+            let path = entry?.path();
+            let name = match path.file_name().and_then(|s| s.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+            if let Some(skill) = name.strip_prefix("canon-") {
+                if !keep.contains(skill) && path.is_dir() {
+                    std::fs::remove_dir_all(&path)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Project the FULL body of each regulatory context doc into an on-demand Claude
 /// skill dir. The `summary:` frontmatter is dropped here (it rides the managed
 /// block instead — see project_managed_block) and Claude frontmatter is re-added.
@@ -517,6 +547,13 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     project_context_skills(repo_root, &contexts)?;
     project_commands(repo_root, &commands)?;
     crate::mcp::project_mcp(repo_root, &mcp_servers)?;
+    // Build keep set: installed skills + context names (both are projected as canon-* dirs).
+    let mut keep: std::collections::HashSet<String> =
+        skills.iter().map(|(n, _, _)| n.clone()).collect();
+    for (name, _) in &contexts {
+        keep.insert(name.clone());
+    }
+    prune_stale_skill_dirs(repo_root, &keep)?;
     for (name, _v, body) in &skills {
         write_skill_dirs(repo_root, name, &ensure_frontmatter(name, body))?;
     }
@@ -1185,5 +1222,37 @@ mod tests {
         let st = projection_status(repo).unwrap();
         let codex = st.executors.iter().find(|e| e.tool == "codex").unwrap();
         assert_eq!(codex.state, ProjState::Stale);
+    }
+
+    #[test]
+    fn project_prunes_stale_canon_skill_dirs_keeps_installed_and_user_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // A real installed skill (manifest + source), so projection re-creates its dir.
+        let src = root.join(".covenant/canon/skills/kept");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("skill.toml"), "name = \"kept\"\nversion = \"1.0.0\"\n").unwrap();
+        std::fs::write(src.join("SKILL.md"), "---\nname: kept\n---\nbody\n").unwrap();
+        let manifest = crate::CanonManifest {
+            version: 1,
+            installed: vec![crate::types::InstalledRef {
+                name: "kept".into(), version: "1.0.0".into(), source: "local:x".into(),
+                sha: "0".into(), signer: None, installed_at: "t".into(),
+            }],
+        };
+        crate::write_manifest(root, &manifest).unwrap();
+
+        // A stale canon- projection with no source, and a user-owned dir.
+        std::fs::create_dir_all(root.join(".claude/skills/canon-ghost")).unwrap();
+        std::fs::write(root.join(".claude/skills/canon-ghost/SKILL.md"), "old").unwrap();
+        std::fs::create_dir_all(root.join(".claude/skills/my-own")).unwrap();
+        std::fs::write(root.join(".claude/skills/my-own/SKILL.md"), "mine").unwrap();
+
+        project(root).unwrap();
+
+        assert!(!root.join(".claude/skills/canon-ghost").exists(), "stale canon dir pruned");
+        assert!(root.join(".claude/skills/canon-kept/SKILL.md").exists(), "installed skill projected");
+        assert!(root.join(".claude/skills/my-own/SKILL.md").exists(), "user dir untouched");
     }
 }

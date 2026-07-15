@@ -2726,6 +2726,16 @@ async fn canon_install_registry(
     Ok(r)
 }
 
+/// Remove a locally installed skill (source + manifest + projection).
+#[tauri::command]
+async fn canon_uninstall_skill(cwd: String, name: String) -> Result<(), String> {
+    let repo = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || karl_canon::uninstall_skill(&repo, &name))
+        .await
+        .map_err(|e| format!("canon_uninstall_skill join: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn git_file_diff(
     cwd: String,
@@ -5074,6 +5084,7 @@ pub fn run() {
             canon_publish,
             canon_install_registry,
             canon_install_registry_unit,
+            canon_uninstall_skill,
             canon_miner::canon_mine_start,
             canon_miner::canon_mine_stop,
             canon_miner::canon_compile_findings,

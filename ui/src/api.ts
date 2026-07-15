@@ -1797,6 +1797,10 @@ export async function canonInstallRegistryUnit(
   return invoke<void>("canon_install_registry_unit", { cwd, org, name, version, kind });
 }
 
+export async function canonUninstallSkill(cwd: string, name: string): Promise<void> {
+  return invoke<void>("canon_uninstall_skill", { cwd, name });
+}
+
 // Canon — eval runner (Task 4) -----------------------------------------
 
 export interface EvalSkillSummary {

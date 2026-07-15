@@ -18,6 +18,7 @@ import {
   canonReadLocal,
   canonReadSource,
   canonPublish,
+  canonUninstallSkill,
   canonSearch,
   canonPreview,
   canonInstallRegistry,
@@ -976,6 +977,19 @@ export class CanonCockpitView {
               });
               actions.push(pub);
             }
+            const del = iconButton(Icons.trash({ size: 15 }), "Uninstall skill", () => {
+              if (!confirm(`Uninstall skill "${i.name}"? Removes it from this repo and every executor projection.`)) return;
+              errorEl.hidden = true;
+              del.disabled = true;
+              void canonUninstallSkill(cwd, i.name)
+                .then(load)
+                .catch((e) => {
+                  errorEl.hidden = false;
+                  errorEl.textContent = this.friendlyError(e);
+                  del.disabled = false;
+                });
+            });
+            actions.push(del);
             list.appendChild(skillCard({
               name: i.name,
               meta: `${i.version} · ${i.source}`,

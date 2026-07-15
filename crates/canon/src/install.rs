@@ -282,6 +282,32 @@ pub fn install_unit(
     project(repo_root)
 }
 
+/// Remove a locally installed skill: its source dir, its manifest/lock entry,
+/// and (via the reconciling `project`) its executor projections. Errors if the
+/// name is invalid or the skill isn't installed.
+pub fn uninstall_skill(repo_root: &Path, name: &str) -> Result<(), CanonError> {
+    if !valid_pkg_name(name) {
+        return Err(CanonError::InvalidPackage(format!("invalid skill name: {name:?}")));
+    }
+    let skills_root = canon_dir(repo_root).join("skills");
+    let dest = skills_root.join(name);
+    if !dest.starts_with(&skills_root) {
+        return Err(CanonError::InvalidPackage(format!("skill path escapes skills dir: {name:?}")));
+    }
+    let mut manifest = read_manifest(repo_root)?;
+    let had_entry = manifest.installed.iter().any(|i| i.name == name);
+    if !dest.exists() && !had_entry {
+        return Err(CanonError::InvalidPackage(format!("skill not installed: {name}")));
+    }
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest)?;
+    }
+    manifest.installed.retain(|i| i.name != name);
+    write_manifest(repo_root, &manifest)?;
+    write_lock(repo_root, &manifest)?;
+    project(repo_root)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,5 +563,36 @@ mod tests {
         assert!(install_unit(root, crate::ContextKind::Command, "../escape", "y").is_err());
         // MCP content must be valid server JSON.
         assert!(install_unit(root, crate::ContextKind::Mcp, "bad", "{ nope").is_err());
+    }
+
+    #[test]
+    fn uninstall_skill_removes_source_manifest_and_projection() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let pkg = root.join("pkg");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(pkg.join("skill.toml"), "name = \"kyc\"\nversion = \"1.0.0\"\n").unwrap();
+        std::fs::write(pkg.join("SKILL.md"), "---\nname: kyc\n---\nx\n").unwrap();
+        install_from_dir(root, &pkg, "local:pkg").unwrap();
+        assert!(root.join(".covenant/canon/skills/kyc").exists());
+        assert!(root.join(".claude/skills/canon-kyc/SKILL.md").exists());
+
+        uninstall_skill(root, "kyc").unwrap();
+
+        assert!(!root.join(".covenant/canon/skills/kyc").exists(), "source removed");
+        assert!(!root.join(".claude/skills/canon-kyc").exists(), "projection removed");
+        assert!(read_manifest(root).unwrap().installed.iter().all(|i| i.name != "kyc"), "manifest entry removed");
+    }
+
+    #[test]
+    fn uninstall_skill_absent_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(uninstall_skill(tmp.path(), "nope").is_err());
+    }
+
+    #[test]
+    fn uninstall_skill_rejects_bad_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(uninstall_skill(tmp.path(), "../escape").is_err());
     }
 }
