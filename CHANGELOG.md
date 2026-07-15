@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.25 — Collapsible review rail + link recovery
+
+### Added
+
+- **Collapse the verdict sidebar**: once a spec is shared for review, the
+  mission-viewer header gains a panel-right toggle that hides/shows the
+  comments + verdict rail, letting the spec body reclaim full width. The
+  choice persists in `localStorage` across reopens. Adds a
+  `.review-panel--collapsed` state in `ui/src/review/styles.css`; toggle
+  logic in `ui/src/status/bar.ts`.
+
+- **Reviewer link is always recoverable**: publishing or republishing a
+  spec now auto-opens the share menu instead of only firing a toast, and
+  that menu surfaces the reviewer URL itself as its top row (click to copy
+  the full link). The `Shared · vN` chip re-opens the same menu any time,
+  so a lost link is one click away. In `ui/src/status/bar.ts`.
+
 ## v0.9.24 — Sidebar close homologation (rails drop the ×)
 
 ### Changed
