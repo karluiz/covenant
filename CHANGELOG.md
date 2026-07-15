@@ -6,6 +6,63 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.22 — Spec share & review + Somnus v2 + kind-aware CDLC registry
+
+### Added
+
+- **Spec share & review**: publish a spec behind a secret link and validate
+  it with someone online. "Share for review" in the spec viewer publishes the
+  markdown to the covenant server and copies a `/r/<token>` link; the reviewer
+  opens it in a browser (no login — just a name), leaves comments anchored to
+  each `## section`, and gives an **Approve** / **Request changes** verdict.
+  The owner sees comments and the verdict arrive in-app via a 15s poll, and
+  can **Republish** (versioned) or **Revoke**. Desktop side lives in
+  `crates/app/src/covenant_review.rs` + `ui/src/review/`; the reviewer page,
+  token endpoints, and owner activity API are on the covenant server.
+
+- **Somnus v2 — REST client**: a Postman-parity rebuild of the Somnus panel.
+  Three-pane layout with a collections tree, a four-tab request composer
+  (params / auth / headers / body), environments with secret vars and
+  activation, `{{var}}` resolution through re-serialization, and Postman v2.1
+  collection + environment import. Files under `ui/src/somnus/`.
+
+- **Kind-aware CDLC registry**: the Canon registry now covers all five
+  publishable kinds (skill, memory, command, subagent, MCP) rather than skills
+  alone — kind-aware publish/search/resolve, single-file `install_unit`, and
+  publish-to-registry actions on the relevant Canon rows. `f441c286` and
+  `9c213aa5` keep spec/memory kinds out of the wrong publish path and blank
+  MCP secrets on publish.
+
+- **Context Miner multi-kind routing**: repo-mining findings now carry a
+  `kind` + `suggested_kind` + workflow category, with a per-finding kind
+  selector, grouped preview, and per-kind compile writers that route each
+  accepted finding to memory/command/subagent — not just skills.
+
+### Changed
+
+- **Operator editor polish**: a 10-finding review batch on the operator editor
+  (`49464510`).
+
+- **Git popover design pass**: sharp corners, a spine on the current row, dot
+  states, and keyboard navigation in the status-bar git popover
+  (`ui/src/status/`).
+
+### Fixed
+
+- **MCP publish secret masking**: `mask_secrets` now redacts the full PEM key
+  body (not just the header) and masks token-shaped secrets in MCP `args`/`url`
+  on publish (`crates/agent/.../safety`, `1badf28b`, `d02db18d`).
+
+- **ACP columns under a global rail**: when a global right rail
+  (Activity/Teammate/Tasker/Beacon/Somnus/Resources) is selected, ACP panes'
+  editor/structure columns are now hidden so they don't stack beside the rail
+  (`ui/src/styles.css`).
+
+- **Profile page hardening** (server-side): the public `/u/<login>` template is
+  registered as `profile.html` so minijinja HTML auto-escaping applies to the
+  raw identity interpolations — defence-in-depth for the GitHub-sourced
+  `login`/`avatar_url` fields.
+
 ## v0.9.21 — Operator session visibility + operator detail page
 
 ### Added
