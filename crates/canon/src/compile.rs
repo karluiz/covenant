@@ -26,6 +26,7 @@ const CATEGORY_ORDER: &[(&str, &str)] = &[
     ("gotcha", "Gotchas"),
     ("domain_rule", "Domain rules"),
     ("glossary", "Glossary"),
+    ("workflow", "Workflows"),
 ];
 
 pub fn render_skill_md(name: &str, findings: &[CompiledFinding]) -> String {
@@ -228,6 +229,13 @@ mod tests {
         // Finding body + evidence rendered.
         assert!(md.contains("### snake_case files"));
         assert!(md.contains("`src/lib.rs:12`"));
+    }
+
+    #[test]
+    fn render_includes_workflow_category() {
+        let md = render_skill_md("s", &[finding_k("workflow", "run the suite", "skill")]);
+        assert!(md.contains("## Workflows"), "workflow heading present: {md}");
+        assert!(md.contains("### run the suite"));
     }
 
     #[test]
