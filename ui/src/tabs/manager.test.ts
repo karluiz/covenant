@@ -86,3 +86,31 @@ describe("TabManager group active-org persistence", () => {
     expect(restored.groupCanonOrg(groupId)).toBe("cleverit");
   });
 });
+
+describe("TabManager setActivePill fast path", () => {
+  it("moves .active to the target pill and reports false when the pill is absent", () => {
+    const m = makeManager();
+    const host = (m as unknown as { tabbarHost: HTMLElement }).tabbarHost;
+    const a = document.createElement("div");
+    a.className = "tab-btn active";
+    a.dataset.tabId = "a";
+    const b = document.createElement("div");
+    b.className = "tab-btn";
+    b.dataset.tabId = "b";
+    host.append(a, b);
+
+    const setActivePill = (m as unknown as { setActivePill: (id: string) => boolean })
+      .setActivePill.bind(m);
+
+    // Switching to an existing pill moves the highlight in place.
+    expect(setActivePill("b")).toBe(true);
+    expect(a.classList.contains("active")).toBe(false);
+    expect(b.classList.contains("active")).toBe(true);
+    expect(host.querySelectorAll(".tab-btn.active").length).toBe(1);
+
+    // Target not painted yet (new tab) → caller must fall back to a full render.
+    expect(setActivePill("ghost")).toBe(false);
+    // A failed lookup leaves the strip untouched rather than clearing it.
+    expect(b.classList.contains("active")).toBe(true);
+  });
+});
