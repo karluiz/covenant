@@ -4280,41 +4280,127 @@ body.theme-light .providers-md__rail-name { color: var(--text-primary); }
 body.theme-light .providers-md__pane-title { color: var(--text-primary); }
 body.theme-light .providers-md__pane-glyph { color: #fff; }
 
-/* Models per-role rows — layout-only; visuals come from shared tokens. */
-.model-route-row .field {
+/* ── Inference routing matrix ─────────────────────────────────────────
+   One route = one row; grouped by call cadence. Visuals from shared tokens. */
+.route-matrix { display: flex; flex-direction: column; gap: 22px; }
+.route-cadence { display: flex; flex-direction: column; }
+.route-cadence-head {
     display: flex;
-    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0 0 8px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--border);
+}
+.route-cadence-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--fg);
+}
+.route-cadence-desc { font-size: 11.5px; color: var(--muted); }
+
+.route-row {
+    display: grid;
+    grid-template-columns: 3px minmax(150px, 1.1fr) minmax(240px, 1.35fr) auto;
     align-items: center;
-    gap: 8px;
+    gap: 0 16px;
+    padding: 10px 12px 10px 0;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-top: none;
+    transition: background 0.12s ease;
 }
-.model-route-row .field > .settings-field-label {
-    min-width: 64px;
-    margin: 0;
+.route-cadence .route-row:first-of-type { border-top: 1px solid var(--border); }
+.route-row:hover { background: var(--panel, var(--bg)); }
+
+.route-spine {
+    align-self: stretch;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.12s ease;
 }
-.model-route-row .model-route-select {
-    width: min(280px, 100%);
-}
-.model-route-row .model-route-select .ui-select__button {
-    font-family: inherit;
+.route-row:hover .route-spine,
+.route-row:focus-within .route-spine { opacity: 0.55; }
+
+.route-id { padding-left: 13px; min-width: 0; cursor: default; }
+.route-name {
+    display: flex;
+    align-items: center;
+    gap: 7px;
     font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
 }
-.field-warning {
-    margin: 4px 0 0 0;
+.route-kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 0 4px;
+    line-height: 15px;
+}
+.route-job {
+    margin-top: 2px;
     font-size: 11.5px;
     color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
-.field-warning.is-warning {
-    color: var(--running);
+
+/* N-of-4 frequency meter */
+.route-freq { display: inline-flex; gap: 2px; align-items: center; }
+.route-freq i { width: 3px; height: 10px; background: var(--accent); display: inline-block; }
+.route-freq.is-hot i { background: var(--running); }
+.route-freq i.off { background: var(--border); }
+
+/* provider → model, inline */
+.route-pair { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.route-pair .model-route-select { flex: 1 1 0; min-width: 0; }
+.route-pair .model-route-select .ui-select__button { font-family: inherit; font-size: 12.5px; }
+.route-pair .model-route-select.is-model .ui-select__button {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
 }
-.route-status {
+.route-arrow { flex: none; color: var(--muted); font-size: 12px; }
+
+/* reachability chip */
+.route-chip {
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
     font-size: 11.5px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    margin-top: 2px;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    color: var(--muted);
 }
-.route-status.is-ok { color: var(--ok); }
-.route-status.is-warn { color: var(--running); }
-.route-status.is-err { color: var(--fail); }
-.route-status.is-idle { color: var(--muted); font-style: italic; }
+.route-chip::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+}
+.route-chip.is-ok     { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.route-chip.is-native { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.route-chip.is-warn   { color: var(--running); border-color: color-mix(in srgb, var(--running) 40%, var(--border)); }
+.route-chip.is-err    { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, var(--border)); }
+.route-chip.is-idle   { color: var(--muted); font-style: italic; }
+
+/* full-width warning line (operator on a local provider) — spans the grid */
+.route-warn {
+    grid-column: 2 / -1;
+    margin: 4px 0 0;
+    padding-left: 13px;
+    font-size: 11.5px;
+    color: var(--running);
+}
+.route-warn[hidden] { display: none; }
 
 .settings-label {
     font-size: 12px;

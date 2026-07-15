@@ -1,6 +1,7 @@
 import type { Settings } from "../api";
 import { listModelsAnthropic, listModelsAzureFoundry, listModelsOpenAiCompat } from "../api";
 import { CustomSelect, type SelectOption } from "../ui/select";
+import { attachTooltip } from "../tooltip/tooltip";
 
 type Role = "summary" | "chat" | "operator" | "triage" | "spec_creator" | "context_miner";
 
@@ -24,11 +25,16 @@ function probe(key: string, fn: () => Promise<{ id: string }[]>) {
 
 const ROLE_LABEL: Record<Role, string> = {
   summary:      "Summary",
-  chat:         "Chat (⌘K)",
+  chat:         "Chat",
   operator:     "Operator",
-  triage:       "Triage (cheap classifier)",
+  triage:       "Triage",
   spec_creator: "Spec Creator",
   context_miner: "Context Miner",
+};
+
+/** A ⌘K-style key hint shown as a chip next to the role name, when it has one. */
+const ROLE_KBD: Partial<Record<Role, string>> = {
+  chat: "⌘K",
 };
 
 /** One-line tagline shown under each role title. */
@@ -41,7 +47,7 @@ const ROLE_TAGLINE: Record<Role, string> = {
   context_miner: "The Canon Context Miner's repo-scanning agent",
 };
 
-/** Longer explanation shown as the default footer hint for each role. */
+/** Longer explanation — now a hover tooltip on the row, not an always-on footer. */
 const ROLE_HINT: Record<Role, string> = {
   summary:
     "Runs after every command to keep a short rolling summary of each session. Fires often, so favour a cheap, fast model.",
@@ -57,6 +63,22 @@ const ROLE_HINT: Record<Role, string> = {
     "The agent behind the Canon “New context” Miner: it scans your repo and emits findings that compile into a skill. Needs tool use (Anthropic, an OpenAI-compatible server, or Azure).",
 };
 
+/** How hot each route runs (0–4 bars). Drives the frequency meter + cadence group. */
+const ROLE_FREQ: Record<Role, number> = {
+  summary: 4,
+  triage: 3,
+  chat: 1,
+  operator: 1,
+  spec_creator: 1,
+  context_miner: 1,
+};
+
+/** Routes grouped by call cadence — the tab's whole point is cheap-frequent vs. powerful-rare. */
+const CADENCE: { title: string; desc: string; roles: Role[] }[] = [
+  { title: "Hot path",   desc: "Fires on every command — favour a cheap, fast model.", roles: ["summary", "triage"] },
+  { title: "Deliberate", desc: "Fires on demand — spend where it counts.",             roles: ["chat", "operator", "spec_creator", "context_miner"] },
+];
+
 export function renderModelsTab(
   root: HTMLElement,
   settings: Settings,
@@ -67,12 +89,44 @@ export function renderModelsTab(
   const intro = document.createElement("p");
   intro.className = "settings-section-intro";
   intro.textContent =
-    "Covenant routes each kind of LLM work to its own provider + model, so you can mix a cheap model for frequent jobs with a powerful one where it counts. Pick a provider, then a model it actually serves — the status line confirms it's reachable.";
+    "Covenant routes each kind of LLM work to its own provider + model, so you can mix a cheap model for frequent jobs with a powerful one where it counts. Pick a provider, then a model it actually serves — the chip confirms it's reachable.";
   root.appendChild(intro);
 
-  for (const role of ["summary", "chat", "operator", "triage", "spec_creator", "context_miner"] as Role[]) {
-    root.appendChild(renderRoleRow(role, settings, onChange));
+  const matrix = document.createElement("div");
+  matrix.className = "route-matrix";
+  for (const group of CADENCE) {
+    const sec = document.createElement("div");
+    sec.className = "route-cadence";
+
+    const head = document.createElement("div");
+    head.className = "route-cadence-head";
+    const t = document.createElement("span");
+    t.className = "route-cadence-title";
+    t.textContent = group.title;
+    const d = document.createElement("span");
+    d.className = "route-cadence-desc";
+    d.textContent = group.desc;
+    head.append(t, d);
+    sec.appendChild(head);
+
+    for (const role of group.roles) {
+      sec.appendChild(renderRoleRow(role, settings, onChange));
+    }
+    matrix.appendChild(sec);
   }
+  root.appendChild(matrix);
+}
+
+/** Small N-of-4 bar meter for how often a route fires. */
+function freqMeter(level: number): HTMLElement {
+  const m = document.createElement("span");
+  m.className = "route-freq" + (level >= 3 ? " is-hot" : "");
+  for (let i = 0; i < 4; i++) {
+    const bar = document.createElement("i");
+    if (i >= level) bar.className = "off";
+    m.appendChild(bar);
+  }
+  return m;
 }
 
 function renderRoleRow(
@@ -82,17 +136,33 @@ function renderRoleRow(
 ): HTMLElement {
   const route = settings.model_routes?.[role] ?? { provider_id: "anthropic", model: "" };
   const wrap = document.createElement("div");
-  wrap.className = "settings-card model-route-row";
+  wrap.className = "route-row";
 
-  const title = document.createElement("h4");
-  title.className = "settings-card-title";
-  title.textContent = ROLE_LABEL[role];
-  wrap.appendChild(title);
+  const spine = document.createElement("div");
+  spine.className = "route-spine";
+  wrap.appendChild(spine);
 
-  const tagline = document.createElement("p");
-  tagline.className = "settings-card-tagline";
-  tagline.textContent = ROLE_TAGLINE[role];
-  wrap.appendChild(tagline);
+  // identity: name (+ kbd + freq) over its one-line job
+  const id = document.createElement("div");
+  id.className = "route-id";
+  const nameRow = document.createElement("div");
+  nameRow.className = "route-name";
+  const name = document.createElement("span");
+  name.textContent = ROLE_LABEL[role];
+  nameRow.appendChild(name);
+  if (ROLE_KBD[role]) {
+    const kbd = document.createElement("span");
+    kbd.className = "route-kbd";
+    kbd.textContent = ROLE_KBD[role]!;
+    nameRow.appendChild(kbd);
+  }
+  nameRow.appendChild(freqMeter(ROLE_FREQ[role]));
+  const job = document.createElement("div");
+  job.className = "route-job";
+  job.textContent = ROLE_TAGLINE[role];
+  id.append(nameRow, job);
+  attachTooltip(id, ROLE_HINT[role]);
+  wrap.appendChild(id);
 
   const providerSel = new CustomSelect({
     className: "model-route-select",
@@ -105,20 +175,27 @@ function renderRoleRow(
   });
 
   const modelSel = new CustomSelect({
-    className: "model-route-select",
+    className: "model-route-select is-model",
     ariaLabel: `${ROLE_LABEL[role]} model`,
     value: route.model,
     placeholder: "Pick a model…",
     options: [],
   });
-  const status = document.createElement("span");
-  status.className = "route-status";
-  const warn = document.createElement("p");
-  warn.className = "field-warning";
 
-  const setStatus = (kind: "ok" | "warn" | "err" | "idle", text: string) => {
+  const pair = document.createElement("div");
+  pair.className = "route-pair";
+  const arrow = document.createElement("span");
+  arrow.className = "route-arrow";
+  arrow.textContent = "→";
+  pair.append(providerSel.element, arrow, modelSel.element);
+  wrap.appendChild(pair);
+
+  const status = document.createElement("span");
+  status.className = "route-chip";
+
+  const setStatus = (kind: "ok" | "native" | "warn" | "err" | "idle", text: string) => {
     status.textContent = text;
-    status.classList.remove("is-ok", "is-warn", "is-err", "is-idle");
+    status.classList.remove("is-ok", "is-native", "is-warn", "is-err", "is-idle");
     status.classList.add(`is-${kind}`);
   };
 
@@ -128,7 +205,7 @@ function renderRoleRow(
     const entry = settings.providers?.[providerId];
     if (!entry) {
       modelSel.setOptions([], "");
-      setStatus("err", "provider not configured");
+      setStatus("err", "not configured");
       updateWarning();
       return;
     }
@@ -160,7 +237,8 @@ function renderRoleRow(
         { value: route.model, label: `${route.model || "(none)"} (unreachable)` },
       ], route.model);
       const msg = String(e).replace(/^Error:\s*/, "");
-      setStatus("err", `✗ unreachable: ${msg.slice(0, 80)}`);
+      setStatus("err", "✗ unreachable");
+      attachTooltip(status, msg.slice(0, 200));
       updateWarning();
       return;
     }
@@ -176,26 +254,30 @@ function renderRoleRow(
     modelSel.setOptions(modelOptions, route.model);
     lastModelCount = models.length;
     if (!route.model) {
-      setStatus("warn", `⚠ ${models.length} models — pick one`);
+      setStatus("warn", "⚠ pick a model");
     } else if (!modelPresent && entry.kind !== "anthropic") {
-      setStatus("warn", `⚠ "${route.model}" not in ${models.length} listed models`);
+      setStatus("warn", "⚠ not listed");
+    } else if (entry.kind === "anthropic") {
+      setStatus("native", "✓ anthropic");
     } else {
-      setStatus("ok", `✓ ${entry.kind === "anthropic" ? "anthropic" : `reachable, ${models.length} models`}`);
+      setStatus("ok", `✓ reachable · ${models.length}`);
     }
     updateWarning();
   };
 
+  const warn = document.createElement("p");
+  warn.className = "route-warn";
+  warn.hidden = true;
   const updateWarning = () => {
     const providerId = providerSel.value;
     const entry = settings.providers?.[providerId];
-    warn.textContent = "";
     if (role === "operator" && entry?.kind === "openai_compat") {
       warn.textContent =
-        "⚠ Local providers don't translate Anthropic tool-use yet — operator will fall back to SuggestOnly.";
-      warn.classList.add("is-warning");
+        "⚠ Local providers don't translate Anthropic tool-use yet — operator falls back to SuggestOnly.";
+      warn.hidden = false;
     } else {
-      warn.textContent = ROLE_HINT[role];
-      warn.classList.remove("is-warning");
+      warn.textContent = "";
+      warn.hidden = true;
     }
   };
 
@@ -218,26 +300,14 @@ function renderRoleRow(
     next.model_routes[role] = { provider_id: providerSel.value, model: modelSel.value };
     onChange(next);
     const entry = settings.providers?.[providerSel.value];
-    setStatus("ok", `✓ ${entry?.kind === "anthropic" ? "anthropic" : `reachable, ${lastModelCount} models`}`);
+    if (entry?.kind === "anthropic") setStatus("native", "✓ anthropic");
+    else setStatus("ok", `✓ reachable · ${lastModelCount}`);
     updateWarning();
   });
 
-  wrap.appendChild(labeled("Provider", providerSel.element));
-  wrap.appendChild(labeled("Model", modelSel.element));
   wrap.appendChild(status);
-  wrap.appendChild(warn);
+  wrap.appendChild(warn); // full-width, spans the grid; hidden unless the operator/compat case fires
 
   void refreshModels();
   return wrap;
-}
-
-function labeled(text: string, ctl: HTMLElement): HTMLElement {
-  const w = document.createElement("label");
-  w.className = "field";
-  const span = document.createElement("span");
-  span.className = "settings-field-label";
-  span.textContent = text;
-  w.appendChild(span);
-  w.appendChild(ctl);
-  return w;
 }
