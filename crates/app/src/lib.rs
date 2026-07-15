@@ -98,6 +98,94 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use ulid::Ulid;
 
+/// macOS traffic-light heal. macOS re-lays the standard window buttons back to
+/// their default spot on cold launch / theme change / fullscreen exit, dropping
+/// the configured `trafficLightPosition`. tao only re-applies its stored inset
+/// in the content view's `drawRect`, which the WKWebView fully occludes, so it
+/// never runs. Forcing that `drawRect` (setNeedsDisplay + display) beachballs
+/// the app at launch. Instead we mirror tao's `inset_traffic_lights` directly —
+/// pure NSButton frame manipulation, no drawRect, no hang.
+#[cfg(target_os = "macos")]
+mod traffic_lights {
+    use objc2::runtime::AnyObject;
+    use objc2::{msg_send, Encode, Encoding};
+
+    // Must match `trafficLightPosition` in crates/app/tauri.conf.json.
+    pub const INSET_X: f64 = 14.0;
+    pub const INSET_Y: f64 = 17.0;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    unsafe impl Encode for CGPoint {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+    unsafe impl Encode for CGSize {
+        const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGSize,
+    }
+    unsafe impl Encode for CGRect {
+        const ENCODING: Encoding = Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
+    }
+
+    /// Re-apply the traffic-light inset. MUST run on the main thread. Safe to
+    /// call repeatedly; a no-op if any button is missing.
+    pub unsafe fn reapply(ns_win: *mut AnyObject) {
+        if ns_win.is_null() {
+            return;
+        }
+        // NSWindowButton: Close=0, Miniaturize=1, Zoom=2
+        let close: *mut AnyObject = msg_send![ns_win, standardWindowButton: 0usize];
+        let mini: *mut AnyObject = msg_send![ns_win, standardWindowButton: 1usize];
+        let zoom: *mut AnyObject = msg_send![ns_win, standardWindowButton: 2usize];
+        if close.is_null() || mini.is_null() || zoom.is_null() {
+            return;
+        }
+
+        let sv1: *mut AnyObject = msg_send![close, superview];
+        if sv1.is_null() {
+            return;
+        }
+        let container: *mut AnyObject = msg_send![sv1, superview];
+        if container.is_null() {
+            return;
+        }
+
+        let close_rect: CGRect = msg_send![close, frame];
+        let win_frame: CGRect = msg_send![ns_win, frame];
+        let title_bar_height = close_rect.size.height + INSET_Y;
+        let mut container_rect: CGRect = msg_send![container, frame];
+        container_rect.size.height = title_bar_height;
+        container_rect.origin.y = win_frame.size.height - title_bar_height;
+        let _: () = msg_send![container, setFrame: container_rect];
+
+        let mini_rect: CGRect = msg_send![mini, frame];
+        let space_between = mini_rect.origin.x - close_rect.origin.x;
+        for (i, button) in [close, mini, zoom].into_iter().enumerate() {
+            let cur: CGRect = msg_send![button, frame];
+            let origin = CGPoint {
+                x: INSET_X + (i as f64) * space_between,
+                y: cur.origin.y,
+            };
+            let _: () = msg_send![button, setFrameOrigin: origin];
+        }
+    }
+}
+
 use aom::{AomHandle, AomStatus};
 use context::{ContextCache, DirContext};
 use cross_session::CrossSessionWatcher;
@@ -4641,6 +4729,32 @@ pub fn run() {
 
             rc_agent::spawn(app.handle().clone());
 
+            // Deferred one-shot traffic-light heal for cold launch. The
+            // on_window_event handler re-applies the inset on the launch
+            // Focused/Resized burst, but those can fire before macOS has
+            // settled the buttons to their reset position, so re-apply once
+            // more after the webview is attached. Pure frame math on the main
+            // thread — never touches the content view's drawRect.
+            #[cfg(target_os = "macos")]
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    if let Some(win) = handle.get_webview_window("main") {
+                        let w = win.clone();
+                        let _ = win.run_on_main_thread(move || {
+                            if let Ok(ns_win) = w.ns_window() {
+                                unsafe {
+                                    traffic_lights::reapply(
+                                        ns_win as *mut objc2::runtime::AnyObject,
+                                    );
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
             // Fullscreen-aware notch: when the main Covenant window
             // enters fullscreen the floating overlay is intrusive, so
             // we hide it and ask the main UI to render an inline pill
@@ -4655,12 +4769,12 @@ pub fn run() {
                 main_win.on_window_event(move |ev| {
                     // macOS re-lays-out the standard window buttons back to
                     // their default spot on theme changes / fullscreen exit,
-                    // dropping the configured trafficLightPosition. tao
-                    // re-applies its stored inset in the content view's
-                    // drawRect, but the webview fully occludes that view so
-                    // AppKit skips its drawRect (occlusion optimization) —
-                    // setNeedsDisplay alone never heals it on packaged cold
-                    // launches. Force the redraw with an imperative display.
+                    // dropping the configured trafficLightPosition. Re-apply the
+                    // inset directly (pure button-frame math, see the
+                    // traffic_lights module) — never poke the content view's
+                    // drawRect here, that beachballs the app at launch. Window
+                    // events fire on the main thread, so this is safe to call
+                    // inline.
                     #[cfg(target_os = "macos")]
                     if matches!(
                         ev,
@@ -4671,14 +4785,9 @@ pub fn run() {
                         if let Some(win) = handle.get_webview_window("main") {
                             if let Ok(ns_win) = win.ns_window() {
                                 unsafe {
-                                    use objc2::runtime::AnyObject;
-                                    let ns_win = ns_win as *mut AnyObject;
-                                    let content: *mut AnyObject =
-                                        objc2::msg_send![ns_win, contentView];
-                                    if !content.is_null() {
-                                        let _: () =
-                                            objc2::msg_send![content, setNeedsDisplay: true];
-                                    }
+                                    traffic_lights::reapply(
+                                        ns_win as *mut objc2::runtime::AnyObject,
+                                    );
                                 }
                             }
                         }
