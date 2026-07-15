@@ -109,7 +109,7 @@
   font-size: 11px;
   color: var(--text-secondary);
   background: transparent;
-  border: 1px solid rgb(var(--ink-rgb) / 0.14);
+  border: 0;
   border-radius: 0;
   padding: 1px 8px;
   cursor: pointer;
@@ -117,7 +117,7 @@
 }
 .acp-model-chip:hover {
   color: var(--text-primary);
-  border-color: rgb(var(--ink-rgb) / 0.28);
+  background: rgb(var(--ink-rgb) / 0.06);
 }
 .acp-model-chip[hidden] { display: none; }
 .acp-model-menu {
@@ -146,7 +146,7 @@
   font-size: 11px;
   color: var(--text-secondary);
   background: transparent;
-  border: 1px solid rgb(var(--ink-rgb) / 0.14);
+  border: 0;
   border-radius: 0;
   padding: 1px 8px;
   cursor: pointer;
@@ -154,11 +154,13 @@
 }
 .acp-trust-chip:hover {
   color: var(--text-primary);
-  border-color: rgb(var(--ink-rgb) / 0.28);
+  background: rgb(var(--ink-rgb) / 0.06);
 }
 .acp-trust-chip--yolo {
   color: var(--running);
-  border-color: color-mix(in srgb, var(--running) 50%, transparent);
+  background: transparent;
+}
+.acp-trust-chip--yolo:hover {
   background: color-mix(in srgb, var(--running) 12%, transparent);
 }
 .acp-trust-menu {
@@ -233,41 +235,58 @@
 .acp-chat-messages > * { flex-shrink: 0; }
 
 .acp-chat-empty {
-  margin: auto;
-  width: min(520px, 100%);
-  text-align: center;
+  margin: auto 0;
+  width: 100%;
+  padding: 0 40px;
   color: var(--text-secondary);
-  padding: 28px 22px;
-  border: 1px solid rgb(var(--ink-rgb) / 0.08);
-  border-radius: 0;
-  background:
-    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 58%),
-    rgb(var(--ink-rgb) / 0.025);
 }
 .acp-chat-empty[hidden] { display: none; }
+.acp-empty-kicker {
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.acp-empty-kicker::before {
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: var(--accent);
+}
 .acp-chat-empty h3 {
-  margin: 0 0 8px;
+  margin: 0 0 12px;
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 21px;
   font-weight: 650;
+  letter-spacing: -0.3px;
 }
 .acp-chat-empty p {
-  margin: 0 auto 14px;
-  max-width: 430px;
-  line-height: 1.55;
+  margin: 0;
+  max-width: 52ch;
+  line-height: 1.6;
 }
 .acp-chat-empty ul {
   display: grid;
-  gap: 7px;
-  margin: 0;
+  gap: 12px;
+  margin: 24px 0 0;
   padding: 0;
+  max-width: 52ch;
   list-style: none;
-  text-align: left;
 }
 .acp-chat-empty li {
-  padding: 8px 10px;
-  border-radius: 0;
-  background: rgb(var(--ink-rgb) / 0.035);
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  line-height: 1.45;
+}
+.acp-empty-ic {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-tertiary);
 }
 .acp-chat-empty code,
 .acp-chat-empty kbd {

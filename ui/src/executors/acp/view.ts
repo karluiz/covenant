@@ -754,12 +754,13 @@ export class AcpChatView {
       </div>
       <div class="acp-chat-messages" role="log" aria-live="polite">
         <div class="acp-chat-empty" role="note">
+          <p class="acp-empty-kicker">${brand.title} · ACP session</p>
           <h3>${brand.title} panel, not a terminal</h3>
           <p>This is a structured chat session with ${brand.longName}. Your prompt goes to <code>${brand.cmdline}</code>; Covenant renders replies, tool runs, and permission requests as chat UI instead of raw shell output.</p>
           <ul>
-            <li>Tool calls that edit files or run shell commands show up as cards you can inspect.</li>
-            <li>When ${brand.title} needs permission to act, you'll see a card with the wire's own options.</li>
-            <li>Press <kbd>↩</kbd> to send; <kbd>⇧↩</kbd> for a new line.</li>
+            <li><span class="acp-empty-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" stroke="currentColor" stroke-width="1.3"/><path d="M5 6h6M5 8.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>Tool calls that edit files or run shell commands show up as cards you can inspect.</li>
+            <li><span class="acp-empty-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 2 3 4.2v3.4c0 3 2.1 5.2 5 6.4 2.9-1.2 5-3.4 5-6.4V4.2L8 2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>When ${brand.title} needs permission to act, you'll see a card with the wire's own options.</li>
+            <li><span class="acp-empty-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2 5.5 8 9l6-3.5M2 5.5 8 2l6 3.5M2 5.5v5L8 14l6-3.5v-5" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>Press <kbd>↩</kbd> to send; <kbd>⇧↩</kbd> for a new line.</li>
           </ul>
         </div>
       </div>
