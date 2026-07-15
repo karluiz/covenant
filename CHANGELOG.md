@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.23 — macOS traffic-light drift fix (no launch freeze)
+
+### Fixed
+
+- **macOS traffic lights drift on launch/theme/fullscreen**: macOS re-lays the
+  standard window buttons back to their default position on cold launch, theme
+  change, and fullscreen exit, dropping the configured `trafficLightPosition`.
+  tao only re-applies its inset in the content view's `drawRect`, which the
+  WKWebView fully occludes so it never runs — and forcing that redraw
+  (`setNeedsDisplay` + `display`) beachballs the app at launch. The fix mirrors
+  tao's `inset_traffic_lights` directly: pure `NSButton` frame math on the
+  close/miniaturize/zoom buttons, no `drawRect`, no hang. Applied inline on the
+  window events and once more on a 2s deferred one-shot for cold launch. New
+  `traffic_lights` module in `crates/app/src/lib.rs`. macOS-only.
+
 ## v0.9.22 — Spec share & review + Somnus v2 + kind-aware CDLC registry
 
 ### Added
