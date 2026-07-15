@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.28 — Faster tab switching (incremental pill swap)
+
+### Changed
+
+- **Incremental active-pill swap on tab switch**: `activate()` no longer
+  rebuilds the entire tab strip (`innerHTML = ""` + a fresh `renderTabPill`
+  per tab, re-attaching listeners/badges/operator chips/XP rings) on every
+  switch — a cost that scaled with the number of open tabs, so users keeping
+  many tabs open felt lag the maintainer (few tabs) did not. A new
+  `setActivePill()` moves the `.active` class in place and only falls back to
+  a full `renderTabbar()` when the target pill isn't painted yet (freshly
+  created tab). Glass indicator and collapsed rail still update.
+  `ui/src/tabs/manager.ts`.
+
+- **Snappier tab crossfade**: the pane cross-cut animation dropped from 140ms
+  to 90ms to cut perceived switch latency while staying smooth (still honors
+  `prefers-reduced-motion`). `ui/src/styles.css`.
+
 ## v0.9.27 — ACP /rename + resume UX, inference routing matrix
 
 ### Added
