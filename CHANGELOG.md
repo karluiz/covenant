@@ -6,6 +6,46 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.27 — ACP /rename + resume UX, inference routing matrix
+
+### Added
+
+- **ACP `/rename` tab command**: typing `/rename <name>` in an ACP chat
+  composer now renames the tab instead of being sent to the agent as prompt
+  text (which just replied "no output"). It routes to the same authoritative
+  `customName` path as double-click / context-menu rename and is discoverable
+  in the slash-command roster. Intercept in `ui/src/executors/acp/view.ts`;
+  callback wired in `ui/src/tabs/manager.ts`.
+
+- **ACP `/resume` picker rebuild**: the resume list moved off the borrowed
+  header model-menu (which floated over the transcript) into its own panel
+  anchored above the composer, with a "Resume a conversation" header.
+  Sessions whose only title is a bare slash-command (`/model`, `/respawn`) or
+  empty are filtered out as noise. `ui/src/executors/acp/view.ts`,
+  `ui/src/executors/acp/acp.css`.
+
+- **Inference routing matrix**: the settings Inference tab is now a
+  cadence-grouped routing matrix instead of a flat list.
+  `ui/src/settings/model_routes.ts`, `ui/src/styles.css`.
+
+- **Local skill uninstall from Canon**: a trash button on a Canon skill
+  uninstalls it — removing the source, its manifest entry, and the projected
+  `canon-*` dir. The projection is now reconciling and prunes stale dirs.
+  `crates/canon/src/install.rs` plus the `canon_uninstall_skill` command and
+  UI wiring.
+
+### Changed
+
+- **Bundled in-flight UI work**: this release also carries concurrent main
+  WIP — Canon cockpit/miner/styles refinements, operator creator, status
+  bar, and boot-screen / routing-matrix design mockups under `ui/proposals/`.
+
+### Fixed
+
+- **Inference routing rows responsive + group border**: routing rows now
+  reflow responsively and each cadence group closes its top border cleanly.
+  `ui/src/settings/model_routes.ts`, `ui/src/styles.css`.
+
 ## v0.9.26 — Borderless ACP empty-state + stuck mouse-mode fix
 
 ### Changed
