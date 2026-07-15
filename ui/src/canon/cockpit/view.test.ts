@@ -349,6 +349,10 @@ describe("CanonCockpitView Skills section trash button", () => {
     await vi.waitFor(() => {
       expect(canonUninstallSkill).toHaveBeenCalledWith(expect.any(String), "kyc");
     });
+    // Reload ran: the default (empty) canonLocalStatus re-render drops the row.
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeNull();
+    });
     confirmSpy.mockRestore();
   });
 
