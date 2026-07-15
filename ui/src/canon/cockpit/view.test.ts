@@ -11,6 +11,7 @@ vi.mock("../../api", () => ({
   canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] }),
   canonReadLocal: vi.fn().mockResolvedValue(""),
   canonPublish: vi.fn().mockResolvedValue(undefined),
+  canonUninstallSkill: vi.fn(async () => undefined),
   canonSearch: vi.fn().mockResolvedValue([]),
   canonPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
   canonInstallRegistry: vi.fn().mockResolvedValue(undefined),
@@ -32,8 +33,8 @@ vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
 import {
   canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
-  operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, canonPublish, type Operator,
-  type MarketplaceListing,
+  operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, canonPublish, canonUninstallSkill,
+  type Operator, type MarketplaceListing,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
 
@@ -329,6 +330,44 @@ describe("CanonCockpitView unit publish actions", () => {
       expect(v.element.querySelector(".canon-skill-row")).toBeTruthy();
     });
     expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeNull();
+  });
+});
+
+describe("CanonCockpitView Skills section trash button", () => {
+  it("uninstalls a skill via the trash button after confirm", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeTruthy();
+    });
+    v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Uninstall skill']")!.click();
+    await vi.waitFor(() => {
+      expect(canonUninstallSkill).toHaveBeenCalledWith(expect.any(String), "kyc");
+    });
+    confirmSpy.mockRestore();
+  });
+
+  it("does not uninstall when confirm is declined", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    });
+    vi.mocked(canonUninstallSkill).mockClear();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeTruthy();
+    });
+    v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Uninstall skill']")!.click();
+    await Promise.resolve();
+    expect(canonUninstallSkill).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });
 
