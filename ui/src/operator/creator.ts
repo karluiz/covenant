@@ -24,6 +24,7 @@ import {
 import { PRESETS, type PresetKey } from "../settings/operator_presets";
 import { setFrontmatterScalar } from "../settings/soul_frontmatter";
 import { healMilkdownEscapes } from "./soul_heal";
+import { renderReflexLedger } from "./reflex_ledger";
 import { renderOperatorChip } from "../settings/operator_chip";
 import { AVATAR_PACK_V2, renderAvatarHtml } from "./avatars";
 import { pushInfoToast } from "../notifications/toast";
@@ -652,24 +653,28 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   bodyEditor.addEventListener("input", () => {
     view.body = bodyEditor.value;
     h.state.soulRaw = soulRawFromView(view);
-    src.value = h.state.soulRaw;
+    syncLive();
     scheduleValidate();
   });
   function setBodyValue(md: string): void {
     bodyEditor.value = md;
   }
 
-  // Live pane: raw source + error — always visible on right.
+  // Live pane: reflex ledger (default) or raw source, + error — right column.
+  // The ledger reads the soul's "don't ask" / "wake me" bullets as a
+  // delegation contract; Source is the escape hatch showing the file we save.
 
-  // Always-visible, read-only mirror of the generated SOUL.md (front-matter +
-  // body). No collapsible chevron — the WYSIWYG body editor + structured
-  // controls are the source of truth; this just shows the file that gets saved.
   const rawDetails = document.createElement("div");
   rawDetails.className = "op-soul-rawwrap";
   const rawSummary = document.createElement("div");
   rawSummary.className = "op-soul-rawhead";
-  const rawTitle = document.createElement("span");
-  rawTitle.textContent = "SOUL.md source";
+  const toggle = document.createElement("div");
+  toggle.className = "op-soul-viewtoggle";
+  const tabLedger = document.createElement("button");
+  tabLedger.type = "button"; tabLedger.className = "op-soul-viewtab"; tabLedger.textContent = "Ledger";
+  const tabSource = document.createElement("button");
+  tabSource.type = "button"; tabSource.className = "op-soul-viewtab"; tabSource.textContent = "Source";
+  toggle.append(tabLedger, tabSource);
   const copyBtn = document.createElement("button");
   copyBtn.type = "button";
   copyBtn.className = "op-soul-copy";
@@ -680,12 +685,40 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       window.setTimeout(() => { copyBtn.textContent = "Copy"; }, 1200);
     });
   });
-  rawSummary.append(rawTitle, copyBtn);
+  rawSummary.append(toggle, copyBtn);
+
+  // Parsed reflex ledger — repainted on every edit alongside the source.
+  const ledger = document.createElement("div");
+  ledger.className = "op-reflex-ledger";
+  function repaintLedger(): void {
+    ledger.replaceChildren(renderReflexLedger(view));
+  }
+
   const src = document.createElement("textarea");
   src.className = "op-soul-source";
   src.spellcheck = false;
   src.readOnly = true;
-  rawDetails.append(rawSummary, src);
+  rawDetails.append(rawSummary, ledger, src);
+
+  // View switch. Explicit `display` (not [hidden]) so the flex ledger and the
+  // flex-filling source textarea both toggle reliably.
+  function showView(v: "ledger" | "source"): void {
+    const isLedger = v === "ledger";
+    ledger.style.display = isLedger ? "" : "none";
+    src.style.display = isLedger ? "none" : "";
+    tabLedger.setAttribute("aria-selected", String(isLedger));
+    tabSource.setAttribute("aria-selected", String(!isLedger));
+  }
+  tabLedger.addEventListener("click", () => showView("ledger"));
+  tabSource.addEventListener("click", () => showView("source"));
+  showView("ledger");
+
+  // Push the regenerated file into the source pane AND repaint the ledger —
+  // called from every edit path (body input, control commit, seed, hydrate).
+  function syncLive(): void {
+    src.value = h.state.soulRaw;
+    repaintLedger();
+  }
 
   const errLine = document.createElement("div");
   errLine.className = "op-soul-error";
@@ -731,7 +764,7 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   // the caret survives.
   function commit(remountSection: boolean): void {
     h.state.soulRaw = soulRawFromView(view);
-    src.value = h.state.soulRaw;
+    syncLive();
     scheduleValidate();
     const chipHost = h.el.querySelector<HTMLElement>(".op-hero-chip");
     if (chipHost) mountChipInner(chipHost);
@@ -747,13 +780,13 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   // reload) we're avoiding. Refreshes state, view, live source and chip.
   async function seedFromRaw(raw: string): Promise<void> {
     h.state.soulRaw = raw;
-    src.value = raw;
     try {
       const v = await operatorSoulParse(raw);
       if (v) { view = v; errLine.textContent = v.validation_error ?? ""; }
     } catch (e) {
       errLine.textContent = `Parse failed: ${e}`;
     }
+    syncLive();
     setBodyValue(view.body ?? "");
     const chipHost = h.el.querySelector<HTMLElement>(".op-hero-chip");
     if (chipHost) mountChipInner(chipHost);
@@ -1209,7 +1242,7 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       errLine.textContent = `Parse failed: ${e}`;
     }
     if ((h.el as HTMLElement & { __soulEditor?: SoulEditor | null }).__soulEditor !== self) return;
-    src.value = h.state.soulRaw;
+    syncLive();
     setBodyValue(view.body ?? "");
     repaintAll();
   })();

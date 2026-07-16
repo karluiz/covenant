@@ -229,5 +229,76 @@ body.theme-true-dark .op-creator .op-rail-item.is-active {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
+/* ── Right pane: view toggle (Ledger | Source) ──────────────────────────── */
+.op-creator .op-soul-viewtoggle {
+  display: flex; border: 1px solid var(--border);
+}
+.op-creator .op-soul-viewtab {
+  font: inherit; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  background: transparent; border: 0; border-right: 1px solid var(--border);
+  color: var(--text-secondary); padding: 3px 10px; cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.op-creator .op-soul-viewtab:last-child { border-right: 0; }
+.op-creator .op-soul-viewtab:hover { color: var(--text-primary); }
+.op-creator .op-soul-viewtab[aria-selected="true"] {
+  color: var(--text-primary); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* ── Reflex ledger: the soul's delegation contract, read at a glance ─────── */
+.op-creator .op-reflex-ledger {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.op-creator .op-reflex-empty {
+  color: var(--text-secondary); font-size: 12.5px; line-height: 1.6;
+  border: 1px dashed var(--border); padding: 14px; margin-top: 2px;
+}
+.op-creator .op-reflex-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.op-creator .op-reflex-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.op-creator .op-reflex-count {
+  margin-left: auto; font-variant-numeric: tabular-nums;
+  color: var(--text-secondary); font-size: 11px;
+}
+.op-creator .op-reflex-group.is-yes .op-reflex-head { color: var(--ok, #3fb950); }
+.op-creator .op-reflex-group.is-yes .op-reflex-dot { background: var(--ok, #3fb950); }
+.op-creator .op-reflex-group.is-escalate .op-reflex-head { color: var(--warn, #d29922); }
+.op-creator .op-reflex-group.is-escalate .op-reflex-dot { background: var(--warn, #d29922); }
+.op-creator .op-reflex-row {
+  display: flex; gap: 10px; align-items: baseline; padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12px; line-height: 1.5;
+}
+.op-creator .op-reflex-act { color: var(--text-secondary); flex: none; }
+.op-creator .op-reflex-arr { color: var(--text-tertiary, #565c67); }
+.op-creator .op-reflex-res { color: var(--text-primary); }
+.op-creator .op-reflex-none {
+  padding: 7px 0; border-top: 1px solid var(--border);
+  color: var(--text-tertiary, #565c67); font-size: 12px; font-style: italic;
+}
+.op-creator .op-reflex-thresh { border: 1px solid var(--border); padding: 12px 14px; }
+.op-creator .op-reflex-thresh-top {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;
+}
+.op-creator .op-reflex-thresh-top b {
+  color: var(--text-primary); font-variant-numeric: tabular-nums;
+}
+.op-creator .op-reflex-bar {
+  height: 6px; background: var(--bg); border: 1px solid var(--border); overflow: hidden;
+}
+.op-creator .op-reflex-bar i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--ok, #3fb950), var(--warn, #d29922));
+}
+.op-creator .op-reflex-cap {
+  margin-top: 8px; font-size: 11px; color: var(--text-tertiary, #565c67); line-height: 1.5;
+}
+
 /* Stale-org badge styling lives in styles/operator_chip.css
    (.op-card-badge / .is-warn) beside the rest of the card chrome. */
