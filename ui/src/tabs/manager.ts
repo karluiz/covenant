@@ -6071,9 +6071,9 @@ export class TabManager {
         const next = this.tabs[idx] ?? this.tabs[idx - 1];
         this.activeId = null;
         this.activate(next.id);
-      } else {
-        this.renderTabbar();
       }
+      // Same stale-pill sweep as the shell path below.
+      this.renderTabbar();
       this.scheduleSave();
       return;
     }
@@ -6137,9 +6137,12 @@ export class TabManager {
       const next = this.tabs[idx] ?? this.tabs[idx - 1];
       this.activeId = null;
       this.activate(next.id);
-    } else {
-      this.renderTabbar();
     }
+    // A close removes a row, so activate()'s incremental pill swap (which
+    // assumes the strip structure is unchanged) leaves the closed tab's
+    // pill painted. Rebuild unconditionally — the perf fast path is for
+    // tab switches, and a close already rebuilds the world anyway.
+    this.renderTabbar();
     this.scheduleSave();
   }
 
