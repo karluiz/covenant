@@ -98,6 +98,20 @@ describe("platform", () => {
     expect(linux.modPrefix()).toBe("Ctrl+");
   });
 
+  it("reads the chord modifier off the event per platform", async () => {
+    setInjectedPlatform("macos");
+    const mac = await freshModule();
+    expect(mac.modHeld({ metaKey: true, ctrlKey: false })).toBe(true);
+    // Ctrl on a Mac is its own modifier, not the chord one.
+    expect(mac.modHeld({ metaKey: false, ctrlKey: true })).toBe(false);
+
+    setInjectedPlatform("linux");
+    const linux = await freshModule();
+    expect(linux.modHeld({ metaKey: false, ctrlKey: true })).toBe(true);
+    // Super/Meta belongs to the window manager off macOS.
+    expect(linux.modHeld({ metaKey: true, ctrlKey: false })).toBe(false);
+  });
+
   it("stamps the variant onto <html> for CSS to branch on", async () => {
     setInjectedPlatform("windows");
     const { applyPlatformAttribute } = await freshModule();

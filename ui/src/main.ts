@@ -3,7 +3,7 @@
 // prev/next), and closes the app window when the last tab is gone.
 
 import "@xterm/xterm/css/xterm.css";
-import { applyPlatformAttribute, modPrefix } from "./platform";
+import { applyPlatformAttribute, modHeld, modPrefix } from "./platform";
 import "./styles/operator_chip.css";
 import "./styles/tab-themes/forge.css";
 import "./styles/tab-themes/glass.css";
@@ -2297,8 +2297,10 @@ async function boot(): Promise<void> {
       zoom.reset();
       return;
     }
-    // ⌘, → settings (macOS Preferences convention). Open or toggle.
-    if (e.metaKey && !e.shiftKey && e.key === ",") {
+    // ⌘, / Ctrl+, → settings. The Preferences convention on macOS, and
+    // the same chord on Linux/Windows. Safe to bind under Ctrl: a comma
+    // is not a terminal control key, so the shell never wanted it.
+    if (modHeld(e) && !e.shiftKey && e.key === ",") {
       e.preventDefault();
       // Settings, docs, and drafts share the workspace grid cell — only
       // one can be visible. Close the others before opening settings.

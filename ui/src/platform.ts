@@ -67,6 +67,18 @@ export function modPrefix(): string {
   return isMac() ? "⌘" : "Ctrl+";
 }
 
+/// True when the platform's primary chord modifier is held: Command on
+/// macOS, Ctrl everywhere else.
+///
+/// Adopt this per shortcut, deliberately — never as a blanket sweep over
+/// every `e.metaKey`. Covenant is a terminal, and off macOS the modifier
+/// it maps to is a *content* key: Ctrl+C/D/Z belong to the shell, and a
+/// chord that is safe to intercept under Command is not automatically
+/// safe under Ctrl. Each site has to be judged on the letter it binds.
+export function modHeld(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
+  return isMac() ? e.metaKey : e.ctrlKey;
+}
+
 /// Stamp the platform onto <html> so CSS can branch too:
 /// `:root[data-platform="windows"]`, `:root:not([data-platform="mac"])`.
 /// Call once, as early in boot as possible — chrome rules depend on it,
