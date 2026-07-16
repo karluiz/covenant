@@ -44,6 +44,40 @@ function nowMs(): number {
   return Date.now();
 }
 
+// Arc-style workspace-switch slide. The overlay is a full-bleed card wearing
+// the destination space's identity colour; it springs in to cover, the tab
+// rebuild runs underneath, then it springs off the far side to reveal.
+const COVER_EASE = "cubic-bezier(.4,0,.2,1)"; // decelerate, no overshoot — stays opaque
+const REVEAL_EASE = "cubic-bezier(.32,1.06,.34,1)"; // snappy spring, slight overshoot
+
+// Deterministic hue [0,360) from a workspace id, so each space keeps a
+// stable identity colour with zero new UI or persistence.
+function spaceHue(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+// Slide a group of panels through one WAAPI leg in lockstep, then commit the
+// end state to inline style (and cancel, so a leftover forwards-fill can't
+// override the next leg or the next switch).
+async function slidePanels(
+  els: HTMLElement[],
+  frames: Keyframe[],
+  duration: number,
+  easing: string,
+): Promise<void> {
+  const anims = els.map((el) => el.animate(frames, { duration, easing, fill: "forwards" }));
+  await Promise.all(anims.map((a) => a.finished));
+  for (const a of anims) {
+    try {
+      a.commitStyles();
+    } finally {
+      a.cancel();
+    }
+  }
+}
+
 function newId(): string {
   // crypto.randomUUID is available in the Tauri webview (Chromium ≥ 92).
   return crypto.randomUUID();
@@ -319,16 +353,37 @@ export class WorkspaceManager {
     out.groups = body.groups;
 
     this.suspendPersist = true;
-    // Always show the switch overlay so the transition feels deliberate, even
-    // when the target workspace is already warm (PTYs survived). We enforce a
-    // minimum on-screen duration so a near-instant restore still animates.
-    const MIN_OVERLAY_MS = 420;
-    const label = document.getElementById("workspace-switch-name");
-    if (label) label.textContent = target.name;
-    document.body.classList.add("workspace-switching");
-    const overlayStart = nowMs();
-    try {
-      // Detach the outgoing workspace's tabs without killing PTYs.
+
+    // Arc-style directional slide: the real content column (tab strip +
+    // terminal + status bar) slides OUT toward the current side, the tab
+    // rebuild runs while it's off-screen, then the fresh column slides IN
+    // from the destination side. The gap behind it wears the destination
+    // space's auto-derived identity colour. Direction follows the
+    // workspaces' order; xterm is a <canvas> we can't clone, so we move the
+    // live element itself rather than a snapshot.
+    const fromIdx = this.workspaces.findIndex((w) => w.id === outgoingId);
+    const toIdx = this.workspaces.findIndex((w) => w.id === id);
+    const dir = Math.sign(toIdx - fromIdx) || 1;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const layout = document.getElementById("layout");
+    const panels = ["tabbar-host", "workspace", "status-bar"]
+      .map((pid) => document.getElementById(pid))
+      .filter((el): el is HTMLElement => !!el && !el.hidden);
+
+    // Tint the gap the sliding column reveals with the destination colour.
+    const hue = spaceHue(target.id);
+    const tint = `hsl(${hue} 72% 66%)`;
+    if (layout && !reduce) {
+      layout.style.overflow = "hidden";
+      layout.style.background =
+        `radial-gradient(52% 62% at 82% 0%, color-mix(in srgb, ${tint} 34%, transparent), transparent 70%),` +
+        `radial-gradient(54% 60% at 8% 100%, color-mix(in srgb, ${tint} 24%, transparent), transparent 66%),` +
+        `var(--bg)`;
+    }
+
+    const doRebuild = async (): Promise<void> => {
+      // Detach outgoing tabs without killing PTYs.
       this.tabManager.hibernate(outgoingId);
       this.activeId = id;
       this.tabManager.setActiveWorkspaceName(target.name);
@@ -352,12 +407,41 @@ export class WorkspaceManager {
           await this.tabManager.createTab();
         }
       }
-    } finally {
-      const elapsed = nowMs() - overlayStart;
-      if (elapsed < MIN_OVERLAY_MS) {
-        await new Promise((r) => setTimeout(r, MIN_OVERLAY_MS - elapsed));
+    };
+
+    try {
+      if (reduce || panels.length === 0) {
+        await doRebuild();
+      } else {
+        // OUT: live outgoing column slides off toward -dir.
+        await slidePanels(
+          panels,
+          [{ transform: "translateX(0)" }, { transform: `translateX(${-dir * 100}%)` }],
+          260,
+          COVER_EASE,
+        );
+        // Swap tabs while off-screen.
+        await doRebuild();
+        // IN: fresh column springs in from the destination side (+dir).
+        await slidePanels(
+          panels,
+          [
+            { transform: `translateX(${dir * 100}%)`, opacity: 0.85 },
+            { transform: "translateX(0)", opacity: 1 },
+          ],
+          340,
+          REVEAL_EASE,
+        );
       }
-      document.body.classList.remove("workspace-switching");
+    } finally {
+      for (const el of panels) {
+        el.style.transform = "";
+        el.style.opacity = "";
+      }
+      if (layout) {
+        layout.style.overflow = "";
+        layout.style.background = "";
+      }
       this.suspendPersist = false;
     }
     await this.saveAll();

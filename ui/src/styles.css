@@ -14655,20 +14655,12 @@ body.theme-light .update-banner__dismiss:hover { color: #0f1a36; }
 }
 .workspace-chip:hover { background: var(--tab-bg-hover); color: #fff; }
 .workspace-chip-busy { animation: workspace-chip-pulse 1s ease-in-out infinite; pointer-events: none; }
-/* While a workspace switch rebuilds tabs (sequential PTY spawns), keep
-   the tab strip + workspace hidden so the user does not see tabs
-   appearing one-by-one. Layout is preserved via visibility:hidden. */
-body.workspace-switching #tabbar-host,
-body.workspace-switching #workspace,
-body.workspace-switching #app-titlebar,
-body.workspace-switching #activity-sidebar,
-body.workspace-switching #teammate-panel,
-body.workspace-switching #status-bar,
-body.workspace-switching #familiar-panel { visibility: hidden; }
 body.workspace-switching #workspace-switch-overlay { display: flex; }
-/* Workspace switch overlay reuses the boot-splash orb verbatim so the
-   visual vocabulary is identical to first boot — only the headline text
-   changes (workspace name) and the meta label reads "Switching". */
+/* Workspace-switch overlay: a full-bleed card wearing the destination
+   space's identity colour. switchTo() slides it in/out directionally
+   (WAAPI); its opaque cover hides the tab rebuild underneath, so no
+   visibility:hidden on the panels is needed. replaceFromManifest shows
+   it statically (translateX 0) as a plain cover. */
 #workspace-switch-overlay {
   position: fixed; inset: 0;
   display: none;
@@ -14678,9 +14670,10 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
      sidebar does not bleed through the opaque switch overlay. */
   z-index: 2147483000;
   pointer-events: none;
-}
-#workspace-switch-overlay #workspace-switch-name {
-  text-transform: uppercase;
+  overflow: hidden;
+  will-change: transform, opacity;
+  --sa: var(--space-accent, var(--accent, #7aa2f7));
+  --sa2: var(--space-accent-2, var(--sa));
 }
 @keyframes workspace-chip-pulse {
   0%, 100% { opacity: 1; }
@@ -14782,206 +14775,67 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
 }
 .familiar-panel__empty[hidden] { display: none; }
 
-/* ─── Workspace-switch overlay card (legacy boot-splash classes) ───
-   The first-boot splash is now the "first prompt" .bsplash-* design
-   inlined in index.html (dismissed by ui/src/boot-splash.ts). These
-   .boot-splash-* rules remain solely for #workspace-switch-overlay,
-   which reuses the orb card verbatim. */
-.boot-splash-card {
+/* ─── Workspace-switch overlay card (Arc-style directional slide) ───
+   Full-bleed panel wearing the destination space's identity colour (--sa,
+   set per-switch by switchTo from the workspace id). Motion is JS-driven
+   (WAAPI) so the cover/reveal stay in sync with the async tab rebuild —
+   no entrance keyframes here. */
+.wsx-aura {
+    position: absolute;
+    inset: -20%;
+    pointer-events: none;
+    opacity: 0.62;
+    filter: blur(6px);
+    background:
+        radial-gradient(46% 44% at 76% 10%,
+            color-mix(in srgb, var(--sa) 48%, transparent), transparent 68%),
+        radial-gradient(44% 42% at 16% 96%,
+            color-mix(in srgb, var(--sa2) 34%, transparent), transparent 64%);
+}
+
+.wsx-card {
     position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 14px;
-    padding: 32px 56px;
-    animation: boot-splash-card-in 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    gap: 12px;
 }
 
-.boot-splash-orb {
-    position: relative;
-    width: 64px;
-    height: 64px;
-    margin-bottom: 4px;
-}
-
-.boot-splash-orb-core {
-    position: absolute;
-    inset: 22px;
-    border-radius: 50%;
-    background: var(--accent, #7aa2f7);
-    box-shadow:
-        0 0 18px color-mix(in srgb, var(--accent, #7aa2f7) 70%, transparent),
-        0 0 40px color-mix(in srgb, var(--accent, #7aa2f7) 35%, transparent);
-    animation: boot-splash-orb-pulse 1.6s ease-in-out infinite;
-}
-
-.boot-splash-orb-ring {
-    position: absolute;
-    inset: 8px;
-    border-radius: 50%;
-    border: 1.5px solid color-mix(in srgb, var(--accent, #7aa2f7) 45%, transparent);
-    opacity: 0;
-    animation: boot-splash-orb-ring 2.2s ease-out infinite;
-}
-
-.boot-splash-orb-ring--two { animation-delay: 1.1s; }
-
-.boot-splash-headline {
+#workspace-switch-name {
+    text-transform: uppercase;
     font-family:
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 26px;
-    font-weight: 700;
-    letter-spacing: 0.42em;
-    text-indent: 0.42em;
-    color: var(--accent, #7aa2f7);
-    text-shadow:
-        0 0 12px color-mix(in srgb, var(--accent, #7aa2f7) 50%, transparent),
-        0 0 32px color-mix(in srgb, var(--accent, #7aa2f7) 22%, transparent);
-    animation: boot-splash-rise 320ms 80ms cubic-bezier(0.4, 0, 0.2, 1) both;
+    font-size: clamp(28px, 6vw, 60px);
+    font-weight: 680;
+    letter-spacing: 0.14em;
+    text-indent: 0.14em;
+    color: #fff;
+    text-shadow: 0 0 40px color-mix(in srgb, var(--sa) 55%, transparent);
 }
 
-.boot-splash-sub {
+.wsx-kicker {
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.26em;
-    color: color-mix(in srgb, #d6d8db 65%, transparent);
-    animation: boot-splash-rise 320ms 160ms cubic-bezier(0.4, 0, 0.2, 1) both;
+    letter-spacing: 0.36em;
+    text-transform: uppercase;
+    color: var(--sa);
 }
 
-.boot-splash-meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 4px;
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    color: color-mix(in srgb, #d6d8db 50%, transparent);
-    animation: boot-splash-rise 320ms 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-.boot-splash-meta-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent, #7aa2f7);
-    box-shadow: 0 0 6px color-mix(in srgb, var(--accent, #7aa2f7) 80%, transparent);
-    animation: boot-splash-dot 1.1s ease-in-out infinite;
-}
-
-.boot-splash-meta-text { text-transform: uppercase; }
-
-.boot-splash-meta-text::after {
-    content: "…";
-    display: inline-block;
-    width: 1em;
-    text-align: left;
-    animation: boot-splash-ellipsis 1.4s steps(4, end) infinite;
-}
-
-@keyframes boot-splash-card-in {
-    from { opacity: 0; transform: scale(0.94); }
-    to   { opacity: 1; transform: scale(1); }
-}
-
-@keyframes boot-splash-rise {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes boot-splash-orb-pulse {
-    0%, 100% {
-        transform: scale(1);
-        box-shadow:
-            0 0 18px color-mix(in srgb, var(--accent, #7aa2f7) 70%, transparent),
-            0 0 40px color-mix(in srgb, var(--accent, #7aa2f7) 35%, transparent);
-    }
-    50% {
-        transform: scale(1.12);
-        box-shadow:
-            0 0 26px color-mix(in srgb, var(--accent, #7aa2f7) 92%, transparent),
-            0 0 56px color-mix(in srgb, var(--accent, #7aa2f7) 50%, transparent);
-    }
-}
-
-@keyframes boot-splash-orb-ring {
-    0%   { transform: scale(0.6); opacity: 0.7; }
-    80%  { opacity: 0; }
-    100% { transform: scale(1.4); opacity: 0; }
-}
-
-@keyframes boot-splash-dot {
-    0%, 100% { opacity: 0.45; }
-    50%      { opacity: 1; }
-}
-
-@keyframes boot-splash-ellipsis {
-    0%   { content: ""; }
-    25%  { content: "."; }
-    50%  { content: ".."; }
-    75%  { content: "..."; }
-    100% { content: ""; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .boot-splash-card,
-    .boot-splash-headline,
-    .boot-splash-sub,
-    .boot-splash-meta { animation: none; }
-    .boot-splash-orb-core,
-    .boot-splash-orb-ring,
-    .boot-splash-meta-dot,
-    .boot-splash-meta-text::after { animation: none; }
-    .boot-splash-meta-text::after { content: "…"; }
-}
-
-/* Light-mode skin for the workspace-switch overlay card (system-light
-   before main.ts applies body.theme-light; the token-based
-   body.theme-light rules below take over for the persisted theme). */
+/* Light grounds: white headline would vanish, so ink it with the space hue. */
 @media (prefers-color-scheme: light) {
-    body:not(.theme-dark) .boot-splash-headline {
-        color: color-mix(in srgb, #2f6fed 78%, #10254c);
+    body:not(.theme-dark) #workspace-switch-name {
+        color: color-mix(in srgb, var(--sa) 45%, #10254c);
         text-shadow:
-            0 1px 0 rgba(255, 255, 255, 0.85),
-            0 0 22px rgba(47, 111, 237, 0.22);
-    }
-    body:not(.theme-dark) .boot-splash-sub,
-    body:not(.theme-dark) .boot-splash-meta {
-        color: rgba(26, 29, 34, 0.58);
-    }
-    body:not(.theme-dark) .boot-splash-orb-core {
-        background: #2f6fed;
-        box-shadow:
-            0 0 18px rgba(47, 111, 237, 0.46),
-            0 0 44px rgba(47, 111, 237, 0.22);
-    }
-    body:not(.theme-dark) .boot-splash-orb-ring {
-        border-color: rgba(47, 111, 237, 0.34);
-    }
-    body:not(.theme-dark) .boot-splash-meta-dot {
-        background: #2f6fed;
-        box-shadow: 0 0 8px rgba(47, 111, 237, 0.55);
+            0 1px 0 rgba(255, 255, 255, 0.8),
+            0 0 24px color-mix(in srgb, var(--sa) 26%, transparent);
     }
 }
-body.theme-light .boot-splash-headline {
-    color: color-mix(in srgb, var(--accent) 78%, #10254c);
+body.theme-light #workspace-switch-name {
+    color: color-mix(in srgb, var(--sa) 45%, #10254c);
     text-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.85),
-        0 0 22px color-mix(in srgb, var(--accent) 22%, transparent);
-}
-body.theme-light .boot-splash-sub,
-body.theme-light .boot-splash-meta {
-    color: color-mix(in srgb, var(--text-primary) 58%, transparent);
-}
-body.theme-light .boot-splash-orb-core {
-    box-shadow:
-        0 0 18px color-mix(in srgb, var(--accent) 46%, transparent),
-        0 0 44px color-mix(in srgb, var(--accent) 22%, transparent);
-}
-body.theme-light .boot-splash-orb-ring {
-    border-color: color-mix(in srgb, var(--accent) 34%, transparent);
-}
-body.theme-light .boot-splash-meta-dot {
-    box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+        0 1px 0 rgba(255, 255, 255, 0.8),
+        0 0 24px color-mix(in srgb, var(--sa) 26%, transparent);
 }
 
 /* ─── App title bar (macOS overlay) ──────────────────────────────────
@@ -20063,7 +19917,9 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .cloud-cats.is-disabled { opacity: 0.4; pointer-events: none; }
 .cloud-cat { padding: 11px 0; }
 .cloud-cat + .cloud-cat { border-top: 1px solid color-mix(in srgb, var(--fg) 7%, transparent); }
+.cloud-cat-text { display: flex; flex-direction: column; gap: 2px; }
 .cloud-cat-label { font-size: 13px; color: var(--fg); }
+.cloud-cat-sub { font-size: 11px; color: var(--muted); }
 
 /* Toggle switch (base = category size, -lg = master) */
 .cloud-switch {
