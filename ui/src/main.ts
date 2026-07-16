@@ -3,7 +3,7 @@
 // prev/next), and closes the app window when the last tab is gone.
 
 import "@xterm/xterm/css/xterm.css";
-import { applyPlatformAttribute, formatChord, modHeld } from "./platform";
+import { appModHeld, applyPlatformAttribute, chordFor, formatChord, isMac, modHeld } from "./platform";
 import "./styles/operator_chip.css";
 import "./styles/tab-themes/forge.css";
 import "./styles/tab-themes/glass.css";
@@ -1071,15 +1071,15 @@ async function boot(): Promise<void> {
   // adapted to the host platform's modifier symbol.
   newTabBtn.innerHTML = `
     <span class="new-tab-plus">${Icons.terminal({ size: 14 })}</span>
-    <kbd class="new-tab-kbd">${formatChord(["mod", "T"])}</kbd>
+    <kbd class="new-tab-kbd">${chordFor(["mod", "T"], ["ctrl", "shift", "T"])}</kbd>
   `;
-  attachTooltip(newTabBtn, `New tab (${formatChord(["mod", "T"])})`);
+  attachTooltip(newTabBtn, `New tab (${chordFor(["mod", "T"], ["ctrl", "shift", "T"])})`);
 
   newGroupBtn.innerHTML = `
     <span class="new-tab-plus">${Icons.folderPlus({ size: 14 })}</span>
-    <kbd class="new-tab-kbd">${formatChord(["mod", "shift", "G"])}</kbd>
+    <kbd class="new-tab-kbd">${chordFor(["mod", "shift", "G"], ["ctrl", "shift", "G"])}</kbd>
   `;
-  attachTooltip(newGroupBtn, `New group (${formatChord(["mod", "shift", "G"])})`);
+  attachTooltip(newGroupBtn, `New group (${chordFor(["mod", "shift", "G"], ["ctrl", "shift", "G"])})`);
 
   const manager = new TabManager(tabbar, workspace, newTabBtn, () => {
     // Closing the last tab quits the app — matches iTerm/Terminal.app.
@@ -2715,6 +2715,43 @@ async function boot(): Promise<void> {
       e.preventDefault();
       spawnByShortcut?.(Number(e.key) - 1);
       return;
+    }
+
+    // Off macOS the app chords live on Ctrl+Shift, not Ctrl — see
+    // appModHeld(). Handled here rather than by relaxing the ⌘ guard below,
+    // because that block's own !e.shiftKey checks encode the mac chord
+    // shape: once Shift is part of the modifier, every one of them misfires.
+    //
+    // Only the chords the UI actually advertises are wired. The rest of the
+    // ⌘ block can't be mapped mechanically — ⌘ and ⌘⇧ are two spaces on a
+    // Mac and collapse into one here, so ⌘W/⌘⇧W and ⌘P/⌘⇧P would collide.
+    // Those need per-shortcut decisions, not a sweep.
+    if (!isMac() && appModHeld(e)) {
+      const k = e.key.toLowerCase();
+      if (k === "t") {
+        e.preventDefault();
+        void manager.createTab();
+        return;
+      }
+      if (k === "w") {
+        e.preventDefault();
+        if (manager.canSplitPanes()) {
+          void manager.closeActivePaneOrTab();
+        } else {
+          manager.closeActiveTab();
+        }
+        return;
+      }
+      if (k === "g") {
+        e.preventDefault();
+        manager.createEmptyGroup();
+        return;
+      }
+      if (k === "p" && !e.altKey) {
+        e.preventDefault();
+        switcher.togglePopover();
+        return;
+      }
     }
 
     if (!e.metaKey) return;

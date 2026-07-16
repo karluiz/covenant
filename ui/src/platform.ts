@@ -71,24 +71,49 @@ export function modPrefix(): string {
 /// anything else is a literal cap ("T", "G", ","). `mod` is the primary
 /// chord modifier — Command on macOS, Ctrl elsewhere. `ctrl` is the actual
 /// Control key, which on macOS is a *different* key from `mod`.
-export type ChordKey = "mod" | "shift" | "alt" | "ctrl" | "enter" | "tab" | (string & {});
+/// A key in a chord.
+///
+/// `mod` is the app modifier: Command on macOS, Ctrl elsewhere. Use it for
+/// chords whose key the shell doesn't want (`mod`+`,` for Settings).
+///
+/// `appmod` is the same intent for chords that land on a key readline owns.
+/// It resolves to plain Command on macOS but to **Ctrl+Shift** everywhere
+/// else, because in a terminal Ctrl is a content key: `Ctrl+T` is
+/// transpose-chars, `Ctrl+W` is unix-word-rubout, `Ctrl+G` is abort. Taking
+/// those for tab management would break the shell to deliver a tab. GNOME
+/// Terminal, Kitty and Alacritty all land on Ctrl+Shift for the same reason
+/// — it's the terminal convention, not a workaround.
+///
+/// `ctrl` is the literal Control key, which on macOS is NOT `mod`.
+export type ChordKey =
+  | "mod"
+  | "appmod"
+  | "shift"
+  | "alt"
+  | "ctrl"
+  | "enter"
+  | "tab"
+  | (string & {});
 
-const MAC_KEYS: Record<string, string> = {
-  mod: "⌘",
-  shift: "⇧",
-  alt: "⌥",
-  ctrl: "⌃",
-  enter: "⏎",
-  tab: "⇥",
+/// A token may expand to more than one cap — `appmod` is two keys off macOS.
+const MAC_KEYS: Record<string, string[]> = {
+  mod: ["⌘"],
+  appmod: ["⌘"],
+  shift: ["⇧"],
+  alt: ["⌥"],
+  ctrl: ["⌃"],
+  enter: ["⏎"],
+  tab: ["⇥"],
 };
 
-const SPELLED_KEYS: Record<string, string> = {
-  mod: "Ctrl",
-  shift: "Shift",
-  alt: "Alt",
-  ctrl: "Ctrl",
-  enter: "Enter",
-  tab: "Tab",
+const SPELLED_KEYS: Record<string, string[]> = {
+  mod: ["Ctrl"],
+  appmod: ["Ctrl", "Shift"],
+  shift: ["Shift"],
+  alt: ["Alt"],
+  ctrl: ["Ctrl"],
+  enter: ["Enter"],
+  tab: ["Tab"],
 };
 
 /// Render a chord for display.
@@ -109,7 +134,33 @@ export function formatChord(keys: readonly ChordKey[]): string {
 /// its own <kbd> instead of printing the chord as a string.
 export function chordKeys(keys: readonly ChordKey[]): string[] {
   const map = isMac() ? MAC_KEYS : SPELLED_KEYS;
-  return keys.map((k) => map[k] ?? k);
+  return keys.flatMap((k) => map[k] ?? [k]);
+}
+
+/// A chord whose *shape* differs per platform, not just its spelling.
+///
+/// macOS has two modifier spaces — ⌘ and ⌘⇧ — that collapse into one off
+/// macOS, where Ctrl belongs to the shell and app chords live on Ctrl+Shift.
+/// So ⌘W and ⌘⇧W both want Ctrl+Shift+W and one of them has to give. There
+/// is no mechanical mapping; each chord is a decision. Spell both sides.
+///
+/// Whatever you pass here MUST match what the handler accepts. A label is a
+/// promise — printing a chord nothing listens for is worse than printing
+/// none, which is how ⌘, ended up advertised on keyboards without a ⌘.
+export function chordFor(mac: readonly ChordKey[], other: readonly ChordKey[]): string {
+  return formatChord(isMac() ? mac : other);
+}
+
+/// True when the app-modifier for a terminal-conflicting chord is held:
+/// Command on macOS, Ctrl+Shift elsewhere. The counterpart to `appmod` —
+/// a handler MUST agree with the label its surface prints, or we advertise
+/// a chord that does nothing.
+export function appModHeld(e: {
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+}): boolean {
+  return isMac() ? e.metaKey : e.ctrlKey && e.shiftKey;
 }
 
 /// True when the platform's primary chord modifier is held: Command on

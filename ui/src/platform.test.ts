@@ -130,6 +130,40 @@ describe("platform", () => {
     }
   });
 
+  it("puts app chords on Ctrl+Shift off macOS, where Ctrl is the shell's", async () => {
+    // In a terminal Ctrl is a content key — Ctrl+T is transpose-chars,
+    // Ctrl+W is unix-word-rubout, Ctrl+G is abort. Binding tab management
+    // there breaks the shell to deliver a tab, so app chords go to
+    // Ctrl+Shift, same as GNOME Terminal / Kitty / Alacritty.
+    setInjectedPlatform("macos");
+    const mac = await freshModule();
+    expect(mac.formatChord(["appmod", "T"])).toBe("⌘T");
+    expect(mac.appModHeld({ metaKey: true, ctrlKey: false, shiftKey: false })).toBe(true);
+
+    setInjectedPlatform("linux");
+    const linux = await freshModule();
+    expect(linux.formatChord(["appmod", "T"])).toBe("Ctrl+Shift+T");
+    expect(linux.appModHeld({ metaKey: false, ctrlKey: true, shiftKey: true })).toBe(true);
+    // Plain Ctrl is NOT the app modifier here — it belongs to readline.
+    expect(linux.appModHeld({ metaKey: false, ctrlKey: true, shiftKey: false })).toBe(false);
+  });
+
+  it("lets a chord have a different shape per platform", async () => {
+    // ⌘ and ⌘⇧ are two modifier spaces on a Mac and collapse into one off
+    // it, so some chords aren't the same chord: ⌘W and ⌘⇧W both want
+    // Ctrl+Shift+W. chordFor() exists to state both sides rather than
+    // pretend one derives from the other.
+    setInjectedPlatform("macos");
+    const mac = await freshModule();
+    expect(mac.chordFor(["mod", "T"], ["ctrl", "shift", "T"])).toBe("⌘T");
+    expect(mac.chordFor(["mod", "shift", "G"], ["ctrl", "shift", "G"])).toBe("⌘⇧G");
+
+    setInjectedPlatform("linux");
+    const linux = await freshModule();
+    expect(linux.chordFor(["mod", "T"], ["ctrl", "shift", "T"])).toBe("Ctrl+Shift+T");
+    expect(linux.chordFor(["mod", "shift", "G"], ["ctrl", "shift", "G"])).toBe("Ctrl+Shift+G");
+  });
+
   it("reads the chord modifier off the event per platform", async () => {
     setInjectedPlatform("macos");
     const mac = await freshModule();

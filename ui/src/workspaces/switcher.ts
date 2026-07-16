@@ -6,7 +6,7 @@
 // opens a context menu for the active workspace: rename / duplicate /
 // set root dir / set color / delete.
 
-import { formatChord } from "../platform";
+import { chordFor } from "../platform";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { TabManager } from "../tabs/manager";
 import { attachTooltip } from "../tooltip/tooltip";
@@ -18,7 +18,7 @@ import { WorkspaceManager } from "./manager";
 
 /// Resolved per call, not once at import: the platform isn't known until
 /// the webview has the plugin's internals, and a const would bake in a guess.
-const kbdPick = (): string => formatChord(["mod", "shift", "P"]);
+const kbdPick = (): string => chordFor(["mod", "shift", "P"], ["ctrl", "shift", "P"]);
 
 function esc(s: string): string {
   return s
