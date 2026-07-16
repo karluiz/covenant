@@ -3,17 +3,18 @@ import {
   type CloudSyncConfig, type CloudSyncStatus,
 } from "../api";
 
-const CATS: { key: keyof CloudSyncConfig; label: string }[] = [
+const CATS: { key: keyof CloudSyncConfig; label: string; sub?: string }[] = [
   { key: "workspaces", label: "Workspaces" },
-  { key: "operators", label: "Operators" },
-  { key: "specs", label: "Specs" },
+  { key: "operators", label: "Operators", sub: "Includes drafts not yet published to Canon" },
+  { key: "specs", label: "Specs", sub: "Includes drafts not yet published to Canon" },
   { key: "preferences", label: "Preferences" },
 ];
 
 export function mountCloudSyncSection(root: HTMLElement): void {
   root.innerHTML = `
-    <p class="settings-help cloud-help">Back up your workspaces, operators,
-      specs and preferences to your Covenant account.
+    <p class="settings-help cloud-help">Restore your whole setup on a new machine.
+      Canon holds what you <em>publish</em>; this backs up everything else — open
+      workspaces, operator &amp; spec drafts, and preferences.
       <strong>API keys and tokens are never uploaded.</strong></p>
 
     <div class="cloud-account" data-account hidden></div>
@@ -22,7 +23,7 @@ export function mountCloudSyncSection(root: HTMLElement): void {
       <label class="cloud-rowflex cloud-master">
         <span class="cloud-master-text">
           <span class="cloud-master-title">Sync to Covenant Cloud</span>
-          <span class="cloud-master-sub">Auto-backs up on change · restore is always manual</span>
+          <span class="cloud-master-sub">Auto-backs up on change · restore is manual and replaces local state</span>
         </span>
         <span class="cloud-switch cloud-switch-lg">
           <input type="checkbox" data-k="enabled" />
@@ -36,7 +37,10 @@ export function mountCloudSyncSection(root: HTMLElement): void {
         ${CATS.map(
           (c) =>
             `<label class="cloud-rowflex cloud-cat">
-              <span class="cloud-cat-label">${c.label}</span>
+              <span class="cloud-cat-text">
+                <span class="cloud-cat-label">${c.label}</span>
+                ${c.sub ? `<span class="cloud-cat-sub">${c.sub}</span>` : ""}
+              </span>
               <span class="cloud-switch"><input type="checkbox" data-k="${c.key}" /><span class="cloud-slider"></span></span>
             </label>`,
         ).join("")}
