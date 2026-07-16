@@ -7,7 +7,6 @@ import {
   hasConfiguredProvider,
   OnboardingPanel,
   chordGlyphs,
-  isMacUA,
   type OnboardingHandlers,
 } from "./panel";
 
@@ -205,12 +204,6 @@ describe("OnboardingPanel", () => {
     expect(chordGlyphs(["mod", "shift", "A"], false)).toEqual(["Ctrl", "Shift", "A"]);
   });
 
-  it("detects Apple platforms from the user agent", () => {
-    expect(isMacUA("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")).toBe(true);
-    expect(isMacUA("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)")).toBe(true);
-    expect(isMacUA("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15")).toBe(false);
-    expect(isMacUA("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe(false);
-  });
 
   it("adds is-shown to the overlay so the card's entry transition plays", () => {
     // Regression guard: the card has `opacity: 0` by default and only

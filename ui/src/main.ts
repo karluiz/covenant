@@ -3,6 +3,7 @@
 // prev/next), and closes the app window when the last tab is gone.
 
 import "@xterm/xterm/css/xterm.css";
+import { applyPlatformAttribute, modPrefix } from "./platform";
 import "./styles/operator_chip.css";
 import "./styles/tab-themes/forge.css";
 import "./styles/tab-themes/glass.css";
@@ -157,10 +158,6 @@ function applyWindowBackground(kind: WindowBackground): void {
   const body = document.body;
   body.classList.remove("bg-solid", "bg-vibrant", "bg-translucent");
   body.classList.add(`bg-${kind}`);
-  // macOS is the only platform that paints vibrancy behind the window and
-  // hides its own titlebar for us; the chrome keys off this. See
-  // :root:not(.platform-mac) in styles.css.
-  document.documentElement.classList.toggle("platform-mac", isMacPlatform());
 }
 
 let unwatchSystem: (() => void) | null = null;
@@ -403,14 +400,6 @@ async function waitForTauri(): Promise<void> {
   );
 }
 
-function isMacPlatform(): boolean {
-  // Tauri 2 doesn't expose platform synchronously to the webview, so
-  // sniff UA. Reasonable since our bundle currently targets macOS.
-  return /Mac|iPod|iPhone|iPad/i.test(navigator.userAgent);
-}
-
-const MOD_KEY = isMacPlatform() ? "⌘" : "Ctrl+";
-
 const AUTOSUGGEST_HINT_KEY = "covenant.autosuggest-hint-shown";
 
 async function maybeHintAutosuggestions(toasts: ToastHost): Promise<void> {
@@ -450,6 +439,11 @@ function formatBudgetDuration(ms: number): string {
 
 async function boot(): Promise<void> {
   await waitForTauri();
+
+  // Stamp <html data-platform> before any chrome renders — the titlebar
+  // and background rules key off it, and a late call would flash a frame
+  // of macOS-shaped layout on every other system.
+  applyPlatformAttribute();
 
   // Suppress the native WebKit context menu (Reload / Inspect Element /
   // AutoFill) everywhere except editable fields, where the native copy/
@@ -1077,15 +1071,15 @@ async function boot(): Promise<void> {
   // adapted to the host platform's modifier symbol.
   newTabBtn.innerHTML = `
     <span class="new-tab-plus">${Icons.terminal({ size: 14 })}</span>
-    <kbd class="new-tab-kbd">${MOD_KEY}T</kbd>
+    <kbd class="new-tab-kbd">${modPrefix()}T</kbd>
   `;
-  attachTooltip(newTabBtn, `New tab (${MOD_KEY}T)`);
+  attachTooltip(newTabBtn, `New tab (${modPrefix()}T)`);
 
   newGroupBtn.innerHTML = `
     <span class="new-tab-plus">${Icons.folderPlus({ size: 14 })}</span>
-    <kbd class="new-tab-kbd">${MOD_KEY}⇧G</kbd>
+    <kbd class="new-tab-kbd">${modPrefix()}⇧G</kbd>
   `;
-  attachTooltip(newGroupBtn, `New group (${MOD_KEY}⇧G)`);
+  attachTooltip(newGroupBtn, `New group (${modPrefix()}⇧G)`);
 
   const manager = new TabManager(tabbar, workspace, newTabBtn, () => {
     // Closing the last tab quits the app — matches iTerm/Terminal.app.

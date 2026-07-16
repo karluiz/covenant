@@ -1,3 +1,4 @@
+import { isMac } from "../platform";
 import type { Terminal } from "@xterm/xterm";
 
 const DISMISS_KEY = "covenant.welcome-hint-dismissed";
@@ -19,10 +20,12 @@ export function dismissWelcomeHint(): void {
 // Render modifier glyphs per-platform: macOS uses ⌘/⌥, Windows/Linux use the
 // word forms (Ctrl/Alt) since those keys carry no standard glyph there. The
 // actual handlers key off metaKey on macOS — Windows key handling is M8.
-const IS_MAC = /Mac/i.test(navigator.platform || navigator.userAgent);
-const KEY: Record<string, string> = IS_MAC
-  ? { mod: "⌘", alt: "⌥", shift: "⇧" }
-  : { mod: "Ctrl", alt: "Alt", shift: "Shift" };
+// Resolved per call, not once at import: a module-level const would run
+// before the platform plugin's internals land and freeze in a guess.
+const keyMap = (): Record<string, string> =>
+  isMac()
+    ? { mod: "⌘", alt: "⌥", shift: "⇧" }
+    : { mod: "Ctrl", alt: "Alt", shift: "Shift" };
 
 // Curated for a fresh session — the few shortcuts worth knowing before you
 // type anything. Tokens: "mod"/"alt"/"shift" resolve per-platform above.
@@ -64,7 +67,7 @@ export function mountWelcomeHint(host: HTMLElement, term: Terminal): void {
       ${ROWS.map(
         (r) =>
           `<li><span class="term-welcome-keys">${r.keys
-            .map((k) => `<kbd>${KEY[k] ?? k}</kbd>`)
+            .map((k) => `<kbd>${keyMap()[k] ?? k}</kbd>`)
             .join("")}</span><span class="term-welcome-label">${r.label}</span></li>`,
       ).join("")}
     </ul>

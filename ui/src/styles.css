@@ -278,8 +278,8 @@ body.familiar-panel-open #familiar-panel { width: 380px; flex: 0 0 380px; }
    onto the wallpaper and the whole UI reads washed out. Paint an opaque
    base under it so the alpha blends against the app's own color instead.
    The user's window-background choice keeps its meaning; it just stops
-   being a hole. `platform-mac` is set by main.ts on boot. */
-:root:not(.platform-mac) {
+   being a hole. `data-platform` is stamped by main.ts on boot. */
+:root:not([data-platform="mac"]) {
     background: var(--bg);
 }
 
@@ -14926,7 +14926,7 @@ body.theme-light #workspace-switch-name {
    prints "Covenant" in its own titlebar directly above, so the wordmark
    is the same name stacked twice. Drop the word, keep the span — the
    presence dot lives in it, same reasoning as the rule above. */
-:root:not(.platform-mac) #app-titlebar-brand-word {
+:root:not([data-platform="mac"]) #app-titlebar-brand-word {
     display: none;
 }
 #app-titlebar-right {
@@ -15080,7 +15080,7 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
 /* Off macOS there are no traffic lights to reserve for — the window
    manager draws its own controls in its own titlebar — so the gutter is
    just a hole before the first chip. Same treatment as fullscreen. */
-:root:not(.platform-mac) #app-titlebar-left { padding-left: 10px; }
+:root:not([data-platform="mac"]) #app-titlebar-left { padding-left: 10px; }
 
 /* Match titlebar icon color for the sidebar bottom actions. */
 #new-tab, #new-group { color: var(--text, #d5d9de); }

@@ -1,3 +1,4 @@
+import { modPrefix } from "../platform";
 import {
   OPERATOR_PERSONA_TEMPLATES,
   type PersonaTemplate,
@@ -166,9 +167,9 @@ export class PersonaComposerModal {
   private buildFooter(): HTMLElement {
     const footer = document.createElement("footer");
     footer.className = "persona-composer__footer";
-    const modKey = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
+    const mod = modPrefix();
     footer.innerHTML =
-      `<kbd class="modal-kbd">${modKey}S</kbd> save · ` +
+      `<kbd class="modal-kbd">${mod}S</kbd> save · ` +
       `<kbd class="modal-kbd">Esc</kbd> cancel`;
     return footer;
   }

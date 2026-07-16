@@ -11,6 +11,7 @@
 // All metadata is in-memory only — persistence ties to session
 // restoration which is its own arch change (M7+ scope).
 
+import { currentPlatform } from "../platform";
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -7740,9 +7741,15 @@ export class TabManager {
       ...(group.rootDir
         ? [
             {
-              label: /Mac|iPod|iPhone|iPad/i.test(navigator.userAgent)
-                ? "Reveal in Finder"
-                : "Show in Explorer",
+              // Name the actual file manager where there is one to name.
+              // Linux has no single answer (Nautilus/Dolphin/Thunar/…), so
+              // it gets the generic — better than the old mac/not-mac
+              // binary, which told Linux users to "Show in Explorer".
+              label: {
+                mac: "Reveal in Finder",
+                windows: "Show in Explorer",
+                linux: "Show in file manager",
+              }[currentPlatform()],
               icon: Icons.folder(),
               onClick: () => {
                 const dir = group.rootDir;

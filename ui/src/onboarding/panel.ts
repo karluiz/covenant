@@ -16,6 +16,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getSettings, type Settings } from "../api";
 import { Icons } from "../icons";
+import { isMac } from "../platform";
 import logoUrl from "../../assets/logo-app.svg";
 import { detectOllama, adoptOllama } from "./ollama";
 import { adoptFreeKey, GEMINI_KEY_URL, START_GUIDE_URL } from "./freekey";
@@ -31,19 +32,14 @@ const STORAGE_KEY = "covenant.onboarding.completed";
 /// renderer resolves per platform; anything else is a literal key cap.
 export type ChordToken = "mod" | "shift" | (string & {});
 
-/// True on Apple platforms, where the modifier is Command. Takes the UA
-/// as a parameter so tests can simulate a platform — Tauri 2 doesn't
-/// expose the platform synchronously to the webview.
-export function isMacUA(ua: string = navigator.userAgent): boolean {
-  return /Mac|iPod|iPhone|iPad/i.test(ua);
-}
-
 /// Resolve chord tokens to the caps we print. macOS uses single glyphs
-/// (⌘⇧A); everywhere else spells the modifiers out (Ctrl Shift A).
-export function chordGlyphs(keys: readonly ChordToken[], isMac: boolean): string[] {
+/// (⌘⇧A); everywhere else spells the modifiers out (Ctrl Shift A). Takes
+/// `mac` as a parameter rather than asking the platform itself, so both
+/// layouts stay testable without stubbing the OS.
+export function chordGlyphs(keys: readonly ChordToken[], mac: boolean): string[] {
   return keys.map((k) => {
-    if (k === "mod") return isMac ? "⌘" : "Ctrl";
-    if (k === "shift") return isMac ? "⇧" : "Shift";
+    if (k === "mod") return mac ? "⌘" : "Ctrl";
+    if (k === "shift") return mac ? "⇧" : "Shift";
     return k;
   });
 }
@@ -233,9 +229,9 @@ export class OnboardingPanel {
 
     // One chip per key, reusing the shortcuts panel's .shortcut-keys
     // chrome so both surfaces read identically.
-    const isMac = isMacUA();
+    const mac = isMac();
     const rows = OnboardingPanel.KEYS.map((k) => {
-      const chips = chordGlyphs(k.keys, isMac)
+      const chips = chordGlyphs(k.keys, mac)
         .map((c) => `<kbd>${esc(c)}</kbd>`)
         .join("");
       return `<li class="onboarding-key"><span class="shortcut-keys onboarding-key__keys">${chips}</span><span class="onboarding-key__text"><span class="onboarding-key__label">${esc(
