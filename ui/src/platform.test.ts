@@ -1,6 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
 
 // The module caches, so each test needs a fresh copy.
 async function freshModule(): Promise<typeof import("./platform")> {
@@ -157,24 +155,25 @@ describe("platform", () => {
     // This is a source-level rule with no runtime signal, so it's checked
     // here rather than left to review — three separate passes over this
     // codebase each had to be told it by hand.
-    const offenders: string[] = [];
     const moduleScopeCall =
       /^(?:export\s+)?(?:const|let|var)\s+\w+(?:\s*:[^=]+)?\s*=\s*(?:formatChord|chordKeys|modPrefix|modKey)\s*\(/m;
 
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(dir)) {
-        const path = join(dir, entry);
-        if (statSync(path).isDirectory()) {
-          walk(path);
-          continue;
-        }
-        if (!path.endsWith(".ts") || path.endsWith(".test.ts")) continue;
-        if (path.endsWith("platform.ts")) continue;
-        if (moduleScopeCall.test(readFileSync(path, "utf8"))) offenders.push(path);
-      }
-    };
-    walk(join(__dirname));
+    // Vite's glob, not node:fs — this tsconfig is browser-only (`types:
+    // ["vite/client"]`, no @types/node) and the tests share it.
+    const sources = import.meta.glob("./**/*.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>;
 
+    const offenders = Object.entries(sources)
+      .filter(([path]) => !path.endsWith(".test.ts") && !path.endsWith("platform.ts"))
+      .filter(([, src]) => moduleScopeCall.test(src))
+      .map(([path]) => path);
+
+    // Sanity: the sweep must actually see the tree. An empty glob would
+    // make this test pass by looking at nothing.
+    expect(Object.keys(sources).length).toBeGreaterThan(50);
     expect(offenders).toEqual([]);
   });
 
