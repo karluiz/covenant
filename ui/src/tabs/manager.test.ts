@@ -1,5 +1,18 @@
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it, beforeAll, vi } from "vitest";
 import { TabManager, type TabManifestV1 } from "./manager";
+
+// activate() reports the new active tab to the backend; jsdom has no Tauri
+// IPC bridge, so stub it out. Nothing here asserts on backend calls.
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: () => Promise.resolve(),
+  Channel: class {
+    onmessage: ((d: unknown) => void) | null = null;
+  },
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: () => Promise.resolve(() => {}),
+  emit: () => Promise.resolve(),
+}));
 
 // jsdom doesn't implement matchMedia; TabManager's constructor arms a
 // DPR-change listener via matchMedia unconditionally, so it throws on
@@ -112,5 +125,93 @@ describe("TabManager setActivePill fast path", () => {
     expect(setActivePill("ghost")).toBe(false);
     // A failed lookup leaves the strip untouched rather than clearing it.
     expect(b.classList.contains("active")).toBe(true);
+  });
+});
+
+describe("TabManager closing the active tab sweeps its pill", () => {
+  // Regression: 48bc3565 made activate() swap the .active class in place
+  // instead of re-rendering the strip. That fast path assumes the strip's
+  // structure is unchanged — true on a tab switch, false right after a
+  // close, where finalizeCloseTab splices the tab out and then activates a
+  // neighbour. The closed tab's pill then survived in the DOM until some
+  // unrelated later renderTabbar() swept it, so users saw the closed tab
+  // linger in the sidebar for seconds.
+  it("leaves no pill behind for a tab removed from this.tabs", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      renderTabbar: () => void;
+      activeId: string | null;
+      tabbarHost: HTMLElement;
+    };
+    const fakeTab = (id: string): Record<string, unknown> => ({
+      id,
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [
+        {
+          kind: "shell",
+          sessionId: null,
+          cwd: "/tmp",
+          el: null,
+          xterm: null,
+          operator: null,
+          observer_ids: [],
+        },
+      ],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    });
+    priv.tabs.push(fakeTab("a"), fakeTab("b"));
+    priv.renderTabbar.call(m);
+    expect(priv.tabbarHost.querySelectorAll(".tab-btn").length).toBe(2);
+
+    // "a" is the ACTIVE tab — the case users hit with ⌘W. A null sessionId
+    // keeps closeTab on its synchronous path (no mind-preview round-trip).
+    priv.activeId = "a";
+    m.closeTab("a");
+
+    const ids = Array.from(priv.tabbarHost.querySelectorAll<HTMLElement>(".tab-btn"))
+      .map((el) => el.dataset.tabId);
+    expect(ids).not.toContain("a");
+    expect(ids).toEqual(["b"]);
+  });
+
+  it("leaves no pill behind when the closed active tab is a browser tab", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      renderTabbar: () => void;
+      activeId: string | null;
+      tabbarHost: HTMLElement;
+    };
+    const fakeTab = (id: string, kind: string): Record<string, unknown> => ({
+      id,
+      groupId: null,
+      kind,
+      pane: document.createElement("div"),
+      panes: [
+        {
+          kind: "shell",
+          sessionId: null,
+          cwd: "/tmp",
+          el: null,
+          xterm: null,
+          operator: null,
+          observer_ids: [],
+        },
+      ],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    });
+    priv.tabs.push(fakeTab("web", "browser"), fakeTab("b", "shell"));
+    priv.renderTabbar.call(m);
+    priv.activeId = "web";
+    m.closeTab("web");
+
+    const ids = Array.from(priv.tabbarHost.querySelectorAll<HTMLElement>(".tab-btn"))
+      .map((el) => el.dataset.tabId);
+    expect(ids).toEqual(["b"]);
   });
 });
