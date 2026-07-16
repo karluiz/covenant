@@ -27,6 +27,27 @@ export const ONBOARDING_VERSION = 2;
 
 const STORAGE_KEY = "covenant.onboarding.completed";
 
+/// A single key in a shortcut chord. `mod`/`shift` are placeholders the
+/// renderer resolves per platform; anything else is a literal key cap.
+export type ChordToken = "mod" | "shift" | (string & {});
+
+/// True on Apple platforms, where the modifier is Command. Takes the UA
+/// as a parameter so tests can simulate a platform — Tauri 2 doesn't
+/// expose the platform synchronously to the webview.
+export function isMacUA(ua: string = navigator.userAgent): boolean {
+  return /Mac|iPod|iPhone|iPad/i.test(ua);
+}
+
+/// Resolve chord tokens to the caps we print. macOS uses single glyphs
+/// (⌘⇧A); everywhere else spells the modifiers out (Ctrl Shift A).
+export function chordGlyphs(keys: readonly ChordToken[], isMac: boolean): string[] {
+  return keys.map((k) => {
+    if (k === "mod") return isMac ? "⌘" : "Ctrl";
+    if (k === "shift") return isMac ? "⇧" : "Shift";
+    return k;
+  });
+}
+
 export type OnboardingHandlers = {
   openSettingsProviders: () => Promise<void> | void;
   openShortcuts: () => void;
@@ -173,28 +194,33 @@ export class OnboardingPanel {
   // scrim across the feature they can't reach. Each row carries a
   // plain-language line: "super-agent" / "spec" / "AOM" mean nothing
   // to someone who installed the app two minutes ago.
+  /// Chords are stored as semantic tokens, not display strings: macOS
+  /// names its modifiers with single glyphs (⌘⇧A) while every other
+  /// platform spells them out (Ctrl Shift A), and the renderer chips one
+  /// <kbd> per token — a display string would character-split "Ctrl" into
+  /// C·t·r·l. Resolved at render time via [`chordGlyphs`].
   private static readonly KEYS: Array<{
-    keys: string;
+    keys: ChordToken[];
     label: string;
     desc: string;
   }> = [
     {
-      keys: "⌘K",
+      keys: ["mod", "K"],
       label: "Ask the agent",
       desc: "Chat about anything happening in your terminal",
     },
     {
-      keys: "⌘N",
+      keys: ["mod", "N"],
       label: "Draft a spec",
       desc: "Turn an idea into a plan an agent can execute",
     },
     {
-      keys: "⌘⇧A",
+      keys: ["mod", "shift", "A"],
       label: "Go autonomous",
       desc: "AOM watches your sessions and acts on its own",
     },
     {
-      keys: "⌘⇧K",
+      keys: ["mod", "shift", "K"],
       label: "All shortcuts",
       desc: "The full keyboard map",
     },
@@ -207,8 +233,11 @@ export class OnboardingPanel {
 
     // One chip per key, reusing the shortcuts panel's .shortcut-keys
     // chrome so both surfaces read identically.
+    const isMac = isMacUA();
     const rows = OnboardingPanel.KEYS.map((k) => {
-      const chips = [...k.keys].map((c) => `<kbd>${esc(c)}</kbd>`).join("");
+      const chips = chordGlyphs(k.keys, isMac)
+        .map((c) => `<kbd>${esc(c)}</kbd>`)
+        .join("");
       return `<li class="onboarding-key"><span class="shortcut-keys onboarding-key__keys">${chips}</span><span class="onboarding-key__text"><span class="onboarding-key__label">${esc(
         k.label,
       )}</span><span class="onboarding-key__desc">${esc(k.desc)}</span></span></li>`;

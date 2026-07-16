@@ -6,6 +6,8 @@ import {
   resetOnboarding,
   hasConfiguredProvider,
   OnboardingPanel,
+  chordGlyphs,
+  isMacUA,
   type OnboardingHandlers,
 } from "./panel";
 
@@ -189,7 +191,25 @@ describe("OnboardingPanel", () => {
     expect(card?.querySelector(".onboarding-hero img")).not.toBeNull();
     // The four keys are listed as <kbd> rows — no panel-opening choreography.
     expect(card?.querySelectorAll(".onboarding-key").length).toBe(4);
-    expect(card?.textContent).toContain("⌘K");
+    // jsdom's UA is never an Apple one, so the card spells the modifier
+    // out. Asserting the glyph here would only ever pass on macOS.
+    expect(card?.textContent).toContain("CtrlK");
+  });
+
+  it("names modifiers per platform and never splits a spelled-out one", () => {
+    // Regression guard: the chord used to be one string that the renderer
+    // character-split, so "Ctrl" came out as four separate C·t·r·l caps.
+    expect(chordGlyphs(["mod", "K"], true)).toEqual(["⌘", "K"]);
+    expect(chordGlyphs(["mod", "shift", "A"], true)).toEqual(["⌘", "⇧", "A"]);
+    expect(chordGlyphs(["mod", "K"], false)).toEqual(["Ctrl", "K"]);
+    expect(chordGlyphs(["mod", "shift", "A"], false)).toEqual(["Ctrl", "Shift", "A"]);
+  });
+
+  it("detects Apple platforms from the user agent", () => {
+    expect(isMacUA("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")).toBe(true);
+    expect(isMacUA("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)")).toBe(true);
+    expect(isMacUA("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15")).toBe(false);
+    expect(isMacUA("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe(false);
   });
 
   it("adds is-shown to the overlay so the card's entry transition plays", () => {
