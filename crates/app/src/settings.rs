@@ -88,9 +88,11 @@ pub struct ExperimentalConfig {
 
     /// Show identity + telemetry on the top row of the status bar and
     /// the operator / mission / AOM cluster on a shorter bottom row.
-    /// Default `true` (the layout that shipped in 8aee4f5). Flip off
-    /// to use the original single-row layout.
-    #[serde(default = "default_true")]
+    /// Default `false`: two rows of chrome is a lot to hand someone on
+    /// first launch, so the single-row layout is what a fresh install
+    /// gets. Flip on for the taller layout that shipped in 8aee4f5.
+    /// Existing configs keep whatever they already persisted.
+    #[serde(default)]
     pub statusbar_two_row: bool,
 
     /// Enable the internal browser panel. Off by default; flip to `true`
@@ -110,7 +112,7 @@ impl Default for ExperimentalConfig {
     fn default() -> Self {
         Self {
             split_panes: false,
-            statusbar_two_row: true,
+            statusbar_two_row: false,
             internal_browser: false,
             tab_styles: TabStylesConfig::default(),
         }
@@ -1202,8 +1204,17 @@ mod tests {
     }
 
     #[test]
-    fn experimental_statusbar_two_row_defaults_true() {
+    fn experimental_statusbar_two_row_defaults_false() {
         let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!s.experimental.statusbar_two_row);
+    }
+
+    /// A config written before the default flipped keeps its two rows —
+    /// the change is for fresh installs, not a retroactive relayout.
+    #[test]
+    fn experimental_statusbar_two_row_honors_persisted_true() {
+        let s: Settings =
+            serde_json::from_str(r#"{"experimental":{"statusbar_two_row":true}}"#).unwrap();
         assert!(s.experimental.statusbar_two_row);
     }
 
@@ -1216,13 +1227,17 @@ mod tests {
         assert!(!s2.experimental.statusbar_two_row);
     }
 
+    /// A config written before the field existed gets the new default, not
+    /// the old one: it never opted into two rows, so it follows the current
+    /// default like a fresh install would. Only an explicit `true` (see
+    /// `honors_persisted_true`) keeps the taller layout.
     #[test]
-    fn experimental_statusbar_two_row_missing_in_json_defaults_true() {
+    fn experimental_statusbar_two_row_missing_in_json_defaults_false() {
         let json = r#"{
             "experimental": { "split_panes": false }
         }"#;
         let s: Settings = serde_json::from_str(json).unwrap();
-        assert!(s.experimental.statusbar_two_row);
+        assert!(!s.experimental.statusbar_two_row);
     }
 
     #[test]
