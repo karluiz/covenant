@@ -198,13 +198,14 @@ use world::SessionWorldModel;
 /// Bundled into the binary so the app is self-contained — no need to
 /// know the repo layout at runtime.
 const ZSH_SNIPPET: &str = include_str!("../../../shell-integration/osc133.zsh");
+const BASH_SNIPPET: &str = include_str!("../../../shell-integration/osc133.bash");
 
 /// Per-session backend state. The [`TempDir`] is held for the lifetime
-/// of the session so its `.zshrc` and snippet file stay readable if zsh
-/// ever re-sources them (uncommon, but cheap insurance).
+/// of the session so its rc shim and snippet file stay readable if the
+/// shell ever re-sources them (uncommon, but cheap insurance).
 struct ManagedSession {
     session: Session,
-    _zdotdir: TempDir,
+    _rc_dir: TempDir,
     world: Arc<Mutex<SessionWorldModel>>,
     op_state: Arc<std::sync::Mutex<OperatorState>>,
     /// Per-session remote-control arming flag. Default `false`. When
@@ -488,6 +489,54 @@ fn build_zdotdir() -> Result<TempDir, std::io::Error> {
     Ok(dir)
 }
 
+/// Which shell family we're about to spawn. The rc-dir layout and the
+/// args/env we inject are both shell-specific: `--no-globalrcs` and
+/// `ZDOTDIR` are zsh-only, and bash answers them by printing its usage
+/// banner and exiting — which is every session on a distro that defaults
+/// to bash. Gate on the shell, never on the OS.
+#[cfg(unix)]
+enum RcShell {
+    Zsh,
+    Bash,
+    /// Anything else (fish, sh, a login shell we don't ship a snippet
+    /// for). Spawns bare: no OSC 133, so no blocks, but a usable shell.
+    Other,
+}
+
+#[cfg(unix)]
+fn rc_shell_for(program: &str) -> RcShell {
+    match Path::new(program).file_name().and_then(|s| s.to_str()) {
+        Some("zsh") => RcShell::Zsh,
+        Some("bash") => RcShell::Bash,
+        _ => RcShell::Other,
+    }
+}
+
+/// Materialize a private rc file for bash: source the user's real
+/// `~/.bashrc` first, then layer our OSC 133 snippet on top.
+///
+/// bash has no `ZDOTDIR`. The equivalent is `--rcfile`, which *replaces*
+/// `~/.bashrc` rather than chaining it, so the shim has to source it
+/// explicitly — same shape as [`build_zdotdir`], different mechanism.
+#[cfg(unix)]
+fn build_bash_rcdir() -> Result<TempDir, std::io::Error> {
+    let dir = tempfile::Builder::new().prefix("karl-bashrc-").tempdir()?;
+
+    let snippet_path = dir.path().join("osc133.bash");
+    std::fs::write(&snippet_path, BASH_SNIPPET)?;
+
+    std::fs::write(
+        dir.path().join("bashrc"),
+        format!(
+            "[ -f \"$HOME/.bashrc\" ] && source \"$HOME/.bashrc\"\n\
+             source {}\n",
+            shell_quote(&snippet_path),
+        ),
+    )?;
+
+    Ok(dir)
+}
+
 /// Single-quote a path for zsh source. Safe against spaces and most
 /// special chars; escapes embedded single quotes by closing-and-reopening.
 fn shell_quote(p: &Path) -> String {
@@ -507,17 +556,48 @@ async fn spawn_session(
     pane_id: Option<String>,
 ) -> Result<String, String> {
     tracing::debug!(?pane_id, "spawn_session: pane association");
-    let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
     let mut opts = SpawnOptions::from_default_shell().map_err(|e| format!("shell resolve: {e}"))?;
-    // zsh-only args/env. On Windows the default shell is pwsh, where
-    // `--no-globalrcs` is parsed as the ambiguous `-no*` prefix and
-    // dumps the full help banner into the pty (v0.5.5 launch regression).
+    // Each shell gets its own rc shim and its own way of being pointed at
+    // it. Passing zsh's flags to another shell doesn't degrade gracefully:
+    // pwsh parsed `--no-globalrcs` as an ambiguous `-no*` prefix (v0.5.5),
+    // and bash prints its usage banner and exits — so a bash-default distro
+    // never got a prompt at all.
     #[cfg(unix)]
-    {
-        opts.args.push("--no-globalrcs".to_string());
-        opts.env
-            .push(("ZDOTDIR".to_string(), zdotdir.path().display().to_string()));
-    }
+    let rc_dir = {
+        let shell = rc_shell_for(&opts.program);
+        let rc_dir = match shell {
+            RcShell::Zsh => build_zdotdir(),
+            RcShell::Bash => build_bash_rcdir(),
+            RcShell::Other => tempfile::Builder::new().prefix("karl-rc-").tempdir(),
+        }
+        .map_err(|e| format!("shell rc setup: {e}"))?;
+        match shell {
+            RcShell::Zsh => {
+                opts.args.push("--no-globalrcs".to_string());
+                opts.env
+                    .push(("ZDOTDIR".to_string(), rc_dir.path().display().to_string()));
+            }
+            RcShell::Bash => {
+                // bash only accepts long options ahead of short ones:
+                // `bash -i --rcfile X` prints its usage banner and exits,
+                // `bash --rcfile X -i` works. Prepend, never push.
+                let rcfile = rc_dir.path().join("bashrc").display().to_string();
+                opts.args.splice(0..0, ["--rcfile".to_string(), rcfile]);
+            }
+            RcShell::Other => {
+                tracing::warn!(
+                    shell = %opts.program,
+                    "no OSC 133 snippet for this shell; blocks will not be parsed"
+                );
+            }
+        }
+        rc_dir
+    };
+    #[cfg(not(unix))]
+    let rc_dir = tempfile::Builder::new()
+        .prefix("karl-rc-")
+        .tempdir()
+        .map_err(|e| format!("shell rc setup: {e}"))?;
     // Mirror Covenant's appearance into the shell env so the `claude`
     // wrapper (shell-integration) launches Claude Code with a matching
     // theme via `--settings`. Fixed for this shell's lifetime — new tabs
@@ -864,7 +944,7 @@ async fn spawn_session(
         id,
         ManagedSession {
             session,
-            _zdotdir: zdotdir,
+            _rc_dir: rc_dir,
             world,
             op_state: op_state.clone(),
             armed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
