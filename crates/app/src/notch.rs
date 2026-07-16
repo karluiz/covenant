@@ -553,6 +553,10 @@ pub fn show_notch(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorn
     let w = win.clone();
     let _ = win.run_on_main_thread(move || {
         let _ = w.show();
+        // Replay whatever passthrough state the webview asked for while the
+        // window was still hidden (see `notch_set_passthrough`).
+        #[cfg(target_os = "linux")]
+        let _ = w.set_ignore_cursor_events(NOTCH_PASSTHROUGH.load(Ordering::Relaxed));
         position_at_corner(&w, corner);
         apply_macos_collection_behavior(&w);
         apply_notch_window_level(&w, corner);
@@ -783,8 +787,26 @@ fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::Notch
     let _ = win.set_position(tauri::PhysicalPosition { x, y });
 }
 
+/// Last passthrough state the notch webview asked for. Only read on Linux,
+/// where a request can arrive before the window can accept it.
+#[cfg(target_os = "linux")]
+static NOTCH_PASSTHROUGH: AtomicBool = AtomicBool::new(true);
+
 #[tauri::command]
 pub async fn notch_set_passthrough(window: tauri::Window, passthrough: bool) -> Result<(), String> {
+    // On GTK the input shape lives on the GDK window, which doesn't exist
+    // until the toplevel is realized — tao unwraps it unconditionally and
+    // aborts the process. The notch boots hidden and asks for passthrough
+    // as soon as its webview loads, so this fires on every cold start.
+    // A hidden overlay takes no pointer input anyway; `show_notch` replays
+    // the stored state once the window is up.
+    #[cfg(target_os = "linux")]
+    {
+        NOTCH_PASSTHROUGH.store(passthrough, Ordering::Relaxed);
+        if !window.is_visible().unwrap_or(false) {
+            return Ok(());
+        }
+    }
     window
         .set_ignore_cursor_events(passthrough)
         .map_err(|e| e.to_string())
