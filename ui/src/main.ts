@@ -157,9 +157,10 @@ function applyWindowBackground(kind: WindowBackground): void {
   const body = document.body;
   body.classList.remove("bg-solid", "bg-vibrant", "bg-translucent");
   body.classList.add(`bg-${kind}`);
-  // Only macOS paints vibrancy behind the transparent window; elsewhere
-  // --surface-alpha would composite onto the wallpaper. See :root.no-vibrancy.
-  document.documentElement.classList.toggle("no-vibrancy", !isMacPlatform());
+  // macOS is the only platform that paints vibrancy behind the window and
+  // hides its own titlebar for us; the chrome keys off this. See
+  // :root:not(.platform-mac) in styles.css.
+  document.documentElement.classList.toggle("platform-mac", isMacPlatform());
 }
 
 let unwatchSystem: (() => void) | null = null;
