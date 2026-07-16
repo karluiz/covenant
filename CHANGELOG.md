@@ -6,6 +6,31 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.33 — Closing the active tab clears it from the sidebar at once
+
+### Fixed
+
+- **The active tab lingered in the sidebar for seconds after ⌘W**: closing the
+  active tab left its pill painted until some unrelated later render swept it;
+  closing a non-active tab was always instant. `renderTabbar()` is the only
+  thing that reconciles the strip against `this.tabs`, and v0.9.28's
+  incremental active-pill swap (`setActivePill`) meant `activate()` no longer
+  called it. That fast path is sound for a tab switch, where the strip's
+  structure is unchanged — but `finalizeCloseTab` splices the tab out and
+  *then* activates a neighbour, so the structure had changed and nothing
+  removed the closed tab's pill from the DOM. Both close paths in
+  `ui/src/tabs/manager.ts` (shell and browser tabs) now rebuild the strip
+  unconditionally; the fast path still covers plain tab switches, which is
+  what it was written for.
+
+- **Deleting a workspace with hibernated tabs blanked the tab sidebar**:
+  `disposeHibernated` swaps the stashed tabs into `this.tabs` so each can go
+  through the real `finalizeCloseTab` teardown, then restores the live tabs.
+  Since teardown repaints as it goes, the last stashed tab painted the strip
+  from a `this.tabs` that had been emptied — and nothing repainted after the
+  live tabs were spliced back in. Repaint at the end. Pre-existing, and
+  unrelated to the ⌘W fix above.
+
 ## v0.9.32 — Traffic lights hold their position on cold launch
 
 ### Fixed
