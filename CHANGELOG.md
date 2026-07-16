@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.32 — Traffic lights hold their position on cold launch
+
+### Fixed
+
+- **macOS traffic lights drifted on every packaged cold launch**: macOS
+  re-lays-out the standard window buttons back to their default inset shortly
+  after launch, dropping the configured `trafficLightPosition`. The heal for
+  this fired once, 2s in — enough in dev, where the slow vite boot means the
+  window always gets re-focused afterwards and the `Focused` event triggers a
+  heal via `on_window_event`, but not in a packaged build, where nothing fires
+  after the initial launch burst. The reset stood and the lights sat high above
+  the 28px titlebar icons on every cold start. The heal now retries at
+  ~300ms/1s/2s/4s/8s. `reapply()` is idempotent `NSButton` frame math — no
+  `drawRect`, no forced `display` (that path beachballs the app at launch) — so
+  the extra shots cost microseconds and the loop ends for good after ~8s.
+  Verified on a packaged cold launch of an installed `.app`.
+  `crates/app/src/lib.rs`.
+
 ## v0.9.31 — Reflex-ledger soul view + workspace-switch overlay
 
 ### Added
