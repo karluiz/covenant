@@ -273,6 +273,16 @@ body {
 #layout { flex: 1; min-width: 0; }
 body.familiar-panel-open #familiar-panel { width: 380px; flex: 0 0 380px; }
 
+/* Off macOS nothing paints behind a transparent window — there is no
+   NSVisualEffectView, so --surface-alpha composites the chrome straight
+   onto the wallpaper and the whole UI reads washed out. Paint an opaque
+   base under it so the alpha blends against the app's own color instead.
+   The user's window-background choice keeps its meaning; it just stops
+   being a hole. Class set by main.ts on boot. */
+:root.no-vibrancy {
+    background: var(--bg);
+}
+
 /* Window background mode — body class set by main.ts on boot from
    settings.window.background. Only --surface-alpha changes; every
    --bg-* derives from it via rgb(... / var(--surface-alpha)). */
