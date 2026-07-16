@@ -1,10 +1,21 @@
 import type { DocSection } from "../panel";
+import { chordKeys, type ChordKey } from "../../platform";
+
+/// One <kbd> per key, joined the way this section already joins them.
+function kbds(keys: readonly ChordKey[]): string {
+  return chordKeys(keys)
+    .map((k) => `<kbd>${k}</kbd>`)
+    .join("+");
+}
 
 export const recallDoc: DocSection = {
   id: "recall",
   title: "Recall — Searchable command history",
   subtitle: "Every command you've ever run, ranked by recency × frequency.",
-  body: `
+  // A getter, not a const: the platform isn't known until the webview
+  // boots, so the chords resolve when the panel renders, not at import.
+  get body(): string {
+    return `
     <h3>What it is</h3>
     <p>
       Recall is a SQLite-backed index of every block parsed in
@@ -26,7 +37,7 @@ export const recallDoc: DocSection = {
 
     <h3>Keyboard shortcuts</h3>
     <ul>
-      <li><kbd>⌘</kbd>+<kbd>P</kbd> — Recall palette over the
+      <li>${kbds(["mod", "P"])} — Recall palette over the
           workspace.</li>
       <li>The sidebar's <strong>Recall</strong> tab — same data,
           docked instead of modal. Switches contextually with the
@@ -40,13 +51,14 @@ export const recallDoc: DocSection = {
 
     <h3>Example</h3>
     <p>
-      Press <kbd>⌘</kbd>+<kbd>P</kbd>, type <code>migrate</code>. The
+      Press ${kbds(["mod", "P"])}, type <code>migrate</code>. The
       top hit is the <code>diesel migration run</code> you ran twice
       yesterday in the staging tab; the second is the
       <code>cargo run --bin migrate</code> from a week ago. Press
-      <kbd>↵</kbd> to inject it into the active tab — Covenant types
+      ${kbds(["enter"])} to inject it into the active tab — Covenant types
       it into the prompt without auto-executing, so you can edit
       flags before pressing return.
     </p>
-  `.trim(),
+  `.trim();
+  },
 };

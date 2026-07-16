@@ -10,6 +10,7 @@ import {
   type AgentResponse,
   type CommandAction,
 } from "../api";
+import { formatChord } from "../platform";
 
 export class AgentPanel {
   private modal: HTMLElement | null = null;
@@ -76,7 +77,7 @@ export class AgentPanel {
 
     card.innerHTML = `
       <div class="agent-input-row">
-        <span class="agent-prompt-label">⌘K</span>
+        <span class="agent-prompt-label">${formatChord(["mod", "K"])}</span>
         <input type="text" class="agent-input" placeholder="ask the super-agent…" autocomplete="off" spellcheck="false" />
         <span class="agent-status" aria-live="polite"></span>
       </div>
@@ -210,9 +211,9 @@ export class AgentPanel {
   private renderChip(c: CommandAction): string {
     const runLabel = c.risk === "destructive" ? "<s>run</s>" : "run";
     const hints = `<span class="agent-chip-hints">
-        <kbd>⏎</kbd> insert &nbsp;
-        <kbd>⌘⏎</kbd> ${runLabel} &nbsp;
-        <kbd>⌘C</kbd> copy
+        <kbd>${formatChord(["enter"])}</kbd> insert &nbsp;
+        <kbd>${formatChord(["mod", "enter"])}</kbd> ${runLabel} &nbsp;
+        <kbd>${formatChord(["mod", "C"])}</kbd> copy
       </span>`;
     return `
       <div class="agent-chip agent-risk-${c.risk}">

@@ -6,7 +6,6 @@ import {
   resetOnboarding,
   hasConfiguredProvider,
   OnboardingPanel,
-  chordGlyphs,
   type OnboardingHandlers,
 } from "./panel";
 
@@ -193,15 +192,6 @@ describe("OnboardingPanel", () => {
     // jsdom's UA is never an Apple one, so the card spells the modifier
     // out. Asserting the glyph here would only ever pass on macOS.
     expect(card?.textContent).toContain("CtrlK");
-  });
-
-  it("names modifiers per platform and never splits a spelled-out one", () => {
-    // Regression guard: the chord used to be one string that the renderer
-    // character-split, so "Ctrl" came out as four separate C·t·r·l caps.
-    expect(chordGlyphs(["mod", "K"], true)).toEqual(["⌘", "K"]);
-    expect(chordGlyphs(["mod", "shift", "A"], true)).toEqual(["⌘", "⇧", "A"]);
-    expect(chordGlyphs(["mod", "K"], false)).toEqual(["Ctrl", "K"]);
-    expect(chordGlyphs(["mod", "shift", "A"], false)).toEqual(["Ctrl", "Shift", "A"]);
   });
 
 

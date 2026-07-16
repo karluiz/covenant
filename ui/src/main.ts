@@ -3,7 +3,7 @@
 // prev/next), and closes the app window when the last tab is gone.
 
 import "@xterm/xterm/css/xterm.css";
-import { applyPlatformAttribute, modHeld, modPrefix } from "./platform";
+import { applyPlatformAttribute, formatChord, modHeld } from "./platform";
 import "./styles/operator_chip.css";
 import "./styles/tab-themes/forge.css";
 import "./styles/tab-themes/glass.css";
@@ -902,7 +902,7 @@ async function boot(): Promise<void> {
 
   if (taskerBtn) {
     taskerBtn.innerHTML = Icons.checklist({ size: 14 });
-    attachTooltip(taskerBtn, "Tasker (⌘⌥K)");
+    attachTooltip(taskerBtn, `Tasker (${formatChord(["mod", "alt", "K"])})`);
     taskerBtn.addEventListener("click", () => rail.toggle("tasker"));
   }
 
@@ -960,7 +960,7 @@ async function boot(): Promise<void> {
 
   if (somnusBtn) {
     somnusBtn.innerHTML = Icons.moon({ size: 14 });
-    attachTooltip(somnusBtn, "Somnus (⌘⌥R)");
+    attachTooltip(somnusBtn, `Somnus (${formatChord(["mod", "alt", "R"])})`);
     somnusBtn.addEventListener("click", () => rail.toggle("somnus"));
   }
 
@@ -1001,7 +1001,7 @@ async function boot(): Promise<void> {
 
   if (canonBtn) {
     canonBtn.innerHTML = Icons.packageBox({ size: 14 });
-    attachTooltip(canonBtn, "Canon (⌘⇧L)");
+    attachTooltip(canonBtn, `Canon (${formatChord(["mod", "shift", "L"])})`);
     canonBtn.addEventListener("click", () => rail.toggle("canon"));
   }
 
@@ -1071,15 +1071,15 @@ async function boot(): Promise<void> {
   // adapted to the host platform's modifier symbol.
   newTabBtn.innerHTML = `
     <span class="new-tab-plus">${Icons.terminal({ size: 14 })}</span>
-    <kbd class="new-tab-kbd">${modPrefix()}T</kbd>
+    <kbd class="new-tab-kbd">${formatChord(["mod", "T"])}</kbd>
   `;
-  attachTooltip(newTabBtn, `New tab (${modPrefix()}T)`);
+  attachTooltip(newTabBtn, `New tab (${formatChord(["mod", "T"])})`);
 
   newGroupBtn.innerHTML = `
     <span class="new-tab-plus">${Icons.folderPlus({ size: 14 })}</span>
-    <kbd class="new-tab-kbd">${modPrefix()}⇧G</kbd>
+    <kbd class="new-tab-kbd">${formatChord(["mod", "shift", "G"])}</kbd>
   `;
-  attachTooltip(newGroupBtn, `New group (${modPrefix()}⇧G)`);
+  attachTooltip(newGroupBtn, `New group (${formatChord(["mod", "shift", "G"])})`);
 
   const manager = new TabManager(tabbar, workspace, newTabBtn, () => {
     // Closing the last tab quits the app — matches iTerm/Terminal.app.

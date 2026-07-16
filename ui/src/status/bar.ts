@@ -53,6 +53,7 @@ import { ContextMenu, type MenuItem } from "../menu/context-menu";
 import { pushInfoToast } from "../notifications/toast";
 import { reviewApi, type ShareState } from "../review/api";
 import { ReviewPanel } from "../review/panel";
+import { formatChord } from "../platform";
 import {
   subscribeProviderHealth,
   getProviderHealth,
@@ -2379,7 +2380,7 @@ class MissionViewerModal {
     footer.hidden = false;
     footer.innerHTML = `
       <span class="mission-viewer-footer-hint">
-        <kbd>⌘S</kbd> save · <kbd>Esc</kbd> cancel
+        <kbd>${formatChord(["mod", "S"])}</kbd> save · <kbd>Esc</kbd> cancel
       </span>
       <span class="mission-viewer-status" aria-live="polite">${escapeHtml(
         status ?? "",

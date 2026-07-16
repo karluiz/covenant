@@ -5,6 +5,7 @@ import { listSuperpowersMissions, specAuthorListDrafts, type MissionRef } from "
 import type { SuperpowersMissionEntry, SpecDraftSummary } from "../api";
 import { Icons } from "../icons";
 import { renderMarkdown } from "../ui/markdown";
+import { formatChord } from "../platform";
 
 export type SelectedRef =
   | { source: "card"; path: string }
@@ -393,9 +394,9 @@ export class MissionPage {
     if (s.specs.length === 0) {
       const body = `<div class="mission-page-empty">
           No published specs yet. Start the
-          <button type="button" class="mission-page-link" data-action="spec-new">Spec Creator (⌘N)</button>,
+          <button type="button" class="mission-page-link" data-action="spec-new">Spec Creator (${formatChord(["mod", "N"])})</button>,
           or write one in
-          <button type="button" class="mission-page-link" data-action="open-drafts">Drafts (⌘⇧D)</button>.
+          <button type="button" class="mission-page-link" data-action="open-drafts">Drafts (${formatChord(["mod", "shift", "D"])})</button>.
         </div>`;
       return this.section("published", "Published", "0", body, specAction);
     }

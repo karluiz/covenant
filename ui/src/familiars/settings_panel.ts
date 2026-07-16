@@ -4,6 +4,7 @@
 
 import { Familiars, type Style, type FamiliarSummary } from "./api";
 import { CustomSelect } from "../ui/select";
+import { chordKeys, type ChordKey } from "../platform";
 
 export interface FamiliarsSettingsHooks {
   enabled: boolean;
@@ -94,6 +95,13 @@ function renderList(el: HTMLElement, items: FamiliarSummary[]): void {
   }
 }
 
+/// One <kbd> per key, resolved for this platform.
+function kbds(keys: readonly ChordKey[]): string {
+  return chordKeys(keys)
+    .map((k) => `<kbd>${k}</kbd>`)
+    .join("");
+}
+
 function renderEmptyState(el: HTMLElement): void {
   el.classList.add("familiars-empty");
   el.innerHTML = `
@@ -111,7 +119,7 @@ function renderEmptyState(el: HTMLElement): void {
           <span class="step-num">1</span>
           <div>
             <div class="step-title">Start an operator on a tab</div>
-            <div class="step-body">Open a tab and press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>A</kbd> to toggle AOM. A Familiar is auto-spawned the first time the operator runs a command.</div>
+            <div class="step-body">Open a tab and press ${kbds(["mod", "shift", "A"])} to toggle AOM. A Familiar is auto-spawned the first time the operator runs a command.</div>
           </div>
         </li>
         <li>
@@ -125,7 +133,7 @@ function renderEmptyState(el: HTMLElement): void {
           <span class="step-num">3</span>
           <div>
             <div class="step-title">Open the roster</div>
-            <div class="step-body">Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>L</kbd> to see all Familiars. Click one to chat. Try <code>/summary</code> for a session recap.</div>
+            <div class="step-body">Press ${kbds(["mod", "shift", "L"])} to see all Familiars. Click one to chat. Try <code>/summary</code> for a session recap.</div>
           </div>
         </li>
         <li>

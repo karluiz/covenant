@@ -1,4 +1,5 @@
 import type { Terminal } from "@xterm/xterm";
+import { chordKeys, formatChord } from "../platform";
 
 // Heuristic detection of a natural-language line typed at a bare shell
 // prompt, so we can offer to route it to the super-agent instead of the
@@ -60,8 +61,8 @@ export function mountPromptHint(host: HTMLElement, term: Terminal): PromptHint {
   el.hidden = true;
   // Pointer-events off so it never blocks terminal interaction.
   el.innerHTML =
-    `<kbd>↵</kbd> ask the super-agent ` +
-    `<span class="prompt-hint-sep">·</span> <kbd>⌘I</kbd> run literally`;
+    `<kbd>${chordKeys(["enter"])[0]}</kbd> ask the super-agent ` +
+    `<span class="prompt-hint-sep">·</span> <kbd>${formatChord(["mod", "I"])}</kbd> run literally`;
   host.appendChild(el);
 
   let shown = false;

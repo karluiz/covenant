@@ -4,6 +4,7 @@
 /// here from the WorkspaceSwitcher chip + ⌘⌥T / ⌘⇧P keybindings.
 
 import type { TabManager } from "../tabs/manager";
+import { formatChord } from "../platform";
 import type { WorkspaceManager } from "./manager";
 import {
   buildSections,
@@ -95,7 +96,7 @@ export class CommandPalette {
         <input type="text" class="command-palette-input"
                placeholder="Search workspaces, tabs, actions…"
                autocomplete="off" spellcheck="false" />
-        <span class="cp-kbd">⌘⌥T</span>
+        <span class="cp-kbd">${formatChord(["mod", "alt", "T"])}</span>
       </div>
       <div class="cp-tiles" role="listbox"></div>
       <div class="command-palette-list" role="listbox"></div>
@@ -103,8 +104,8 @@ export class CommandPalette {
         <span class="cp-census"></span>
         <span class="cp-hints">
           <span class="cp-hint"><span class="cp-kbd">↑↓</span>navigate</span>
-          <span class="cp-hint"><span class="cp-kbd">↵</span>open</span>
-          <span class="cp-hint"><span class="cp-kbd">⌘1–5</span>workspace</span>
+          <span class="cp-hint"><span class="cp-kbd">${formatChord(["enter"])}</span>open</span>
+          <span class="cp-hint"><span class="cp-kbd">${formatChord(["mod", "1–5"])}</span>workspace</span>
           <span class="cp-hint"><span class="cp-kbd">esc</span>close</span>
         </span>
       </div>
@@ -218,7 +219,7 @@ export class CommandPalette {
         return `
         <div class="cp-tile${w.current ? " current" : ""}" role="option" data-tile="${i}"${gc}>
           <div class="cp-tile-name">${escapeHtml(w.title)}</div>
-          <div class="cp-tile-meta"><span class="cp-tile-sub">${escapeHtml(w.subtitle ?? "")}</span><span class="cp-tile-kbd">⌘${i + 1}</span></div>
+          <div class="cp-tile-meta"><span class="cp-tile-sub">${escapeHtml(w.subtitle ?? "")}</span><span class="cp-tile-kbd">${formatChord(["mod", String(i + 1)])}</span></div>
         </div>`;
       })
       .join("");
@@ -283,7 +284,7 @@ export class CommandPalette {
       <div class="command-palette-item${active}" role="option" data-index="${idx}"${gc}>
         <span class="cp-main">${icon}<span class="cp-title">${escapeHtml(item.title)}</span>${badge}</span>
         ${sub}
-        <span class="cp-enter">↵ ${verb}</span>
+        <span class="cp-enter">${formatChord(["enter"])} ${verb}</span>
       </div>`;
   }
 

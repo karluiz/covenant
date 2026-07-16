@@ -1,5 +1,6 @@
 import type { SomnusAuth, SomnusBodyMode, SomnusDraft, SomnusEnvironment } from "../api";
 import { Icons } from "../icons";
+import { formatChord } from "../platform";
 import { attachTooltip } from "../tooltip/tooltip";
 import { CustomSelect } from "../ui/select";
 import { parseCurl } from "./curl";
@@ -106,9 +107,10 @@ export class RequestComposer {
     const saveBtn = document.createElement("button");
     saveBtn.className = "rail-btn somnus-save";
     saveBtn.type = "button";
-    saveBtn.setAttribute("aria-label", "Save to collection (⌘S)");
+    const saveLabel = `Save to collection (${formatChord(["mod", "S"])})`;
+    saveBtn.setAttribute("aria-label", saveLabel);
     saveBtn.innerHTML = Icons.save({ size: 15 });
-    attachTooltip(saveBtn, "Save to collection (⌘S)");
+    attachTooltip(saveBtn, saveLabel);
     saveBtn.addEventListener("click", () => this.opts.onSave());
     line.append(this.methodSel.element, this.urlInput, this.sendBtn, saveBtn);
 

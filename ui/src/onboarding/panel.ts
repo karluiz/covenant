@@ -16,7 +16,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getSettings, type Settings } from "../api";
 import { Icons } from "../icons";
-import { isMac } from "../platform";
+import { chordKeys, type ChordKey } from "../platform";
 import logoUrl from "../../assets/logo-app.svg";
 import { detectOllama, adoptOllama } from "./ollama";
 import { adoptFreeKey, GEMINI_KEY_URL, START_GUIDE_URL } from "./freekey";
@@ -27,22 +27,6 @@ import { adoptFreeKey, GEMINI_KEY_URL, START_GUIDE_URL } from "./freekey";
 export const ONBOARDING_VERSION = 2;
 
 const STORAGE_KEY = "covenant.onboarding.completed";
-
-/// A single key in a shortcut chord. `mod`/`shift` are placeholders the
-/// renderer resolves per platform; anything else is a literal key cap.
-export type ChordToken = "mod" | "shift" | (string & {});
-
-/// Resolve chord tokens to the caps we print. macOS uses single glyphs
-/// (⌘⇧A); everywhere else spells the modifiers out (Ctrl Shift A). Takes
-/// `mac` as a parameter rather than asking the platform itself, so both
-/// layouts stay testable without stubbing the OS.
-export function chordGlyphs(keys: readonly ChordToken[], mac: boolean): string[] {
-  return keys.map((k) => {
-    if (k === "mod") return mac ? "⌘" : "Ctrl";
-    if (k === "shift") return mac ? "⇧" : "Shift";
-    return k;
-  });
-}
 
 export type OnboardingHandlers = {
   openSettingsProviders: () => Promise<void> | void;
@@ -194,9 +178,9 @@ export class OnboardingPanel {
   /// names its modifiers with single glyphs (⌘⇧A) while every other
   /// platform spells them out (Ctrl Shift A), and the renderer chips one
   /// <kbd> per token — a display string would character-split "Ctrl" into
-  /// C·t·r·l. Resolved at render time via [`chordGlyphs`].
+  /// C·t·r·l. Resolved at render time via [`chordKeys`].
   private static readonly KEYS: Array<{
-    keys: ChordToken[];
+    keys: ChordKey[];
     label: string;
     desc: string;
   }> = [
@@ -229,9 +213,8 @@ export class OnboardingPanel {
 
     // One chip per key, reusing the shortcuts panel's .shortcut-keys
     // chrome so both surfaces read identically.
-    const mac = isMac();
     const rows = OnboardingPanel.KEYS.map((k) => {
-      const chips = chordGlyphs(k.keys, mac)
+      const chips = chordKeys(k.keys)
         .map((c) => `<kbd>${esc(c)}</kbd>`)
         .join("");
       return `<li class="onboarding-key"><span class="shortcut-keys onboarding-key__keys">${chips}</span><span class="onboarding-key__text"><span class="onboarding-key__label">${esc(

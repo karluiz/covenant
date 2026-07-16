@@ -1,3 +1,4 @@
+import { formatChord } from "../platform";
 /// Centered rename prompt — a single-input card in the command-palette
 /// visual language. Used for workspace rename, where the palette closes
 /// before the action runs and the Tauri webview suppresses window.prompt.
@@ -36,7 +37,7 @@ export function openRenamePrompt(opts: RenamePromptOptions): void {
 
   const hint = document.createElement("div");
   hint.className = "workspace-rename-hint";
-  hint.textContent = "↩ save · esc cancel";
+  hint.textContent = `${formatChord(["enter"])} save · esc cancel`;
 
   row.appendChild(label);
   row.appendChild(input);

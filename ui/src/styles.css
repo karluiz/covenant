@@ -15082,6 +15082,15 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
    just a hole before the first chip. Same treatment as fullscreen. */
 :root:not([data-platform="mac"]) #app-titlebar-left { padding-left: 10px; }
 
+/* These chips were sized for macOS chords, where every modifier is one
+   glyph (⌘⇧G). Spelled out — Ctrl+Shift+G, which is what GTK and Windows
+   users read — they're three times wider and crowd the rail. Off macOS the
+   icon carries the button and the chord lives in the tooltip, which every
+   one of these already sets. */
+:root:not([data-platform="mac"]) .new-tab-kbd {
+    display: none;
+}
+
 /* Match titlebar icon color for the sidebar bottom actions. */
 #new-tab, #new-group { color: var(--text, #d5d9de); }
 #new-tab .new-tab-kbd,

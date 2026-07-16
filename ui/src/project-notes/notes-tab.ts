@@ -1,5 +1,6 @@
 import { projectNotesApi, type Note } from "./api";
 import { Icons } from "../icons";
+import { formatChord } from "../platform";
 
 export interface NotesTabHooks {
   groupId: string;
@@ -18,7 +19,7 @@ export class NotesTab {
 
     this.input = document.createElement("textarea");
     this.input.className = "pn-note-input";
-    this.input.placeholder = "Write a note, ⌘↵ to save…";
+    this.input.placeholder = `Write a note, ${formatChord(["mod", "enter"])} to save…`;
     this.input.rows = 2;
     this.input.addEventListener("keydown", (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -111,7 +112,7 @@ export class NotesTab {
       e.innerHTML = `
         <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M12 2v4"/><path d="M16 2v4"/><rect width="16" height="18" x="4" y="4" rx="2"/><path d="M8 10h6"/><path d="M8 14h8"/><path d="M8 18h5"/></svg>
         <div class="rail-empty-title">No notes yet</div>
-        <div class="rail-empty-hint">Type above and press <kbd>⌘↵</kbd> to save</div>
+        <div class="rail-empty-hint">Type above and press <kbd>${formatChord(["mod", "enter"])}</kbd> to save</div>
       `;
       this.list.appendChild(e);
       return;

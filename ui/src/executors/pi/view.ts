@@ -36,12 +36,18 @@ import {
   subscribePiEvents,
 } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
+import { formatChord } from "../../platform";
 import { StructureEditor } from "../../structure/editor";
 import { resolveExistingPath } from "../../api";
 import { pushInfoToast } from "../../notifications/toast";
 import { setLinkifiedText, type LinkifyContext } from "./linkify";
 
 const PI_LOGO = brandIconSvg("pi", 16) ?? "π";
+
+/// Composer placeholder. A function, not a const: the chord can't be
+/// resolved until the platform plugin has spoken, which is after import.
+const inputPlaceholder = (): string =>
+  `Message Pi…  (Enter newline · ${formatChord(["mod", "enter"])} send)`;
 
 const escapeHtml = (s: string): string =>
   s
@@ -241,7 +247,7 @@ export class PiChatView {
           <ul>
             <li><strong>Use Pi</strong> for code review, bug investigation, explanations, and guided edits.</li>
             <li><strong>Use Terminal</strong> when you need a raw shell, interactive CLI, or direct command control.</li>
-            <li>Press Enter for a new line; press <kbd>⌘↩</kbd> to send.</li>
+            <li>Press Enter for a new line; press <kbd>${formatChord(["mod", "enter"])}</kbd> to send.</li>
           </ul>
         </div>
       </div>
@@ -250,7 +256,7 @@ export class PiChatView {
         <textarea
           class="pi-chat-textarea"
           rows="2"
-          placeholder="Message Pi…  (Enter newline · ⌘↩ send)"
+          placeholder="${inputPlaceholder()}"
           aria-label="Message Pi"
         ></textarea>
         <div class="pi-chat-actions">
@@ -786,7 +792,7 @@ export class PiChatView {
     this.inputEl.placeholder = message;
     this.inputEl.classList.add("pi-chat-textarea-flash");
     window.setTimeout(() => {
-      this.inputEl.placeholder = "Message Pi…  (Enter newline · ⌘↩ send)";
+      this.inputEl.placeholder = inputPlaceholder();
       this.inputEl.classList.remove("pi-chat-textarea-flash");
     }, 1500);
   }

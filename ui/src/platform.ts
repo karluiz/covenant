@@ -67,6 +67,51 @@ export function modPrefix(): string {
   return isMac() ? "⌘" : "Ctrl+";
 }
 
+/// A key in a chord. The modifiers are placeholders resolved per platform;
+/// anything else is a literal cap ("T", "G", ","). `mod` is the primary
+/// chord modifier — Command on macOS, Ctrl elsewhere. `ctrl` is the actual
+/// Control key, which on macOS is a *different* key from `mod`.
+export type ChordKey = "mod" | "shift" | "alt" | "ctrl" | "enter" | "tab" | (string & {});
+
+const MAC_KEYS: Record<string, string> = {
+  mod: "⌘",
+  shift: "⇧",
+  alt: "⌥",
+  ctrl: "⌃",
+  enter: "⏎",
+  tab: "⇥",
+};
+
+const SPELLED_KEYS: Record<string, string> = {
+  mod: "Ctrl",
+  shift: "Shift",
+  alt: "Alt",
+  ctrl: "Ctrl",
+  enter: "Enter",
+  tab: "Tab",
+};
+
+/// Render a chord for display.
+///
+/// macOS gives every modifier a single glyph, so they abut: ⌘⇧G. Nowhere
+/// else does — GTK and Windows both spell them out and join with '+', and
+/// that's what those users read: Ctrl+Shift+G. Mixing the two conventions
+/// is how we ended up rendering "Ctrl+⇧G", which is neither.
+///
+/// Pass chords as tokens, never as pre-baked strings. A hardcoded "⌘⇧G"
+/// can't be translated, and a half-migrated one leaks Apple glyphs onto
+/// keyboards that don't have those keys.
+export function formatChord(keys: readonly ChordKey[]): string {
+  return chordKeys(keys).join(isMac() ? "" : "+");
+}
+
+/// The same resolution, one cap per key, for surfaces that box each key in
+/// its own <kbd> instead of printing the chord as a string.
+export function chordKeys(keys: readonly ChordKey[]): string[] {
+  const map = isMac() ? MAC_KEYS : SPELLED_KEYS;
+  return keys.map((k) => map[k] ?? k);
+}
+
 /// True when the platform's primary chord modifier is held: Command on
 /// macOS, Ctrl everywhere else.
 ///

@@ -5,6 +5,7 @@
 // chrome (same modal posture as the changelog) plus a small grid for
 // the rows.
 
+import { chordKeys } from "../platform";
 import { CATEGORY_ORDER, SHORTCUTS, type ShortcutEntry } from "./registry";
 
 export class ShortcutsPanel {
@@ -59,7 +60,9 @@ export class ShortcutsPanel {
           .map(
             (s) => `
               <div class="shortcut-row">
-                <div class="shortcut-keys">${s.keys.map((k) => `<kbd>${esc(k)}</kbd>`).join("")}</div>
+                <div class="shortcut-keys">${chordKeys(s.keys)
+                  .map((k) => `<kbd>${esc(k)}</kbd>`)
+                  .join("")}</div>
                 <div class="shortcut-text">
                   <div class="shortcut-label">${esc(s.label)}</div>
                   <div class="shortcut-desc">${esc(s.description)}</div>

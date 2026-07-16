@@ -10,6 +10,7 @@
 
 import { aomReport, type AomReport, type EscalationDigest, type PerTabDigest } from "../api";
 import { Icons } from "../icons";
+import { formatChord } from "../platform";
 
 export class AomReportPanel {
   private modal: HTMLElement | null = null;
@@ -114,7 +115,7 @@ export class AomReportPanel {
           <h2 class="aom-report-title">AOM Session Report</h2>
           <button type="button" class="aom-report-close" aria-label="close">${Icons.x({ size: 14 })}</button>
         </header>
-        <div class="aom-report-empty">no AOM session yet — press ⌘⇧A to start one</div>
+        <div class="aom-report-empty">no AOM session yet — press ${formatChord(["mod", "shift", "A"])} to start one</div>
       `;
     }
 

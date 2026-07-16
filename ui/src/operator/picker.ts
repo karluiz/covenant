@@ -14,6 +14,7 @@ import {
   type SessionId,
 } from "../api";
 import { renderAvatarHtml } from "./avatars";
+import { formatChord } from "../platform";
 
 export class OperatorPicker {
   private root: HTMLElement;
@@ -44,7 +45,7 @@ export class OperatorPicker {
           <div class="operator-picker__preview" data-role="preview"></div>
         </div>
         <footer class="operator-picker__hint">
-          ↵ assign · n new · e edit · Esc close
+          ${formatChord(["enter"])} assign · n new · e edit · Esc close
         </footer>
       </div>`;
     parent.appendChild(this.root);

@@ -9,6 +9,7 @@ import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { resolveFileIcon, resolveFolderIcon } from "./file-icons";
 import { ContextMenu, type MenuItem } from "../menu/context-menu";
+import { formatChord } from "../platform";
 import {
   structureCopyInto,
   structureCreatePath,
@@ -643,7 +644,7 @@ export class StructureTree {
       { divider: true },
       {
         label: "Copy",
-        shortcut: "⌘C",
+        shortcut: formatChord(["mod", "C"]),
         onClick: () => {
           this.clipboardPath = node.entry.path;
         },
@@ -652,7 +653,7 @@ export class StructureTree {
     if (this.clipboardPath) {
       items.push({
         label: "Paste",
-        shortcut: "⌘V",
+        shortcut: formatChord(["mod", "V"]),
         onClick: () => void this.pasteClipboard(node),
       });
     }
@@ -695,7 +696,7 @@ export class StructureTree {
     if (this.clipboardPath) {
       items.push({
         label: "Paste",
-        shortcut: "⌘V",
+        shortcut: formatChord(["mod", "V"]),
         onClick: () => void this.pasteClipboard(null),
       });
     }

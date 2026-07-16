@@ -11,6 +11,7 @@
 
 import type { Terminal } from "@xterm/xterm";
 import type { SearchAddon, ISearchOptions } from "@xterm/addon-search";
+import { formatChord } from "../platform";
 
 const SEARCH_ICON_SVG =
   '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
@@ -61,8 +62,8 @@ export class TerminalFinder {
         <button class="term-finder__clear" type="button" aria-label="Clear" tabindex="-1">×</button>
       </div>
       <div class="term-finder__nav">
-        <button class="term-finder__btn" data-act="prev" type="button" aria-label="Previous match" title="Previous (⇧⏎)">‹</button>
-        <button class="term-finder__btn" data-act="next" type="button" aria-label="Next match" title="Next (⏎)">›</button>
+        <button class="term-finder__btn" data-act="prev" type="button" aria-label="Previous match" title="Previous (${formatChord(["shift", "enter"])})">‹</button>
+        <button class="term-finder__btn" data-act="next" type="button" aria-label="Next match" title="Next (${formatChord(["enter"])})">›</button>
       </div>
       <button class="term-finder__done" type="button">Done</button>
     `;

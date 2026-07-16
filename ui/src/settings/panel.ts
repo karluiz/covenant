@@ -28,6 +28,7 @@ import type { FoldedRailStyle } from "../tabs/custom-style";
 import { renderPublicProfileCard } from "../score/profile";
 import { scheduleCloudPush } from "./cloud_push";
 import { INDICATORS, applyIndicatorVisibility } from "../indicators";
+import { formatChord } from "../platform";
 
 function renderIndicatorChecklist(): string {
   const groups = [...new Set(INDICATORS.map((i) => i.group))];
@@ -999,8 +1000,8 @@ export class SettingsPanel {
             Manage the operator roster in the Canon cockpit.
           </p>
           <p class="settings-hint" style="margin: 0 0 6px;">
-            Press <kbd>⌘⇧A</kbd> to enter AOM. Every tab is auto-enabled
-            for the Operator while AOM is on; ⌘⇧A again reverts. The
+            Press <kbd>${formatChord(["mod", "shift", "A"])}</kbd> to enter AOM. Every tab is auto-enabled
+            for the Operator while AOM is on; ${formatChord(["mod", "shift", "A"])} again reverts. The
             cost cap below auto-stops AOM when reached.
           </p>
           <label class="settings-field">
@@ -1244,10 +1245,10 @@ export class SettingsPanel {
               Split a tab into two panes, side-by-side or stacked. Each pane
               runs its own independent session, mission, and operator — useful
               for watching a long build in one pane while you work in the other.
-              Shortcuts: <kbd>⌘D</kbd> split right,
-              <kbd>⌘\</kbd> split down,
-              <kbd>⌘[</kbd>/<kbd>⌘]</kbd> focus prev/next,
-              <kbd>⌘⇧]</kbd> swap panes.
+              Shortcuts: <kbd>${formatChord(["mod", "D"])}</kbd> split right,
+              <kbd>${formatChord(["mod", "\\"])}</kbd> split down,
+              <kbd>${formatChord(["mod", "["])}</kbd>/<kbd>${formatChord(["mod", "]"])}</kbd> focus prev/next,
+              <kbd>${formatChord(["mod", "shift", "]"])}</kbd> swap panes.
             </small>
           </label>
           <label class="settings-field settings-field-row">

@@ -1,10 +1,21 @@
 import type { DocSection } from "../panel";
+import { chordKeys, type ChordKey } from "../../platform";
+
+/// One <kbd> per key, joined the way this section already joins them.
+function kbds(keys: readonly ChordKey[]): string {
+  return chordKeys(keys)
+    .map((k) => `<kbd>${k}</kbd>`)
+    .join("+");
+}
 
 export const projectNotesDoc: DocSection = {
   id: "project-notes",
   title: "Project Notes — Commands, Notes, Docs",
   subtitle: "Per-group scratch space: paste-ready commands, append-only notes, and a markdown doc.",
-  body: `
+  // A getter, not a const: the platform isn't known until the webview
+  // boots, so the chords resolve when the panel renders, not at import.
+  get body(): string {
+    return `
     <h3>What it is</h3>
     <p>
       Every tab group has its own panel with three tabs:
@@ -18,7 +29,7 @@ export const projectNotesDoc: DocSection = {
       </li>
       <li>
         <strong>Notes</strong> — append-only log. Type, press
-        <kbd>⌘</kbd>+<kbd>↵</kbd>, done. Stamped with relative time.
+        ${kbds(["mod", "enter"])}, done. Stamped with relative time.
         Scope is the group, so notes about <em>raven</em> stay with
         <em>raven</em>.
       </li>
@@ -31,7 +42,7 @@ export const projectNotesDoc: DocSection = {
 
     <h3>How to open it</h3>
     <ul>
-      <li><kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>J</kbd> — opens the panel for the
+      <li>${kbds(["mod", "shift", "J"])} — opens the panel for the
           group of the active tab. Closes with <kbd>Esc</kbd>.</li>
       <li>Right-click a group chip → <em>Open notes</em>.</li>
       <li>Click <kbd>⤢</kbd> in the panel header to expand to fullscreen
@@ -52,5 +63,6 @@ export const projectNotesDoc: DocSection = {
       the LLM. Deleting a group ungroups its tabs but does not delete
       its notes — the data stays keyed to the group id.
     </p>
-  `.trim(),
+  `.trim();
+  },
 };

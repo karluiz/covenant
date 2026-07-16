@@ -1,4 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The label is platform-resolved now, and jsdom is not macOS. Pin the
+// plugin to macOS so these assertions keep guarding the glyph form —
+// `⌃` here is the real Control key, not the chord modifier.
+vi.mock("@tauri-apps/plugin-os", () => ({ platform: () => "macos" }));
+
 import {
   spawnShortcutLabel,
   buildSpawnCmdline,

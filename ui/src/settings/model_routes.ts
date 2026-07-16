@@ -2,6 +2,7 @@ import type { Settings } from "../api";
 import { listModelsAnthropic, listModelsAzureFoundry, listModelsOpenAiCompat } from "../api";
 import { CustomSelect, type SelectOption } from "../ui/select";
 import { attachTooltip } from "../tooltip/tooltip";
+import { formatChord } from "../platform";
 
 type Role = "summary" | "chat" | "operator" | "triage" | "spec_creator" | "context_miner";
 
@@ -33,26 +34,29 @@ const ROLE_LABEL: Record<Role, string> = {
 };
 
 /** A ⌘K-style key hint shown as a chip next to the role name, when it has one. */
-const ROLE_KBD: Partial<Record<Role, string>> = {
-  chat: "⌘K",
-};
+function roleKbd(role: Role): string | undefined {
+  return role === "chat" ? formatChord(["mod", "K"]) : undefined;
+}
 
 /** One-line tagline shown under each role title. */
-const ROLE_TAGLINE: Record<Role, string> = {
+function roleTaglines(): Record<Role, string> {
+  return {
   summary:      "Rolling world-model summaries, per session",
-  chat:         "Answers when you ⌘K the agent",
+  chat:         `Answers when you ${formatChord(["mod", "K"])} the agent`,
   operator:     "Autonomous agent that runs tools across your sessions",
   triage:       "Cheap gate before an expensive operator call",
   spec_creator: "The immersive Spec Creator's research agent",
   context_miner: "The Canon Context Miner's repo-scanning agent",
-};
+  };
+}
 
 /** Longer explanation — now a hover tooltip on the row, not an always-on footer. */
-const ROLE_HINT: Record<Role, string> = {
+function roleHints(): Record<Role, string> {
+  return {
   summary:
     "Runs after every command to keep a short rolling summary of each session. Fires often, so favour a cheap, fast model.",
   chat:
-    "Powers the ⌘K agent panel — one-shot questions about what's going on. Mid-tier model is plenty.",
+    `Powers the ${formatChord(["mod", "K"])} agent panel — one-shot questions about what's going on. Mid-tier model is plenty.`,
   operator:
     "Drives the autonomous operator that observes sessions and runs commands. Requires a tool-use-capable provider (Anthropic, Azure gpt-4o, …).",
   triage:
@@ -61,7 +65,8 @@ const ROLE_HINT: Record<Role, string> = {
     "The streaming agent behind the immersive Spec Creator: it greps/reads your repo and drafts the spec. Needs tool use. Opus 4.8 explores deepest; Azure gpt-4o is faster/cheaper but shallower on long tool loops.",
   context_miner:
     "The agent behind the Canon “New context” Miner: it scans your repo and emits findings that compile into a skill. Needs tool use (Anthropic, an OpenAI-compatible server, or Azure).",
-};
+  };
+}
 
 /** How hot each route runs (0–4 bars). Drives the frequency meter + cadence group. */
 const ROLE_FREQ: Record<Role, number> = {
@@ -146,18 +151,19 @@ function renderRoleRow(
   const name = document.createElement("span");
   name.textContent = ROLE_LABEL[role];
   nameRow.appendChild(name);
-  if (ROLE_KBD[role]) {
+  const roleKbdText = roleKbd(role);
+  if (roleKbdText) {
     const kbd = document.createElement("span");
     kbd.className = "route-kbd";
-    kbd.textContent = ROLE_KBD[role]!;
+    kbd.textContent = roleKbdText;
     nameRow.appendChild(kbd);
   }
   nameRow.appendChild(freqMeter(ROLE_FREQ[role]));
   const job = document.createElement("div");
   job.className = "route-job";
-  job.textContent = ROLE_TAGLINE[role];
+  job.textContent = roleTaglines()[role];
   id.append(nameRow, job);
-  attachTooltip(id, ROLE_HINT[role]);
+  attachTooltip(id, roleHints()[role]);
   wrap.appendChild(id);
 
   const providerSel = new CustomSelect({

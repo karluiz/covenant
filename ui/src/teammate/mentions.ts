@@ -13,6 +13,7 @@ import type { MentionHit, MentionSourcesDeps, Tab, Source } from "./mention-sour
 import { findMentions } from "./mention-sources";
 import type { ComposerInput, ChipSpec } from "./composer-input";
 import { attachTooltip } from "../tooltip/tooltip";
+import { formatChord } from "../platform";
 
 export type FindFilesFn = (cwd: string, query: string, limit: number) => Promise<import("../api").FileHit[]>;
 export type ReadFileFn  = (path: string, maxBytes?: number) => Promise<ReadResult>;
@@ -451,7 +452,7 @@ export class MentionPopup {
       </div>
       <div class="tmt-mp-foot">
         <span><kbd>↑↓</kbd> nav</span>
-        <span><kbd>⇥</kbd>/<kbd>↵</kbd> insert</span>
+        <span><kbd>${formatChord(["tab"])}</kbd>/<kbd>${formatChord(["enter"])}</kbd> insert</span>
         <span><kbd>esc</kbd> close</span>
       </div>
     `;

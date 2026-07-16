@@ -13,6 +13,7 @@ import { scheduleCloudPush } from '../settings/cloud_push';
 import type { SpecDraftSummary } from '../api';
 import { Icons } from '../icons';
 import { attachTooltip } from '../tooltip/tooltip';
+import { formatChord } from '../platform';
 
 export interface ImmersiveOpts {
   host: HTMLElement;
@@ -54,7 +55,7 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
 <button class="attach" aria-label="Attach image" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg></button>
 <button class="send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
             </div>
-            <div class="composer-hint"><span><b>⏎</b> send · <b>⇧⏎</b> newline · <b>esc</b> close</span><span class="composer-engine"></span></div>
+            <div class="composer-hint"><span><b>${formatChord(["enter"])}</b> send · <b>${formatChord(["shift", "enter"])}</b> newline · <b>esc</b> close</span><span class="composer-engine"></span></div>
           </div>
         </div>
         <div class="right"><div class="col-head">Specification</div>

@@ -6,6 +6,7 @@ import {
 } from "../api";
 import type { SessionId } from "../api";
 import { Icons } from "../icons";
+import { formatChord } from "../platform";
 import { escalationIndex, sortOperators } from "./model";
 import { renderOperatorCard, type ReplyScope } from "./tile";
 
@@ -117,9 +118,9 @@ export class ConvergenceOverlay {
       <div class="convergence-overlay__empty-title">Nothing to converge</div>
       <div class="convergence-overlay__empty-body">
         Mission Control shows every operator across your tabs.<br/>
-        Enable an operator on a tab (⌘O) to populate this view.
+        Enable an operator on a tab (${formatChord(["mod", "O"])}) to populate this view.
       </div>
-      <kbd class="convergence-overlay__empty-hint">⌘⇧M to toggle convergence</kbd>`;
+      <kbd class="convergence-overlay__empty-hint">${formatChord(["mod", "shift", "M"])} to toggle convergence</kbd>`;
 
     root.append(header, strip, grid, empty);
     document.body.append(root);

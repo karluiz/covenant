@@ -10,6 +10,7 @@ import {
   type SomnusTreeNode,
 } from "../api";
 import { Icons } from "../icons";
+import { formatChord } from "../platform";
 import { attachTooltip } from "../tooltip/tooltip";
 import { emptyDraft, parseDraft } from "./draft";
 import { showMenu, type MenuItem } from "./menu";
@@ -116,7 +117,7 @@ export class CollectionsTree {
     if (nodes.length === 0) {
       const empty = document.createElement("div");
       empty.className = "rail-empty";
-      empty.innerHTML = `<div class="rail-empty-title">No collections yet</div><div class="rail-empty-hint">Save a request with ⌘S or import from Postman.</div>`;
+      empty.innerHTML = `<div class="rail-empty-title">No collections yet</div><div class="rail-empty-hint">Save a request with ${formatChord(["mod", "S"])} or import from Postman.</div>`;
       this.listHost.append(empty);
       return;
     }

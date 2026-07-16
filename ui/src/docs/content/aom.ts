@@ -1,10 +1,21 @@
 import type { DocSection } from "../panel";
+import { chordKeys, formatChord, type ChordKey } from "../../platform";
+
+/// One <kbd> per key, joined the way this section already joins them.
+function kbds(keys: readonly ChordKey[]): string {
+  return chordKeys(keys)
+    .map((k) => `<kbd>${k}</kbd>`)
+    .join("+");
+}
 
 export const aomDoc: DocSection = {
   id: "aom",
   title: "AOM — Autonomous Operator Mode",
   subtitle: "Run Covenant unattended on a budget while you sleep.",
-  body: `
+  // A getter, not a const: the platform isn't known until the webview
+  // boots, so the chords resolve when the panel renders, not at import.
+  get body(): string {
+    return `
     <h3>What it is</h3>
     <p>
       AOM lets the Operator drive every open tab autonomously inside a
@@ -21,17 +32,17 @@ export const aomDoc: DocSection = {
       <li>Anything you'd otherwise schedule and check in the morning.</li>
     </ul>
     <p>
-      Skip AOM for one-shot fixes — <kbd>⌘O</kbd> on a single tab is
+      Skip AOM for one-shot fixes — <kbd>${formatChord(["mod", "O"])}</kbd> on a single tab is
       enough. AOM is for breadth, not depth.
     </p>
 
     <h3>Keyboard shortcuts</h3>
     <ul>
-      <li><kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>A</kbd> — toggle AOM on / off.</li>
-      <li><kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>R</kbd> — open the morning report.</li>
+      <li>${kbds(["mod", "shift", "A"])} — toggle AOM on / off.</li>
+      <li>${kbds(["mod", "shift", "R"])} — open the morning report.</li>
     </ul>
     <p>
-      Budget is set in <kbd>⌘</kbd>+<kbd>,</kbd> → AOM (default
+      Budget is set in ${kbds(["mod", ","])} → AOM (default
       <code>$10</code>, range <code>0.10</code>–<code>500</code>). When
       the cap is hit, AOM auto-stops and a toast surfaces the report.
     </p>
@@ -49,7 +60,7 @@ export const aomDoc: DocSection = {
       <li>
         <strong>Operator on, AOM off</strong> — solid colored border
         (per-tab color). The Operator is enabled but only acts on
-        explicit triggers (<kbd>⌘O</kbd>, escalations).
+        explicit triggers (<kbd>${formatChord(["mod", "O"])}</kbd>, escalations).
       </li>
       <li>
         <strong>Operator on, AOM on, driving this tab</strong> —
@@ -64,7 +75,7 @@ export const aomDoc: DocSection = {
     </ul>
     <p>
       Toggle exclusion for the active tab with
-      <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>E</kbd>, or right-click the tab
+      ${kbds(["mod", "shift", "E"])}, or right-click the tab
       and pick <em>Exclude from AOM</em> / <em>Include in AOM</em>.
       Exclusion persists across AOM cycles and app restarts.
     </p>
@@ -72,11 +83,12 @@ export const aomDoc: DocSection = {
     <h3>Example</h3>
     <p>
       You're heading out for dinner. You've left two tabs running tests
-      and one tab tailing logs. Press <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>A</kbd>
+      and one tab tailing logs. Press ${kbds(["mod", "shift", "A"])}
       with the budget at <code>$5</code>. Covenant decides per-tab when
       to act, escalates anything ambiguous, and stops itself once spend
-      reaches <code>$5</code>. When you're back, <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>R</kbd>
+      reaches <code>$5</code>. When you're back, ${kbds(["mod", "shift", "R"])}
       shows: 18 decisions, 2 escalations, $4.83 spent over 1h 47m.
     </p>
-  `.trim(),
+  `.trim();
+  },
 };

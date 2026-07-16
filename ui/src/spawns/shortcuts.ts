@@ -1,15 +1,19 @@
 import type { SpawnSpec } from "./types";
 import type { AcpExecutor } from "../api";
 import { detectExecutor } from "../executor";
+import { formatChord } from "../platform";
 
 /// How many spawns get an auto-assigned Ctrl+N shortcut. Bound to the
 /// digit row 1..9 — the 10th+ executor in list order gets none.
 export const SPAWN_SHORTCUT_MAX = 9;
 
 /// Ctrl+N hint for the spawn at `index` (0-based, in listSpawns order).
-/// Returns null past the cap. Uses the macOS Control glyph (⌃).
+/// Returns null past the cap. This is the real Control key, not the chord
+/// modifier — on macOS it renders `⌃1`, elsewhere `Ctrl+1`.
 export function spawnShortcutLabel(index: number): string | null {
-  return index < SPAWN_SHORTCUT_MAX ? `⌃${index + 1}` : null;
+  return index < SPAWN_SHORTCUT_MAX
+    ? formatChord(["ctrl", String(index + 1)])
+    : null;
 }
 
 /// Build the command line that launches a spawn. Shared by the active-tab

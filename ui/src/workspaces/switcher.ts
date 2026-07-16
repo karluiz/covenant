@@ -6,6 +6,7 @@
 // opens a context menu for the active workspace: rename / duplicate /
 // set root dir / set color / delete.
 
+import { formatChord } from "../platform";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { TabManager } from "../tabs/manager";
 import { attachTooltip } from "../tooltip/tooltip";
@@ -15,7 +16,9 @@ import { CommandPalette } from "./palette";
 import { openRenamePrompt } from "./rename-prompt";
 import { WorkspaceManager } from "./manager";
 
-const KBD_PICK = "⌘⇧P";
+/// Resolved per call, not once at import: the platform isn't known until
+/// the webview has the plugin's internals, and a const would bake in a guess.
+const kbdPick = (): string => formatChord(["mod", "shift", "P"]);
 
 function esc(s: string): string {
   return s
@@ -63,7 +66,7 @@ export class WorkspaceSwitcher {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "workspace-chip";
-    attachTooltip(btn, `Workspaces (${KBD_PICK})`);
+    attachTooltip(btn, `Workspaces (${kbdPick()})`);
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.palette.toggle();
@@ -124,7 +127,7 @@ export class WorkspaceSwitcher {
       this.chip.innerHTML = "";
       return;
     }
-    attachTooltip(this.chip, `${active.name} — Workspaces (${KBD_PICK})`);
+    attachTooltip(this.chip, `${active.name} — Workspaces (${kbdPick()})`);
     const tint = active.color ? esc(active.color) : "currentColor";
     this.chip.innerHTML = `
       <span class="new-tab-plus">
@@ -134,7 +137,7 @@ export class WorkspaceSwitcher {
           <rect x="6.5" y="6.5" width="7" height="7" rx="1.4"></rect>
         </svg>
       </span>
-      <kbd class="new-tab-kbd">${esc(KBD_PICK)}</kbd>
+      <kbd class="new-tab-kbd">${esc(kbdPick())}</kbd>
     `;
   }
 

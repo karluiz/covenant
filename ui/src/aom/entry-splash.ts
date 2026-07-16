@@ -13,6 +13,7 @@
 
 import type { AomStatus } from "../api";
 import { Icons } from "../icons";
+import { formatChord } from "../platform";
 
 /// Total wall-clock time of the splash, including in/hold/out.
 /// Tuned to feel like a "beat" — long enough to register the mode
@@ -58,7 +59,7 @@ export function playAomEntrySplash(status: AomStatus): Promise<void> {
       <div class="aom-splash-headline">AOM ENGAGED</div>
       <div class="aom-splash-sub">Autonomous Operator Mode</div>
       <div class="aom-splash-meta">
-        ${formatBudget(status.budget_usd)} budget · all tabs included · <kbd>⌘⇧A</kbd> to stop
+        ${formatBudget(status.budget_usd)} budget · all tabs included · <kbd>${formatChord(["mod", "shift", "A"])}</kbd> to stop
       </div>
     </div>
   `;

@@ -5,6 +5,7 @@ import type {
   TileStatus,
 } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
+import { formatChord } from "../platform";
 import { CustomSelect } from "../ui/select";
 import { operatorStatus } from "./model";
 
@@ -269,7 +270,7 @@ function renderReply(
   const send = document.createElement("button");
   send.type = "button";
   send.className = "mc-reply__send";
-  send.textContent = "Send ⌘↵";
+  send.textContent = `Send ${formatChord(["mod", "enter"])}`;
 
   const submit = async () => {
     const text = textarea.value.trim();

@@ -7,6 +7,7 @@
 // type, arrow-key through results, hit Enter to inject.
 
 import { recallSearch, type RecallMatch } from "../api";
+import { formatChord } from "../platform";
 
 export type SessionIdProvider = () => string | null;
 export type CwdProvider = () => string | null;
@@ -79,7 +80,7 @@ export class RecallPalette {
     card.className = "recall-palette-card";
     card.innerHTML = `
       <div class="recall-palette-input-row">
-        <span class="recall-palette-label">⌘P</span>
+        <span class="recall-palette-label">${formatChord(["mod", "P"])}</span>
         <input
           type="text"
           class="recall-palette-input"

@@ -11,7 +11,7 @@
 // All metadata is in-memory only — persistence ties to session
 // restoration which is its own arch change (M7+ scope).
 
-import { currentPlatform } from "../platform";
+import { currentPlatform, formatChord } from "../platform";
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -2029,7 +2029,7 @@ export class TabManager {
         {
           label: "New tab",
           icon: Icons.plus(),
-          shortcut: "⌘T",
+          shortcut: formatChord(["mod", "T"]),
           onClick: () => {
             void this.createTab();
           },
@@ -2037,7 +2037,7 @@ export class TabManager {
         {
           label: "New group",
           icon: Icons.folderPlus(),
-          shortcut: "⌘⇧G",
+          shortcut: formatChord(["mod", "shift", "G"]),
           onClick: () => {
             this.createEmptyGroup();
           },
@@ -7371,7 +7371,7 @@ export class TabManager {
     const close = document.createElement("span");
     close.className = "tab-close";
     close.textContent = "×";
-    close.title = "Close tab (⌘W)";
+    close.title = `Close tab (${formatChord(["mod", "W"])})`;
     close.addEventListener("click", (e) => {
       e.stopPropagation();
       this.closeTab(tab.id);
@@ -7721,7 +7721,7 @@ export class TabManager {
       },
       { divider: true },
       {
-        label: "Open notes (⌘⇧J)",
+        label: `Open notes (${formatChord(["mod", "shift", "J"])})`,
         icon: Icons.clipboard(),
         onClick: () =>
           this.onOpenProjectNotes?.(group.id, group.name, group.color ?? null),

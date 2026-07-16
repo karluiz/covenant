@@ -1,5 +1,6 @@
 import { Familiars, type ChatOutput } from "./api";
 import { renderDirectiveCard } from "./directive_card";
+import { formatChord } from "../platform";
 
 export class ChatPanel {
   private el: HTMLDivElement;
@@ -17,7 +18,7 @@ export class ChatPanel {
     this.log.className = "chat-log";
     this.input = document.createElement("textarea");
     this.input.className = "chat-input";
-    this.input.placeholder = "Talk to your Familiar… (⌘↵ to send)";
+    this.input.placeholder = `Talk to your Familiar… (${formatChord(["mod", "enter"])} to send)`;
     this.input.rows = 3;
     this.input.addEventListener("keydown", (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -32,7 +33,7 @@ export class ChatPanel {
   setFamiliar(id: string | null) {
     this.familiarId = id;
     this.log.innerHTML = "";
-    this.input.placeholder = "Talk to your Familiar… (⌘↵ to send)";
+    this.input.placeholder = `Talk to your Familiar… (${formatChord(["mod", "enter"])} to send)`;
     if (!id) {
       const note = document.createElement("div");
       note.className = "chat-empty";
@@ -45,7 +46,7 @@ export class ChatPanel {
     // back silently to the default placeholder on error.
     Familiars.hasRecentClosedMission(id, 24).then((recent) => {
       if (recent && this.familiarId === id) {
-        this.input.placeholder = "prueba: /summary  (⌘↵ to send)";
+        this.input.placeholder = `prueba: /summary  (${formatChord(["mod", "enter"])} to send)`;
       }
     }).catch(() => {});
   }

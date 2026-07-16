@@ -53,6 +53,7 @@ import type {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { brandIconSvg } from "../../icons/brands";
 import { Icons } from "../../icons";
+import { formatChord } from "../../platform";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { renderMarkdown } from "../../ui/markdown";
 
@@ -783,7 +784,7 @@ export class AcpChatView {
           <ul>
             <li><span class="acp-empty-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" stroke="currentColor" stroke-width="1.3"/><path d="M5 6h6M5 8.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>Tool calls that edit files or run shell commands show up as cards you can inspect.</li>
             <li><span class="acp-empty-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 2 3 4.2v3.4c0 3 2.1 5.2 5 6.4 2.9-1.2 5-3.4 5-6.4V4.2L8 2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>When ${brand.title} needs permission to act, you'll see a card with the wire's own options.</li>
-            <li><span class="acp-empty-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2 5.5 8 9l6-3.5M2 5.5 8 2l6 3.5M2 5.5v5L8 14l6-3.5v-5" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>Press <kbd>↩</kbd> to send; <kbd>⇧↩</kbd> for a new line.</li>
+            <li><span class="acp-empty-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2 5.5 8 9l6-3.5M2 5.5 8 2l6 3.5M2 5.5v5L8 14l6-3.5v-5" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>Press <kbd>${formatChord(["enter"])}</kbd> to send; <kbd>${formatChord(["shift", "enter"])}</kbd> for a new line.</li>
           </ul>
         </div>
       </div>
@@ -805,7 +806,7 @@ export class AcpChatView {
             aria-label="Message ${brand.title}"
           ></textarea>
           <div class="acp-chat-actions">
-            <span class="acp-composer-hint"><kbd>↩</kbd> send · <kbd>⇧↩</kbd> newline</span>
+            <span class="acp-composer-hint"><kbd>${formatChord(["enter"])}</kbd> send · <kbd>${formatChord(["shift", "enter"])}</kbd> newline</span>
             <button type="button" class="acp-chat-cancel" hidden aria-label="Stop" title="Stop">
               <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg>
             </button>

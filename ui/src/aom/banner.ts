@@ -16,6 +16,7 @@ import {
   type OperatorPhaseSnapshot,
 } from "../api";
 import { Icons } from "../icons";
+import { formatChord } from "../platform";
 
 const POLL_MS = 5_000;
 /// Liveness poll cadence. The badge must never look frozen for more
@@ -201,7 +202,7 @@ export class AomBanner {
       <span class="aom-banner-count" aria-label="decisions made"></span>
       <span class="aom-banner-sep">·</span>
       <span class="aom-banner-cost" aria-label="cost vs budget"></span>
-      <button type="button" class="aom-banner-afk" title="Enter AFK mode (⌘⇧A)">
+      <button type="button" class="aom-banner-afk" title="Enter AFK mode (${formatChord(["mod", "shift", "A"])})">
         AFK
       </button>
       <button type="button" class="aom-banner-stop" title="Stop AOM">

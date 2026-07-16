@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 // The module caches, so each test needs a fresh copy.
 async function freshModule(): Promise<typeof import("./platform")> {
@@ -98,6 +100,38 @@ describe("platform", () => {
     expect(linux.modPrefix()).toBe("Ctrl+");
   });
 
+  it("abuts glyphs on macOS and spells modifiers out elsewhere", async () => {
+    setInjectedPlatform("macos");
+    const mac = await freshModule();
+    expect(mac.formatChord(["mod", "T"])).toBe("⌘T");
+    expect(mac.formatChord(["mod", "shift", "G"])).toBe("⌘⇧G");
+    expect(mac.formatChord(["mod", "enter"])).toBe("⌘⏎");
+    // Control is its own key on a Mac, distinct from the chord modifier.
+    expect(mac.formatChord(["ctrl", "alt", "K"])).toBe("⌃⌥K");
+
+    setInjectedPlatform("linux");
+    const linux = await freshModule();
+    expect(linux.formatChord(["mod", "T"])).toBe("Ctrl+T");
+    expect(linux.formatChord(["mod", "shift", "G"])).toBe("Ctrl+Shift+G");
+    expect(linux.formatChord(["mod", "enter"])).toBe("Ctrl+Enter");
+  });
+
+  it("never mixes a spelled-out modifier with an Apple glyph", async () => {
+    // Regression guard: the sidebar shipped "Ctrl+⇧G" — modPrefix() had
+    // resolved the mod key while ⇧ stayed hardcoded next to it. Neither
+    // convention, and ⇧ names a key the keyboard doesn't print.
+    setInjectedPlatform("linux");
+    const { formatChord } = await freshModule();
+    for (const chord of [
+      formatChord(["mod", "shift", "G"]),
+      formatChord(["mod", "shift", "P"]),
+      formatChord(["mod", "alt", "K"]),
+      formatChord(["mod", "enter"]),
+    ]) {
+      expect(chord).not.toMatch(/[⌘⇧⌥⌃⏎]/);
+    }
+  });
+
   it("reads the chord modifier off the event per platform", async () => {
     setInjectedPlatform("macos");
     const mac = await freshModule();
@@ -110,6 +144,38 @@ describe("platform", () => {
     expect(linux.modHeld({ metaKey: false, ctrlKey: true })).toBe(true);
     // Super/Meta belongs to the window manager off macOS.
     expect(linux.modHeld({ metaKey: true, ctrlKey: false })).toBe(false);
+  });
+
+  it("no source file resolves a chord at module scope", () => {
+    // The whole reason this module exists: the platform isn't known until
+    // the webview has the plugin's internals, so a chord resolved while a
+    // module is being evaluated bakes in whatever the UA fallback guessed
+    // and never corrects. It renders ⌘ on Linux and no test catches it,
+    // because the value is right in whichever environment you ran.
+    //
+    // Resolve inside the function, render, or getter that prints the chord.
+    // This is a source-level rule with no runtime signal, so it's checked
+    // here rather than left to review — three separate passes over this
+    // codebase each had to be told it by hand.
+    const offenders: string[] = [];
+    const moduleScopeCall =
+      /^(?:export\s+)?(?:const|let|var)\s+\w+(?:\s*:[^=]+)?\s*=\s*(?:formatChord|chordKeys|modPrefix|modKey)\s*\(/m;
+
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        const path = join(dir, entry);
+        if (statSync(path).isDirectory()) {
+          walk(path);
+          continue;
+        }
+        if (!path.endsWith(".ts") || path.endsWith(".test.ts")) continue;
+        if (path.endsWith("platform.ts")) continue;
+        if (moduleScopeCall.test(readFileSync(path, "utf8"))) offenders.push(path);
+      }
+    };
+    walk(join(__dirname));
+
+    expect(offenders).toEqual([]);
   });
 
   it("stamps the variant onto <html> for CSS to branch on", async () => {

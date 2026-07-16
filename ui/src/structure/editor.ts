@@ -87,6 +87,7 @@ import {
   svgToPng,
 } from "./png-export";
 import { editorHighlight, editorTheme, currentEditorMode } from "./theme";
+import { formatChord } from "../platform";
 import { CustomSelect } from "../ui/select";
 import { ContextMenu } from "../menu/context-menu";
 import { applyLspDiagnostics, lspCompletionSource, lspExtensions, type LspHost } from "../lsp/cm6";
@@ -434,8 +435,14 @@ export class StructureEditor {
       });
       return b;
     };
-    const prevBtn = mkBtn("‹", "Previous match (⇧⏎)", () => this.findStep(-1));
-    const nextBtn = mkBtn("›", "Next match (⏎)", () => this.findStep(1));
+    const prevBtn = mkBtn(
+      "‹",
+      `Previous match (${formatChord(["shift", "enter"])})`,
+      () => this.findStep(-1),
+    );
+    const nextBtn = mkBtn("›", `Next match (${formatChord(["enter"])})`, () =>
+      this.findStep(1),
+    );
     const closeBtn2 = mkBtn("✕", "Close (Esc)", () => this.closeFind());
     this.findBarEl.appendChild(this.findInputEl);
     this.findBarEl.appendChild(this.findCountEl);
@@ -874,27 +881,39 @@ export class StructureEditor {
     this.contextMenu.show(e.clientX, e.clientY, [
       {
         label: "Cut",
-        shortcut: "⌘X",
+        shortcut: formatChord(["mod", "X"]),
         disabled: !hasSelection,
         onClick: () => void this.clipboardCut(),
       },
       {
         label: "Copy",
-        shortcut: "⌘C",
+        shortcut: formatChord(["mod", "C"]),
         disabled: !hasSelection,
         onClick: () => void this.clipboardCopy(),
       },
-      { label: "Paste", shortcut: "⌘V", onClick: () => void this.clipboardPaste() },
+      {
+        label: "Paste",
+        shortcut: formatChord(["mod", "V"]),
+        onClick: () => void this.clipboardPaste(),
+      },
       { divider: true },
-      { label: "Select All", shortcut: "⌘A", onClick: () => run(selectAll) },
+      {
+        label: "Select All",
+        shortcut: formatChord(["mod", "A"]),
+        onClick: () => run(selectAll),
+      },
       {
         label: "Change All Occurrences",
-        shortcut: "⌘F2",
+        shortcut: formatChord(["mod", "F2"]),
         disabled: !hasSelection,
         onClick: () => run(selectSelectionMatches),
       },
       { divider: true },
-      { label: "Find…", shortcut: "⌘F", onClick: () => run(openSearchPanel) },
+      {
+        label: "Find…",
+        shortcut: formatChord(["mod", "F"]),
+        onClick: () => run(openSearchPanel),
+      },
     ]);
   }
 
@@ -1442,9 +1461,10 @@ export class StructureEditor {
       this.previewBtn.hidden = false;
       const inPreview = this.viewMode === "preview";
       this.previewBtn.textContent = inPreview ? "source" : "preview";
+      const previewChord = formatChord(["mod", "shift", "P"]);
       this.previewBtn.title = inPreview
-        ? "Show source (⌘⇧P)"
-        : "Show preview (⌘⇧P)";
+        ? `Show source (${previewChord})`
+        : `Show preview (${previewChord})`;
     }
 
     // PNG controls — visible only for SVG files, regardless of
@@ -1619,7 +1639,7 @@ export class StructureEditor {
   private renderStatus(): void {
     if (this.dirty) {
       this.statusEl.textContent = "●";
-      this.statusEl.title = "Unsaved changes — ⌘S to save";
+      this.statusEl.title = `Unsaved changes — ${formatChord(["mod", "S"])} to save`;
       this.statusEl.classList.add("dirty");
     } else {
       this.statusEl.textContent = "";

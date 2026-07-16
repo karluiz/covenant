@@ -1,3 +1,4 @@
+import { formatChord } from "../platform";
 import { EditorState } from "@codemirror/state";
 import {
   EditorView,
@@ -68,13 +69,16 @@ Examples:
   {
     key: "Acceptance criteria", label: "Acceptance criteria",
     hint: "3–5 observable bullets. The agent uses these to know when to stop.",
-    placeholder:
-`Each bullet must be checkable by hand or by a test.
+    // Getter, not a literal: this sample names a real Covenant chord, and
+    // the platform isn't known when this module is evaluated.
+    get placeholder() {
+      return `Each bullet must be checkable by hand or by a test.
 
-- [ ] User can press ⌘K and see the agent's last decision.
+- [ ] User can press ${formatChord(["mod", "K"])} and see the agent's last decision.
 - [ ] Selecting a suggestion calls \`apply_suggestion\` and updates the tab.
 - [ ] Closing the panel returns focus to the active terminal.
-- [ ] \`cargo test -p covenant\` passes (no regression).`,
+- [ ] \`cargo test -p covenant\` passes (no regression).`;
+    },
     helpSection: "acceptance-criteria", required: true,
   },
   {

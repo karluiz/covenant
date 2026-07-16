@@ -5,6 +5,7 @@ import {
 } from "../api";
 import { renderRail, splitPath, countsLabel, type RailHandlers } from "./rail";
 import { renderDiffBody } from "./diff-view";
+import { formatChord } from "../platform";
 
 const SUBJECT_SOFT_LIMIT = 50;
 
@@ -476,8 +477,8 @@ export class ChangesSurface {
     hints.innerHTML =
       `<span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>` +
       `<span><kbd>space</kbd> stage / unstage</span>` +
-      `<span><kbd>↵</kbd> open diff</span>` +
-      `<span><kbd>⌘↵</kbd> commit</span>` +
+      `<span><kbd>${formatChord(["enter"])}</kbd> open diff</span>` +
+      `<span><kbd>${formatChord(["mod", "enter"])}</kbd> commit</span>` +
       `<span><kbd>esc</kbd> close</span>`;
     ov.appendChild(hints);
 

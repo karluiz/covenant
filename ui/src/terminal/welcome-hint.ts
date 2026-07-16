@@ -1,4 +1,4 @@
-import { isMac } from "../platform";
+import { chordKeys, type ChordKey } from "../platform";
 import type { Terminal } from "@xterm/xterm";
 
 const DISMISS_KEY = "covenant.welcome-hint-dismissed";
@@ -17,19 +17,10 @@ export function dismissWelcomeHint(): void {
   for (const remove of [...live]) remove(false);
 }
 
-// Render modifier glyphs per-platform: macOS uses ⌘/⌥, Windows/Linux use the
-// word forms (Ctrl/Alt) since those keys carry no standard glyph there. The
-// actual handlers key off metaKey on macOS — Windows key handling is M8.
-// Resolved per call, not once at import: a module-level const would run
-// before the platform plugin's internals land and freeze in a guess.
-const keyMap = (): Record<string, string> =>
-  isMac()
-    ? { mod: "⌘", alt: "⌥", shift: "⇧" }
-    : { mod: "Ctrl", alt: "Alt", shift: "Shift" };
-
 // Curated for a fresh session — the few shortcuts worth knowing before you
-// type anything. Tokens: "mod"/"alt"/"shift" resolve per-platform above.
-const ROWS: { keys: string[]; label: string }[] = [
+// type anything. Modifier tokens resolve per-platform via `chordKeys`; the
+// actual handlers key off metaKey on macOS — Windows key handling is M8.
+const ROWS: { keys: ChordKey[]; label: string }[] = [
   { keys: ["mod", "K"], label: "ask the super-agent what's going on" },
   { keys: ["mod", "shift", "O"], label: "set an operator for this tab" },
   { keys: ["mod", "P"], label: "search history & recall commands" },
@@ -66,8 +57,8 @@ export function mountWelcomeHint(host: HTMLElement, term: Terminal): void {
     <ul class="term-welcome-rows">
       ${ROWS.map(
         (r) =>
-          `<li><span class="term-welcome-keys">${r.keys
-            .map((k) => `<kbd>${keyMap()[k] ?? k}</kbd>`)
+          `<li><span class="term-welcome-keys">${chordKeys(r.keys)
+            .map((k) => `<kbd>${k}</kbd>`)
             .join("")}</span><span class="term-welcome-label">${r.label}</span></li>`,
       ).join("")}
     </ul>

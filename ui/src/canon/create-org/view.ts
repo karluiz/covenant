@@ -6,6 +6,7 @@
 import "./create-org.css";
 import { canonCreateOrg, canonRenameOrg } from "../../api";
 import { slugify, orgInitials, orgHue } from "../org";
+import { formatChord } from "../../platform";
 
 export interface CreateOrgOpts {
   /** Called with the org slug after a successful create/rename — the caller
@@ -42,7 +43,7 @@ export function openCreateOrgExperience(opts: CreateOrgOpts): void {
         <button class="canon-createorg-create" type="button" disabled>${rename ? "Rename" : "Create"}</button>
       </div>
       <div class="canon-createorg-hint canon-createorg-rise" style="--rise-delay:380ms">
-        <kbd>esc</kbd> to cancel · <kbd>⏎</kbd> to ${rename ? "rename" : "create"}
+        <kbd>esc</kbd> to cancel · <kbd>${formatChord(["enter"])}</kbd> to ${rename ? "rename" : "create"}
       </div>
     </div>`;
 

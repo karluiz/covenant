@@ -1,10 +1,21 @@
 import type { DocSection } from "../panel";
+import { chordKeys, type ChordKey } from "../../platform";
+
+/// One <kbd> per key, joined the way this section already joins them.
+function kbds(keys: readonly ChordKey[]): string {
+  return chordKeys(keys)
+    .map((k) => `<kbd>${k}</kbd>`)
+    .join("+");
+}
 
 export const blocksDoc: DocSection = {
   id: "blocks",
   title: "Blocks — Commands as first-class units",
   subtitle: "Every command and its output, parsed as one structured object.",
-  body: `
+  // A getter, not a const: the platform isn't known until the webview
+  // boots, so the chords resolve when the panel renders, not at import.
+  get body(): string {
+    return `
     <h3>What they are</h3>
     <p>
       Each block is one command, its output, its exit code, and the
@@ -34,7 +45,7 @@ export const blocksDoc: DocSection = {
     <ul>
       <li><strong>Right-click</strong> on a block — copy command, copy
           output, re-run, ask the agent.</li>
-      <li><kbd>⌘</kbd>+<kbd>P</kbd> — Recall palette to find a past
+      <li>${kbds(["mod", "P"])} — Recall palette to find a past
           block by command text.</li>
     </ul>
 
@@ -45,5 +56,6 @@ export const blocksDoc: DocSection = {
       super-agent's proposed fix; right-click to copy the failing
       output into a Slack thread without dragging the cursor.
     </p>
-  `.trim(),
+  `.trim();
+  },
 };
