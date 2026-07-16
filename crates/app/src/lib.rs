@@ -4854,6 +4854,20 @@ pub fn run() {
                 });
             }
 
+            // macOS hangs the app menu off the system bar; every other
+            // platform renders it as a GTK menubar *inside* the window —
+            // a second title strip stacked on our own chrome, and over a
+            // transparent window its labels ghost across the terminal.
+            // Hide the widget, keep the menu registered: muda attaches the
+            // accelerators to a separate accel group, so CmdOrCtrl+T / +W
+            // keep firing with the bar gone.
+            #[cfg(not(target_os = "macos"))]
+            if let Some(win) = app.get_webview_window("main") {
+                if let Err(e) = win.hide_menu() {
+                    tracing::warn!(?e, "could not hide the in-window menubar");
+                }
+            }
+
             // Fullscreen-aware notch: when the main Covenant window
             // enters fullscreen the floating overlay is intrusive, so
             // we hide it and ask the main UI to render an inline pill
