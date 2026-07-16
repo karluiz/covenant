@@ -215,3 +215,66 @@ describe("TabManager closing the active tab sweeps its pill", () => {
     expect(ids).toEqual(["b"]);
   });
 });
+
+describe("TabManager disposeHibernated leaves the live strip intact", () => {
+  // disposeHibernated swaps the hibernated stash into this.tabs so each
+  // stashed tab can go through the real finalizeCloseTab teardown, then
+  // restores the live tabs. finalizeCloseTab renders the strip as it goes,
+  // so by the last stashed tab the strip has been painted from an EMPTY
+  // this.tabs — and nothing repaints it after `live` is put back.
+  it("repaints the live tabs after tearing down a hibernated workspace", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      renderTabbar: () => void;
+      activeId: string | null;
+      tabbarHost: HTMLElement;
+      hibernated: Map<string, { tabs: unknown[]; groups: Map<string, unknown>; activeId: string | null }>;
+    };
+    const fakeTab = (id: string): Record<string, unknown> => ({
+      id,
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [
+        {
+          kind: "shell",
+          sessionId: null,
+          cwd: "/tmp",
+          el: null,
+          xterm: null,
+          operator: null,
+          observer_ids: [],
+        },
+      ],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    });
+
+    const live = fakeTab("live");
+    priv.tabs.push(live);
+    priv.activeId = "live";
+    priv.renderTabbar.call(m);
+    expect(
+      Array.from(priv.tabbarHost.querySelectorAll<HTMLElement>(".tab-btn")).map(
+        (el) => el.dataset.tabId,
+      ),
+    ).toEqual(["live"]);
+
+    priv.hibernated.set("ws-old", {
+      tabs: [fakeTab("stashed")],
+      groups: new Map(),
+      activeId: "stashed",
+    });
+    m.disposeHibernated("ws-old");
+
+    // The live tab is still in the model...
+    expect(priv.tabs.map((t) => t.id)).toEqual(["live"]);
+    // ...so the sidebar must still show it.
+    expect(
+      Array.from(priv.tabbarHost.querySelectorAll<HTMLElement>(".tab-btn")).map(
+        (el) => el.dataset.tabId,
+      ),
+    ).toEqual(["live"]);
+  });
+});

@@ -5998,6 +5998,10 @@ export class TabManager {
     } finally {
       this.inReplace = false;
     }
+    // The teardown loop above ran finalizeCloseTab against the stash, so the
+    // strip was last painted from a this.tabs that had been emptied out.
+    // Repaint from the restored live tabs or the sidebar stays blank.
+    this.renderTabbar();
   }
 
   closeTab(id: string): void {
