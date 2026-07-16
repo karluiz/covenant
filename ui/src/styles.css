@@ -33,7 +33,9 @@ body.tabbar-left #tabs:focus-within,
 .xterm:hover .xterm-viewport,
 .xterm:focus-within .xterm-viewport,
 .xterm-viewport:hover,
-.xterm-viewport:focus-within {
+.xterm-viewport:focus-within,
+.onboarding-body:hover,
+.onboarding-body:focus-within {
     scrollbar-width: thin !important;
     scrollbar-color: rgb(var(--ink-rgb) / 0.22) transparent !important;
 }
@@ -46,7 +48,9 @@ body.tabbar-left #tabs:focus-within::-webkit-scrollbar,
 .xterm:hover .xterm-viewport::-webkit-scrollbar,
 .xterm:focus-within .xterm-viewport::-webkit-scrollbar,
 .xterm-viewport:hover::-webkit-scrollbar,
-.xterm-viewport:focus-within::-webkit-scrollbar {
+.xterm-viewport:focus-within::-webkit-scrollbar,
+.onboarding-body:hover::-webkit-scrollbar,
+.onboarding-body:focus-within::-webkit-scrollbar {
     width: 6px !important;
     height: 6px !important;
     display: block !important;
@@ -61,7 +65,9 @@ body.tabbar-left #tabs:focus-within::-webkit-scrollbar-thumb,
 .xterm:hover .xterm-viewport::-webkit-scrollbar-thumb,
 .xterm:focus-within .xterm-viewport::-webkit-scrollbar-thumb,
 .xterm-viewport:hover::-webkit-scrollbar-thumb,
-.xterm-viewport:focus-within::-webkit-scrollbar-thumb {
+.xterm-viewport:focus-within::-webkit-scrollbar-thumb,
+.onboarding-body:hover::-webkit-scrollbar-thumb,
+.onboarding-body:focus-within::-webkit-scrollbar-thumb {
     background: rgb(var(--ink-rgb) / 0.22) !important;
     border-radius: 3px;
 }
@@ -15997,6 +16003,13 @@ body.theme-light .release-close:hover .settings-esc {
     width: 580px;
     max-width: calc(100vw - 32px);
     border-radius: 0;
+    /* Column so the body can take the leftover height and scroll inside
+       the card's inherited max-height (.release-card). Without this the
+       card just overflowed its cap and `overflow: hidden` clipped the
+       remainder — on a 768px-tall screen that ate the provider picker and
+       the "Got it" button, leaving a first-run card you can only Skip. */
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     background:
         radial-gradient(
@@ -16082,6 +16095,13 @@ body.theme-light .release-close:hover .settings-esc {
     text-align: center;
     padding: 24px 32px 28px;
     gap: 16px;
+    /* The only part that scrolls — the eyebrow/Skip header and the
+       Got it / View all shortcuts footer stay pinned. min-height:0 is
+       load-bearing: a flex child defaults to min-height:auto and refuses
+       to shrink below its content, which would push the footer out of the
+       card again instead of scrolling. */
+    overflow-y: auto;
+    min-height: 0;
 }
 
 .onboarding-hero {
