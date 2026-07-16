@@ -268,15 +268,19 @@ body.theme-true-dark .op-creator .op-rail-item.is-active {
 .op-creator .op-reflex-group.is-yes .op-reflex-dot { background: var(--ok, #3fb950); }
 .op-creator .op-reflex-group.is-escalate .op-reflex-head { color: var(--warn, #d29922); }
 .op-creator .op-reflex-group.is-escalate .op-reflex-dot { background: var(--warn, #d29922); }
+/* Stacked, not side-by-side: the pane is narrow, so the action takes its own
+   line (flex-basis 100% forces the break) and "→ result" wraps beneath it —
+   nothing clips off the right edge regardless of width. */
 .op-creator .op-reflex-row {
-  display: flex; gap: 10px; align-items: baseline; padding: 7px 0;
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  column-gap: 7px; row-gap: 3px; padding: 8px 0;
   border-top: 1px solid var(--border);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  font-size: 12px; line-height: 1.5;
+  font-size: 12px; line-height: 1.5; overflow-wrap: anywhere;
 }
-.op-creator .op-reflex-act { color: var(--text-secondary); flex: none; }
-.op-creator .op-reflex-arr { color: var(--text-tertiary, #565c67); }
-.op-creator .op-reflex-res { color: var(--text-primary); }
+.op-creator .op-reflex-act { flex: 0 0 100%; min-width: 0; color: var(--text-secondary); }
+.op-creator .op-reflex-arr { flex: none; color: var(--text-tertiary, #565c67); }
+.op-creator .op-reflex-res { flex: 1 1 auto; min-width: 0; color: var(--text-primary); }
 .op-creator .op-reflex-none {
   padding: 7px 0; border-top: 1px solid var(--border);
   color: var(--text-tertiary, #565c67); font-size: 12px; font-style: italic;
