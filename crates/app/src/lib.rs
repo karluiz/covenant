@@ -4739,18 +4739,27 @@ pub fn run() {
 
             rc_agent::spawn(app.handle().clone());
 
-            // Deferred one-shot traffic-light heal for cold launch. The
-            // on_window_event handler re-applies the inset on the launch
-            // Focused/Resized burst, but those can fire before macOS has
-            // settled the buttons to their reset position, so re-apply once
-            // more after the webview is attached. Pure frame math on the main
-            // thread — never touches the content view's drawRect.
+            // Deferred traffic-light heal for cold launch. The on_window_event
+            // handler re-applies the inset on the launch Focused/Resized burst,
+            // but those can fire before macOS has settled the buttons to their
+            // reset position. A single 2s shot was enough in dev (the slow vite
+            // boot means you always re-focus the window afterwards, and that
+            // Focused event heals it) but missed on a packaged cold launch,
+            // where nothing fires after the initial burst. Retry across the
+            // first few seconds instead (sleeps are sequential, so the heals
+            // land at ~300ms/1s/2s/4s/8s). Pure frame math on the main thread —
+            // never touches the content view's drawRect, that beachballs.
+            // ponytail: fixed ladder, not an observer — swap to KVO on the
+            // button frames only if a launch still slips past 8s.
             #[cfg(target_os = "macos")]
             {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    if let Some(win) = handle.get_webview_window("main") {
+                    for delay_ms in [300u64, 700, 1000, 2000, 4000] {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                        let Some(win) = handle.get_webview_window("main") else {
+                            return;
+                        };
                         let w = win.clone();
                         let _ = win.run_on_main_thread(move || {
                             if let Ok(ns_win) = w.ns_window() {
