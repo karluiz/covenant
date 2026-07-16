@@ -6,6 +6,38 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.31 — Reflex-ledger soul view + workspace-switch overlay
+
+### Added
+
+- **Reflex ledger (operator soul editor)**: the soul editor's right pane now
+  opens on a parsed delegation contract — green "runs without asking" / amber
+  "wakes you" groups read from the body's don't-ask / wake-me bullets, plus the
+  escalation-threshold bar — with a Ledger/Source toggle keeping the raw
+  `soul.md` an escape hatch. Client-side parse, no backend change.
+  `ui/src/operator/reflex_ledger.ts`, `ui/src/operator/creator.ts`,
+  `ui/src/operator/operator-creator.css`.
+
+- **Arc-style workspace-switch overlay**: the boot-splash orb card is replaced
+  by a full-bleed panel wearing the destination space's identity colour, slid
+  in/out directionally via WAAPI. Its opaque cover hides the tab rebuild,
+  removing the `visibility:hidden` juggling on the panels. `ui/index.html`,
+  `ui/src/styles.css`, `ui/src/workspaces/manager.ts`.
+
+### Changed
+
+- **Cloud-sync copy**: the backup section now explains scope versus Canon
+  (Canon holds what you publish; sync backs up everything else — open
+  workspaces, operator & spec drafts, preferences) and that restore replaces
+  local state, with per-category sub-labels. `ui/src/settings/cloud_sync.ts`.
+
+### Fixed
+
+- **Reflex rows clipping in a narrow pane**: each reflex was a single flex line
+  with the action pinned `flex:none`, so long actions pushed the arrow past the
+  right edge. The action now takes its own line and "→ result" wraps beneath.
+  `ui/src/operator/operator-creator.css`.
+
 ## v0.9.30 — Global quick-call ACP toggle in Harnesses
 
 ### Added
