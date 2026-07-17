@@ -366,6 +366,9 @@ pub fn adopt(repo_root: &Path, kind: ContextKind, name: &str) -> Result<(), Cano
         ContextKind::Mcp => {
             let json = crate::mcp::read_executor_mcp(repo_root, name)?; // raw executor .mcp.json entry
             install_unit(repo_root, ContextKind::Mcp, name, &json)?;
+            // Remove the foreign un-prefixed dup so <name> and canon-<name>
+            // don't both shadow the executor (mirrors the Skill arm below).
+            crate::mcp::remove_executor_mcp_key(repo_root, name)?;
         }
         ContextKind::Skill => {
             let foreign = repo_root.join(&base).join(name);
@@ -728,5 +731,29 @@ mod tests {
         assert!(read_manifest(root).unwrap().installed.iter().any(|i| i.name == "kyc" && i.source == "detected"));
         assert!(root.join(".claude/skills/canon-kyc/SKILL.md").exists(), "projected as canon-kyc");
         assert!(!root.join(".claude/skills/kyc").exists(), "foreign un-prefixed dup removed");
+    }
+
+    #[test]
+    fn adopt_mcp_projects_canon_key_and_removes_foreign_dup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(
+            root.join(".mcp.json"),
+            r#"{"mcpServers":{"ctx7":{"command":"npx","description":"C7"}}}"#,
+        )
+        .unwrap();
+        // sanity: detected before adopt
+        assert!(crate::scan_detected(root).unwrap().iter().any(|u| u.name == "ctx7"));
+
+        crate::adopt(root, crate::ContextKind::Mcp, "ctx7").unwrap();
+
+        // Canon source now owns it.
+        assert!(root.join(".covenant/canon/mcp/ctx7.json").exists(), "canon source written");
+        // Executor config has canon-ctx7 and NOT the stale foreign ctx7.
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap()).unwrap();
+        let servers = v.get("mcpServers").and_then(|m| m.as_object()).unwrap();
+        assert!(servers.contains_key("canon-ctx7"), "projected as canon-ctx7");
+        assert!(!servers.contains_key("ctx7"), "stale foreign key removed");
     }
 }
