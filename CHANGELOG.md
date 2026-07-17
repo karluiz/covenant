@@ -6,6 +6,43 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.35 — Workspace switch reveals in ~600ms instead of 5s
+
+### Added
+
+- **Specs read as a ledger**: the Canon → Specs section stacked 26 boxed cards,
+  each repeating the number already in its filename, sorted lexicographically so
+  3.10 landed between 3.1 and 3.2. `sortSpecs` in `ui/src/canon/cockpit/view.ts`
+  now orders by the dotted number (3.8 → 3.8.1 → 3.9 → 3.10, unnumbered last),
+  the title drops the redundant prefix, and the rows lost their card chrome for
+  ruled lines with the number leading in a mono tabular column
+  (`ui/src/canon/cockpit/cockpit.css`). `skillCard` gained an optional
+  `readerTitle` (`ui/src/canon/panel.ts`) so a row showing "3.12" still opens the
+  reader as `3.12-operators-experience-and-level`.
+
+### Fixed
+
+- **Switching into a workspace no longer shows a black screen for 3–5s**: the
+  reveal animation waited on `restoreFromManifest`, which awaited *every* tab's
+  PTY — and concurrent `zsh -i` instances contend, so the wait grew
+  superlinearly with tab count (measured on a 25-tab workspace: 22 shells all
+  landing at 5.2–5.6s, 6956ms total, ~5.8s of it blank).
+  `ui/src/tabs/manager.ts` now spawns the tab you land on first and alone, then
+  the rest in parallel behind the reveal; `ui/src/workspaces/manager.ts` starts
+  the rebuild during the cover leg and reveals on that signal. The restore
+  promise still resolves only once every tab exists — `saveAll` rebuilds the
+  workspace body from the live TabManager, so an early resolve would persist a
+  half-spawned workspace and drop the tabs still in flight.
+- **The cockpit's full-screen reader draws its top hairline**: without the
+  divider `.canon-cockpit` carries, the opaque reader fused into the titlebar.
+  Affected every cockpit section's reader, not just Specs
+  (`ui/src/canon/cockpit/cockpit.css`).
+- **Project Notes' section description no longer hides under the esc pill**: the
+  header appended title and description as bare flex children, so
+  `space-between` pinned the description to the right edge. It now wraps them in
+  `.canon-cockpit-sec-text` like every other cockpit section
+  (`ui/src/project-notes/panel.ts`).
+
 ## v0.9.34 — Linux platform pass + macOS traffic-light alignment
 
 ### Changed
