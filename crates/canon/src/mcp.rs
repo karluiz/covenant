@@ -335,6 +335,20 @@ pub fn blank_mcp_secrets(raw: &str) -> Result<String, CanonError> {
     serde_json::to_string_pretty(&srv).map_err(|e| CanonError::InvalidPackage(e.to_string()))
 }
 
+/// Read one server's raw JSON from the EXECUTOR `.mcp.json` `mcpServers` map
+/// (NOT the Canon source under `.covenant/canon/mcp/`). Used by `adopt` to pull
+/// a foreign, hand-added MCP server into Canon.
+pub fn read_executor_mcp(repo_root: &Path, name: &str) -> Result<String, CanonError> {
+    let path = repo_root.join(".mcp.json");
+    let raw = std::fs::read_to_string(&path)?;
+    let v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| CanonError::InvalidPackage(format!(".mcp.json parse: {e}")))?;
+    let srv = v.get("mcpServers").and_then(|m| m.get(name)).ok_or_else(|| {
+        CanonError::InvalidPackage(format!("mcp server not in .mcp.json: {name}"))
+    })?;
+    serde_json::to_string(srv).map_err(|e| CanonError::InvalidPackage(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
