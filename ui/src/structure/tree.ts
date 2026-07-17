@@ -10,6 +10,7 @@ import { attachTooltip } from "../tooltip/tooltip";
 import { resolveFileIcon, resolveFolderIcon } from "./file-icons";
 import { ContextMenu, type MenuItem } from "../menu/context-menu";
 import { formatChord } from "../platform";
+import { shareFileAsGist, copyGistLink, revokeGist } from "../gist/share";
 import {
   structureCopyInto,
   structureCreatePath,
@@ -666,6 +667,27 @@ export class StructureTree {
         onClick: () => void this.confirmAndTrash(node),
       },
     );
+
+    if (node.entry.kind === "file") {
+      items.push(
+        { divider: true },
+        {
+          label: "Share as gist",
+          onClick: () =>
+            void shareFileAsGist(node.entry.path).catch((err) => this.showError(`Share failed: ${err}`)),
+        },
+        {
+          label: "Copy gist link",
+          onClick: () =>
+            void copyGistLink(node.entry.path).catch((err) => this.showError(`Copy failed: ${err}`)),
+        },
+        {
+          label: "Revoke gist",
+          danger: true,
+          onClick: () => void revokeGist(node.entry.path).catch((err) => this.showError(`Revoke failed: ${err}`)),
+        },
+      );
+    }
 
     this.contextMenu.show(x, y, items);
   }
