@@ -69,6 +69,22 @@ export interface CanonCockpitOpts {
   onClose?: () => void;
 }
 
+/** Order specs by their dotted number, not by filename: sorting the raw names
+ *  is lexicographic, so "3.10" lands between "3.1" and "3.2". Unnumbered specs
+ *  sort last, alphabetically. */
+export function sortSpecs<T extends { name: string }>(specs: readonly T[]): T[] {
+  const parts = (name: string): number[] =>
+    (/^[\d.]+(?=-)/.exec(name)?.[0] ?? "").split(".").filter(Boolean).map(Number);
+  return [...specs].sort((a, b) => {
+    const [x, y] = [parts(a.name), parts(b.name)];
+    if (!x.length || !y.length) return (y.length - x.length) || a.name.localeCompare(b.name);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+      if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0);
+    }
+    return 0;
+  });
+}
+
 /** A small uppercase subhead inside the Loop section (Adoption / Inference /
  *  Eval pass-rate) — mirrors panel.ts's rail-only helper of the same name. */
 function loopSubhead(text: string): HTMLElement {
@@ -864,12 +880,16 @@ export class CanonCockpitView {
           }));
           return;
         }
-        for (const sp of status.specs) {
+        for (const sp of sortSpecs(status.specs)) {
+          const id = /^[\d.]+(?=-)/.exec(sp.name)?.[0] ?? "";
           list.appendChild(skillCard({
-            name: sp.name,
-            meta: sp.title,
-            className: "canon-skill-row",
+            name: id || sp.name,
+            // The title repeats the number the row already shows ("3.12 — Operators
+            // Experience and Level") — drop the prefix and let the id column carry it.
+            meta: sp.title.replace(/^[\d.]+\s+—\s+/, ""),
+            className: "canon-skill-row canon-spec-row",
             fetchPreview: () => canonReadSource(cwd, "spec", sp.name),
+            readerTitle: sp.name,
             actions: [],
           }));
         }

@@ -191,7 +191,10 @@ export class ProjectNotesPanel {
       const p = document.createElement("p");
       p.className = "canon-cockpit-sec-desc";
       p.textContent = desc;
-      head.append(h, p);
+      const text = document.createElement("div");
+      text.className = "canon-cockpit-sec-text";
+      text.append(h, p);
+      head.append(text);
       const body = document.createElement("div");
       body.className = "pn-body pn-body--flush";
       if (key === "commands") new CommandsTab({ groupId: this.opts.groupId }).mount(body);

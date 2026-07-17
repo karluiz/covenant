@@ -125,6 +125,9 @@ export function skillCard(opts: {
   fetchPreview: () => Promise<string>;
   actions: HTMLButtonElement[];
   stats?: string[];
+  /** Reader heading, when `name` is too terse to identify the file (specs
+   *  show just "3.12" in the row but open as "3.12-operators-…"). */
+  readerTitle?: string;
 }): HTMLElement {
   const card = document.createElement("div");
   card.className = opts.className;
@@ -163,7 +166,7 @@ export function skillCard(opts: {
   const expand = iconButton(
     Icons.maximize({ size: 14 }),
     "Open full screen",
-    () => openMarkdownReader(opts.name, opts.fetchPreview, opts.stats),
+    () => openMarkdownReader(opts.readerTitle ?? opts.name, opts.fetchPreview, opts.stats),
   );
   head.append(prev, expand, ...opts.actions);
   card.appendChild(head);
