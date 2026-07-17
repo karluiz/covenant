@@ -44,39 +44,11 @@ function nowMs(): number {
   return Date.now();
 }
 
-// Arc-style workspace-switch slide. The overlay is a full-bleed card wearing
-// the destination space's identity colour; it springs in to cover, the tab
-// rebuild runs underneath, then it springs off the far side to reveal.
-const COVER_EASE = "cubic-bezier(.4,0,.2,1)"; // decelerate, no overshoot — stays opaque
-const REVEAL_EASE = "cubic-bezier(.32,1.06,.34,1)"; // snappy spring, slight overshoot
-
-// Deterministic hue [0,360) from a workspace id, so each space keeps a
-// stable identity colour with zero new UI or persistence.
-function spaceHue(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return h % 360;
-}
-
-// Slide a group of panels through one WAAPI leg in lockstep, then commit the
-// end state to inline style (and cancel, so a leftover forwards-fill can't
-// override the next leg or the next switch).
-async function slidePanels(
-  els: HTMLElement[],
-  frames: Keyframe[],
-  duration: number,
-  easing: string,
-): Promise<void> {
-  const anims = els.map((el) => el.animate(frames, { duration, easing, fill: "forwards" }));
-  await Promise.all(anims.map((a) => a.finished));
-  for (const a of anims) {
-    try {
-      a.commitStyles();
-    } finally {
-      a.cancel();
-    }
-  }
-}
+// Workspace-switch overlay card (#workspace-switch-overlay): a full-bleed
+// card wearing the destination space's name + aura. It covers while the tab
+// rebuild runs, then lifts once the active tab is live. Held a minimum beat
+// so a warm (instant) restore still reads as a deliberate switch.
+const MIN_OVERLAY_MS = 420;
 
 function newId(): string {
   // crypto.randomUUID is available in the Tauri webview (Chromium ≥ 92).
@@ -354,33 +326,15 @@ export class WorkspaceManager {
 
     this.suspendPersist = true;
 
-    // Arc-style directional slide: the real content column (tab strip +
-    // terminal + status bar) slides OUT toward the current side, the tab
-    // rebuild runs while it's off-screen, then the fresh column slides IN
-    // from the destination side. The gap behind it wears the destination
-    // space's auto-derived identity colour. Direction follows the
-    // workspaces' order; xterm is a <canvas> we can't clone, so we move the
-    // live element itself rather than a snapshot.
-    const fromIdx = this.workspaces.findIndex((w) => w.id === outgoingId);
-    const toIdx = this.workspaces.findIndex((w) => w.id === id);
-    const dir = Math.sign(toIdx - fromIdx) || 1;
+    // Show the switch overlay card wearing the destination space's name. It
+    // covers the whole viewport while the tab rebuild runs underneath, then
+    // lifts once the tab the user lands on is live. Always shown — even for a
+    // warm restore — so the switch reads as deliberate.
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    const layout = document.getElementById("layout");
-    const panels = ["tabbar-host", "workspace", "status-bar"]
-      .map((pid) => document.getElementById(pid))
-      .filter((el): el is HTMLElement => !!el && !el.hidden);
-
-    // Tint the gap the sliding column reveals with the destination colour.
-    const hue = spaceHue(target.id);
-    const tint = `hsl(${hue} 72% 66%)`;
-    if (layout && !reduce) {
-      layout.style.overflow = "hidden";
-      layout.style.background =
-        `radial-gradient(52% 62% at 82% 0%, color-mix(in srgb, ${tint} 34%, transparent), transparent 70%),` +
-        `radial-gradient(54% 60% at 8% 100%, color-mix(in srgb, ${tint} 24%, transparent), transparent 66%),` +
-        `var(--bg)`;
-    }
+    const label = document.getElementById("workspace-switch-name");
+    if (label) label.textContent = target.name;
+    if (!reduce) document.body.classList.add("workspace-switching");
+    const overlayStart = nowMs();
 
     // Resolves once the tab the user lands on is live — the rest of the
     // workspace keeps spawning behind the reveal. On a cold workspace that
@@ -426,47 +380,29 @@ export class WorkspaceManager {
     // (see below) — only the reveal runs early.
     const rebuild = doRebuild();
     try {
-      if (reduce || panels.length === 0) {
+      if (reduce) {
         await rebuild;
       } else {
-        // OUT: live outgoing column slides off toward -dir.
-        await slidePanels(
-          panels,
-          [{ transform: "translateX(0)" }, { transform: `translateX(${-dir * 100}%)` }],
-          260,
-          COVER_EASE,
-        );
-        // Wait for the tab the user will look at — not for every PTY. A
-        // rebuild that throws rejects `rebuild`, so race against it too
-        // rather than hanging off-screen forever.
+        // Wait behind the card for the tab the user will look at — not for
+        // every PTY. A rebuild that throws rejects `rebuild`, so race against
+        // it too rather than hanging behind the card forever.
         await Promise.race([activeTabLive, rebuild]);
-        // IN: fresh column springs in from the destination side (+dir).
-        await slidePanels(
-          panels,
-          [
-            { transform: `translateX(${dir * 100}%)`, opacity: 0.85 },
-            { transform: "translateX(0)", opacity: 1 },
-          ],
-          340,
-          REVEAL_EASE,
-        );
-        // The remaining tabs hydrate while the column is already on screen,
-        // but saveAll (below) rebuilds this workspace's body from the live
-        // TabManager — persisting a half-spawned set would drop the tabs
-        // still in flight. So the method still ends with the full restore.
-        await rebuild;
+        // Hold the card a minimum beat so a near-instant warm restore still
+        // animates instead of flashing.
+        const elapsed = nowMs() - overlayStart;
+        if (elapsed < MIN_OVERLAY_MS) {
+          await new Promise((r) => setTimeout(r, MIN_OVERLAY_MS - elapsed));
+        }
       }
     } finally {
-      for (const el of panels) {
-        el.style.transform = "";
-        el.style.opacity = "";
-      }
-      if (layout) {
-        layout.style.overflow = "";
-        layout.style.background = "";
-      }
+      document.body.classList.remove("workspace-switching");
       this.suspendPersist = false;
     }
+    // The remaining tabs hydrate after the card lifts, but saveAll (below)
+    // rebuilds this workspace's body from the live TabManager — persisting a
+    // half-spawned set would drop the tabs still in flight. So finish the
+    // full restore before persisting.
+    await rebuild;
     await this.saveAll();
     this.emitChange();
   }
