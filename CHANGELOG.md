@@ -6,6 +6,58 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.34 — Linux platform pass + macOS traffic-light alignment
+
+### Changed
+
+- **The status bar is one row on a fresh install**: two rows of chrome is a lot
+  to hand someone on first launch, so `experimental.statusbar_two_row` now
+  defaults to `false` and the taller identity/telemetry + operator/mission
+  layout is one toggle away. A config predating the field follows the new
+  default too — it never opted into two rows; only an explicit `true` keeps
+  them. `crates/app/src/settings.rs`.
+
+- **One authoritative platform check, not four guesses**: the frontend decided
+  "am I on macOS?" in several places with several different heuristics. A
+  single `ui/src/platform.ts` now owns the question, with tests, and the tab
+  manager, welcome hint, and stylesheet read from it.
+
+### Fixed
+
+- **macOS traffic lights sat above the titlebar icons on an installed build**:
+  the heal that re-applies `trafficLightPosition` after macOS resets the window
+  buttons only ever wrote their **x**, carrying **y** forward as the button's
+  current value — whatever the reset had just left there. It was structurally
+  incapable of correcting a vertical reset, so v0.9.32's retry ladder faithfully
+  re-applied the wrong y five times; a screenshot of an installed v0.9.33
+  measured the lights 5.75pt high, with no horizontal error at all. The button's
+  vertical *center* is now pinned to an absolute 19pt from the window top via
+  `convertRect:toView:nil`, so neither the intermediate view's geometry nor the
+  button's own height enters the math (the visible circle is 14pt, the NSButton
+  frame taller). Idempotent — a no-op where the center is already right, which
+  is why dev, always correct, stays correct. `crates/app/src/lib.rs`.
+
+- **App chords collided with the shell on Linux**: Ctrl+C/Ctrl+D and friends
+  belong to the terminal, so app-level chords move to Ctrl+Shift off macOS, and
+  the settings shortcut — previously macOS-only — is reachable again. Chords
+  render per platform everywhere they're shown (onboarding, palette, switcher,
+  welcome hint) instead of hardcoding ⌘. `ui/src/platform.ts`, `ui/src/main.ts`.
+
+- **Linux chrome assumed macOS**: the in-window menubar and other macOS-only
+  chrome are hidden off-platform; an opaque base is painted where there's no
+  vibrancy to blur; notch passthrough waits for the window to be realized
+  before it's set; and shell rc setup picks by shell family rather than by OS.
+  `crates/app/src/lib.rs`, `crates/app/src/notch.rs`, `ui/src/styles.css`.
+
+- **The onboarding welcome card clipped instead of scrolling**: short viewports
+  cut the card off with no way to reach the rest. It scrolls now.
+  `ui/src/styles.css`.
+
+- **Release workflows raced on creating the GitHub release**: the per-platform
+  jobs each guarded a "does the release exist?" check before creating it, which
+  is a race when macOS/Windows/Linux finish together. The create is idempotent
+  instead. `.github/workflows/release-*.yml`.
+
 ## v0.9.33 — Closing the active tab clears it from the sidebar at once
 
 ### Fixed
