@@ -116,8 +116,17 @@ jobs:
           # until the manifest job finishes and uploads latest.json. This stops
           # the in-app updater from 404ing on /releases/latest/download/latest.json
           # during the ~25min build window. release-manifest.yml promotes it.
-          gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "$TAG" --prerelease --notes "Automated release. See CHANGELOG for details."
+          #
+          # Every platform job races to create this same release, so all but
+          # one get "422 already exists" — that is the expected path, not an
+          # error. Guarding with `gh release view` does NOT help: view can't
+          # tell "404 absent" from "503 API is down", so during a GitHub
+          # outage every job concludes it's absent and every loser dies on
+          # the 422 (this sank v0.9.33 on all four platforms). Create
+          # unconditionally, swallow the failure, and let the uploads below
+          # be the real gate — they fail loudly if the release truly is not
+          # there.
+          gh release create "$TAG" --title "$TAG" --prerelease --notes "Automated release. See CHANGELOG for details." || true
           gh release upload "$TAG" "${{ steps.artifacts.outputs.tgz }}" --clobber
           gh release upload "$TAG" "${{ steps.artifacts.outputs.sig }}" --clobber
           gh release upload "$TAG" "${{ steps.artifacts.outputs.dmg }}" --clobber
