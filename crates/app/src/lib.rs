@@ -2742,6 +2742,59 @@ async fn canon_adopt(cwd: String, kind: String, name: String) -> Result<(), Stri
         .map_err(|e| e.to_string())
 }
 
+/// Import a skill from skills.sh: shell out to `npx skills add <ref>` in the
+/// repo, then adopt whatever newly landed under `.claude/skills` into Canon.
+#[tauri::command]
+async fn canon_import_skill(cwd: String, skill_ref: String) -> Result<Vec<String>, String> {
+    let repo = std::path::PathBuf::from(&cwd);
+    let args = parse_skills_ref(&skill_ref)?;
+
+    // Snapshot skills already detected under .claude/skills before the install.
+    let repo_b = repo.clone();
+    let before = tokio::task::spawn_blocking(move || {
+        karl_canon::scan_detected(&repo_b).map(|units| {
+            units
+                .into_iter()
+                .filter(|u| u.kind == karl_canon::ContextKind::Skill)
+                .map(|u| u.name)
+                .collect::<std::collections::HashSet<String>>()
+        })
+    })
+    .await
+    .map_err(|e| format!("canon_import_skill snapshot join: {e}"))?
+    .map_err(|e| e.to_string())?;
+
+    // Run `npx --yes skills add <ref>` in the repo. stdin=null so an interactive
+    // picker (bare repo) gets EOF and fails fast rather than hanging.
+    let run = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        tokio::process::Command::new("npx")
+            .args(&args)
+            .current_dir(&repo)
+            .stdin(std::process::Stdio::null())
+            .output(),
+    )
+    .await;
+    let out = match run {
+        Err(_) => {
+            return Err("import timed out after 120s — a bare repo may be prompting; add `--skill <name>`".into())
+        }
+        Ok(Err(e)) => return Err(format!("could not run npx (is Node installed?): {e}")),
+        Ok(Ok(o)) => o,
+    };
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("npx skills add failed: {}", err.trim()));
+    }
+
+    // Adopt whatever newly landed under .claude/skills.
+    let repo_a = repo.clone();
+    tokio::task::spawn_blocking(move || karl_canon::adopt_new_skills(&repo_a, &before))
+        .await
+        .map_err(|e| format!("canon_import_skill adopt join: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
 /// Re-run the multi-export: write every Canon source (agents, skills, context)
 /// into each executor's native files (.claude/*, AGENTS.md, copilot-instructions).
 /// Idempotent — safe to run any time after editing `.covenant/canon/`.
@@ -5257,6 +5310,7 @@ pub fn run() {
             canon_read_local,
             canon_read_source,
             canon_adopt,
+            canon_import_skill,
             canon_export,
             canon_projection_status,
             canon_publish,
