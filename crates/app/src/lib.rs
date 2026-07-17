@@ -1934,6 +1934,51 @@ fn resolve_scope(ui_scope: &str, mission_path: Option<&str>) -> Option<String> {
     }
 }
 
+/// One path segment (owner, repo, or skill name): non-empty, no leading dot
+/// (blocks `..`), only `[A-Za-z0-9_.-]`. Anything else — slashes, shell
+/// metacharacters, whitespace — is rejected.
+fn valid_ref_seg(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('.')
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
+}
+
+/// Parse a user-pasted skills.sh ref into a safe `npx` argument vector. Accepts
+/// `owner/repo`, `owner/repo --skill x --skill y`, and a pasted
+/// `npx skills add owner/repo --skill x`. Rejects everything else — the args are
+/// whitelisted so no shell metacharacter ever reaches a spawn.
+fn parse_skills_ref(input: &str) -> Result<Vec<String>, String> {
+    let s = input.trim();
+    let s = s.strip_prefix("npx skills add ").map(str::trim).unwrap_or(s);
+    let mut toks = s.split_whitespace();
+    let repo = toks.next().ok_or_else(|| "empty ref".to_string())?;
+    let repo_ok = match repo.split_once('/') {
+        Some((o, r)) => valid_ref_seg(o) && valid_ref_seg(r),
+        None => false,
+    };
+    if !repo_ok {
+        return Err(format!("invalid repo (expected owner/repo): {repo:?}"));
+    }
+    let mut args = vec![
+        "--yes".to_string(),
+        "skills".to_string(),
+        "add".to_string(),
+        repo.to_string(),
+    ];
+    while let Some(t) = toks.next() {
+        if t != "--skill" {
+            return Err(format!("unexpected token {t:?} (only `--skill <name>` allowed)"));
+        }
+        let name = toks.next().ok_or_else(|| "`--skill` needs a name".to_string())?;
+        if !valid_ref_seg(name) {
+            return Err(format!("invalid skill name: {name:?}"));
+        }
+        args.push("--skill".to_string());
+        args.push(name.to_string());
+    }
+    Ok(args)
+}
+
 /// 3.13 Task 3 — best-effort persistence of a convergence reply as
 /// an `operator_memories` row. NEVER returns an error: every failure
 /// path logs and falls through. The caller's command must succeed
@@ -5483,5 +5528,35 @@ mod tests {
     fn unknown_scope_skips_persistence() {
         assert_eq!(resolve_scope("gibberish", None), None);
         assert_eq!(resolve_scope("", Some("/foo")), None);
+    }
+
+    #[test]
+    fn parse_skills_ref_accepts_valid_and_rejects_injection() {
+        // Accepts a bare repo, with --skill, and a pasted full command.
+        assert_eq!(
+            super::parse_skills_ref("owner/repo").unwrap(),
+            vec!["--yes", "skills", "add", "owner/repo"]
+        );
+        assert_eq!(
+            super::parse_skills_ref("owner/repo --skill frontend-design").unwrap(),
+            vec!["--yes", "skills", "add", "owner/repo", "--skill", "frontend-design"]
+        );
+        assert_eq!(
+            super::parse_skills_ref("npx skills add vercel-labs/agent-skills --skill a --skill b").unwrap(),
+            vec!["--yes", "skills", "add", "vercel-labs/agent-skills", "--skill", "a", "--skill", "b"]
+        );
+        // Rejects injection / traversal / stray flags.
+        for bad in [
+            "owner/repo; rm -rf ~",
+            "owner/repo`whoami`",
+            "owner/repo && curl evil",
+            "../escape/repo",
+            "owner/repo --other",
+            "owner/repo --skill x;y",
+            "owner/repo/extra",
+            "",
+        ] {
+            assert!(super::parse_skills_ref(bad).is_err(), "must reject: {bad:?}");
+        }
     }
 }
