@@ -1,0 +1,58 @@
+---
+// Canon / CDLC section — mirrors docs/canon-context-is-the-new-code.md
+// Inline SVG icons (currentColor, stroke) — one per CDLC phase.
+const phases = [
+  {
+    phase: "Generate",
+    title: "Author context deliberately",
+    body: "Context Miner turns your repo into candidate skills, memory, commands and subagents. Souls and Spec Author hand-craft the highest-value context. Detection & Adoption pulls ungoverned files already lying in a repo into the lifecycle.",
+    icon: `<path d="M12 3v3m0 12v3m9-9h-3M6 12H3m13.5-4.5l-2 2m-7 7l-2 2m11 0l-2-2m-7-7l-2-2"/><circle cx="12" cy="12" r="3"/>`,
+  },
+  {
+    phase: "Evaluate",
+    title: "No ship on a vibe check",
+    body: "Eval Runner sandboxes context with claude -p and an LLM-as-a-judge. The phase most teams skip — the one that separates compounding gains from a ceiling.",
+    icon: `<path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/>`,
+  },
+  {
+    phase: "Distribute",
+    title: "Install context, don't re-paste it",
+    body: "A registry versions and signs every publishable kind; cdlc.toml is the lockfile. Projection writes one source of truth into each executor's native file inside idempotent managed blocks. Org-scoped roster shares it across the team.",
+    icon: `<path d="M21 16V8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>`,
+  },
+  {
+    phase: "Observe",
+    title: "Telemetry on what earned its keep",
+    body: "Install and usage events flow through Score and the Pulse dashboard — which skills, memory and souls actually moved the needle. Governance closes the loop back to Generate.",
+    icon: `<path d="M3 12h4l2 6 4-14 2 8h6"/>`,
+  },
+];
+---
+<section id="canon" class="section">
+  <p class="eyebrow fade-in-up">Canon — context is the new code</p>
+  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-3xl fade-in-up delay-100">
+    We gave code a lifecycle two decades ago. Canon gives context the same one — no vibe checks.
+  </h2>
+  <p class="mt-6 max-w-2xl text-mist/70 leading-relaxed fade-in-up delay-100">
+    Patrick Debois calls it the Context Development Lifecycle: generate, evaluate, distribute, observe.
+    Canon is that discipline made concrete inside Covenant — where the lazy path is the rigorous one.
+  </p>
+  <div class="mt-14 grid md:grid-cols-2 gap-6">
+    {phases.map((p, i) => (
+      <article class={`rounded-xl border border-moss-500/20 bg-moss-500/[0.04] p-6 fade-in-up delay-${(i + 2) * 100}`}>
+        <div class="flex items-center gap-3">
+          <span class="grid place-items-center w-9 h-9 rounded-lg bg-moss-500/10 text-moss-400 shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" set:html={p.icon} />
+          </span>
+          <p class="text-moss-400 font-mono text-xs uppercase tracking-widest">{p.phase}</p>
+        </div>
+        <h3 class="mt-3 text-lg font-semibold">{p.title}</h3>
+        <p class="mt-3 text-mist/70 text-sm leading-relaxed">{p.body}</p>
+      </article>
+    ))}
+  </div>
+  <p class="mt-10 max-w-2xl text-mist/50 text-sm leading-relaxed fade-in-up">
+    A soul is a decision the principal has already made — context authored, reviewed and committed
+    rather than re-improvised every session. Covenant treated context as code before it had the name.
+  </p>
+</section>
