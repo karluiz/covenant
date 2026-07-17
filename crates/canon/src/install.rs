@@ -346,9 +346,18 @@ pub fn uninstall_skill(repo_root: &Path, name: &str) -> Result<(), CanonError> {
 /// shadow the executor. Agents/commands project back to the same path they were
 /// found at, so nothing duplicates. Errors if the item isn't currently foreign.
 pub fn adopt(repo_root: &Path, kind: ContextKind, name: &str) -> Result<(), CanonError> {
-    if !valid_pkg_name(name) {
-        return Err(CanonError::InvalidPackage(format!("invalid name: {name:?}")));
+    // Foreign items (e.g. an MCP server named `Context7`, a skill `MySkill`)
+    // may carry names `valid_pkg_name` rejects (uppercase, etc). Normalize to
+    // a slug for the Canon-side name; the ORIGINAL `name` is still used to
+    // locate and read the foreign item below.
+    let slug = crate::compile::slugify(name);
+    if slug.is_empty() {
+        return Err(CanonError::InvalidPackage(format!(
+            "cannot derive a valid name from {name:?}"
+        )));
     }
+    let renamed = slug != name;
+
     let unit = crate::scan_detected(repo_root)?
         .into_iter()
         .find(|u| u.kind == kind && u.name == name)
@@ -361,22 +370,45 @@ pub fn adopt(repo_root: &Path, kind: ContextKind, name: &str) -> Result<(), Cano
         ContextKind::Agent | ContextKind::Command => {
             let src = repo_root.join(&base).join(format!("{name}.md"));
             let content = std::fs::read_to_string(&src)?;
-            install_unit(repo_root, kind, name, &content)?; // writes source + projects
+            install_unit(repo_root, kind, &slug, &content)?; // writes source + projects
+            if renamed {
+                // The foreign `<name>.md` was not overwritten in place by the
+                // `<slug>.md` projection — remove it from every dir for this kind.
+                let dirs: &[&str] = if kind == ContextKind::Agent {
+                    crate::project::AGENT_DIRS
+                } else {
+                    crate::project::COMMAND_DIRS
+                };
+                for d in dirs {
+                    let f = repo_root.join(d).join(format!("{name}.md"));
+                    if f.exists() {
+                        std::fs::remove_file(&f)?;
+                    }
+                }
+            }
         }
         ContextKind::Mcp => {
             let json = crate::mcp::read_executor_mcp(repo_root, name)?; // raw executor .mcp.json entry
-            install_unit(repo_root, ContextKind::Mcp, name, &json)?;
-            // Remove the foreign un-prefixed dup so <name> and canon-<name>
-            // don't both shadow the executor (mirrors the Skill arm below).
+            install_unit(repo_root, ContextKind::Mcp, &slug, &json)?;
+            // Remove the foreign un-prefixed dup (the ORIGINAL key) so `<name>`
+            // and `canon-<slug>` don't both shadow the executor (mirrors the
+            // Skill arm below).
             crate::mcp::remove_executor_mcp_key(repo_root, name)?;
         }
         ContextKind::Skill => {
             let foreign = repo_root.join(&base).join(name);
-            // A hand-installed skill may lack skill.toml; synthesize a minimal one.
+            // Force skill.toml's name to the slug so install_from_dir writes
+            // canon-<slug> (preserve version if present; hand-installed skills
+            // may lack skill.toml entirely).
             let toml_path = foreign.join("skill.toml");
-            if !toml_path.exists() {
-                std::fs::write(&toml_path, format!("name = \"{name}\"\nversion = \"0.0.0\"\n"))?;
-            }
+            let version = if toml_path.exists() {
+                toml::from_str::<SkillManifest>(&std::fs::read_to_string(&toml_path)?)
+                    .map(|m| m.version)
+                    .unwrap_or_else(|_| "0.0.0".to_string())
+            } else {
+                "0.0.0".to_string()
+            };
+            std::fs::write(&toml_path, format!("name = \"{slug}\"\nversion = \"{version}\"\n"))?;
             install_from_dir(repo_root, &foreign, "detected")?; // copies + manifest + project
             // Remove the foreign un-prefixed dup in every skill dir.
             for sdir in SKILL_DIRS {
@@ -755,5 +787,32 @@ mod tests {
         let servers = v.get("mcpServers").and_then(|m| m.as_object()).unwrap();
         assert!(servers.contains_key("canon-ctx7"), "projected as canon-ctx7");
         assert!(!servers.contains_key("ctx7"), "stale foreign key removed");
+    }
+
+    #[test]
+    fn adopt_agent_slugifies_uppercase_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".claude/agents")).unwrap();
+        std::fs::write(root.join(".claude/agents/MyAgent.md"), "---\nname: MyAgent\n---\nb\n").unwrap();
+        crate::adopt(root, crate::ContextKind::Agent, "MyAgent").unwrap();
+        // slugify() kebabs on punctuation/whitespace boundaries only (not
+        // camelCase transitions) — "MyAgent" -> "myagent", still != "MyAgent".
+        assert!(root.join(".covenant/canon/agents/myagent.md").exists(), "written under slug");
+        assert!(!root.join(".claude/agents/MyAgent.md").exists(), "foreign uppercase file removed");
+        assert!(crate::scan_detected(root).unwrap().iter().all(|u| u.name != "MyAgent"), "no longer detected");
+    }
+
+    #[test]
+    fn adopt_mcp_slugifies_uppercase_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join(".mcp.json"), r#"{"mcpServers":{"Context7":{"command":"npx"}}}"#).unwrap();
+        crate::adopt(root, crate::ContextKind::Mcp, "Context7").unwrap();
+        assert!(root.join(".covenant/canon/mcp/context7.json").exists(), "canon source under slug");
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap()).unwrap();
+        let servers = v.get("mcpServers").and_then(|m| m.as_object()).unwrap();
+        assert!(servers.contains_key("canon-context7"), "projected as canon-context7");
+        assert!(!servers.contains_key("Context7"), "original uppercase key removed");
     }
 }
