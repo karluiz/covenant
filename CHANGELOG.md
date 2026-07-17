@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.36 — Restore the overlay-card workspace switch
+
+### Changed
+
+- **Workspace switch is the overlay card again**: reverted the Arc-style
+  directional slide (which slid the tab strip, terminal, and status bar
+  sideways behind a colour-tinted gap) back to the full-bleed
+  `#workspace-switch-overlay` card wearing the destination space's name +
+  aura. `switchTo` in `ui/src/workspaces/manager.ts` now toggles
+  `body.workspace-switching` to cover the viewport while the tab rebuild runs
+  underneath, then lifts the card. The newer keep-alive plumbing is preserved:
+  outgoing PTYs hibernate rather than die, and the card lifts as soon as the
+  active tab is live (racing `activeTabLive`), so a cold workspace reveals in
+  ~600ms instead of stalling ~5s behind the card like the original did. The
+  card is held a minimum 420ms so a warm (instant) restore still reads as a
+  deliberate switch. Drops the `spaceHue`/`slidePanels` slide helpers
+  (net −64 lines).
+
 ## v0.9.35 — Workspace switch reveals in ~600ms instead of 5s
 
 ### Added
