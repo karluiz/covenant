@@ -5716,9 +5716,20 @@ export class TabManager {
   /// restores on cwd_changed (that leaked missions onto unrelated new
   /// tabs in the same dir). Falls back to a single fresh tab if
   /// anything goes wrong (corrupted file, version mismatch, etc).
-  async restoreFromManifest(m: TabManifestV1): Promise<void> {
+  /// `onActiveReady` fires as soon as the tab the user will actually look at
+  /// is spawned and activated — the rest keep hydrating behind it. Callers
+  /// that animate (workspace switch) reveal on that signal instead of waiting
+  /// for every PTY: 22 concurrent `zsh -i` take ~5.5s wall-clock, and they
+  /// contend, so the wait grows superlinearly with tab count.
+  ///
+  /// The returned promise still resolves only when EVERY tab has spawned.
+  /// That is load-bearing: `WorkspaceManager.saveAll` rebuilds the active
+  /// workspace's body from the live TabManager, so resolving early would let
+  /// a save persist a half-spawned workspace and drop the missing tabs.
+  async restoreFromManifest(m: TabManifestV1, onActiveReady?: () => void): Promise<void> {
     if (m.version !== 1 || !Array.isArray(m.tabs) || m.tabs.length === 0) {
       await this.createTab();
+      onActiveReady?.();
       return;
     }
     // Restore groups first so tabs that reference them have a target.
@@ -5735,12 +5746,8 @@ export class TabManager {
     // Normalise every tab into the new panes+layout shape so downstream
     // code (Phase B and beyond) can safely access t.panes[0].
     const tabs = m.tabs.map(liftLegacyTab);
-    // Parallel spawns: fire every createTab at once and rebuild order
-    // afterward. Each createTab still self-pushes to this.tabs, so the
-    // final array reflects spawn-resolution order — we resort it to
-    // manifest order before activating.
-    const created = await Promise.all(
-      tabs.map((t) => {
+    const spawn = (t: SerializedTab): Promise<Tab | null> => {
+      {
         if (t.kind === "pi") {
           // Pi tabs restore by spawning a fresh `pi --mode rpc` session.
           // Pi's own --session-dir would let us reattach to an existing
@@ -5783,8 +5790,28 @@ export class TabManager {
           skipActivate: true,
           replayKey: t.replay_key ?? null,
         });
-      }),
+      }
+    };
+
+    // The tab the user lands on spawns first and alone. Spawning it in the
+    // same batch as the other 20 made it finish last-ish (~5.5s) instead of
+    // ~1.3s — the shells contend, so the one tab on screen paid for all of
+    // them. Everything else spawns after, in parallel, behind the reveal.
+    const activeIdx = Math.min(Math.max(m.active_index ?? 0, 0), tabs.length - 1);
+    const created: (Tab | null)[] = new Array(tabs.length).fill(null);
+    created[activeIdx] = await spawn(tabs[activeIdx]);
+    const activeTab = created[activeIdx];
+    if (activeTab) {
+      this.renderTabbar();
+      this.activate(activeTab.id, { skipIfSame: false });
+    }
+    onActiveReady?.();
+
+    const rest = await Promise.all(
+      tabs.map((t, i) => (i === activeIdx ? Promise.resolve(created[i]) : spawn(t))),
     );
+    for (let i = 0; i < rest.length; i++) created[i] = rest[i];
+
     // Reorder this.tabs to match manifest order. Tabs that failed to
     // spawn (createTab returned null) are dropped from the manifest
     // slot but any other tabs already in this.tabs (shouldn't happen
@@ -5869,10 +5896,11 @@ export class TabManager {
       }),
     );
 
-    // Restore active selection.
-    const idx = Math.min(m.active_index ?? 0, this.tabs.length - 1);
-    if (this.tabs[idx]) {
-      this.activate(this.tabs[idx].id, { skipIfSame: false });
+    // Re-assert the active selection: it was set before the other tabs
+    // spawned, and the reorder above rewrote this.tabs around it.
+    const active = activeTab ?? this.tabs[Math.min(m.active_index ?? 0, this.tabs.length - 1)];
+    if (active) {
+      this.activate(active.id, { skipIfSame: true });
     }
     this.pushExcludedToStatusBar();
   }

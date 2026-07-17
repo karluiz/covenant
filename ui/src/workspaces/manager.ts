@@ -382,6 +382,13 @@ export class WorkspaceManager {
         `var(--bg)`;
     }
 
+    // Resolves once the tab the user lands on is live — the rest of the
+    // workspace keeps spawning behind the reveal. On a cold workspace that
+    // is ~1.3s instead of ~5.5s (concurrent `zsh -i` contend), and the gap
+    // was pure black screen: the reveal used to wait for the last PTY.
+    let activeReady = (): void => {};
+    const activeTabLive = new Promise<void>((resolve) => (activeReady = resolve));
+
     const doRebuild = async (): Promise<void> => {
       // Detach outgoing tabs without killing PTYs.
       this.tabManager.hibernate(outgoingId);
@@ -400,18 +407,27 @@ export class WorkspaceManager {
           this.pendingMoves.delete(id);
           await this.tabManager.restoreFromManifest(pending);
         }
+        // Live tabs are already back on screen — nothing to wait for.
+        activeReady();
       } else {
         // First time visiting this workspace this session: spawn from manifest.
-        await this.tabManager.restoreFromManifest(workspaceAsV1Body(target));
+        await this.tabManager.restoreFromManifest(workspaceAsV1Body(target), activeReady);
         if (this.tabManager.activeSessionId() === null) {
           await this.tabManager.createTab();
         }
       }
+      // Belt and braces: a restore that spawned nothing must not strand the
+      // reveal behind a promise nobody resolves.
+      activeReady();
     };
 
+    // Kick the rebuild off now so the PTYs spawn *during* the cover leg
+    // instead of after it. It is awaited in full before this method returns
+    // (see below) — only the reveal runs early.
+    const rebuild = doRebuild();
     try {
       if (reduce || panels.length === 0) {
-        await doRebuild();
+        await rebuild;
       } else {
         // OUT: live outgoing column slides off toward -dir.
         await slidePanels(
@@ -420,8 +436,10 @@ export class WorkspaceManager {
           260,
           COVER_EASE,
         );
-        // Swap tabs while off-screen.
-        await doRebuild();
+        // Wait for the tab the user will look at — not for every PTY. A
+        // rebuild that throws rejects `rebuild`, so race against it too
+        // rather than hanging off-screen forever.
+        await Promise.race([activeTabLive, rebuild]);
         // IN: fresh column springs in from the destination side (+dir).
         await slidePanels(
           panels,
@@ -432,6 +450,11 @@ export class WorkspaceManager {
           340,
           REVEAL_EASE,
         );
+        // The remaining tabs hydrate while the column is already on screen,
+        // but saveAll (below) rebuilds this workspace's body from the live
+        // TabManager — persisting a half-spawned set would drop the tabs
+        // still in flight. So the method still ends with the full restore.
+        await rebuild;
       }
     } finally {
       for (const el of panels) {
