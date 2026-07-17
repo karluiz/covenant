@@ -86,11 +86,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
-          # Prerelease until the manifest job promotes it — see release-macos.yml.
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "$TAG" --prerelease \
-              --notes "Automated release. See CHANGELOG for details."
-          fi
+          # Prerelease until the manifest job promotes it — see release-macos.yml,
+          # which also explains why this creates unconditionally instead of
+          # checking `gh release view` first (view can't tell 404 from 503).
+          gh release create "$TAG" --title "$TAG" --prerelease \
+            --notes "Automated release. See CHANGELOG for details." || true
           gh release upload "$TAG" \
             "${{ steps.art.outputs.deb }}" \
             "${{ steps.art.outputs.rpm }}" \

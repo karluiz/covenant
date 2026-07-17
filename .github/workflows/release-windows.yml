@@ -93,10 +93,13 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
-          # Prerelease until the manifest job promotes it — see release-macos.yml.
-          if (-not (gh release view $tag 2>$null)) {
-            gh release create $tag --title $tag --prerelease --notes "Automated release. See CHANGELOG for details."
-          }
+          # Prerelease until the manifest job promotes it — see release-macos.yml,
+          # which also explains why this creates unconditionally instead of
+          # checking `gh release view` first (view can't tell 404 from 503).
+          gh release create $tag --title $tag --prerelease --notes "Automated release. See CHANGELOG for details."
+          # "already exists" is the expected path when another platform job won
+          # the race — clear it so the step is judged on the uploads below.
+          $global:LASTEXITCODE = 0
           gh release upload $tag "${{ steps.msi.outputs.path }}" --clobber
           gh release upload $tag "${{ steps.updater.outputs.sig_path }}" --clobber
 
