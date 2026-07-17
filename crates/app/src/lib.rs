@@ -2742,6 +2742,25 @@ async fn canon_adopt(cwd: String, kind: String, name: String) -> Result<(), Stri
         .map_err(|e| e.to_string())
 }
 
+/// The user's login-shell PATH. GUI apps launched from Finder/.app inherit a
+/// minimal PATH (no nvm/brew/asdf shims), so we ask the login+interactive shell.
+/// Returns None if the shell call fails (caller falls back to inherited PATH).
+fn login_shell_path() -> Option<String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let out = std::process::Command::new(&shell)
+        .args(["-ilc", "printf '__KT_PATH__%s' \"$PATH\""])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8(out.stdout).ok()?;
+    raw.split("__KT_PATH__")
+        .nth(1)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Import a skill from skills.sh: shell out to `npx skills add <ref>` in the
 /// repo, then adopt whatever newly landed under `.claude/skills` into Canon.
 #[tauri::command]
@@ -2766,15 +2785,22 @@ async fn canon_import_skill(cwd: String, skill_ref: String) -> Result<Vec<String
 
     // Run `npx --yes skills add <ref>` in the repo. stdin=null so an interactive
     // picker (bare repo) gets EOF and fails fast rather than hanging.
-    let run = tokio::time::timeout(
-        std::time::Duration::from_secs(120),
-        tokio::process::Command::new("npx")
-            .args(&args)
-            .current_dir(&repo)
-            .stdin(std::process::Stdio::null())
-            .output(),
-    )
-    .await;
+    //
+    // Resolve the login-shell PATH (blocking shell call) off the async runtime.
+    let shell_path = tokio::task::spawn_blocking(login_shell_path)
+        .await
+        .ok()
+        .flatten();
+
+    let mut cmd = tokio::process::Command::new("npx");
+    cmd.args(&args)
+        .current_dir(&repo)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true); // Finding 2: reclaim a hung child on timeout
+    if let Some(p) = shell_path {
+        cmd.env("PATH", p);
+    }
+    let run = tokio::time::timeout(std::time::Duration::from_secs(120), cmd.output()).await;
     let out = match run {
         Err(_) => {
             return Err("import timed out after 120s — a bare repo may be prompting; add `--skill <name>`".into())
