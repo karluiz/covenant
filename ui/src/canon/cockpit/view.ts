@@ -357,7 +357,7 @@ export class CanonCockpitView {
         .then(() => this.showSection(this.current))
         .catch((e) => {
           btn.disabled = false;
-          alert(this.friendlyError(e));
+          pushInfoToast({ message: `Adopt failed: ${this.friendlyError(e)}` });
         });
     });
     return btn;
