@@ -1,4 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// switchTo reads prefers-reduced-motion before it animates; jsdom has no
+// matchMedia, so every switchTo test threw here. Reporting no preference
+// keeps the animated path (the one the app actually runs) under test —
+// jsdom skips the animation itself since the layout panels don't exist.
+beforeAll(() => {
+  if (typeof window.matchMedia !== "function") {
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+  }
+});
 
 // Stub the Tauri-backed API surface BEFORE importing the SUT so the
 // import-time bindings inside WorkspaceManager resolve to the stub.
@@ -15,6 +34,10 @@ interface MockTabManagerState {
   replaceCalls: TabManifestV1[];
   createTabCalls: number;
   hibernated: Map<string, TabManifestV1>;
+  /// Gate the non-active tabs' spawn, so a test can hold a restore
+  /// half-finished and watch what switchTo does meanwhile.
+  slowSpawns: Promise<void>;
+  activeReadyAt: number;
 }
 
 function makeMockTabManager(initial?: TabManifestV1): {
@@ -26,6 +49,8 @@ function makeMockTabManager(initial?: TabManifestV1): {
     replaceCalls: [],
     createTabCalls: 0,
     hibernated: new Map(),
+    slowSpawns: Promise.resolve(),
+    activeReadyAt: 0,
   };
   const manager = {
     serializeManifest(): TabManifestV1 {
@@ -58,10 +83,17 @@ function makeMockTabManager(initial?: TabManifestV1): {
     disposeHibernated(id: string): void {
       state.hibernated.delete(id);
     },
-    async restoreFromManifest(m: TabManifestV1): Promise<void> {
+    async restoreFromManifest(m: TabManifestV1, onActiveReady?: () => void): Promise<void> {
       state.replaceCalls.push(JSON.parse(JSON.stringify(m)));
+      // Mirrors the real impl's two-stage shape: the active tab lands first
+      // (callback fires), the rest arrive before the promise resolves.
+      const [first, ...rest] = m.tabs ?? [];
       for (const g of m.groups ?? []) state.manifest.groups.push(JSON.parse(JSON.stringify(g)));
-      for (const t of m.tabs ?? []) state.manifest.tabs.push(JSON.parse(JSON.stringify(t)));
+      if (first) state.manifest.tabs.push(JSON.parse(JSON.stringify(first)));
+      onActiveReady?.();
+      state.activeReadyAt = state.replaceCalls.length;
+      await state.slowSpawns;
+      for (const t of rest) state.manifest.tabs.push(JSON.parse(JSON.stringify(t)));
     },
     async createTab(): Promise<void> {
       state.createTabCalls += 1;
@@ -197,8 +229,129 @@ describe("WorkspaceManager.boot — migration", () => {
   });
 });
 
+const mkTab = (name: string): TabManifestV1["tabs"][number] =>
+  ({
+    custom_name: name,
+    cwd: null,
+    color: null,
+    group_id: null,
+    mission_path: null,
+    operator_id: null,
+  }) as TabManifestV1["tabs"][number];
+
+const mkWorkspace = (id: string, name: string, tabs: TabManifestV1["tabs"]) => ({
+  id,
+  name,
+  color: null,
+  root_dir: null,
+  created_at: 1,
+  last_used_at: 1,
+  active_index: 0,
+  tabs,
+  groups: [],
+});
+
 describe("WorkspaceManager.switchTo", () => {
   beforeEach(() => saveSpy.mockClear());
+
+  /// Put the three sliding panels in the DOM and stub Element.animate (jsdom
+  /// has neither), so switchTo takes its real animated path instead of the
+  /// no-panels shortcut. Returns the frames of every leg, each stamped with
+  /// how many tabs existed when that leg started.
+  function armAnimatedPath(tabCount: () => number): { legs: { opacity: unknown; tabs: number }[] } {
+    for (const pid of ["tabbar-host", "workspace", "status-bar"]) {
+      const el = document.createElement("div");
+      el.id = pid;
+      document.body.appendChild(el);
+    }
+    const legs: { opacity: unknown; tabs: number }[] = [];
+    Element.prototype.animate = function animate(frames: unknown): Animation {
+      const last = (frames as Keyframe[])[1];
+      legs.push({ opacity: last?.opacity, tabs: tabCount() });
+      return {
+        finished: Promise.resolve(),
+        commitStyles: () => {},
+        cancel: () => {},
+      } as unknown as Animation;
+    } as typeof Element.prototype.animate;
+    return { legs };
+  }
+
+  it("reveals the column once the active tab is live, without waiting for the rest", async () => {
+    const { manager, state } = makeMockTabManager();
+    const ws = new WorkspaceManager(manager);
+    await ws.boot(
+      JSON.stringify({
+        version: 2,
+        active_workspace_id: "w1",
+        workspaces: [
+          mkWorkspace("w1", "One", [mkTab("a")]),
+          mkWorkspace("w2", "Heavy", [mkTab("b0"), mkTab("b1"), mkTab("b2")]),
+        ],
+      }),
+    );
+    const { legs } = armAnimatedPath(() => state.manifest.tabs.length);
+
+    let releaseRest = (): void => {};
+    state.slowSpawns = new Promise<void>((r) => (releaseRest = r));
+    const switching = ws.switchTo("w2");
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The reveal leg (the one that fades in, opacity → 1) must have run with
+    // only the active tab spawned. Waiting for all three is the 5s black
+    // screen this fix exists to kill.
+    const reveal = legs.find((l) => l.opacity === 1);
+    expect(reveal).toBeDefined();
+    expect(reveal!.tabs).toBe(1);
+
+    releaseRest();
+    await switching;
+    expect(state.manifest.tabs).toHaveLength(3);
+  });
+
+  it("persists the target only after every tab spawned, not when the reveal is released", async () => {
+    const { manager, state } = makeMockTabManager();
+    const ws = new WorkspaceManager(manager);
+    await ws.boot(
+      JSON.stringify({
+        version: 2,
+        active_workspace_id: "w1",
+        workspaces: [
+          mkWorkspace("w1", "One", [mkTab("a")]),
+          mkWorkspace("w2", "Heavy", [mkTab("b0"), mkTab("b1"), mkTab("b2")]),
+        ],
+      }),
+    );
+    saveSpy.mockClear();
+
+    // Hold the non-active tabs mid-spawn, as 20 concurrent `zsh -i` would.
+    let releaseRest = (): void => {};
+    state.slowSpawns = new Promise<void>((r) => (releaseRest = r));
+
+    let settled = false;
+    const switching = ws.switchTo("w2").then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The active tab is live and the reveal has been released...
+    expect(state.activeReadyAt).toBeGreaterThan(0);
+    expect(state.manifest.tabs).toHaveLength(1);
+    // ...but a save here would write a 1-tab workspace over a 3-tab one.
+    expect(settled).toBe(false);
+    expect(saveSpy).not.toHaveBeenCalled();
+
+    releaseRest();
+    await switching;
+
+    expect(settled).toBe(true);
+    const calls = saveSpy.mock.calls;
+    const saved = JSON.parse(calls[calls.length - 1][0]);
+    const target = saved.workspaces.find((w: { id: string }) => w.id === "w2");
+    expect(target.tabs.map((t: { custom_name: string }) => t.custom_name)).toEqual([
+      "b0",
+      "b1",
+      "b2",
+    ]);
+  });
 
   it("serializes outgoing state into the source workspace and restores incoming", async () => {
     const { manager, state } = makeMockTabManager();
