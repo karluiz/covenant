@@ -2685,6 +2685,17 @@ async fn canon_read_source(cwd: String, kind: String, name: String) -> Result<St
         .map_err(|e| e.to_string())
 }
 
+/// Adopt a detected (but not-yet-canonized) context unit into `.covenant/canon/`.
+#[tauri::command]
+async fn canon_adopt(cwd: String, kind: String, name: String) -> Result<(), String> {
+    let repo = std::path::PathBuf::from(cwd);
+    let k = parse_unit_kind(&kind)?;
+    tokio::task::spawn_blocking(move || karl_canon::adopt(&repo, k, &name))
+        .await
+        .map_err(|e| format!("canon_adopt join: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
 /// Re-run the multi-export: write every Canon source (agents, skills, context)
 /// into each executor's native files (.claude/*, AGENTS.md, copilot-instructions).
 /// Idempotent — safe to run any time after editing `.covenant/canon/`.
@@ -5199,6 +5210,7 @@ pub fn run() {
             canon_preview,
             canon_read_local,
             canon_read_source,
+            canon_adopt,
             canon_export,
             canon_projection_status,
             canon_publish,
