@@ -8788,6 +8788,25 @@ body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])
     cursor: progress;
 }
 
+/* Share-as-gist button — icon-only, same template as the close
+   button (transparent, no border, muted icon that lifts on hover). */
+.structure-editor-share-gist-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 4px 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0;
+    margin-left: 4px;
+}
+.structure-editor-share-gist-btn:hover {
+    color: var(--text-primary);
+    background: rgb(var(--ink-rgb) / 0.04);
+}
+
 /* Scale dropdown — sits left of the PNG button. */
 .structure-editor-png-scale {
     margin-left: 4px;
