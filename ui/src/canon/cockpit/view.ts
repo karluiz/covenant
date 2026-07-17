@@ -19,6 +19,7 @@ import {
   canonReadSource,
   canonPublish,
   canonAdopt,
+  canonImportSkill,
   canonUninstallSkill,
   canonSearch,
   canonPreview,
@@ -991,6 +992,39 @@ export class CanonCockpitView {
     list.className = "canon-cockpit-skills-list";
     list.appendChild(this.note("Loading…"));
 
+    // Import from skills.sh: paste "owner/repo --skill name", run npx, auto-adopt.
+    const importBar = document.createElement("form");
+    importBar.className = "canon-import-bar";
+    const importInput = document.createElement("input");
+    importInput.type = "text";
+    importInput.className = "canon-import-input";
+    importInput.placeholder = "Import from skills.sh — owner/repo --skill name";
+    const importBtn = document.createElement("button");
+    importBtn.type = "submit";
+    importBtn.className = "canon-import-btn";
+    importBtn.textContent = "Import";
+    importBar.append(importInput, importBtn);
+    importBar.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const ref = importInput.value.trim();
+      if (!ref) return;
+      importBtn.disabled = true;
+      importInput.disabled = true;
+      void canonImportSkill(cwd, ref)
+        .then((names) => {
+          pushInfoToast({
+            message: names.length ? `Imported: ${names.join(", ")}` : "Nothing new to import",
+          });
+          importInput.value = "";
+          load();
+        })
+        .catch((err) => pushInfoToast({ message: `Import failed: ${this.friendlyError(err)}` }))
+        .finally(() => {
+          importBtn.disabled = false;
+          importInput.disabled = false;
+        });
+    });
+
     const load = (): void => {
       void canonLocalStatus(cwd)
         .then((status) => {
@@ -1059,7 +1093,7 @@ export class CanonCockpitView {
         });
     };
 
-    el.append(list, errorEl);
+    el.append(importBar, list, errorEl);
     load();
     return el;
   }

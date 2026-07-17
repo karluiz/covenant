@@ -387,6 +387,24 @@ body.tabbar-left .canon-cockpit {
   gap: 2px;
 }
 
+/* Import from skills.sh: paste "owner/repo --skill name", run npx, auto-adopt.
+   Input/button chrome (border, background, radius, hover) comes from the
+   shared `.canon-cockpit-section input/button` rules above — this only adds
+   the bar layout and the monospace ref styling. */
+.canon-import-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.canon-import-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.canon-import-input:disabled {
+  opacity: 0.5;
+}
+
 /* ── Registry section ──────────────────────────────────────────────── */
 
 /* Kind tabs — six catalogs on one hairline baseline (DESIGN.md § Registry /
