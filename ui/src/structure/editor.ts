@@ -94,6 +94,8 @@ import { applyLspDiagnostics, lspCompletionSource, lspExtensions, type LspHost }
 import { lspManager, lspLanguageId, onCodeIntelChange, type LspDoc, type LspDocStatus } from "../lsp/manager";
 import { lspRangeToCm, pathToUri } from "../lsp/positions";
 import { runtimeSuggestionLine } from "../lsp/runtime-hint";
+import { shareFileAsGist } from "../gist/share";
+import { attachTooltip } from "../tooltip/tooltip";
 
 export interface EditorCallbacks {
   onSave?: (path: string) => void;
@@ -262,6 +264,10 @@ export class StructureEditor {
   /// (markdown under a `specs/` dir) and when a callback is wired.
   private readonly applySpecBtn: HTMLButtonElement;
 
+  /// Header button that publishes the currently open file as a
+  /// view-only gist and copies the share link to the clipboard.
+  private readonly shareGistBtn: HTMLButtonElement;
+
   /// PNG export controls — sibling pair to `previewBtn`. Only shown
   /// when `previewKind === "svg"`; hidden for markdown/code so the
   /// header stays uncluttered.
@@ -376,6 +382,20 @@ export class StructureEditor {
       this.callbacks.onApplySpec?.(this.currentPath);
     });
     this.headerEl.appendChild(this.applySpecBtn);
+
+    this.shareGistBtn = document.createElement("button");
+    this.shareGistBtn.type = "button";
+    this.shareGistBtn.className = "structure-editor-share-gist-btn";
+    this.shareGistBtn.innerHTML = Icons.share({ size: 13 });
+    attachTooltip(this.shareGistBtn, "Share this file as a view-only gist");
+    this.shareGistBtn.addEventListener("click", () => {
+      if (!this.currentPath) return;
+      void shareFileAsGist(this.currentPath).catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.callbacks.toast?.(`Share failed: ${msg}`, "error");
+      });
+    });
+    this.headerEl.appendChild(this.shareGistBtn);
 
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
