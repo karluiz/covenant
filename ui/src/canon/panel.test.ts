@@ -7,7 +7,7 @@ import type { Operator } from "../api";
 // panel.ts's compact rail actually makes — registry search, install, and
 // the score/eval Loop dashboards moved to the cockpit (see cockpit tests).
 vi.mock("../api", () => ({
-  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] }),
+  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] }),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
   canonRenameOrg: vi.fn().mockResolvedValue(undefined),
@@ -47,7 +47,7 @@ describe("CanonPanel", () => {
       memory: [],
       commands: [],
       mcp: [],
-      specs: [],
+      specs: [], detectedSkills: [],
     });
     expect(host.textContent).toContain("kyc-peru");
     expect(host.textContent).toContain("2.1.0");
@@ -64,7 +64,7 @@ describe("CanonPanel", () => {
       groupColor: null,
       groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] });
     const cells = [...host.querySelectorAll(".canon-census-cell")];
     expect(cells.length).toBe(8);
     for (const label of ["Operators", "Subagents", "Context", "Memory", "Commands", "MCP", "Specs", "Skills"]) {
@@ -77,7 +77,7 @@ describe("CanonPanel", () => {
     const panel = new CanonPanel({ groupId: "g", groupLabel: "G", groupColor: null, groupRootDir: "/repo" });
     panel.mount(host);
     panel.operators = [{ id: "01H", name: "Zeta", tags: ["security"], model: "gpt-4o" } as unknown as Operator]; // test double
-    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] });
     const fold = [...host.querySelectorAll(".rail-gname")].find((el) => el.textContent === "Operators");
     expect(fold).toBeTruthy();
     expect(host.textContent).toContain("Zeta");
@@ -91,7 +91,7 @@ describe("CanonPanel", () => {
       groupColor: null,
       groupRootDir: "/repo",
     }).mount(host);
-    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] });
     expect(host.textContent).not.toContain("No agents authored.");
     expect(host.textContent).not.toContain("No skills installed.");
     expect(host.querySelectorAll(".rail-group").length).toBe(0);
@@ -141,7 +141,7 @@ describe("CanonPanel", () => {
       memory: [],
       commands: [],
       mcp: [],
-      specs: [],
+      specs: [], detectedSkills: [],
     });
     expect(host.querySelector('button[aria-label="Publish to registry"]')).not.toBeNull();
     expect(host.textContent).toContain("kyc-peru");
@@ -156,7 +156,7 @@ describe("CanonPanel", () => {
       memory: [],
       commands: [],
       mcp: [],
-      specs: [],
+      specs: [], detectedSkills: [],
     });
     const panel = new CanonPanel({ groupId: "g-eval-btn", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo" });
     await panel.refresh();
@@ -174,7 +174,7 @@ describe("CanonPanel", () => {
       memory: [],
       commands: [],
       mcp: [],
-      specs: [],
+      specs: [], detectedSkills: [],
     });
     // Backend signals an empty run via the done note.
     (onCanonEvalProgress as Mock).mockImplementationOnce(
@@ -223,7 +223,7 @@ describe("CanonPanel", () => {
       memory: [],
       commands: [],
       mcp: [],
-      specs: [],
+      specs: [], detectedSkills: [],
     });
     expect(host.textContent).toContain("Subagents");
     expect(host.textContent).toContain("reviewer");
@@ -245,7 +245,7 @@ describe("CanonPanel", () => {
       memory: [],
       commands: [],
       mcp: [],
-      specs: [{ name: "3.1-alpha", title: "3.1 — Alpha" }],
+      specs: [{ name: "3.1-alpha", title: "3.1 — Alpha" }], detectedSkills: [],
     });
     expect(host.querySelectorAll(".rail-group").length).toBe(2);
     expect(host.textContent).toContain("reviewer");
@@ -257,7 +257,7 @@ describe("CanonPanel", () => {
       groupId: "g-fold-toggle", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
     }).mount(host);
     panel.renderStatus({
-      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     const head = host.querySelector<HTMLButtonElement>(".rail-group-head")!;
     const rows = host.querySelector<HTMLElement>(".canon-group-rows")!;
@@ -274,7 +274,7 @@ describe("CanonPanel", () => {
       groupId: "g-filter", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
     }).mount(host);
     const many = Array.from({ length: 9 }, (_, i) => ({ name: `3.${i + 1}-spec-${i + 1}`, title: `3.${i + 1} — Spec ${i + 1}` }));
-    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: many });
+    panel.renderStatus({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: many, detectedSkills: [] });
     const input = host.querySelector<HTMLInputElement>(".rail-search input");
     expect(input).not.toBeNull();
     input!.value = "spec-7";
@@ -290,7 +290,7 @@ describe("CanonPanel", () => {
       groupId: "g-no-filter", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
     }).mount(host);
     panel.renderStatus({
-      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     expect(host.querySelector(".rail-search")).toBeNull();
   });
@@ -307,7 +307,7 @@ describe("CanonPanel", () => {
       memory: [{ name: "decision-x", description: "We chose X" }],
       commands: [],
       mcp: [],
-      specs: [],
+      specs: [], detectedSkills: [],
     });
     expect(host.textContent).toContain("Memory");
     expect(host.textContent).toContain("decision-x");
@@ -325,7 +325,7 @@ describe("CanonPanel", () => {
       memory: [],
       commands: [{ name: "deploy", description: "Ship it" }],
       mcp: [],
-      specs: [],
+      specs: [], detectedSkills: [],
     });
     expect(host.textContent).toContain("Commands");
     expect(host.textContent).toContain("deploy");
@@ -343,7 +343,7 @@ describe("CanonPanel", () => {
       memory: [],
       commands: [],
       mcp: [{ name: "ctx7", description: "Context7", transport: "stdio" }],
-      specs: [],
+      specs: [], detectedSkills: [],
     });
     expect(host.textContent).toContain("MCP");
     expect(host.textContent).toContain("ctx7");
@@ -361,7 +361,7 @@ describe("CanonPanel", () => {
       memory: [],
       commands: [],
       mcp: [],
-      specs: [{ name: "3.1-alpha", title: "3.1 — Alpha" }],
+      specs: [{ name: "3.1-alpha", title: "3.1 — Alpha" }], detectedSkills: [],
     });
     expect(host.textContent).toContain("Specs");
     const row = host.querySelector<HTMLElement>(".canon-row")!;

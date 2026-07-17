@@ -8,7 +8,7 @@ vi.mock("../../api", () => ({
   canonRemoveMember: vi.fn().mockResolvedValue(undefined),
   canonCreateOrg: vi.fn().mockResolvedValue({}),
   canonMyOrgs: vi.fn().mockResolvedValue([]),
-  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] }),
+  canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] }),
   canonReadLocal: vi.fn().mockResolvedValue(""),
   canonPublish: vi.fn().mockResolvedValue(undefined),
   canonUninstallSkill: vi.fn(async () => undefined),
@@ -226,7 +226,7 @@ describe("CanonCockpitView Registry section", () => {
 
 describe("CanonCockpitView Context section", () => {
   it("lists context files and invokes onNewContext via the section-head action (moved from the rail — see panel.test.ts)", async () => {
-    vi.mocked(canonLocalStatus).mockResolvedValueOnce({ installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }], memory: [], commands: [], mcp: [], specs: [] });
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({ installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] });
     let called = false;
     const v = new CanonCockpitView({ ...opts, onNewContext: () => { called = true; } });
     v.open(); v.showSection("context");
@@ -241,7 +241,7 @@ describe("CanonCockpitView Context section", () => {
 
   it("context head action is hidden while empty; empty-state CTA is the single affordance", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
-      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     const v = new CanonCockpitView({ ...opts, onNewContext: () => {} });
     v.open(); v.showSection("context");
@@ -256,7 +256,7 @@ describe("CanonCockpitView Context section", () => {
 describe("CanonCockpitView unit publish actions", () => {
   it("subagent rows publish to the registry with kind agent", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
-      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("agents");
@@ -272,7 +272,7 @@ describe("CanonCockpitView unit publish actions", () => {
 
   it("command rows publish to the registry with kind command", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
-      installed: [], agents: [], contexts: [], memory: [], commands: [{ name: "deploy", description: null }], mcp: [], specs: [],
+      installed: [], agents: [], contexts: [], memory: [], commands: [{ name: "deploy", description: null }], mcp: [], specs: [], detectedSkills: [],
     });
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("commands");
@@ -288,7 +288,7 @@ describe("CanonCockpitView unit publish actions", () => {
 
   it("mcp rows publish to the registry with kind mcp", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
-      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [{ name: "figma", description: null, transport: "stdio" }], specs: [],
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [{ name: "figma", description: null, transport: "stdio" }], specs: [], detectedSkills: [],
     });
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("mcp");
@@ -304,7 +304,7 @@ describe("CanonCockpitView unit publish actions", () => {
 
   it("context rows render as skillCard rows with a publish action, kind context", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
-      installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }], memory: [], commands: [], mcp: [], specs: [],
+      installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("context");
@@ -320,7 +320,7 @@ describe("CanonCockpitView unit publish actions", () => {
 
   it("does not render a publish action when no org is active", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
-      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+      installed: [], agents: [{ name: "reviewer" }], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     const v = new CanonCockpitView({ ...opts, orgs: [], getActiveOrg: () => null });
     v.open(); v.showSection("agents");
@@ -337,7 +337,7 @@ describe("CanonCockpitView Skills section trash button", () => {
   it("uninstalls a skill via the trash button after confirm", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
       installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
-      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const v = new CanonCockpitView(opts);
@@ -359,7 +359,7 @@ describe("CanonCockpitView Skills section trash button", () => {
   it("does not uninstall when confirm is declined", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
       installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
-      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     vi.mocked(canonUninstallSkill).mockClear();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);

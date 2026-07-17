@@ -18,6 +18,7 @@ import {
   canonReadLocal,
   canonReadSource,
   canonPublish,
+  canonAdopt,
   canonUninstallSkill,
   canonSearch,
   canonPreview,
@@ -346,6 +347,20 @@ export class CanonCockpitView {
         });
     });
     return pub;
+  }
+
+  /** Adopt a detected item into Canon, then refresh the section. */
+  private unitAdoptAction(cwd: string, kind: CanonPkgKind, name: string): HTMLButtonElement {
+    const btn = iconButton(Icons.download({ size: 15 }), "Adopt into Canon", () => {
+      btn.disabled = true;
+      void canonAdopt(cwd, kind, name)
+        .then(() => this.showSection(this.current))
+        .catch((e) => {
+          btn.disabled = false;
+          alert(this.friendlyError(e));
+        });
+    });
+    return btn;
   }
 
   // ── Org section ──────────────────────────────────────────────────────
@@ -735,18 +750,21 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.bot({ size: 28 }),
             title: "No subagents yet",
-            hint: "Author agent files under .covenant/canon/agents — Canon projects them into every executor.",
+            hint: "Install a subagent, or mine context — Canon detects and adopts what's already in the repo.",
           }));
           return;
         }
         for (const a of status.agents) {
-          const pub = this.unitPublishAction(cwd, "agent", a.name);
+          const detected = !!a.detectedIn;
+          const actions = detected
+            ? [this.unitAdoptAction(cwd, "agent", a.name)]
+            : (() => { const p = this.unitPublishAction(cwd, "agent", a.name); return p ? [p] : []; })();
           list.appendChild(skillCard({
             name: a.name,
-            meta: "agent",
-            className: "canon-skill-row",
+            meta: detected ? `detected · ${a.detectedIn}` : "agent",
+            className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "agent", a.name),
-            actions: pub ? [pub] : [],
+            actions,
           }));
         }
       })
@@ -782,18 +800,21 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.terminalSquare({ size: 28 }),
             title: "No commands yet",
-            hint: "Author slash commands under .covenant/canon/commands — Canon projects them to your executors.",
+            hint: "Install a command, or mine context — Canon detects and adopts what's already in the repo.",
           }));
           return;
         }
         for (const c of status.commands) {
-          const pub = this.unitPublishAction(cwd, "command", c.name);
+          const detected = !!c.detectedIn;
+          const actions = detected
+            ? [this.unitAdoptAction(cwd, "command", c.name)]
+            : (() => { const p = this.unitPublishAction(cwd, "command", c.name); return p ? [p] : []; })();
           list.appendChild(skillCard({
             name: c.name,
-            meta: c.description ?? "command",
-            className: "canon-skill-row",
+            meta: detected ? `detected · ${c.detectedIn}` : (c.description ?? "command"),
+            className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "command", c.name),
-            actions: pub ? [pub] : [],
+            actions,
           }));
         }
       })
@@ -829,18 +850,21 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.radioTower({ size: 28 }),
             title: "No MCP servers yet",
-            hint: "Declare servers under .covenant/canon/mcp — Canon projects them to your executors.",
+            hint: "Install an MCP server, or mine context — Canon detects and adopts what's already in the repo.",
           }));
           return;
         }
         for (const m of status.mcp) {
-          const pub = this.unitPublishAction(cwd, "mcp", m.name);
+          const detected = !!m.detectedIn;
+          const actions = detected
+            ? [this.unitAdoptAction(cwd, "mcp", m.name)]
+            : (() => { const p = this.unitPublishAction(cwd, "mcp", m.name); return p ? [p] : []; })();
           list.appendChild(skillCard({
             name: m.name,
-            meta: m.description ?? m.transport,
-            className: "canon-skill-row",
+            meta: detected ? `detected · ${m.detectedIn}` : (m.description ?? m.transport),
+            className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "mcp", m.name),
-            actions: pub ? [pub] : [],
+            actions,
           }));
         }
       })
@@ -971,11 +995,11 @@ export class CanonCockpitView {
       void canonLocalStatus(cwd)
         .then((status) => {
           list.replaceChildren();
-          if (status.installed.length === 0) {
+          if (status.installed.length === 0 && status.detectedSkills.length === 0) {
             list.appendChild(this.emptyState({
               icon: Icons.packageBox({ size: 28 }),
               title: "No skills installed",
-              hint: "Install from your organization's registry, or author skills under .covenant/canon/skills.",
+              hint: "Install from your organization's registry, or mine context — Canon detects and adopts what's already in the repo.",
               action: { label: "Browse registry", onClick: () => this.showSection("registry") },
             }));
             return;
@@ -1017,6 +1041,15 @@ export class CanonCockpitView {
               fetchPreview: () => canonReadLocal(cwd, i.name),
               actions,
               stats: [`v${i.version}`, i.source],
+            }));
+          }
+          for (const d of status.detectedSkills) {
+            list.appendChild(skillCard({
+              name: d.name,
+              meta: `detected · ${d.detectedIn}`,
+              className: "canon-skill-row is-detected",
+              fetchPreview: () => Promise.resolve(""),
+              actions: [this.unitAdoptAction(cwd, "skill", d.name)],
             }));
           }
         })
@@ -1326,7 +1359,7 @@ export class CanonCockpitView {
     if (cwd && active) {
       const orgSlug = active.slug;
       void Promise.all([
-        canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [] }) as CanonStatus),
+        canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] }) as CanonStatus),
         canonSearch(orgSlug, null, "skill").catch(() => [] as PkgMeta[]),
       ]).then(([status, pkgs]) => {
         const registrySkills = status.installed.filter((i) => i.source.startsWith("registry:"));

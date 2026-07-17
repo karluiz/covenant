@@ -1626,6 +1626,7 @@ export interface InstalledRef {
 
 export interface AgentRef {
   name: string;
+  detectedIn?: string | null;
 }
 
 export interface ContextRef {
@@ -1636,12 +1637,19 @@ export interface ContextRef {
 export interface CommandRef {
   name: string;
   description: string | null;
+  detectedIn?: string | null;
 }
 
 export interface McpRef {
   name: string;
   description: string | null;
   transport: string;
+  detectedIn?: string | null;
+}
+
+export interface DetectedSkillRef {
+  name: string;
+  detectedIn: string;
 }
 
 export interface SpecRef {
@@ -1662,6 +1670,7 @@ export interface CanonStatus {
   commands: CommandRef[];
   mcp: McpRef[];
   specs: SpecRef[];
+  detectedSkills: DetectedSkillRef[];
 }
 
 export async function canonLocalStatus(cwd: string): Promise<CanonStatus> {
@@ -1719,6 +1728,10 @@ export async function canonRemoveMember(org: string, login: string): Promise<voi
   return invoke("canon_remove_member", { org, login });
 }
 export type CanonPkgKind = "skill" | "agent" | "command" | "context" | "mcp";
+
+export async function canonAdopt(cwd: string, kind: CanonPkgKind, name: string): Promise<void> {
+  return invoke<void>("canon_adopt", { cwd, kind, name });
+}
 
 export async function canonSearch(org: string, query: string | null, kind: CanonPkgKind): Promise<PkgMeta[]> {
   return invoke<PkgMeta[]>("canon_search", { org, query, kind });
