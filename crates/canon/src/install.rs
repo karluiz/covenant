@@ -426,6 +426,29 @@ pub fn adopt(repo_root: &Path, kind: ContextKind, name: &str) -> Result<(), Cano
     Ok(())
 }
 
+/// Adopt every DETECTED skill whose name is not already in `before`. Returns the
+/// adopted names (post-slugify). Used by import: snapshot before an external
+/// install, run the installer, then adopt whatever newly appeared under
+/// `.claude/skills`. Best-effort — one skill failing to adopt does not sink the
+/// batch.
+pub fn adopt_new_skills(
+    repo_root: &Path,
+    before: &std::collections::HashSet<String>,
+) -> Result<Vec<String>, CanonError> {
+    let fresh: Vec<String> = crate::scan_detected(repo_root)?
+        .into_iter()
+        .filter(|u| u.kind == ContextKind::Skill && !before.contains(&u.name))
+        .map(|u| u.name)
+        .collect();
+    let mut adopted = Vec::new();
+    for name in fresh {
+        if crate::adopt(repo_root, ContextKind::Skill, &name).is_ok() {
+            adopted.push(crate::compile::slugify(&name));
+        }
+    }
+    Ok(adopted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -801,6 +824,31 @@ mod tests {
         assert!(root.join(".covenant/canon/agents/myagent.md").exists(), "written under slug");
         assert!(!root.join(".claude/agents/MyAgent.md").exists(), "foreign uppercase file removed");
         assert!(crate::scan_detected(root).unwrap().iter().all(|u| u.name != "MyAgent"), "no longer detected");
+    }
+
+    #[test]
+    fn adopt_new_skills_adopts_only_the_delta() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Pre-existing foreign skill that is in `before` → must NOT be re-adopted.
+        std::fs::create_dir_all(root.join(".claude/skills/old-skill")).unwrap();
+        std::fs::write(root.join(".claude/skills/old-skill/SKILL.md"), "---\nname: old-skill\n---\nb\n").unwrap();
+        let before: std::collections::HashSet<String> = ["old-skill".to_string()].into_iter().collect();
+
+        // A new foreign skill (as if npx just added it) + one with an uppercase name.
+        std::fs::create_dir_all(root.join(".claude/skills/pdf-tools")).unwrap();
+        std::fs::write(root.join(".claude/skills/pdf-tools/SKILL.md"), "---\nname: pdf-tools\n---\nb\n").unwrap();
+        std::fs::create_dir_all(root.join(".claude/skills/CoolTool")).unwrap();
+        std::fs::write(root.join(".claude/skills/CoolTool/SKILL.md"), "---\nname: CoolTool\n---\nb\n").unwrap();
+
+        let mut adopted = crate::adopt_new_skills(root, &before).unwrap();
+        adopted.sort();
+        assert_eq!(adopted, vec!["cooltool".to_string(), "pdf-tools".to_string()], "delta adopted, uppercase slugified");
+        assert!(root.join(".covenant/canon/skills/pdf-tools/SKILL.md").exists(), "new skill in canon source");
+        assert!(root.join(".covenant/canon/skills/cooltool/SKILL.md").exists(), "uppercase slugified into source");
+        // old-skill was in `before` → left foreign, not adopted.
+        assert!(!root.join(".covenant/canon/skills/old-skill").exists(), "before-set skill not re-adopted");
+        assert!(root.join(".claude/skills/old-skill").exists(), "before-set skill left in place");
     }
 
     #[test]

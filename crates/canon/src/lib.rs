@@ -10,7 +10,7 @@ pub mod eval;
 pub mod kind;
 pub mod mcp;
 
-pub use install::{install_from_dir, install_local, install_unit, uninstall_skill, read_skill_package, read_source, status, CanonStatus, content_version, adopt};
+pub use install::{install_from_dir, install_local, install_unit, uninstall_skill, read_skill_package, read_source, status, CanonStatus, content_version, adopt, adopt_new_skills};
 pub use manifest::{canon_dir, read_manifest, write_manifest};
 pub use project::{
     project, project_with_active, projection_status, ExecutorStatus, ProjState, ProjectionStatus,
