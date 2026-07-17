@@ -1940,6 +1940,7 @@ fn resolve_scope(ui_scope: &str, mission_path: Option<&str>) -> Option<String> {
 fn valid_ref_seg(s: &str) -> bool {
     !s.is_empty()
         && !s.starts_with('.')
+        && !s.starts_with('-')
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
 }
 
@@ -5554,6 +5555,11 @@ mod tests {
             "owner/repo --other",
             "owner/repo --skill x;y",
             "owner/repo/extra",
+            "-evil/repo",
+            "owner/-evil",
+            "--flag/repo",
+            "owner/repo --skill --sneaky",
+            "owner/repo --skill -x",
             "",
         ] {
             assert!(super::parse_skills_ref(bad).is_err(), "must reject: {bad:?}");
