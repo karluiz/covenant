@@ -390,10 +390,15 @@ export class StructureEditor {
     attachTooltip(this.shareGistBtn, "Share this file as a view-only gist");
     this.shareGistBtn.addEventListener("click", () => {
       if (!this.currentPath) return;
-      void shareFileAsGist(this.currentPath).catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.callbacks.toast?.(`Share failed: ${msg}`, "error");
-      });
+      const path = this.currentPath;
+      // Flush the live buffer first — save() no-ops when clean — so the
+      // gist reflects on-screen edits, not stale on-disk bytes.
+      void this.save()
+        .then(() => shareFileAsGist(path))
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.callbacks.toast?.(`Share failed: ${msg}`, "error");
+        });
     });
     this.headerEl.appendChild(this.shareGistBtn);
 
