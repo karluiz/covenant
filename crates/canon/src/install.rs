@@ -19,6 +19,7 @@ pub(crate) fn valid_pkg_name(name: &str) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct AgentRef {
     pub name: String,
+    pub detected_in: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,6 +34,7 @@ pub struct ContextRef {
 pub struct CommandRef {
     pub name: String,
     pub description: Option<String>,
+    pub detected_in: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -41,6 +43,14 @@ pub struct McpRef {
     pub name: String,
     pub description: Option<String>,
     pub transport: String,
+    pub detected_in: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedSkillRef {
+    pub name: String,
+    pub detected_in: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,6 +77,7 @@ pub struct CanonStatus {
     pub mcp: Vec<McpRef>,
     pub specs: Vec<SpecRef>,
     pub memory: Vec<MemoryRef>,
+    pub detected_skills: Vec<DetectedSkillRef>,
 }
 
 /// Install a skill package from a local directory, recording `source_label` as provenance.
@@ -191,7 +202,7 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
     let agents = units
         .iter()
         .filter(|u| u.kind == crate::ContextKind::Agent)
-        .map(|u| AgentRef { name: u.name.clone() })
+        .map(|u| AgentRef { name: u.name.clone(), detected_in: u.detected_in.clone() })
         .collect();
     let contexts = units
         .iter()
@@ -207,14 +218,34 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
         .map(|u| CommandRef {
             name: u.name.clone(),
             description: u.summary.clone(),
+            detected_in: u.detected_in.clone(),
         })
         .collect();
-    let mcp = crate::mcp::read_mcp_servers(repo_root)?
+    // Managed MCP (from source) carry detected_in: None …
+    let mut mcp: Vec<McpRef> = crate::mcp::read_mcp_servers(repo_root)?
         .into_iter()
         .map(|(name, s)| McpRef {
             description: s.description.clone(),
             transport: s.transport_kind(),
             name,
+            detected_in: None,
+        })
+        .collect();
+    // … plus detected MCP from list_context (avoids double-counting managed ones).
+    for u in units.iter().filter(|u| u.kind == crate::ContextKind::Mcp && u.detected_in.is_some()) {
+        mcp.push(McpRef {
+            name: u.name.clone(),
+            description: u.summary.clone(),
+            transport: "detected".into(),
+            detected_in: u.detected_in.clone(),
+        });
+    }
+    let detected_skills = units
+        .iter()
+        .filter(|u| u.kind == crate::ContextKind::Skill && u.detected_in.is_some())
+        .map(|u| DetectedSkillRef {
+            name: u.name.clone(),
+            detected_in: u.detected_in.clone().unwrap_or_default(),
         })
         .collect();
     let specs = crate::kind::read_specs(repo_root)?
@@ -237,6 +268,7 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
         mcp,
         specs,
         memory,
+        detected_skills,
     })
 }
 
@@ -576,6 +608,21 @@ mod tests {
         assert_eq!(s.memory.len(), 1);
         assert_eq!(s.memory[0].name, "pref-z");
         assert_eq!(s.memory[0].description.as_deref(), Some("User prefers Z"));
+    }
+
+    #[test]
+    fn status_reports_detected_agent_and_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".claude/agents")).unwrap();
+        std::fs::write(root.join(".claude/agents/foo.md"), "---\nname: foo\n---\nb\n").unwrap();
+        std::fs::create_dir_all(root.join(".claude/skills/kyc")).unwrap();
+        std::fs::write(root.join(".claude/skills/kyc/SKILL.md"), "---\nname: kyc\n---\nb\n").unwrap();
+
+        let st = status(root).unwrap();
+        let foo = st.agents.iter().find(|a| a.name == "foo").expect("detected agent listed");
+        assert_eq!(foo.detected_in.as_deref(), Some(".claude/agents"));
+        assert!(st.detected_skills.iter().any(|s| s.name == "kyc"), "detected skill listed");
     }
 
     #[test]
