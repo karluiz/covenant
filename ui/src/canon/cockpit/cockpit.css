@@ -535,6 +535,18 @@ body.theme-true-dark.canon-cockpit-open {
 .canon-spec-row:hover .canon-card-head button,
 .canon-spec-row .canon-card-head button:focus-visible { opacity: 1; }
 
+/* ── Detected rows (Subagents/Commands/MCP/Skills) ─────────────────────
+   Items Canon found already installed in the repo/executor config but not
+   yet adopted into .covenant/canon — tenuous mono badge on the meta line
+   distinguishes them from managed rows until Adopt is clicked. */
+.canon-skill-row.is-detected .canon-meta {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+
 /* ── Rail SKILL.md reader, re-stacked for the full-screen cockpit ─────
    openMarkdownReader (panel.ts) builds a fixed-position `.canon-reader`
    sized/offset for the narrow rail panel and appends it to document.body

@@ -10,7 +10,7 @@ use crate::CanonError;
 use serde::Serialize;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContextKind {
     Agent,
@@ -98,6 +98,9 @@ pub struct ContextUnit {
     pub summary: Option<String>,
     pub projectable: bool,
     pub packageable: bool,
+    /// None = Canon-managed (has a `.covenant/canon` source).
+    /// Some(dir) = detected/foreign, found in this executor dir.
+    pub detected_in: Option<String>,
 }
 
 /// Enumerate every authored/installed context unit across the three kinds,
@@ -113,6 +116,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             summary: None,
             projectable: true,
             packageable: true,
+            detected_in: None,
         });
     }
     for (name, raw) in read_dir_md(&base.join("context"))? {
@@ -122,6 +126,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             name,
             projectable: true,
             packageable: true,
+            detected_in: None,
         });
     }
     for (name, raw) in read_dir_md(&base.join("memory"))? {
@@ -131,6 +136,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             name,
             projectable: true,
             packageable: false,
+            detected_in: None,
         });
     }
     for (name, raw) in read_dir_md(&base.join("commands"))? {
@@ -140,6 +146,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             name,
             projectable: true,
             packageable: true,
+            detected_in: None,
         });
     }
     for (name, srv) in crate::mcp::read_mcp_servers(repo_root)? {
@@ -149,6 +156,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             name,
             projectable: true,
             packageable: true,
+            detected_in: None,
         });
     }
     for (name, title) in read_specs(repo_root)? {
@@ -158,6 +166,7 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             name,
             projectable: false,
             packageable: false,
+            detected_in: None,
         });
     }
     for i in read_manifest(repo_root)?.installed {
@@ -167,7 +176,17 @@ pub fn list_context(repo_root: &Path) -> Result<Vec<ContextUnit>, CanonError> {
             summary: None,
             projectable: true,
             packageable: true,
+            detected_in: None,
         });
+    }
+
+    // Fold in items that live in executor dirs but have no Canon source.
+    let managed: std::collections::HashSet<(ContextKind, String)> =
+        out.iter().map(|u| (u.kind, u.name.clone())).collect();
+    for u in crate::detect::scan_detected(repo_root)? {
+        if !managed.contains(&(u.kind, u.name.clone())) {
+            out.push(u);
+        }
     }
     Ok(out)
 }

@@ -335,6 +335,42 @@ pub fn blank_mcp_secrets(raw: &str) -> Result<String, CanonError> {
     serde_json::to_string_pretty(&srv).map_err(|e| CanonError::InvalidPackage(e.to_string()))
 }
 
+/// Read one server's raw JSON from the EXECUTOR `.mcp.json` `mcpServers` map
+/// (NOT the Canon source under `.covenant/canon/mcp/`). Used by `adopt` to pull
+/// a foreign, hand-added MCP server into Canon.
+pub fn read_executor_mcp(repo_root: &Path, name: &str) -> Result<String, CanonError> {
+    let path = repo_root.join(".mcp.json");
+    let raw = std::fs::read_to_string(&path)?;
+    let v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| CanonError::InvalidPackage(format!(".mcp.json parse: {e}")))?;
+    let srv = v.get("mcpServers").and_then(|m| m.get(name)).ok_or_else(|| {
+        CanonError::InvalidPackage(format!("mcp server not in .mcp.json: {name}"))
+    })?;
+    serde_json::to_string(srv).map_err(|e| CanonError::InvalidPackage(e.to_string()))
+}
+
+/// Remove one un-prefixed server key from the executor `.mcp.json` after it has
+/// been adopted (its config now lives in the Canon source and projects as
+/// `canon-<name>`). No-ops if the file or key is absent. Mirror of the skill
+/// dup-removal in adopt().
+pub(crate) fn remove_executor_mcp_key(repo_root: &Path, name: &str) -> Result<(), CanonError> {
+    let path = repo_root.join(".mcp.json");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return Ok(()),
+    };
+    let mut v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| CanonError::InvalidPackage(format!(".mcp.json: {e}")))?;
+    if let Some(map) = v.get_mut("mcpServers").and_then(|m| m.as_object_mut()) {
+        if map.remove(name).is_some() {
+            let out = serde_json::to_string_pretty(&v)
+                .map_err(|e| CanonError::InvalidPackage(format!(".mcp.json: {e}")))?;
+            std::fs::write(&path, format!("{out}\n"))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

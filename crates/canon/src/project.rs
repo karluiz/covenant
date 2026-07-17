@@ -94,16 +94,16 @@ pub(crate) fn read_dir_md(dir: &Path) -> Result<Vec<(String, String)>, CanonErro
 /// Project operator personas into Claude's native multi-agent dir.
 /// Executors that read a multi-file AGENT dir (file-per-item). One persona per
 /// `.md`. Add an executor by adding its dir here.
-const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent"];
+pub(crate) const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent"];
 
 /// Executors that read multi-file SKILL dirs (the Superpowers `SKILL.md`
 /// convention). Skills and full context bodies land here as `canon-<name>/SKILL.md`.
-const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills"];
+pub(crate) const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills"];
 
 /// Executors that read a multi-file COMMAND dir as file-per-item `<name>.md`
 /// slash commands. Codex has no project-level commands; Copilot uses a
 /// different extension/frontmatter — both deferred. Add an executor here.
-const COMMAND_DIRS: &[&str] = &[".claude/commands", ".opencode/commands", ".pi/prompts"];
+pub(crate) const COMMAND_DIRS: &[&str] = &[".claude/commands", ".opencode/commands", ".pi/prompts"];
 
 /// Write each `<stem>.md` (covenant block stripped) into every dir in `dirs`.
 /// Shared by agents and commands — the two file-per-item projection kinds.

@@ -1,4 +1,4 @@
-use crate::project::project;
+use crate::project::{project, SKILL_DIRS};
 use crate::types::{CanonManifest, InstalledRef, SkillManifest};
 use crate::{canon_dir, read_manifest, write_manifest, CanonError, ContextKind};
 use serde::Serialize;
@@ -19,6 +19,7 @@ pub(crate) fn valid_pkg_name(name: &str) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct AgentRef {
     pub name: String,
+    pub detected_in: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,6 +34,7 @@ pub struct ContextRef {
 pub struct CommandRef {
     pub name: String,
     pub description: Option<String>,
+    pub detected_in: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -41,6 +43,14 @@ pub struct McpRef {
     pub name: String,
     pub description: Option<String>,
     pub transport: String,
+    pub detected_in: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedSkillRef {
+    pub name: String,
+    pub detected_in: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,6 +77,7 @@ pub struct CanonStatus {
     pub mcp: Vec<McpRef>,
     pub specs: Vec<SpecRef>,
     pub memory: Vec<MemoryRef>,
+    pub detected_skills: Vec<DetectedSkillRef>,
 }
 
 /// Install a skill package from a local directory, recording `source_label` as provenance.
@@ -191,7 +202,7 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
     let agents = units
         .iter()
         .filter(|u| u.kind == crate::ContextKind::Agent)
-        .map(|u| AgentRef { name: u.name.clone() })
+        .map(|u| AgentRef { name: u.name.clone(), detected_in: u.detected_in.clone() })
         .collect();
     let contexts = units
         .iter()
@@ -207,14 +218,34 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
         .map(|u| CommandRef {
             name: u.name.clone(),
             description: u.summary.clone(),
+            detected_in: u.detected_in.clone(),
         })
         .collect();
-    let mcp = crate::mcp::read_mcp_servers(repo_root)?
+    // Managed MCP (from source) carry detected_in: None …
+    let mut mcp: Vec<McpRef> = crate::mcp::read_mcp_servers(repo_root)?
         .into_iter()
         .map(|(name, s)| McpRef {
             description: s.description.clone(),
             transport: s.transport_kind(),
             name,
+            detected_in: None,
+        })
+        .collect();
+    // … plus detected MCP from list_context (avoids double-counting managed ones).
+    for u in units.iter().filter(|u| u.kind == crate::ContextKind::Mcp && u.detected_in.is_some()) {
+        mcp.push(McpRef {
+            name: u.name.clone(),
+            description: u.summary.clone(),
+            transport: "detected".into(),
+            detected_in: u.detected_in.clone(),
+        });
+    }
+    let detected_skills = units
+        .iter()
+        .filter(|u| u.kind == crate::ContextKind::Skill && u.detected_in.is_some())
+        .map(|u| DetectedSkillRef {
+            name: u.name.clone(),
+            detected_in: u.detected_in.clone().unwrap_or_default(),
         })
         .collect();
     let specs = crate::kind::read_specs(repo_root)?
@@ -237,6 +268,7 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
         mcp,
         specs,
         memory,
+        detected_skills,
     })
 }
 
@@ -306,6 +338,92 @@ pub fn uninstall_skill(repo_root: &Path, name: &str) -> Result<(), CanonError> {
     write_manifest(repo_root, &manifest)?;
     write_lock(repo_root, &manifest)?;
     project(repo_root)
+}
+
+/// Bring a DETECTED (foreign) item into Canon's source so it becomes managed.
+/// Reuses the same install pipelines as registry/local installs, then removes
+/// the foreign un-prefixed skill dir so `<name>` and `canon-<name>` don't both
+/// shadow the executor. Agents/commands project back to the same path they were
+/// found at, so nothing duplicates. Errors if the item isn't currently foreign.
+pub fn adopt(repo_root: &Path, kind: ContextKind, name: &str) -> Result<(), CanonError> {
+    // Foreign items (e.g. an MCP server named `Context7`, a skill `MySkill`)
+    // may carry names `valid_pkg_name` rejects (uppercase, etc). Normalize to
+    // a slug for the Canon-side name; the ORIGINAL `name` is still used to
+    // locate and read the foreign item below.
+    let slug = crate::compile::slugify(name);
+    if slug.is_empty() {
+        return Err(CanonError::InvalidPackage(format!(
+            "cannot derive a valid name from {name:?}"
+        )));
+    }
+    let renamed = slug != name;
+
+    let unit = crate::scan_detected(repo_root)?
+        .into_iter()
+        .find(|u| u.kind == kind && u.name == name)
+        .ok_or_else(|| CanonError::InvalidPackage(format!("not a detected {kind:?}: {name}")))?;
+    let base = unit
+        .detected_in
+        .ok_or_else(|| CanonError::InvalidPackage("detected unit missing path".into()))?;
+
+    match kind {
+        ContextKind::Agent | ContextKind::Command => {
+            let src = repo_root.join(&base).join(format!("{name}.md"));
+            let content = std::fs::read_to_string(&src)?;
+            install_unit(repo_root, kind, &slug, &content)?; // writes source + projects
+            if renamed {
+                // The foreign `<name>.md` was not overwritten in place by the
+                // `<slug>.md` projection — remove it from every dir for this kind.
+                let dirs: &[&str] = if kind == ContextKind::Agent {
+                    crate::project::AGENT_DIRS
+                } else {
+                    crate::project::COMMAND_DIRS
+                };
+                for d in dirs {
+                    let f = repo_root.join(d).join(format!("{name}.md"));
+                    if f.exists() {
+                        std::fs::remove_file(&f)?;
+                    }
+                }
+            }
+        }
+        ContextKind::Mcp => {
+            let json = crate::mcp::read_executor_mcp(repo_root, name)?; // raw executor .mcp.json entry
+            install_unit(repo_root, ContextKind::Mcp, &slug, &json)?;
+            // Remove the foreign un-prefixed dup (the ORIGINAL key) so `<name>`
+            // and `canon-<slug>` don't both shadow the executor (mirrors the
+            // Skill arm below).
+            crate::mcp::remove_executor_mcp_key(repo_root, name)?;
+        }
+        ContextKind::Skill => {
+            let foreign = repo_root.join(&base).join(name);
+            // Force skill.toml's name to the slug so install_from_dir writes
+            // canon-<slug> (preserve version if present; hand-installed skills
+            // may lack skill.toml entirely).
+            let toml_path = foreign.join("skill.toml");
+            let version = if toml_path.exists() {
+                toml::from_str::<SkillManifest>(&std::fs::read_to_string(&toml_path)?)
+                    .map(|m| m.version)
+                    .unwrap_or_else(|_| "0.0.0".to_string())
+            } else {
+                "0.0.0".to_string()
+            };
+            std::fs::write(&toml_path, format!("name = \"{slug}\"\nversion = \"{version}\"\n"))?;
+            install_from_dir(repo_root, &foreign, "detected")?; // copies + manifest + project
+            // Remove the foreign un-prefixed dup in every skill dir.
+            for sdir in SKILL_DIRS {
+                let dup = repo_root.join(sdir).join(name);
+                if dup.exists() {
+                    std::fs::remove_dir_all(&dup)?;
+                }
+            }
+            project(repo_root)?;
+        }
+        ContextKind::Context | ContextKind::Spec | ContextKind::Memory => {
+            return Err(CanonError::InvalidPackage(format!("{kind:?} is not adoptable")));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -528,6 +646,21 @@ mod tests {
     }
 
     #[test]
+    fn status_reports_detected_agent_and_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".claude/agents")).unwrap();
+        std::fs::write(root.join(".claude/agents/foo.md"), "---\nname: foo\n---\nb\n").unwrap();
+        std::fs::create_dir_all(root.join(".claude/skills/kyc")).unwrap();
+        std::fs::write(root.join(".claude/skills/kyc/SKILL.md"), "---\nname: kyc\n---\nb\n").unwrap();
+
+        let st = status(root).unwrap();
+        let foo = st.agents.iter().find(|a| a.name == "foo").expect("detected agent listed");
+        assert_eq!(foo.detected_in.as_deref(), Some(".claude/agents"));
+        assert!(st.detected_skills.iter().any(|s| s.name == "kyc"), "detected skill listed");
+    }
+
+    #[test]
     fn content_version_is_short_stable_hex() {
         let v = content_version("hello");
         assert_eq!(v.len(), 12);
@@ -594,5 +727,92 @@ mod tests {
     fn uninstall_skill_rejects_bad_name() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(uninstall_skill(tmp.path(), "../escape").is_err());
+    }
+
+    #[test]
+    fn adopt_agent_moves_into_source_and_clears_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".claude/agents")).unwrap();
+        std::fs::write(root.join(".claude/agents/foo.md"), "---\nname: foo\n---\nbody\n").unwrap();
+
+        // Before: foo is detected.
+        assert!(crate::scan_detected(root).unwrap().iter().any(|u| u.name == "foo"));
+
+        crate::adopt(root, crate::ContextKind::Agent, "foo").unwrap();
+
+        // After: source exists, foo no longer detected (it has a source now).
+        assert!(root.join(".covenant/canon/agents/foo.md").exists(), "copied into source");
+        assert!(crate::scan_detected(root).unwrap().iter().all(|u| u.name != "foo"), "no longer foreign");
+    }
+
+    #[test]
+    fn adopt_skill_installs_and_removes_foreign_dup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".claude/skills/kyc")).unwrap();
+        std::fs::write(
+            root.join(".claude/skills/kyc/SKILL.md"),
+            "---\nname: kyc\ndescription: KYC\n---\nbody\n",
+        )
+        .unwrap();
+
+        crate::adopt(root, crate::ContextKind::Skill, "kyc").unwrap();
+
+        assert!(root.join(".covenant/canon/skills/kyc/SKILL.md").exists(), "in canon source");
+        assert!(read_manifest(root).unwrap().installed.iter().any(|i| i.name == "kyc" && i.source == "detected"));
+        assert!(root.join(".claude/skills/canon-kyc/SKILL.md").exists(), "projected as canon-kyc");
+        assert!(!root.join(".claude/skills/kyc").exists(), "foreign un-prefixed dup removed");
+    }
+
+    #[test]
+    fn adopt_mcp_projects_canon_key_and_removes_foreign_dup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(
+            root.join(".mcp.json"),
+            r#"{"mcpServers":{"ctx7":{"command":"npx","description":"C7"}}}"#,
+        )
+        .unwrap();
+        // sanity: detected before adopt
+        assert!(crate::scan_detected(root).unwrap().iter().any(|u| u.name == "ctx7"));
+
+        crate::adopt(root, crate::ContextKind::Mcp, "ctx7").unwrap();
+
+        // Canon source now owns it.
+        assert!(root.join(".covenant/canon/mcp/ctx7.json").exists(), "canon source written");
+        // Executor config has canon-ctx7 and NOT the stale foreign ctx7.
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap()).unwrap();
+        let servers = v.get("mcpServers").and_then(|m| m.as_object()).unwrap();
+        assert!(servers.contains_key("canon-ctx7"), "projected as canon-ctx7");
+        assert!(!servers.contains_key("ctx7"), "stale foreign key removed");
+    }
+
+    #[test]
+    fn adopt_agent_slugifies_uppercase_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".claude/agents")).unwrap();
+        std::fs::write(root.join(".claude/agents/MyAgent.md"), "---\nname: MyAgent\n---\nb\n").unwrap();
+        crate::adopt(root, crate::ContextKind::Agent, "MyAgent").unwrap();
+        // slugify() kebabs on punctuation/whitespace boundaries only (not
+        // camelCase transitions) — "MyAgent" -> "myagent", still != "MyAgent".
+        assert!(root.join(".covenant/canon/agents/myagent.md").exists(), "written under slug");
+        assert!(!root.join(".claude/agents/MyAgent.md").exists(), "foreign uppercase file removed");
+        assert!(crate::scan_detected(root).unwrap().iter().all(|u| u.name != "MyAgent"), "no longer detected");
+    }
+
+    #[test]
+    fn adopt_mcp_slugifies_uppercase_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join(".mcp.json"), r#"{"mcpServers":{"Context7":{"command":"npx"}}}"#).unwrap();
+        crate::adopt(root, crate::ContextKind::Mcp, "Context7").unwrap();
+        assert!(root.join(".covenant/canon/mcp/context7.json").exists(), "canon source under slug");
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap()).unwrap();
+        let servers = v.get("mcpServers").and_then(|m| m.as_object()).unwrap();
+        assert!(servers.contains_key("canon-context7"), "projected as canon-context7");
+        assert!(!servers.contains_key("Context7"), "original uppercase key removed");
     }
 }
