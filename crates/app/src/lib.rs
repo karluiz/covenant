@@ -114,6 +114,12 @@ mod traffic_lights {
     pub const INSET_X: f64 = 14.0;
     pub const INSET_Y: f64 = 17.0;
 
+    /// Distance from the window's top edge to the traffic lights' vertical
+    /// center: 28px icon buttons centered in the 38px `#app-titlebar`. Pinned
+    /// as a center, not a top inset, so the button's own height never enters
+    /// the math — the visible circle is 14pt but the NSButton frame is taller.
+    pub const CENTER_Y: f64 = 19.0;
+
     #[repr(C)]
     #[derive(Clone, Copy)]
     struct CGPoint {
@@ -175,11 +181,21 @@ mod traffic_lights {
 
         let mini_rect: CGRect = msg_send![mini, frame];
         let space_between = mini_rect.origin.x - close_rect.origin.x;
+        let nil_view: *mut AnyObject = std::ptr::null_mut();
         for (i, button) in [close, mini, zoom].into_iter().enumerate() {
             let cur: CGRect = msg_send![button, frame];
+            // Pin y, don't inherit it: macOS resets the buttons' y along with
+            // their x, and a heal that only writes x (as this did through
+            // v0.9.33) cements that reset forever — the retry ladder just
+            // re-applies the wrong y five times. Measure the button's current
+            // center in window coords (unflipped, origin bottom-left) and
+            // correct by the delta. Self-correcting whatever the intermediate
+            // view's geometry is, and a no-op once already correct.
+            let in_win: CGRect = msg_send![sv1, convertRect: cur, toView: nil_view];
+            let center_gap = win_frame.size.height - (in_win.origin.y + in_win.size.height / 2.0);
             let origin = CGPoint {
                 x: INSET_X + (i as f64) * space_between,
-                y: cur.origin.y,
+                y: cur.origin.y + (center_gap - CENTER_Y),
             };
             let _: () = msg_send![button, setFrameOrigin: origin];
         }
