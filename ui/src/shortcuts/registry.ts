@@ -47,6 +47,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Panels", keys: ["mod", "shift", "J"], label: "Project notes", description: "Open the per-group project notes panel (Jot)." },
   { category: "Panels", keys: ["mod", "shift", "N"], label: "Notch overlay", description: "Toggle the floating executor-status notch (global shortcut; works app-unfocused)." },
   { category: "Panels", keys: ["mod", "shift", "I"], label: "Capabilities", description: "Browse Skills / Commands / Hooks / MCPs across Claude, Copilot, opencode, Shared." },
+  { category: "Panels", keys: ["mod", "alt", "C"], label: "Canon cockpit", description: "Open the Canon cockpit for the active group — Subagents, Commands, MCP, Specs, Memory, Skills, Registry." },
   { category: "Panels", keys: ["mod", "shift", "P"], label: "Workspace picker", description: "Toggle the workspace switcher popover: pick, rename, duplicate, recolor, delete." },
   { category: "Panels", keys: ["mod", "shift", "V"], label: "Release log", description: "Open version history / release notes." },
   { category: "Tabs", keys: ["mod", "alt", "shift", "P"], label: "New Pi tab", description: "Create a permanent Pi RPC tab in the tabbar." },

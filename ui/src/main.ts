@@ -1626,6 +1626,33 @@ async function boot(): Promise<void> {
     }).mount(document.body);
   }
 
+  /** Open the Canon cockpit straight to full-screen for the active group,
+   *  skipping the rail (⌘⌥C). Toggles: a second press closes it. Standalone —
+   *  the cockpit is self-contained (its own data + body.canon-cockpit-open),
+   *  so no rail needs to be mounted underneath. */
+  function toggleCanonCockpit(): void {
+    const existing = document.querySelector<HTMLElement>(".canon-cockpit");
+    if (existing) {
+      existing.querySelector<HTMLButtonElement>(".canon-cockpit-close")?.click();
+      return;
+    }
+    const g = manager.activeGroup();
+    if (!g) return;
+    void canonMyOrgs().then((o) => o as Org[] | null).catch(() => null).then((orgsOrNull) => {
+      new CanonCockpitView({
+        groupId: g.id,
+        groupLabel: g.name,
+        groupRootDir: manager.groupRootDirFor(g.id),
+        orgs: orgsOrNull ?? [],
+        orgsFetched: orgsOrNull !== null,
+        getActiveOrg: () => manager.groupCanonOrg(g.id),
+        setActiveOrg: (slug) => manager.setGroupCanonOrg(g.id, slug),
+        onNewContext: () => launchContextMiner(g.id, g.name),
+        onClose: () => activeCanonPanel?.close(),
+      }).open();
+    });
+  }
+
   void listen<{ repoRoot: string; slug: string; title: string }>("draft:saved", (e) => {
     const { repoRoot, slug, title } = e.payload;
     if (activeProjectNotesPanel) {
@@ -2446,6 +2473,14 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "m" || e.key === "M" || e.key === "µ")) {
       e.preventDefault();
       if (pulseSurface.isOpen) { pulseSurface.close(); } else { pulseSurface.open(); }
+      return;
+    }
+    // ⌘⌥C → Canon cockpit for the active group (full-screen, skips the rail).
+    // "ç" is what ⌥C produces on macOS keyboards — match it alongside the
+    // plain letter (same pattern as the ⌘⌥R "®" / ⌘⌥M "µ" handlers).
+    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C" || e.key === "ç" || e.key === "Ç")) {
+      e.preventDefault();
+      toggleCanonCockpit();
       return;
     }
     // ⌘⇧G → create a new empty tab group (no member tab needed).
