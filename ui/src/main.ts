@@ -19,6 +19,7 @@ import { getVersion } from "@tauri-apps/api/app";
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { exit } from "@tauri-apps/plugin-process";
 import { EditorView } from "@codemirror/view";
 import { selectAll as cmSelectAll, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
 
@@ -52,7 +53,7 @@ import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
 import { MissionPage } from "./mission/page";
-import { pushInfoToast, setSharedToastHost, ToastHost } from "./notifications/toast";
+import { pushConfirmToast, pushInfoToast, setSharedToastHost, ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
 import { ReleasePanel } from "./release/panel";
@@ -1103,6 +1104,18 @@ async function boot(): Promise<void> {
   });
   void listen("menu://new-tab", () => {
     void manager.createTab();
+  });
+  // ⌘Q / red-X / dock → Quit are intercepted in Rust (RunEvent::ExitRequested,
+  // prevent_exit) so the user can't kill the terminal by a fat-fingered ⌘Q.
+  // Confirm here; on Quit, exit(0) does a programmatic exit (code = Some),
+  // which the Rust guard lets through.
+  void listen("menu://quit-request", () => {
+    pushConfirmToast({
+      message: "Quit Covenant? Running terminals and operators will stop.",
+      confirmLabel: "Quit",
+      cancelLabel: "Cancel",
+      onConfirm: () => void exit(0),
+    });
   });
   // ⌘A is bound to the Edit → Select All menu item, which fires here
   // instead of WebKit's native selectAll: (that one selects the page DOM

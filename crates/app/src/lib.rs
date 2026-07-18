@@ -5565,18 +5565,32 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, _event| {
+        .run(|app, event| {
             // Finder "Open With" / double-click on an associated file
             // (e.g. .md). Fires both cold and warm; the pending queue
             // absorbs the cold case.
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = _event {
+            if let tauri::RunEvent::Opened { urls } = &event {
                 let paths: Vec<String> = urls
                     .iter()
                     .filter_map(|u| u.to_file_path().ok())
                     .map(|p| p.to_string_lossy().into_owned())
                     .collect();
-                cli_open::queue_and_notify(_app, paths);
+                cli_open::queue_and_notify(app, paths);
+            }
+
+            // Confirm-before-quit. User-initiated exit (⌘Q, red traffic
+            // light on the last window, dock → Quit) arrives with
+            // `code = None`; we veto it and ask the webview to raise a
+            // confirmation toast. When the user confirms, the frontend calls
+            // `process.exit(0)`, which re-enters here with `code = Some(0)`
+            // and passes straight through. No guard flag needed — the code
+            // field distinguishes the two.
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
+                if code.is_none() {
+                    api.prevent_exit();
+                    let _ = app.emit("menu://quit-request", ());
+                }
             }
         });
 }

@@ -2478,6 +2478,50 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
     background: var(--border);
 }
 
+/* Confirm toast: message + Cancel/Quit, no auto-dismiss, not click-through. */
+.toast.toast-confirm {
+    cursor: default;
+}
+
+.toast-confirm-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+}
+
+.toast-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.toast-btn {
+    font: inherit;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 0;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.toast-btn:hover {
+    color: #fff;
+    border-color: var(--muted);
+}
+
+.toast-btn-confirm {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.toast-btn-confirm:hover {
+    background: var(--accent);
+    color: #fff;
+}
+
 /* (.tab-operator-dot lives in the tab-btn block above) */
 
 /* ─── Operator (⌘O) page ───────────────────────────── */
@@ -15719,6 +15763,13 @@ body.theme-light .toast-close {
 body.theme-light .toast-close:hover {
     color: var(--text-primary);
     background: rgba(0, 0, 0, 0.06);
+}
+body.theme-light .toast-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--muted);
+}
+body.theme-light .toast-btn-confirm:hover {
+    color: #fff;
 }
 
 /* ── Status bar: muted token reads fine but its `--fg` default
