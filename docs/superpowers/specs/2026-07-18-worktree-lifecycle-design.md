@@ -53,13 +53,20 @@ Five states, derived — never stored. Each has exactly one default action. The
 one-action rule is the accessibility requirement: the user accepts a verdict,
 they never choose a git command.
 
+Four lifecycle states, mutually exclusive:
+
 | State | Derived from | Action | Count today |
 |---|---|---|---|
 | `Active` | Uncommitted changes, or commits ahead of the default branch, or a live tab attached | Open | 2 |
 | `Stale` | Unmerged and clean, no commit in 14 days | Decide | 4 |
 | `Spent` | Branch merged into the default branch, working tree clean | Reclaim | 17 |
 | `Orphan` | Registered in git, path missing from disk | Prune | 0 |
-| `OffConvention` | Path outside the canonical root, or nested inside another worktree | Relocate | 12 |
+
+Plus one orthogonal flag:
+
+| Flag | Derived from | Action when set | Count today |
+|---|---|---|---|
+| `off_convention` | Path outside the canonical root, or nested inside another worktree | Relocate | 12 |
 
 `OffConvention` is orthogonal to the other four — a worktree can be both `Spent`
 and `OffConvention`. It is carried as a separate boolean flag, not a sixth
