@@ -60,6 +60,7 @@ import {
   getProviderDescription,
   type ProviderHealth,
 } from "./provider-health";
+import { worktreeStateClass, worktreeStateLabel } from "./worktree-state";
 // TODO(task-17): integrate `renderOperatorChip` here once the LIVE
 // badge + colored-dot composition can be expressed via the shared
 // chip primitive. Today the status-bar operator chip carries a LIVE
@@ -976,9 +977,11 @@ export class StatusBar {
         const label = worktreeLabel(wt);
         const state = wt.current
           ? `<span class="status-git-pop-badge is-here">here</span>`
-          : wt.dirty_count > 0
-            ? `<span class="status-git-pop-badge is-dirty">${wt.dirty_count} changed</span>`
-            : `<span class="status-git-pop-badge is-clean">clean</span>`;
+          : `<span class="status-git-pop-badge ${worktreeStateClass(wt.state)}">${
+            wt.dirty_count > 0
+              ? `${wt.dirty_count} changed`
+              : escapeHtml(worktreeStateLabel(wt.state))
+          }</span>`;
         const action = wt.current
           ? ""
           : `<button type="button" class="status-git-pop-open-wt" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">Open tab</button>`;
@@ -986,7 +989,9 @@ export class StatusBar {
           <div class="status-git-pop-row status-git-pop-worktree${wt.current ? " is-current" : ""}">
             <span class="status-git-pop-row-main">
               <span class="status-git-pop-row-name">${escapeHtml(label)}</span>
-              <span class="status-git-pop-row-meta">${escapeHtml(compactPath(wt.path))}</span>
+              <span class="status-git-pop-row-meta">${escapeHtml(compactPath(wt.path))}${
+                wt.off_convention ? ` <span class="status-git-pop-wt-exile">off-convention</span>` : ""
+              }</span>
             </span>
             ${state}
             ${action}

@@ -6729,7 +6729,11 @@ body.theme-light .status-git-popover {
 .status-git-pop-dirty::before,
 .status-git-pop-badge.is-clean::before,
 .status-git-pop-badge.is-dirty::before,
-.status-git-pop-badge.is-here::before {
+.status-git-pop-badge.is-here::before,
+.status-git-pop-wt-active::before,
+.status-git-pop-wt-stale::before,
+.status-git-pop-wt-spent::before,
+.status-git-pop-wt-orphan::before {
     content: "";
     width: 6px;
     height: 6px;
@@ -6745,6 +6749,21 @@ body.theme-light .status-git-popover {
 .status-git-pop-badge.is-dirty::before { background: var(--running); }
 .status-git-pop-badge.is-here { color: var(--accent); }
 .status-git-pop-badge.is-here::before { background: var(--accent); }
+.status-git-pop-wt-active { color: var(--ok); }
+.status-git-pop-wt-active::before { background: var(--ok); }
+.status-git-pop-wt-stale { color: var(--running); }
+.status-git-pop-wt-stale::before { background: var(--running); }
+/* Spent reads as inert, not healthy — it is the thing you are meant to delete. */
+.status-git-pop-wt-spent { color: var(--muted); }
+.status-git-pop-wt-spent::before { background: var(--muted); }
+.status-git-pop-wt-orphan { color: var(--danger); }
+.status-git-pop-wt-orphan::before { background: var(--danger); }
+.status-git-pop-wt-exile {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.85em;
+}
 .status-git-pop-root {
     color: var(--muted);
     font-family: ui-monospace, "SF Mono", Menlo, monospace;

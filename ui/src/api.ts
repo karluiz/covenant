@@ -1365,6 +1365,14 @@ export interface GitWorktreeSummary {
   detached: boolean;
   bare: boolean;
   dirty_count: number;
+  state: "active" | "stale" | "spent" | "orphan";
+  merged: boolean;
+  last_commit_unix: number | null;
+  off_convention: boolean;
+}
+
+export async function worktreeSizes(paths: string[]): Promise<Array<[string, number]>> {
+  return invoke<Array<[string, number]>>("worktree_sizes", { paths });
 }
 
 export interface GitRepoSummary {
