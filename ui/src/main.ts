@@ -2475,10 +2475,12 @@ async function boot(): Promise<void> {
       if (pulseSurface.isOpen) { pulseSurface.close(); } else { pulseSurface.open(); }
       return;
     }
-    // ⌘⌥C → Canon cockpit for the active group (full-screen, skips the rail).
-    // "ç" is what ⌥C produces on macOS keyboards — match it alongside the
-    // plain letter (same pattern as the ⌘⌥R "®" / ⌘⌥M "µ" handlers).
-    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C" || e.key === "ç" || e.key === "Ç")) {
+    // Canon cockpit for the active group (full-screen, skips the rail):
+    // ⌘⌥C on macOS, Ctrl+Alt+C elsewhere — modHeld() resolves the primary
+    // modifier per platform (never hardcode e.metaKey; that's mac-only). The
+    // three-key chord is safe to intercept off macOS (plain Ctrl+C stays the
+    // shell's). "ç" is what ⌥C emits on macOS; "c"/"C" covers Ctrl+Alt+C.
+    if (modHeld(e) && e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C" || e.key === "ç" || e.key === "Ç")) {
       e.preventDefault();
       toggleCanonCockpit();
       return;
