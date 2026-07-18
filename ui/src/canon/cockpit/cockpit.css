@@ -115,9 +115,9 @@ body.tabbar-left .canon-cockpit {
   border-bottom: 1px solid var(--border);
 }
 /* Reserve room at the top-right for the absolute `esc` pill so a header
-   action (Skills "+ Add", Context "New context") sits clearly to its left,
-   both visible with a comfortable gap (measured ~26px at default width). */
-.canon-cockpit-sec-head:has(.canon-sec-head-action) { padding-right: 88px; }
+   action (Skills "+ Add", Context "New context") sits just to its left —
+   ~12px gap between the two (pill is right:12 + ~50px wide). */
+.canon-cockpit-sec-head:has(.canon-sec-head-action) { padding-right: 74px; }
 .canon-cockpit-sec-text { min-width: 0; }
 .canon-cockpit-sec-title {
   margin: 0 0 3px;
@@ -449,14 +449,16 @@ body.tabbar-left .canon-cockpit {
 .canon-toolbar .canon-filter::placeholder { color: var(--muted, #6c7280); }
 .canon-filter-none { margin-top: 8px; }
 
-/* Header "Add" button (Skills) carries an icon + label — align them.
-   Pull it up onto the esc pill's line: the pill is fixed at top:10 while
-   this button inherits the header's 20px padding-top, so -10px levels the
-   two into one [ Add ] [ esc ] row. */
+/* Header "Add" button (Skills) — matched to the esc pill for one clean
+   [ Add ] [ esc ] row: same 26px height, and pulled up 10px onto the pill's
+   line (pill sits at top:10; this button inherits the header's 20px
+   padding-top). */
 .canon-cockpit-sec-head .canon-sec-head-action {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  height: 26px;
+  padding: 0 12px;
   margin-top: -10px;
 }
 .canon-cockpit-sec-head .canon-sec-head-action svg { display: block; }
