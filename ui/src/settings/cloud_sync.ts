@@ -4,17 +4,14 @@ import {
 } from "../api";
 
 const CATS: { key: keyof CloudSyncConfig; label: string; sub?: string }[] = [
-  { key: "workspaces", label: "Workspaces" },
-  { key: "operators", label: "Operators", sub: "Includes drafts not yet published to Canon" },
-  { key: "specs", label: "Specs", sub: "Includes drafts not yet published to Canon" },
+  { key: "workspaces", label: "Workspaces", sub: "Tabs, tab groups, and workspace layout" },
   { key: "preferences", label: "Preferences" },
 ];
 
 export function mountCloudSyncSection(root: HTMLElement): void {
   root.innerHTML = `
     <p class="settings-help cloud-help">Restore your whole setup on a new machine.
-      Canon holds what you <em>publish</em>; this backs up everything else — open
-      workspaces, operator &amp; spec drafts, and preferences.
+      Syncs your workspaces (tabs &amp; groups) and preferences.
       <strong>API keys and tokens are never uploaded.</strong></p>
 
     <div class="cloud-account" data-account hidden></div>
@@ -65,8 +62,6 @@ export function mountCloudSyncSection(root: HTMLElement): void {
   const readCfg = (): CloudSyncConfig => ({
     enabled: (root.querySelector('[data-k="enabled"]') as HTMLInputElement).checked,
     workspaces: (root.querySelector('[data-k="workspaces"]') as HTMLInputElement).checked,
-    operators: (root.querySelector('[data-k="operators"]') as HTMLInputElement).checked,
-    specs: (root.querySelector('[data-k="specs"]') as HTMLInputElement).checked,
     preferences: (root.querySelector('[data-k="preferences"]') as HTMLInputElement).checked,
   });
 
@@ -111,20 +106,17 @@ export function mountCloudSyncSection(root: HTMLElement): void {
 
   root.querySelector('[data-act="restore"]')?.addEventListener("click", async () => {
     const ok = window.confirm(
-      "Restore from cloud?\n\n• Workspaces will be REPLACED.\n• Operators and specs will be merged (no deletions).\n• Preferences will be merged; your local API keys are kept.",
+      "Restore from cloud?\n\n• Workspaces (tabs & groups) will be REPLACED.\n• Preferences will be merged; your local API keys are kept.",
     );
     if (!ok) return;
     setStatus("Restoring…", "busy");
     try {
       const sum = await cloudSyncRestore();
       const parts = [
-        `${sum.operators} operators`,
-        `${sum.specs} specs`,
         ...(sum.workspaces ? ["workspaces"] : []),
         ...(sum.preferences ? ["preferences"] : []),
       ];
-      const skippedNote = sum.skipped > 0 ? ` · ${sum.skipped} skipped (conflict)` : "";
-      setStatus(`Restored — ${parts.join(", ")}${skippedNote}`, "ok");
+      setStatus(`Restored — ${parts.join(", ")}`, "ok");
     } catch (e) { setStatus(String(e), "err"); }
   });
 

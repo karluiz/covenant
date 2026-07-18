@@ -39,7 +39,6 @@ import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
 import { openOperatorModal, wireOperatorModal, renderOperatorList } from "../../operator/creator";
 import { operatorsForOrg, isStaleOrg } from "../../operator/org-filter";
-import { scheduleCloudPush } from "../../settings/cloud_push";
 import { pushInfoToast } from "../../notifications/toast";
 import { suffixSoulName } from "../../settings/marketplace_install";
 import { Icons } from "../../icons";
@@ -718,7 +717,6 @@ export class CanonCockpitView {
       // and clears any pane.operator pointer; the status bar re-renders
       // without the dangling avatar.
       window.dispatchEvent(new CustomEvent("operator:deleted", { detail: { id: op.id } }));
-      scheduleCloudPush();
       pushInfoToast({ message: `Deleted operator: ${op.name}` });
       this.showSection("operators");
     } catch (e) {

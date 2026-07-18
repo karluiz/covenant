@@ -3328,8 +3328,6 @@ export const favorites = {
 export interface CloudSyncConfig {
   enabled: boolean;
   workspaces: boolean;
-  operators: boolean;
-  specs: boolean;
   preferences: boolean;
 }
 
@@ -3341,10 +3339,7 @@ export interface CloudSyncStatus extends CloudSyncConfig {
 
 export interface CloudApplySummary {
   workspaces: boolean;
-  operators: number;
-  specs: number;
   preferences: boolean;
-  skipped: number;
 }
 
 export async function cloudSyncStatus(): Promise<CloudSyncStatus> {

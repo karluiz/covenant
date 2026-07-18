@@ -450,8 +450,6 @@ pub struct TelegramTabOverride {
 pub struct CloudSyncConfig {
     pub enabled: bool,
     pub workspaces: bool,
-    pub operators: bool,
-    pub specs: bool,
     pub preferences: bool,
 }
 
@@ -460,8 +458,6 @@ impl Default for CloudSyncConfig {
         Self {
             enabled: false,
             workspaces: true,
-            operators: true,
-            specs: true,
             preferences: true,
         }
     }
