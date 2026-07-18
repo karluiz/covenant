@@ -869,13 +869,7 @@ async function boot(): Promise<void> {
 
   if (projectNotesBtn) {
     projectNotesBtn.innerHTML = Icons.clipboard({ size: 14 });
-    attachTooltip(projectNotesBtn, "Project notes");
-    // Notes are per-group; the button is disabled on ungrouped tabs (see
-    // syncProjectNotesAvail). Guard the handler too so a stray click can't
-    // drop the user onto the Blocks rail behind the unmountable overlay.
-    projectNotesBtn.addEventListener("click", () => {
-      if (manager.activeGroup()) rail.toggle("notes");
-    });
+    // Tooltip + click + per-group gating wired in the perGroupButtons block.
   }
   if (teammateBtn) {
     teammateBtn.innerHTML = Icons.messageCircle({ size: 14 });
@@ -1002,8 +996,7 @@ async function boot(): Promise<void> {
 
   if (canonBtn) {
     canonBtn.innerHTML = Icons.packageBox({ size: 14 });
-    attachTooltip(canonBtn, `Canon (${formatChord(["mod", "shift", "L"])})`);
-    canonBtn.addEventListener("click", () => rail.toggle("canon"));
+    // Tooltip + click + per-group gating wired in the perGroupButtons block.
   }
 
   // Internal-browser globe launcher — gated by `experimental.internal_browser`.
@@ -1418,18 +1411,40 @@ async function boot(): Promise<void> {
   manager.onAnyTabContextChange = (cwd) => {
     if (cwd) void ensureDetectorForRepo(cwd);
   };
-  // Project Notes is a per-group surface — dim + disable the titlebar button
-  // when the active tab isn't in a group, so a click can't silently drop the
-  // user onto the Blocks rail behind the (unmountable) notes overlay. Native
-  // `[disabled]` reuses the existing `.titlebar-icon-btn:disabled` dim style.
-  const syncProjectNotesAvail = (): void => {
-    projectNotesBtn?.toggleAttribute("disabled", manager.activeGroup() === null);
+  // ── Per-group titlebar gating ──────────────────────────────────────
+  // Canon and Project Notes mount per tab group; with no active group their
+  // panels can't open — Canon used to fall THROUGH to the Blocks rail, which
+  // read as a bug. Instead, make the requirement legible: dim the button,
+  // spell it out in the tooltip, and toast the reason on a click. Native
+  // `[disabled]` suppresses hover + click (no tooltip, no toast), so we dim
+  // via a class and keep the button interactive.
+  const GROUP_REQ_HINT = "Open or create a tab first — this panel is scoped to a tab group.";
+  const perGroupButtons: Array<{ btn: HTMLElement | null; label: string; enabledTip: string; target: RailTarget }> = [
+    { btn: projectNotesBtn, label: "Project notes", enabledTip: "Project notes", target: "notes" },
+    { btn: canonBtn, label: "Canon", enabledTip: `Canon (${formatChord(["mod", "shift", "L"])})`, target: "canon" },
+  ];
+  const gatedTipDetach = new Map<HTMLElement, () => void>();
+  const syncPerGroupButtons = (): void => {
+    const noGroup = manager.activeGroup() === null;
+    for (const b of perGroupButtons) {
+      if (!b.btn) continue;
+      b.btn.classList.toggle("titlebar-icon-btn--gated", noGroup);
+      b.btn.setAttribute("aria-disabled", String(noGroup));
+      gatedTipDetach.get(b.btn)?.(); // re-attach so the text tracks the state
+      gatedTipDetach.set(b.btn, attachTooltip(b.btn, noGroup ? { title: b.label, hint: GROUP_REQ_HINT } : b.enabledTip));
+    }
   };
-  syncProjectNotesAvail();
+  for (const b of perGroupButtons) {
+    b.btn?.addEventListener("click", () => {
+      if (manager.activeGroup()) { rail.toggle(b.target); return; }
+      pushInfoToast({ message: `${b.label} — ${GROUP_REQ_HINT}` });
+    });
+  }
+  syncPerGroupButtons();
   manager.onActiveTabChange = (info) => {
     statusBar.setActiveTab(info);
     syncBrowserActive();
-    syncProjectNotesAvail();
+    syncPerGroupButtons();
   };
   // Tell the vitals aggregator which session's snapshot should drive
   // the status-bar cluster. Other sessions' summariser / fix-proposer
@@ -1637,7 +1652,7 @@ async function boot(): Promise<void> {
       return;
     }
     const g = manager.activeGroup();
-    if (!g) return;
+    if (!g) { pushInfoToast({ message: `Canon — ${GROUP_REQ_HINT}` }); return; }
     void canonMyOrgs().then((o) => o as Org[] | null).catch(() => null).then((orgsOrNull) => {
       new CanonCockpitView({
         groupId: g.id,
@@ -1686,11 +1701,10 @@ async function boot(): Promise<void> {
     // ⌘⇧L — open Canon panel for the active group.
     // (⌘⇧K is taken by the Shortcuts modal.)
     if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "l" || e.key === "L")) {
+      e.preventDefault();
       const g = manager.activeGroup();
-      if (g) {
-        e.preventDefault();
-        requestCanon(g.id, g.name, g.color ?? null);
-      }
+      if (g) requestCanon(g.id, g.name, g.color ?? null);
+      else pushInfoToast({ message: `Canon — ${GROUP_REQ_HINT}` });
     }
   });
 

@@ -15025,6 +15025,10 @@ body.theme-light #workspace-switch-name {
     color: var(--text, #d5d9de);
 }
 .titlebar-icon-btn:disabled { opacity: 0.35; cursor: default; }
+/* Gated per-group buttons (Canon, Project Notes) when no tab group is active:
+   dimmed like :disabled, but still interactive — a click toasts what's
+   missing instead of silently no-opping. */
+.titlebar-icon-btn--gated { opacity: 0.35; }
 
 /* Zen icons (Settings → Appearance). Titlebar buttons fade out unless
    the pointer is over the titlebar or a button holds keyboard focus.
