@@ -47,3 +47,4 @@ crates/app/gen/schemas/
 scratch/
 .claire/
 .cargo/clean.log
+.covenant/
