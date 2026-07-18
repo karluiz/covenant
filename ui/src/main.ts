@@ -1692,11 +1692,10 @@ async function boot(): Promise<void> {
     // ⌘⇧J — open Project Notes panel for the active group.
     // (⌘⇧N is the Notch overlay global shortcut; ⌘M is the Mission picker.)
     if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "j" || e.key === "J")) {
+      e.preventDefault();
       const g = manager.activeGroup();
-      if (g) {
-        e.preventDefault();
-        requestProjectNotes(g.id, g.name, g.color ?? null);
-      }
+      if (g) requestProjectNotes(g.id, g.name, g.color ?? null);
+      else pushInfoToast({ message: `Project notes — ${GROUP_REQ_HINT}` });
     }
     // ⌘⇧L — open Canon panel for the active group.
     // (⌘⇧K is taken by the Shortcuts modal.)
@@ -2674,11 +2673,10 @@ async function boot(): Promise<void> {
     }
     // ⌘⇧D → open ProjectNotesPanel for the active group.
     if (e.metaKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
+      e.preventDefault();
       const g = manager.activeGroup();
-      if (g) {
-        e.preventDefault();
-        requestProjectNotes(g.id, g.name, g.color ?? null);
-      }
+      if (g) requestProjectNotes(g.id, g.name, g.color ?? null);
+      else pushInfoToast({ message: `Project notes — ${GROUP_REQ_HINT}` });
       return;
     }
     // ⌘? (Shift+/) and ⌘/ both toggle the in-app docs hub. Two
