@@ -115,8 +115,9 @@ body.tabbar-left .canon-cockpit {
   border-bottom: 1px solid var(--border);
 }
 /* Reserve room at the top-right for the absolute `esc` pill so a header
-   action (Skills "+ Add", Context "New context") never lands under it. */
-.canon-cockpit-sec-head:has(.canon-sec-head-action) { padding-right: 72px; }
+   action (Skills "+ Add", Context "New context") sits clearly to its left,
+   both visible with a comfortable gap (measured ~26px at default width). */
+.canon-cockpit-sec-head:has(.canon-sec-head-action) { padding-right: 88px; }
 .canon-cockpit-sec-text { min-width: 0; }
 .canon-cockpit-sec-title {
   margin: 0 0 3px;
