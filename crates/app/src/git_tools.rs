@@ -274,18 +274,31 @@ fn status_count(cwd: &Path) -> Result<u32, String> {
     Ok(text.lines().filter(|l| !l.trim().is_empty()).count() as u32)
 }
 
-/// Resolves the repo's default branch: origin's HEAD, else `main`, else `master`.
+/// Resolves the repo's default branch: origin's HEAD (verified to still exist
+/// locally), else `main`, else `master`, else whatever branch is currently
+/// checked out, else `main`.
 fn default_branch(cwd: &Path) -> String {
+    let resolves_locally =
+        |name: &str| git(cwd, &["rev-parse", "--verify", "--quiet", name]).is_ok();
+
     if let Ok(sym) = git(cwd, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
         if let Some(name) = sym.trim().rsplit('/').next() {
-            if !name.is_empty() {
+            // origin/HEAD can go stale after a remote default-branch rename;
+            // never trust it without confirming the branch still resolves.
+            if !name.is_empty() && resolves_locally(name) {
                 return name.to_string();
             }
         }
     }
     for candidate in ["main", "master"] {
-        if git(cwd, &["rev-parse", "--verify", "--quiet", candidate]).is_ok() {
+        if resolves_locally(candidate) {
             return candidate.to_string();
+        }
+    }
+    if let Ok(current) = git(cwd, &["branch", "--show-current"]) {
+        let current = current.trim();
+        if !current.is_empty() && resolves_locally(current) {
+            return current.to_string();
         }
     }
     "main".to_string()
@@ -814,7 +827,9 @@ mod tests {
 
     fn init_repo(dir: &std::path::Path) {
         use std::fs;
-        git_run(dir, &["init", "-q"]);
+        // Pin the initial branch name so tests don't inherit the machine's
+        // `init.defaultBranch` config (git >= 2.28 supports `-b`).
+        git_run(dir, &["init", "-q", "-b", "main"]);
         git_run(dir, &["config", "user.email", "t@t.t"]);
         git_run(dir, &["config", "user.name", "t"]);
         fs::write(dir.join("tracked.txt"), "one\ntwo\n").unwrap();
@@ -1227,6 +1242,51 @@ index e69de29..0cfbf08 100644
         // Unclassifiable must never be deletable.
         let s = derive_state(true, false, 0, false, None, 100 * DAY);
         assert_eq!(s, WorktreeState::Active);
+    }
+
+    #[test]
+    fn default_branch_falls_through_stale_origin_head() {
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir); // creates local branch "main"
+
+        // Simulate a stale origin/HEAD: the symref points at a branch name
+        // that does not (or no longer) exists locally, e.g. after the
+        // remote's default branch was renamed and origin/HEAD never resynced.
+        // `symbolic-ref` doesn't validate the target, so this is enough to
+        // reproduce a dangling origin/HEAD without a real remote.
+        git_run(
+            dir,
+            &[
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/gone",
+            ],
+        );
+
+        let resolved = default_branch(dir);
+        assert_ne!(resolved, "gone", "must not trust a dangling origin/HEAD");
+        assert!(
+            git_run_ok(dir, &["rev-parse", "--verify", "--quiet", &resolved]),
+            "default_branch must resolve to a branch that actually exists, got {resolved:?}"
+        );
+    }
+
+    fn git_run_ok(cwd: &std::path::Path, args: &[&str]) -> bool {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(cwd)
+            .args(args)
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false)
     }
 
     #[test]
