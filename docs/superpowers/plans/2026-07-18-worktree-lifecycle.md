@@ -1187,8 +1187,10 @@ Insert directly after the existing `.status-git-pop-open-wt` handler block (`ui/
         btn.disabled = false;
         // Never window.confirm: a native modal blocks the whole webview.
         pushConfirmToast({
+          // Toast messages render via textContent — do NOT escapeHtml here or
+          // the entities show up literally.
           message: `Delete ${paths.length} merged worktree(s)${detail}? Their branches are already in ${
-            escapeHtml(summary.current_branch ?? "the default branch")
+            summary.current_branch ?? "the default branch"
           }.`,
           confirmLabel: "Reclaim",
           onConfirm: () => {
