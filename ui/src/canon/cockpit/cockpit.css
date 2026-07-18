@@ -444,6 +444,10 @@ body.tabbar-left .canon-cockpit {
 }
 .canon-toolbar .canon-filter {
   width: 100%;
+  /* content-box + width:100% + padding pushed the field's left edge ~12px
+     inward, so the toolbar-anchored search glyph poked out past the border.
+     border-box makes width:100% fill the toolbar exactly → glyph sits inside. */
+  box-sizing: border-box;
   padding-left: 30px; /* clears the search glyph; beats the shared input's 0 8px */
   /* The shared input border (--border, ~#1c2027) vanishes against the near-
      black pane above the box, so its top edge reads as "cut". Give the field
