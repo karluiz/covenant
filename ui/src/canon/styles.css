@@ -532,6 +532,29 @@ body.theme-true-dark .canon-row .rail-row-actions { background: #000; }
   background: var(--canon-lift-2);
 }
 
+/* Leading slot shared by every cockpit row: a kind glyph, or a mono index
+   for specs. Fixed 20px so name/meta line up down the list regardless of
+   which section is showing. */
+.canon-lead {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted, #6c7280);
+  transition: color 120ms;
+}
+.canon-lead svg { width: 15px; height: 15px; display: block; }
+.canon-skill-row:hover .canon-lead { color: var(--canon-accent, var(--accent, #7aa2f7)); }
+.canon-lead.canon-idx {
+  width: auto;
+  min-width: 30px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
 .canon-name {
   font-weight: 600;
   color: var(--text-primary, #f5f6f7);

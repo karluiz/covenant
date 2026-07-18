@@ -508,50 +508,25 @@ body.theme-true-dark.canon-cockpit-open {
   padding: 4px 6px;
 }
 
-/* ── Specs: ledger rows ──────────────────────────────────────────────
-   Same skillCard as Skills/Registry, stripped to a ruled row: the boxed
-   card chrome turns a numbered index into 26 stacked containers. The
-   dotted number is the anchor (mono, right-aligned, tabular so the
-   decimals line up), the title carries the row, actions reveal on hover.
+/* Unified rows: head actions (Preview/expand/Publish/Adopt/Uninstall) stay
+   hidden until the row is hovered or focused, so the list scans as name +
+   meta and only reveals controls on the row you're pointing at. */
+.canon-cockpit-section .canon-skill-row .canon-card-head button {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.canon-cockpit-section .canon-skill-row:hover .canon-card-head button,
+.canon-cockpit-section .canon-skill-row:focus-within .canon-card-head button {
+  opacity: 1;
+}
 
-   The doubled class is on purpose: the card chrome these rows undo is
-   `.canon-skill-row` in styles.css (same specificity, later in the bundle —
-   it would win the tie) plus the per-theme fills `body.theme-true-dark
-   .canon-skill-row` / `body.theme-light .canon-skill-row` at (0,2,1). This
-   selector is (0,3,0) — outranks all three, no import-order dependency. */
-.canon-cockpit-section .canon-spec-row.canon-spec-row {
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--canon-line);
-  box-shadow: none; /* True Dark's inset top edge belongs to cards, not rows */
-  margin-bottom: 0;
-  padding: 3px 8px 3px 0;
-}
-.canon-cockpit-section .canon-spec-row.canon-spec-row:hover {
-  background: var(--canon-lift-1);
-  border-color: var(--canon-line);
-}
-.canon-spec-row::before { display: none; } /* no accent edge — the number leads */
-.canon-spec-row .canon-name {
-  width: 52px;
-  flex-shrink: 0;
-  text-align: right;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--muted, #6c7280);
-}
-.canon-spec-row:hover .canon-name { color: var(--canon-accent, var(--accent, #7aa2f7)); }
+/* Specs share the row skeleton; a spec title is a sentence, not a token —
+   lift it out of the mono meta treatment into readable prose. */
 .canon-spec-row .canon-meta {
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary, #f5f6f7);
+  font-family: var(--ui-font, inherit);
+  font-size: 12.5px;
+  color: var(--text-secondary, #c9ccd1);
 }
-.canon-spec-row .canon-card-head button { opacity: 0; transition: opacity 120ms; }
-.canon-spec-row:hover .canon-card-head button,
-.canon-spec-row .canon-card-head button:focus-visible { opacity: 1; }
 
 /* ── Detected rows (Subagents/Commands/MCP/Skills) ─────────────────────
    Items Canon found already installed in the repo/executor config but not

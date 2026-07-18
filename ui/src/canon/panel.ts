@@ -118,13 +118,19 @@ export function openMarkdownReader(
  *  plain text — registry content is untrusted, never innerHTML). Shared by
  *  the rail panel (CanonPanel) and the cockpit's Skills/Registry sections. */
 export function skillCard(opts: {
-  name: string;
+  name?: string;
   meta: string;
   description?: string;
   className: string;
   fetchPreview: () => Promise<string>;
   actions: HTMLButtonElement[];
   stats?: string[];
+  /** Leading kind glyph (trusted SVG from Icons) — the fixed 20px slot that
+   *  gives every section's rows a shared skeleton + instant identity. */
+  leadIcon?: string;
+  /** Mono index for specs — occupies the same leading slot as `leadIcon`
+   *  instead of a bespoke row layout (e.g. "3.12"). */
+  idx?: string;
   /** Reader heading, when `name` is too terse to identify the file (specs
    *  show just "3.12" in the row but open as "3.12-operators-…"). */
   readerTitle?: string;
@@ -134,13 +140,27 @@ export function skillCard(opts: {
 
   const head = document.createElement("div");
   head.className = "canon-card-head";
-  const name = document.createElement("span");
-  name.className = "canon-name";
-  name.textContent = opts.name;
+  if (opts.idx !== undefined) {
+    const lead = document.createElement("span");
+    lead.className = "canon-lead canon-idx";
+    lead.textContent = opts.idx;
+    head.append(lead);
+  } else if (opts.leadIcon) {
+    const lead = document.createElement("span");
+    lead.className = "canon-lead";
+    lead.innerHTML = opts.leadIcon;
+    head.append(lead);
+  }
+  if (opts.name) {
+    const name = document.createElement("span");
+    name.className = "canon-name";
+    name.textContent = opts.name;
+    head.append(name);
+  }
   const meta = document.createElement("span");
   meta.className = "canon-meta";
   meta.textContent = opts.meta;
-  head.append(name, meta);
+  head.append(meta);
 
   const pre = document.createElement("pre");
   pre.className = "canon-preview";
@@ -166,7 +186,7 @@ export function skillCard(opts: {
   const expand = iconButton(
     Icons.maximize({ size: 14 }),
     "Open full screen",
-    () => openMarkdownReader(opts.readerTitle ?? opts.name, opts.fetchPreview, opts.stats),
+    () => openMarkdownReader(opts.readerTitle ?? opts.name ?? opts.idx ?? "", opts.fetchPreview, opts.stats),
   );
   head.append(prev, expand, ...opts.actions);
   card.appendChild(head);

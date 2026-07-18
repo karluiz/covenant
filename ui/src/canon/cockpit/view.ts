@@ -760,8 +760,9 @@ export class CanonCockpitView {
             : (() => { const p = this.unitPublishAction(cwd, "agent", a.name); return p ? [p] : []; })();
           list.appendChild(skillCard({
             name: a.name,
-            meta: detected ? `detected · ${a.detectedIn}` : "agent",
+            meta: detected ? `detected · ${a.detectedIn}` : "",
             className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
+            leadIcon: Icons.bot({ size: 15 }),
             fetchPreview: () => canonReadSource(cwd, "agent", a.name),
             actions,
           }));
@@ -810,8 +811,9 @@ export class CanonCockpitView {
             : (() => { const p = this.unitPublishAction(cwd, "command", c.name); return p ? [p] : []; })();
           list.appendChild(skillCard({
             name: c.name,
-            meta: detected ? `detected · ${c.detectedIn}` : (c.description ?? "command"),
+            meta: detected ? `detected · ${c.detectedIn}` : (c.description ?? ""),
             className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
+            leadIcon: Icons.terminalSquare({ size: 15 }),
             fetchPreview: () => canonReadSource(cwd, "command", c.name),
             actions,
           }));
@@ -862,6 +864,7 @@ export class CanonCockpitView {
             name: m.name,
             meta: detected ? `detected · ${m.detectedIn}` : (m.description ?? m.transport),
             className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
+            leadIcon: Icons.radioTower({ size: 15 }),
             fetchPreview: () => canonReadSource(cwd, "mcp", m.name),
             actions,
           }));
@@ -906,9 +909,11 @@ export class CanonCockpitView {
         for (const sp of sortSpecs(status.specs)) {
           const id = /^[\d.]+(?=-)/.exec(sp.name)?.[0] ?? "";
           list.appendChild(skillCard({
-            name: id || sp.name,
+            // Numbered specs put the index in the shared leading slot; a
+            // slug without a number falls back to a file glyph + its name.
+            ...(id ? { idx: id } : { name: sp.name, leadIcon: Icons.fileText({ size: 15 }) }),
             // The title repeats the number the row already shows ("3.12 — Operators
-            // Experience and Level") — drop the prefix and let the id column carry it.
+            // Experience and Level") — drop the prefix and let the idx carry it.
             meta: sp.title.replace(/^[\d.]+\s+—\s+/, ""),
             className: "canon-skill-row canon-spec-row",
             fetchPreview: () => canonReadSource(cwd, "spec", sp.name),
@@ -956,8 +961,9 @@ export class CanonCockpitView {
         for (const m of status.memory) {
           list.appendChild(skillCard({
             name: m.name,
-            meta: m.description ?? "memory",
+            meta: m.description ?? "",
             className: "canon-skill-row",
+            leadIcon: Icons.database({ size: 15 }),
             fetchPreview: () => canonReadSource(cwd, "memory", m.name),
             actions: [],
           }));
@@ -1070,6 +1076,7 @@ export class CanonCockpitView {
               name: i.name,
               meta: `${i.version} · ${i.source}`,
               className: "canon-skill-row",
+              leadIcon: Icons.packageBox({ size: 15 }),
               fetchPreview: () => canonReadLocal(cwd, i.name),
               actions,
               stats: [`v${i.version}`, i.source],
@@ -1080,6 +1087,7 @@ export class CanonCockpitView {
               name: d.name,
               meta: `detected · ${d.detectedIn}`,
               className: "canon-skill-row is-detected",
+              leadIcon: Icons.packageBox({ size: 15 }),
               fetchPreview: () => Promise.resolve(""),
               actions: [this.unitAdoptAction(cwd, "skill", d.name)],
             }));
