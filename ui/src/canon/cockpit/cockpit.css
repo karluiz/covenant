@@ -396,6 +396,9 @@ body.tabbar-left .canon-cockpit {
   gap: 8px;
   margin-bottom: 12px;
 }
+/* .canon-import-bar sets display:flex, which outspecifies [hidden]'s
+   display:none — restore it explicitly (same gotcha as .canon-toolbar). */
+.canon-import-bar[hidden] { display: none; }
 .canon-import-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -404,6 +407,45 @@ body.tabbar-left .canon-cockpit {
 .canon-import-input:disabled {
   opacity: 0.5;
 }
+.canon-import-close {
+  flex: 0 0 auto;
+  padding: 0 8px;
+}
+
+/* ── Filter toolbar (shared across all six modules) ──────────────────
+   A live substring filter over the section's rows. Starts hidden and is
+   revealed once the list confirms it has rows (see filterToolbar in
+   view.ts). The search glyph sits inside the field's left padding; the
+   input inherits border/height from `.canon-cockpit-section input`. */
+.canon-toolbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.canon-toolbar[hidden] { display: none; } /* flex would beat [hidden] otherwise */
+.canon-toolbar > svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-dim);
+  pointer-events: none;
+}
+.canon-toolbar .canon-filter {
+  width: 100%;
+  padding-left: 30px; /* clears the search glyph; beats the shared input's 0 8px */
+}
+.canon-toolbar .canon-filter::placeholder { color: var(--muted, #6c7280); }
+.canon-filter-none { margin-top: 8px; }
+
+/* Header "Add" button (Skills) carries an icon + label — align them. */
+.canon-cockpit-sec-head .canon-sec-head-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.canon-cockpit-sec-head .canon-sec-head-action svg { display: block; }
 
 /* ── Registry section ──────────────────────────────────────────────── */
 

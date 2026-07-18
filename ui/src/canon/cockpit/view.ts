@@ -208,6 +208,13 @@ export class CanonCockpitView {
       btn.hidden = true; // revealed once the list confirms it has files
       btn.addEventListener("click", () => this.opts.onNewContext?.());
       headAction = btn;
+    } else if (key === "skills" && this.opts.groupRootDir) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "canon-sec-head-action";
+      btn.innerHTML = Icons.plus({ size: 14 }) + "<span>Add</span>";
+      // Toggles the skills.sh import row (wired in renderSkillsSection).
+      headAction = btn;
     }
     const body =
       key === "org" ? this.renderOrgSection()
@@ -218,7 +225,7 @@ export class CanonCockpitView {
       : key === "mcp" ? this.renderMcpSection()
       : key === "spec" ? this.renderSpecSection()
       : key === "memory" ? this.renderMemorySection()
-      : key === "skills" ? this.renderSkillsSection()
+      : key === "skills" ? this.renderSkillsSection(headAction)
       : key === "registry" ? this.renderRegistrySection()
       : key === "context" ? this.renderContextSection(headAction)
       : this.renderLoopSection();
@@ -262,6 +269,46 @@ export class CanonCockpitView {
     p.className = "canon-cockpit-note";
     p.textContent = text;
     return p;
+  }
+
+  /** A shared filter toolbar sitting above a section's list. Filters live,
+   *  client-side, by substring over each `.canon-skill-row`'s text (name +
+   *  meta). Starts hidden — the section reveals it once its list confirms it
+   *  has rows (a lone filter box over an empty state reads as noise). A
+   *  "no matches" note appears when a query hides everything. */
+  private filterToolbar(list: HTMLElement, placeholder: string): HTMLElement {
+    const bar = document.createElement("div");
+    bar.className = "canon-toolbar";
+    bar.hidden = true;
+    bar.innerHTML = Icons.search({ size: 14 });
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "canon-filter";
+    input.placeholder = placeholder;
+    input.setAttribute("aria-label", placeholder);
+    input.addEventListener("input", () => {
+      const q = input.value.trim().toLowerCase();
+      let shown = 0;
+      for (const row of Array.from(list.children)) {
+        if (!(row instanceof HTMLElement) || !row.classList.contains("canon-skill-row")) continue;
+        const match = (row.textContent ?? "").toLowerCase().includes(q);
+        row.hidden = !match;
+        if (match) shown++;
+      }
+      let none = list.querySelector<HTMLElement>(".canon-filter-none");
+      if (q && shown === 0) {
+        if (!none) {
+          none = this.note("No matches.");
+          none.classList.add("canon-filter-none");
+          list.appendChild(none);
+        }
+        none.hidden = false;
+      } else if (none) {
+        none.hidden = true;
+      }
+    });
+    bar.appendChild(input);
+    return bar;
   }
 
   /** Homologated empty state — every section renders the same icon + title +
@@ -740,7 +787,8 @@ export class CanonCockpitView {
     const list = document.createElement("div");
     list.className = "canon-cockpit-agents-list";
     list.appendChild(this.note("Loading…"));
-    el.appendChild(list);
+    const toolbar = this.filterToolbar(list, "Filter subagents…");
+    el.append(toolbar, list);
 
     void canonLocalStatus(cwd)
       .then((status) => {
@@ -753,6 +801,7 @@ export class CanonCockpitView {
           }));
           return;
         }
+        toolbar.hidden = false;
         for (const a of status.agents) {
           const detected = !!a.detectedIn;
           const actions = detected
@@ -791,7 +840,8 @@ export class CanonCockpitView {
     const list = document.createElement("div");
     list.className = "canon-cockpit-commands-list";
     list.appendChild(this.note("Loading…"));
-    el.appendChild(list);
+    const toolbar = this.filterToolbar(list, "Filter commands…");
+    el.append(toolbar, list);
 
     void canonLocalStatus(cwd)
       .then((status) => {
@@ -804,6 +854,7 @@ export class CanonCockpitView {
           }));
           return;
         }
+        toolbar.hidden = false;
         for (const c of status.commands) {
           const detected = !!c.detectedIn;
           const actions = detected
@@ -842,7 +893,8 @@ export class CanonCockpitView {
     const list = document.createElement("div");
     list.className = "canon-cockpit-mcp-list";
     list.appendChild(this.note("Loading…"));
-    el.appendChild(list);
+    const toolbar = this.filterToolbar(list, "Filter MCP servers…");
+    el.append(toolbar, list);
 
     void canonLocalStatus(cwd)
       .then((status) => {
@@ -855,6 +907,7 @@ export class CanonCockpitView {
           }));
           return;
         }
+        toolbar.hidden = false;
         for (const m of status.mcp) {
           const detected = !!m.detectedIn;
           const actions = detected
@@ -893,7 +946,8 @@ export class CanonCockpitView {
     const list = document.createElement("div");
     list.className = "canon-cockpit-spec-list";
     list.appendChild(this.note("Loading…"));
-    el.appendChild(list);
+    const toolbar = this.filterToolbar(list, "Filter specs…");
+    el.append(toolbar, list);
 
     void canonLocalStatus(cwd)
       .then((status) => {
@@ -906,6 +960,7 @@ export class CanonCockpitView {
           }));
           return;
         }
+        toolbar.hidden = false;
         for (const sp of sortSpecs(status.specs)) {
           const id = /^[\d.]+(?=-)/.exec(sp.name)?.[0] ?? "";
           list.appendChild(skillCard({
@@ -945,7 +1000,8 @@ export class CanonCockpitView {
     const list = document.createElement("div");
     list.className = "canon-cockpit-memory-list";
     list.appendChild(this.note("Loading…"));
-    el.appendChild(list);
+    const toolbar = this.filterToolbar(list, "Filter memories…");
+    el.append(toolbar, list);
 
     void canonLocalStatus(cwd)
       .then((status) => {
@@ -958,6 +1014,7 @@ export class CanonCockpitView {
           }));
           return;
         }
+        toolbar.hidden = false;
         for (const m of status.memory) {
           list.appendChild(skillCard({
             name: m.name,
@@ -979,7 +1036,7 @@ export class CanonCockpitView {
 
   // ── Skills section ────────────────────────────────────────────────────
 
-  private renderSkillsSection(): HTMLElement {
+  private renderSkillsSection(addBtn?: HTMLElement): HTMLElement {
     const el = document.createElement("div");
     el.className = "canon-cockpit-section is-skills";
     const cwd = this.opts.groupRootDir;
@@ -995,19 +1052,32 @@ export class CanonCockpitView {
     const list = document.createElement("div");
     list.className = "canon-cockpit-skills-list";
     list.appendChild(this.note("Loading…"));
+    const toolbar = this.filterToolbar(list, "Filter skills…");
 
     // Import from skills.sh: paste "owner/repo --skill name", run npx, auto-adopt.
+    // Hidden until the header "Add" button reveals it (dismiss with ✕).
     const importBar = document.createElement("form");
     importBar.className = "canon-import-bar";
+    importBar.hidden = true;
     const importInput = document.createElement("input");
     importInput.type = "text";
     importInput.className = "canon-import-input";
-    importInput.placeholder = "Import from skills.sh — owner/repo --skill name";
+    importInput.placeholder = "owner/repo --skill name";
     const importBtn = document.createElement("button");
     importBtn.type = "submit";
     importBtn.className = "canon-import-btn";
     importBtn.textContent = "Import";
-    importBar.append(importInput, importBtn);
+    const importClose = document.createElement("button");
+    importClose.type = "button";
+    importClose.className = "canon-import-close canon-icon-btn";
+    importClose.innerHTML = Icons.x({ size: 15 });
+    importClose.setAttribute("aria-label", "Dismiss");
+    importClose.addEventListener("click", () => { importBar.hidden = true; });
+    importBar.append(importInput, importBtn, importClose);
+    addBtn?.addEventListener("click", () => {
+      importBar.hidden = !importBar.hidden;
+      if (!importBar.hidden) importInput.focus();
+    });
     importBar.addEventListener("submit", (e) => {
       e.preventDefault();
       const ref = importInput.value.trim();
@@ -1042,6 +1112,7 @@ export class CanonCockpitView {
             }));
             return;
           }
+          toolbar.hidden = false;
           const active = this.activeOrg();
           for (const i of status.installed) {
             const actions: HTMLButtonElement[] = [];
@@ -1099,7 +1170,7 @@ export class CanonCockpitView {
         });
     };
 
-    el.append(importBar, list, errorEl);
+    el.append(importBar, toolbar, list, errorEl);
     load();
     return el;
   }

@@ -375,6 +375,70 @@ describe("CanonCockpitView Skills section trash button", () => {
   });
 });
 
+describe("CanonCockpitView module filter toolbar", () => {
+  it("reveals the filter only when a section has rows, and filters live by substring", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [{ name: "reviewer" }, { name: "planner" }],
+      contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelectorAll(".canon-skill-row").length).toBe(2);
+    });
+    const bar = v.element.querySelector<HTMLElement>(".canon-toolbar")!;
+    expect(bar).toBeTruthy();
+    expect(bar.hidden).toBe(false); // revealed once rows loaded
+
+    const input = bar.querySelector<HTMLInputElement>(".canon-filter")!;
+    input.value = "rev";
+    input.dispatchEvent(new Event("input"));
+    const rows = () => Array.from(v.element.querySelectorAll<HTMLElement>(".canon-skill-row"));
+    expect(rows().filter((r) => !r.hidden).map((r) => r.textContent)).toEqual([expect.stringContaining("reviewer")]);
+
+    input.value = "zzz";
+    input.dispatchEvent(new Event("input"));
+    expect(rows().every((r) => r.hidden)).toBe(true);
+    expect(v.element.querySelector<HTMLElement>(".canon-filter-none")?.hidden).toBe(false);
+
+    input.value = "";
+    input.dispatchEvent(new Event("input"));
+    expect(rows().every((r) => !r.hidden)).toBe(true);
+    expect(v.element.querySelector<HTMLElement>(".canon-filter-none")?.hidden).toBe(true);
+  });
+
+  it("keeps the filter hidden when a section is empty", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-cockpit-empty")).toBeTruthy();
+    });
+    expect(v.element.querySelector<HTMLElement>(".canon-toolbar")?.hidden).toBe(true);
+  });
+
+  it("Skills: the header Add button toggles the skills.sh import row", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-import-bar")).toBeTruthy();
+    });
+    const importBar = v.element.querySelector<HTMLElement>(".canon-import-bar")!;
+    expect(importBar.hidden).toBe(true); // starts closed
+    const add = v.element.querySelector<HTMLButtonElement>(".canon-sec-head-action")!;
+    add.click();
+    expect(importBar.hidden).toBe(false);
+    add.click();
+    expect(importBar.hidden).toBe(true);
+  });
+});
+
 describe("CanonCockpitView Operators section", () => {
   it("operators section renders the org-filtered roster with a New operator button", async () => {
     vi.mocked(operatorList).mockResolvedValueOnce([OPERATOR_FIXTURE]);
