@@ -448,8 +448,8 @@ body.tabbar-left .canon-cockpit {
   /* The shared input border (--border, ~#1c2027) vanishes against the near-
      black pane above the box, so its top edge reads as "cut". Give the field
      a self-defined edge + fill that hold against empty space on every side. */
-  background: rgb(var(--ink-rgb) / 0.05);
-  border-color: rgb(var(--ink-rgb) / 0.14);
+  background: rgb(var(--ink-rgb) / 0.06);
+  border-color: rgb(var(--ink-rgb) / 0.22);
 }
 .canon-toolbar .canon-filter:focus {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
