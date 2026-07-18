@@ -99,15 +99,24 @@ body.tabbar-left .canon-cockpit {
   padding: 22px 24px;
 }
 
-/* ── Shared: section header — full-bleed strip, divider reaches both edges ── */
+/* ── Shared: section header — full-bleed strip, divider reaches both edges ──
+   Sticky so the title + filter context stay pinned while the list scrolls.
+   Opaque fill (over scrolling rows) + z-index above the cards. */
 .canon-cockpit-sec-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 20px 24px 15px;
+  background: var(--bg-overlay, #11141a);
   border-bottom: 1px solid var(--border);
 }
+/* Reserve room at the top-right for the absolute `esc` pill so a header
+   action (Skills "+ Add", Context "New context") never lands under it. */
+.canon-cockpit-sec-head:has(.canon-sec-head-action) { padding-right: 72px; }
 .canon-cockpit-sec-text { min-width: 0; }
 .canon-cockpit-sec-title {
   margin: 0 0 3px;
