@@ -4,6 +4,29 @@ use std::process::Command;
 
 use serde::Serialize;
 
+/// A worktree stops being stale-eligible for this long after its last commit.
+pub const STALE_AFTER_DAYS: i64 = 14;
+
+/// Where Covenant puts worktrees. Harness-neutral on purpose: adopting any one
+/// executor's default (`.claude/worktrees/`) would make that executor's
+/// convention everyone's problem.
+pub const CANONICAL_WORKTREE_DIR: &str = ".covenant/worktrees";
+
+/// Derived on every summary, never stored. See the design spec for the
+/// precedence rationale.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WorktreeState {
+    /// Where the user is standing, has uncommitted work, or is recent unmerged work.
+    Active,
+    /// Unmerged and clean, but untouched for `STALE_AFTER_DAYS`. Needs a human decision.
+    Stale,
+    /// Merged into the default branch and clean. Provably safe to delete.
+    Spent,
+    /// Registered in git, gone from disk.
+    Orphan,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct GitBranchSummary {
     pub name: String,
@@ -23,6 +46,9 @@ pub struct GitWorktreeSummary {
     pub detached: bool,
     pub bare: bool,
     pub dirty_count: u32,
+    pub state: WorktreeState,
+    pub merged: bool,
+    pub last_commit_unix: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -64,9 +90,49 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
 
     let current_root = canonical_or_self(Path::new(&repo_root));
     let mut worktrees = parse_worktree_list(&git(cwd, &["worktree", "list", "--porcelain"])?);
+
+    let default_branch = default_branch(cwd);
+    let merged: std::collections::HashSet<String> = git(
+        cwd,
+        &["branch", "--merged", &default_branch, "--format=%(refname:short)"],
+    )
+    .unwrap_or_default()
+    .lines()
+    .map(|l| l.trim().to_string())
+    .filter(|l| !l.is_empty())
+    .collect();
+
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
     for wt in &mut worktrees {
-        wt.current = canonical_or_self(Path::new(&wt.path)) == current_root;
-        wt.dirty_count = status_count(Path::new(&wt.path)).unwrap_or(0);
+        let wt_path = Path::new(&wt.path);
+        let path_exists = wt_path.is_dir();
+        wt.current = canonical_or_self(wt_path) == current_root;
+        wt.dirty_count = if path_exists {
+            status_count(wt_path).unwrap_or(0)
+        } else {
+            0
+        };
+        wt.merged = wt
+            .branch
+            .as_ref()
+            .is_some_and(|b| merged.contains(b) && *b != default_branch);
+        wt.last_commit_unix = wt.branch.as_ref().and_then(|b| {
+            git(cwd, &["log", "-1", "--format=%ct", b])
+                .ok()
+                .and_then(|s| s.trim().parse::<i64>().ok())
+        });
+        wt.state = derive_state(
+            path_exists,
+            wt.current,
+            wt.dirty_count,
+            wt.merged,
+            wt.last_commit_unix,
+            now_unix,
+        );
     }
 
     let mut branch_to_worktree: HashMap<String, String> = HashMap::new();
@@ -171,6 +237,9 @@ fn parse_worktree_list(text: &str) -> Vec<GitWorktreeSummary> {
                 detached: false,
                 bare: false,
                 dirty_count: 0,
+                state: WorktreeState::Active,
+                merged: false,
+                last_commit_unix: None,
             });
             continue;
         }
@@ -203,6 +272,49 @@ fn parse_worktree_list(text: &str) -> Vec<GitWorktreeSummary> {
 fn status_count(cwd: &Path) -> Result<u32, String> {
     let text = git(cwd, &["status", "--porcelain"])?;
     Ok(text.lines().filter(|l| !l.trim().is_empty()).count() as u32)
+}
+
+/// Resolves the repo's default branch: origin's HEAD, else `main`, else `master`.
+fn default_branch(cwd: &Path) -> String {
+    if let Ok(sym) = git(cwd, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
+        if let Some(name) = sym.trim().rsplit('/').next() {
+            if !name.is_empty() {
+                return name.to_string();
+            }
+        }
+    }
+    for candidate in ["main", "master"] {
+        if git(cwd, &["rev-parse", "--verify", "--quiet", candidate]).is_ok() {
+            return candidate.to_string();
+        }
+    }
+    "main".to_string()
+}
+
+/// Precedence: Orphan -> Active -> Spent -> Stale, defaulting to Active.
+/// Defaulting to Active is deliberate: anything we cannot classify must never
+/// be proposed for deletion.
+fn derive_state(
+    path_exists: bool,
+    current: bool,
+    dirty_count: u32,
+    merged: bool,
+    last_commit_unix: Option<i64>,
+    now_unix: i64,
+) -> WorktreeState {
+    if !path_exists {
+        return WorktreeState::Orphan;
+    }
+    if current || dirty_count > 0 {
+        return WorktreeState::Active;
+    }
+    if merged {
+        return WorktreeState::Spent;
+    }
+    match last_commit_unix {
+        Some(ts) if now_unix - ts > STALE_AFTER_DAYS * 86_400 => WorktreeState::Stale,
+        _ => WorktreeState::Active,
+    }
 }
 
 pub fn display_repo_name(repo_root: &Path) -> String {
@@ -1044,5 +1156,104 @@ index e69de29..0cfbf08 100644
         assert_eq!(trees[1].branch.as_deref(), Some("feat/ui"));
         assert!(trees[2].detached);
         assert_eq!(trees[2].branch, None);
+    }
+
+    const DAY: i64 = 86_400;
+
+    #[test]
+    fn orphan_wins_over_everything() {
+        // Path gone from disk: nothing else matters.
+        let s = derive_state(
+            /* path_exists */ false,
+            /* current */ false,
+            /* dirty */ 3,
+            /* merged */ true,
+            /* last_commit */ Some(0),
+            /* now */ 100 * DAY,
+        );
+        assert_eq!(s, WorktreeState::Orphan);
+    }
+
+    #[test]
+    fn the_current_worktree_is_always_active() {
+        // Merged and clean, but it is where the user is standing.
+        let s = derive_state(true, true, 0, true, Some(100 * DAY), 100 * DAY);
+        assert_eq!(s, WorktreeState::Active);
+    }
+
+    #[test]
+    fn dirty_beats_merged() {
+        // Merged but with uncommitted work: never propose deleting this.
+        let s = derive_state(true, false, 1, true, Some(100 * DAY), 100 * DAY);
+        assert_eq!(s, WorktreeState::Active);
+    }
+
+    #[test]
+    fn merged_and_clean_is_spent() {
+        let s = derive_state(true, false, 0, true, Some(100 * DAY), 100 * DAY);
+        assert_eq!(s, WorktreeState::Spent);
+    }
+
+    #[test]
+    fn unmerged_clean_and_old_is_stale() {
+        let now = 100 * DAY;
+        let s = derive_state(true, false, 0, false, Some(now - 15 * DAY), now);
+        assert_eq!(s, WorktreeState::Stale);
+    }
+
+    #[test]
+    fn unmerged_clean_and_recent_is_active() {
+        let now = 100 * DAY;
+        let s = derive_state(true, false, 0, false, Some(now - 13 * DAY), now);
+        assert_eq!(s, WorktreeState::Active);
+    }
+
+    #[test]
+    fn stale_boundary_is_exclusive_at_fourteen_days() {
+        let now = 100 * DAY;
+        // Exactly 14 days is not yet stale.
+        assert_eq!(
+            derive_state(true, false, 0, false, Some(now - 14 * DAY), now),
+            WorktreeState::Active
+        );
+        assert_eq!(
+            derive_state(true, false, 0, false, Some(now - 14 * DAY - 1), now),
+            WorktreeState::Stale
+        );
+    }
+
+    #[test]
+    fn unknown_commit_date_defaults_to_active() {
+        // Unclassifiable must never be deletable.
+        let s = derive_state(true, false, 0, false, None, 100 * DAY);
+        assert_eq!(s, WorktreeState::Active);
+    }
+
+    #[test]
+    fn repo_summary_marks_a_merged_worktree_spent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let base = String::from_utf8(
+            std::process::Command::new("git")
+                .arg("-C").arg(root)
+                .args(["branch", "--show-current"])
+                .output().unwrap().stdout,
+        ).unwrap().trim().to_string();
+
+        let wt = root.join("wt-merged");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "done"]);
+        std::fs::write(wt.join("tracked.txt"), "changed\n").unwrap();
+        git_run(&wt, &["add", "."]);
+        git_run(&wt, &["commit", "-q", "-m", "work"]);
+        git_run(root, &["merge", "-q", "--no-ff", "-m", "merge", "done"]);
+
+        let summary = repo_summary(root).unwrap();
+        let row = summary.worktrees.iter()
+            .find(|w| w.branch.as_deref() == Some("done"))
+            .expect("worktree present");
+        assert!(row.merged, "branch was merged into {base}");
+        assert_eq!(row.state, WorktreeState::Spent);
+        assert!(row.last_commit_unix.is_some());
     }
 }
