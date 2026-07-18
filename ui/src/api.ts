@@ -1733,6 +1733,10 @@ export async function canonAdopt(cwd: string, kind: CanonPkgKind, name: string):
   return invoke<void>("canon_adopt", { cwd, kind, name });
 }
 
+export async function canonImportSkill(cwd: string, skillRef: string): Promise<string[]> {
+  return invoke<string[]>("canon_import_skill", { cwd, skillRef });
+}
+
 export async function canonSearch(org: string, query: string | null, kind: CanonPkgKind): Promise<PkgMeta[]> {
   return invoke<PkgMeta[]>("canon_search", { org, query, kind });
 }

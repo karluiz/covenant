@@ -1935,6 +1935,52 @@ fn resolve_scope(ui_scope: &str, mission_path: Option<&str>) -> Option<String> {
     }
 }
 
+/// One path segment (owner, repo, or skill name): non-empty, no leading dot
+/// (blocks `..`), only `[A-Za-z0-9_.-]`. Anything else — slashes, shell
+/// metacharacters, whitespace — is rejected.
+fn valid_ref_seg(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('.')
+        && !s.starts_with('-')
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
+}
+
+/// Parse a user-pasted skills.sh ref into a safe `npx` argument vector. Accepts
+/// `owner/repo`, `owner/repo --skill x --skill y`, and a pasted
+/// `npx skills add owner/repo --skill x`. Rejects everything else — the args are
+/// whitelisted so no shell metacharacter ever reaches a spawn.
+fn parse_skills_ref(input: &str) -> Result<Vec<String>, String> {
+    let s = input.trim();
+    let s = s.strip_prefix("npx skills add ").map(str::trim).unwrap_or(s);
+    let mut toks = s.split_whitespace();
+    let repo = toks.next().ok_or_else(|| "empty ref".to_string())?;
+    let repo_ok = match repo.split_once('/') {
+        Some((o, r)) => valid_ref_seg(o) && valid_ref_seg(r),
+        None => false,
+    };
+    if !repo_ok {
+        return Err(format!("invalid repo (expected owner/repo): {repo:?}"));
+    }
+    let mut args = vec![
+        "--yes".to_string(),
+        "skills".to_string(),
+        "add".to_string(),
+        repo.to_string(),
+    ];
+    while let Some(t) = toks.next() {
+        if t != "--skill" {
+            return Err(format!("unexpected token {t:?} (only `--skill <name>` allowed)"));
+        }
+        let name = toks.next().ok_or_else(|| "`--skill` needs a name".to_string())?;
+        if !valid_ref_seg(name) {
+            return Err(format!("invalid skill name: {name:?}"));
+        }
+        args.push("--skill".to_string());
+        args.push(name.to_string());
+    }
+    Ok(args)
+}
+
 /// 3.13 Task 3 — best-effort persistence of a convergence reply as
 /// an `operator_memories` row. NEVER returns an error: every failure
 /// path logs and falls through. The caller's command must succeed
@@ -2694,6 +2740,85 @@ async fn canon_adopt(cwd: String, kind: String, name: String) -> Result<(), Stri
     tokio::task::spawn_blocking(move || karl_canon::adopt(&repo, k, &name))
         .await
         .map_err(|e| format!("canon_adopt join: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
+/// The user's login-shell PATH. GUI apps launched from Finder/.app inherit a
+/// minimal PATH (no nvm/brew/asdf shims), so we ask the login+interactive shell.
+/// Returns None if the shell call fails (caller falls back to inherited PATH).
+fn login_shell_path() -> Option<String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let out = std::process::Command::new(&shell)
+        .args(["-ilc", "printf '__KT_PATH__%s' \"$PATH\""])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8(out.stdout).ok()?;
+    raw.split("__KT_PATH__")
+        .nth(1)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Import a skill from skills.sh: shell out to `npx skills add <ref>` in the
+/// repo, then adopt whatever newly landed under `.claude/skills` into Canon.
+#[tauri::command]
+async fn canon_import_skill(cwd: String, skill_ref: String) -> Result<Vec<String>, String> {
+    let repo = std::path::PathBuf::from(&cwd);
+    let args = parse_skills_ref(&skill_ref)?;
+
+    // Snapshot skills already detected under .claude/skills before the install.
+    let repo_b = repo.clone();
+    let before = tokio::task::spawn_blocking(move || {
+        karl_canon::scan_detected(&repo_b).map(|units| {
+            units
+                .into_iter()
+                .filter(|u| u.kind == karl_canon::ContextKind::Skill)
+                .map(|u| u.name)
+                .collect::<std::collections::HashSet<String>>()
+        })
+    })
+    .await
+    .map_err(|e| format!("canon_import_skill snapshot join: {e}"))?
+    .map_err(|e| e.to_string())?;
+
+    // Run `npx --yes skills add <ref>` in the repo. stdin=null so an interactive
+    // picker (bare repo) gets EOF and fails fast rather than hanging.
+    //
+    // Resolve the login-shell PATH (blocking shell call) off the async runtime.
+    let shell_path = tokio::task::spawn_blocking(login_shell_path)
+        .await
+        .ok()
+        .flatten();
+
+    let mut cmd = tokio::process::Command::new("npx");
+    cmd.args(&args)
+        .current_dir(&repo)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true); // Finding 2: reclaim a hung child on timeout
+    if let Some(p) = shell_path {
+        cmd.env("PATH", p);
+    }
+    let run = tokio::time::timeout(std::time::Duration::from_secs(120), cmd.output()).await;
+    let out = match run {
+        Err(_) => {
+            return Err("import timed out after 120s — a bare repo may be prompting; add `--skill <name>`".into())
+        }
+        Ok(Err(e)) => return Err(format!("could not run npx (is Node installed?): {e}")),
+        Ok(Ok(o)) => o,
+    };
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("npx skills add failed: {}", err.trim()));
+    }
+
+    // Adopt whatever newly landed under .claude/skills.
+    let repo_a = repo.clone();
+    tokio::task::spawn_blocking(move || karl_canon::adopt_new_skills(&repo_a, &before))
+        .await
+        .map_err(|e| format!("canon_import_skill adopt join: {e}"))?
         .map_err(|e| e.to_string())
 }
 
@@ -5212,6 +5337,7 @@ pub fn run() {
             canon_read_local,
             canon_read_source,
             canon_adopt,
+            canon_import_skill,
             canon_export,
             canon_projection_status,
             canon_publish,
@@ -5487,5 +5613,40 @@ mod tests {
     fn unknown_scope_skips_persistence() {
         assert_eq!(resolve_scope("gibberish", None), None);
         assert_eq!(resolve_scope("", Some("/foo")), None);
+    }
+
+    #[test]
+    fn parse_skills_ref_accepts_valid_and_rejects_injection() {
+        // Accepts a bare repo, with --skill, and a pasted full command.
+        assert_eq!(
+            super::parse_skills_ref("owner/repo").unwrap(),
+            vec!["--yes", "skills", "add", "owner/repo"]
+        );
+        assert_eq!(
+            super::parse_skills_ref("owner/repo --skill frontend-design").unwrap(),
+            vec!["--yes", "skills", "add", "owner/repo", "--skill", "frontend-design"]
+        );
+        assert_eq!(
+            super::parse_skills_ref("npx skills add vercel-labs/agent-skills --skill a --skill b").unwrap(),
+            vec!["--yes", "skills", "add", "vercel-labs/agent-skills", "--skill", "a", "--skill", "b"]
+        );
+        // Rejects injection / traversal / stray flags.
+        for bad in [
+            "owner/repo; rm -rf ~",
+            "owner/repo`whoami`",
+            "owner/repo && curl evil",
+            "../escape/repo",
+            "owner/repo --other",
+            "owner/repo --skill x;y",
+            "owner/repo/extra",
+            "-evil/repo",
+            "owner/-evil",
+            "--flag/repo",
+            "owner/repo --skill --sneaky",
+            "owner/repo --skill -x",
+            "",
+        ] {
+            assert!(super::parse_skills_ref(bad).is_err(), "must reject: {bad:?}");
+        }
     }
 }
