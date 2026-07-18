@@ -15455,7 +15455,7 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
 .sb-vitals-pill {
   font-size: 10px;
   padding: 2px 7px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid rgb(var(--ink-rgb) / 0.08);
   background: rgb(var(--ink-rgb) / 0.03);
   color: color-mix(in srgb, var(--text-primary, #f5f6f7) 82%, transparent);
