@@ -252,6 +252,29 @@ pub fn reclaim_worktrees(
             continue;
         }
 
+        // `repo_summary` snapshotted merge status once, at the top of this
+        // call. `git worktree remove` re-validates cleanliness on its own
+        // (it refuses a dirty tree), which closes half of the TOCTOU gap,
+        // but it has no opinion on merge status. So re-verify, right here,
+        // immediately before deleting: if the branch picked up a new
+        // unmerged commit since the snapshot (tree still clean, so the
+        // dirty-check alone wouldn't catch it), refuse instead of deleting
+        // the checkout out from under it.
+        if let Some(branch) = &wt.branch {
+            let target = default_branch(cwd);
+            if !branch_is_merged_into(cwd, branch, &target) {
+                outcomes.push(ReclaimOutcome {
+                    path,
+                    removed: false,
+                    reason: Some(format!(
+                        "branch \"{branch}\" is no longer confirmed merged into \"{target}\"; \
+                         left the checkout in place rather than risk deleting unmerged work"
+                    )),
+                });
+                continue;
+            }
+        }
+
         if let Err(e) = git(cwd, &["worktree", "remove", &wt.path]) {
             outcomes.push(ReclaimOutcome { path, removed: false, reason: Some(e) });
             continue;
@@ -380,6 +403,22 @@ fn default_branch(cwd: &Path) -> String {
         }
     }
     "main".to_string()
+}
+
+/// Live (not cached) check of whether `branch`'s tip is an ancestor of
+/// `target`'s tip — i.e. still fully merged. Used to re-verify merge status
+/// right before a worktree removal, since the classification that decided
+/// this worktree was `Spent` may be stale by the time we act on it. Any
+/// failure to determine this (git not runnable, branch or target no longer
+/// resolving) is treated as "not merged" — the safe default is to refuse.
+fn branch_is_merged_into(cwd: &Path, branch: &str, target: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["merge-base", "--is-ancestor", branch, target])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 /// Precedence: Orphan -> Active -> Spent -> Stale, defaulting to Active.
@@ -1625,5 +1664,160 @@ index e69de29..0cfbf08 100644
         .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.iter().any(|o| o.removed), "the valid one still went through");
+    }
+
+    // --- Finding 1: TOCTOU on merge status -----------------------------
+    //
+    // `repo_summary` snapshots merge status once, at the top of
+    // `reclaim_worktrees`; the actual removal happens later in the loop.
+    // `git worktree remove` re-validates cleanliness itself, closing half
+    // of that gap, but has no opinion on merge status. `branch_is_merged_into`
+    // is the live re-check that closes the other half. A *genuine* race
+    // (branch gains an unmerged commit mid-call, tree still clean) needs
+    // real concurrency to reproduce and isn't attempted here; instead this
+    // proves the mechanism directly against live git state.
+
+    #[test]
+    fn branch_is_merged_into_reflects_live_ancestry() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        git_run(root, &["checkout", "-q", "-b", "topic"]);
+        std::fs::write(root.join("tracked.txt"), "topic work\n").unwrap();
+        git_run(root, &["add", "."]);
+        git_run(root, &["commit", "-q", "-m", "topic work"]);
+        git_run(root, &["checkout", "-q", "main"]);
+
+        assert!(
+            !branch_is_merged_into(root, "topic", "main"),
+            "topic has a commit main doesn't"
+        );
+
+        git_run(root, &["merge", "-q", "--no-ff", "-m", "merge", "topic"]);
+
+        assert!(
+            branch_is_merged_into(root, "topic", "main"),
+            "topic is now fully reachable from main"
+        );
+    }
+
+    // A duplicate path within one batch happens to also give us a
+    // deterministic, non-racy way to exercise the *wired-in* re-check: the
+    // cached `summary` still reports the worktree as `Spent` for both
+    // occurrences (it was computed once, at the top of the call, and the
+    // loop's own removal of the first occurrence doesn't retroactively
+    // change that cached value) — so the second occurrence passes the
+    // `state != Spent` gate exactly like the first did, and is refused only
+    // because the live re-check finds the branch (deleted by the first
+    // occurrence's `git branch -d`) no longer resolves as merged. See also
+    // Finding 3 below, which this same scenario also covers.
+    #[test]
+    fn reclaim_duplicate_path_in_one_batch_removes_once_and_the_repeat_is_refused_by_the_merge_recheck(
+    ) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join("wt-dup");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "dup"]);
+        std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
+        git_run(&wt, &["add", "."]);
+        git_run(&wt, &["commit", "-q", "-m", "w"]);
+        git_run(root, &["merge", "-q", "--no-ff", "-m", "m", "dup"]);
+
+        // Pre-canonicalize: once the first occurrence removes the
+        // directory, `canonical_or_self` can no longer resolve it (the path
+        // stops existing) and falls back to the raw string it was given.
+        // Passing an already-canonical path here means that fallback still
+        // matches the cached summary row's (canonical) path, so the second
+        // occurrence is looked up successfully instead of bailing out
+        // early on an "unknown worktree" path-matching miss — which would
+        // otherwise short-circuit before ever reaching the merge recheck
+        // this test means to exercise.
+        let path = wt.canonicalize().unwrap().to_string_lossy().to_string();
+        let out = reclaim_worktrees(root, vec![path.clone(), path]).unwrap();
+
+        assert_eq!(out.len(), 2, "the batch completed rather than aborting");
+        assert_eq!(
+            out.iter().filter(|o| o.removed).count(),
+            1,
+            "exactly one occurrence actually removed the worktree"
+        );
+        let refused = out.iter().find(|o| !o.removed).expect("one refusal");
+        assert!(
+            refused
+                .reason
+                .as_deref()
+                .unwrap_or("")
+                .contains("no longer confirmed merged"),
+            "the repeat was refused by the merge recheck, not a generic error: {:?}",
+            refused.reason
+        );
+        assert!(!wt.exists(), "the worktree was still removed once");
+    }
+
+    // --- Finding 2: the main worktree has no explicit refusal ----------
+    //
+    // `reclaim_worktrees` never special-cases "is this the main worktree" —
+    // it relies entirely on `git worktree remove`'s own hard refusal. That
+    // is only exercised when every one of `reclaim_worktrees`'s own gates
+    // (state == Spent, clean, not current) happens to pass for the main
+    // worktree, which requires it to be checked out on a branch other than
+    // the default one — e.g. a branch that has itself already been merged
+    // into the default branch. This reproduces exactly that, called from a
+    // *different*, linked worktree so `current` is false on the main row.
+    #[test]
+    fn reclaim_refuses_the_main_worktree_when_called_from_a_linked_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+
+        let linked = root.join(CANONICAL_WORKTREE_DIR).join("side");
+        git_run(root, &["worktree", "add", "-q", linked.to_str().unwrap(), "-b", "side"]);
+
+        // Put the MAIN worktree on a branch that is merged into the default
+        // branch and clean — the only way it can pass reclaim_worktrees's
+        // own `Spent` gate at all.
+        git_run(root, &["checkout", "-q", "-b", "merged-branch"]);
+        std::fs::write(root.join("tracked.txt"), "more\n").unwrap();
+        git_run(root, &["add", "."]);
+        git_run(root, &["commit", "-q", "-m", "work"]);
+        git_run(root, &["checkout", "-q", "main"]);
+        git_run(root, &["merge", "-q", "--no-ff", "-m", "merge", "merged-branch"]);
+        git_run(root, &["checkout", "-q", "merged-branch"]);
+
+        // Sanity check the setup actually reproduces the bug shape: called
+        // from the linked worktree, the main worktree's `current` flag must
+        // be false and its state must classify as Spent, or this test isn't
+        // exercising git's safety net at all.
+        let summary = repo_summary(&linked).unwrap();
+        let root_canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let main_row = summary
+            .worktrees
+            .iter()
+            .find(|w| {
+                std::path::Path::new(&w.path)
+                    .canonicalize()
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.path))
+                    == root_canonical
+            })
+            .expect("main worktree present in the summary");
+        assert!(!main_row.current, "sanity: cwd was the linked worktree");
+        assert_eq!(
+            main_row.state,
+            WorktreeState::Spent,
+            "sanity: this must pass reclaim_worktrees's own gates to prove \
+             the removal is actually stopped by git, not by an earlier check"
+        );
+
+        let out = reclaim_worktrees(&linked, vec![root.to_string_lossy().to_string()]).unwrap();
+
+        assert_eq!(out.len(), 1);
+        assert!(!out[0].removed, "the main worktree must never be removed");
+        assert!(root.exists(), "main worktree directory still present");
+        assert!(root.join(".git").exists(), "still a valid repository");
+        assert!(
+            git_run_ok(root, &["rev-parse", "--show-toplevel"]),
+            "root is still a functioning git worktree"
+        );
     }
 }
