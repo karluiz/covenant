@@ -2572,6 +2572,13 @@ async fn git_repo_summary(cwd: String) -> Result<git_tools::GitRepoSummary, Stri
 }
 
 #[tauri::command]
+async fn worktree_sizes(paths: Vec<String>) -> Result<Vec<(String, u64)>, String> {
+    tokio::task::spawn_blocking(move || git_tools::worktree_sizes(paths))
+        .await
+        .map_err(|e| format!("worktree_sizes join: {e}"))
+}
+
+#[tauri::command]
 async fn git_switch_branch(
     state: State<'_, AppState>,
     cwd: String,
@@ -5301,6 +5308,7 @@ pub fn run() {
             recent_blocks_by_cwd,
             get_dir_context,
             git_repo_summary,
+            worktree_sizes,
             git_switch_branch,
             git_changes,
             beacon_workflow_runs,

@@ -49,6 +49,7 @@ pub struct GitWorktreeSummary {
     pub state: WorktreeState,
     pub merged: bool,
     pub last_commit_unix: Option<i64>,
+    pub off_convention: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -89,6 +90,7 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
     };
 
     let current_root = canonical_or_self(Path::new(&repo_root));
+    let canonical_root = canonical_or_self(&current_root.join(CANONICAL_WORKTREE_DIR));
     let mut worktrees = parse_worktree_list(&git(cwd, &["worktree", "list", "--porcelain"])?);
 
     let default_branch = default_branch(cwd);
@@ -111,6 +113,9 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
         let wt_path = Path::new(&wt.path);
         let path_exists = wt_path.is_dir();
         wt.current = canonical_or_self(wt_path) == current_root;
+        wt.off_convention = !wt.current
+            && !wt.bare
+            && !canonical_or_self(wt_path).starts_with(&canonical_root);
         wt.dirty_count = if path_exists {
             status_count(wt_path).unwrap_or(0)
         } else {
@@ -240,6 +245,7 @@ fn parse_worktree_list(text: &str) -> Vec<GitWorktreeSummary> {
                 state: WorktreeState::Active,
                 merged: false,
                 last_commit_unix: None,
+                off_convention: false,
             });
             continue;
         }
@@ -374,6 +380,33 @@ fn command_error(label: &str, out: &std::process::Output) -> String {
     } else {
         format!("{label} exited with status {}", out.status)
     }
+}
+
+/// Directory name for a worktree of `branch`, under `CANONICAL_WORKTREE_DIR`.
+pub fn worktree_slug(branch: &str) -> String {
+    let stripped = ["feature/", "feat/", "fix/", "chore/", "worktree-"]
+        .iter()
+        .find_map(|p| branch.strip_prefix(p))
+        .unwrap_or(branch);
+    stripped.replace('/', "-")
+}
+
+/// Disk usage in KB per path. Missing paths are omitted. Slow — call off the
+/// summary path, never inside `repo_summary`.
+pub fn worktree_sizes(paths: Vec<String>) -> Vec<(String, u64)> {
+    paths
+        .into_iter()
+        .filter(|p| Path::new(p).is_dir())
+        .filter_map(|p| {
+            let out = Command::new("du").args(["-sk", &p]).output().ok()?;
+            if !out.status.success() {
+                return None;
+            }
+            let text = String::from_utf8_lossy(&out.stdout);
+            let kb = text.split_whitespace().next()?.parse::<u64>().ok()?;
+            Some((p, kb))
+        })
+        .collect()
 }
 
 const MAX_DIFF_LINES: usize = 5000;
@@ -1315,5 +1348,68 @@ index e69de29..0cfbf08 100644
         assert!(row.merged, "branch was merged into {base}");
         assert_eq!(row.state, WorktreeState::Spent);
         assert!(row.last_commit_unix.is_some());
+    }
+
+    #[test]
+    fn worktrees_under_the_canonical_root_are_on_convention() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join(CANONICAL_WORKTREE_DIR).join("feature-x");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "feature-x"]);
+
+        let summary = repo_summary(root).unwrap();
+        let row = summary.worktrees.iter()
+            .find(|w| w.branch.as_deref() == Some("feature-x")).unwrap();
+        assert!(!row.off_convention);
+    }
+
+    #[test]
+    fn worktrees_outside_the_canonical_root_are_flagged() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join("somewhere-else");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "stray"]);
+
+        let summary = repo_summary(root).unwrap();
+        let row = summary.worktrees.iter()
+            .find(|w| w.branch.as_deref() == Some("stray")).unwrap();
+        assert!(row.off_convention);
+    }
+
+    #[test]
+    fn the_main_worktree_is_never_off_convention() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let summary = repo_summary(root).unwrap();
+        let main_row = summary.worktrees.iter().find(|w| w.current).unwrap();
+        assert!(!main_row.off_convention);
+    }
+
+    #[test]
+    fn slug_strips_branch_prefixes() {
+        assert_eq!(worktree_slug("feat/canon-org-rename"), "canon-org-rename");
+        assert_eq!(worktree_slug("feature/big-thing"), "big-thing");
+        assert_eq!(worktree_slug("fix/notch-focus-gate"), "notch-focus-gate");
+        assert_eq!(worktree_slug("chore/deps"), "deps");
+        assert_eq!(worktree_slug("worktree-somnus-v2"), "somnus-v2");
+        assert_eq!(worktree_slug("plain"), "plain");
+        // Nested paths flatten rather than creating directories.
+        assert_eq!(worktree_slug("feat/a/b"), "a-b");
+    }
+
+    #[test]
+    fn sizes_are_reported_for_existing_paths_only() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let real = tmp.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("f"), vec![0u8; 4096]).unwrap();
+        let gone = tmp.path().join("gone").to_string_lossy().to_string();
+
+        let out = worktree_sizes(vec![real.to_string_lossy().to_string(), gone]);
+        assert_eq!(out.len(), 1, "missing paths are omitted, not zeroed");
+        assert!(out[0].1 > 0);
     }
 }
