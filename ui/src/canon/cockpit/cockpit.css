@@ -445,6 +445,15 @@ body.tabbar-left .canon-cockpit {
 .canon-toolbar .canon-filter {
   width: 100%;
   padding-left: 30px; /* clears the search glyph; beats the shared input's 0 8px */
+  /* The shared input border (--border, ~#1c2027) vanishes against the near-
+     black pane above the box, so its top edge reads as "cut". Give the field
+     a self-defined edge + fill that hold against empty space on every side. */
+  background: rgb(var(--ink-rgb) / 0.05);
+  border-color: rgb(var(--ink-rgb) / 0.14);
+}
+.canon-toolbar .canon-filter:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  outline: none;
 }
 .canon-toolbar .canon-filter::placeholder { color: var(--muted, #6c7280); }
 .canon-filter-none { margin-top: 8px; }
