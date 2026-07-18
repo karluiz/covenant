@@ -93,6 +93,18 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
     let canonical_root = canonical_or_self(&current_root.join(CANONICAL_WORKTREE_DIR));
     let mut worktrees = parse_worktree_list(&git(cwd, &["worktree", "list", "--porcelain"])?);
 
+    // `git worktree list --porcelain` always lists the main worktree first —
+    // that is a structural fact about the repository, independent of which
+    // worktree `cwd` happens to be in. Use it to identify the main worktree
+    // rather than the cwd-relative `current` flag: `current` means "this is
+    // where this call was made from", not "this is the main worktree", and
+    // the two diverge whenever `repo_summary` is called from a linked
+    // worktree (the common case here, since Covenant's own workflow does
+    // feature work inside `.covenant/worktrees/<slug>`).
+    let main_worktree_root = worktrees
+        .first()
+        .map(|wt| canonical_or_self(Path::new(&wt.path)));
+
     let default_branch = default_branch(cwd);
     let merged: std::collections::HashSet<String> = git(
         cwd,
@@ -112,10 +124,11 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
     for wt in &mut worktrees {
         let wt_path = Path::new(&wt.path);
         let path_exists = wt_path.is_dir();
-        wt.current = canonical_or_self(wt_path) == current_root;
-        wt.off_convention = !wt.current
-            && !wt.bare
-            && !canonical_or_self(wt_path).starts_with(&canonical_root);
+        let wt_canonical = canonical_or_self(wt_path);
+        wt.current = wt_canonical == current_root;
+        let is_main_worktree = main_worktree_root.as_ref() == Some(&wt_canonical);
+        wt.off_convention =
+            !is_main_worktree && !wt.bare && !wt_canonical.starts_with(&canonical_root);
         wt.dirty_count = if path_exists {
             status_count(wt_path).unwrap_or(0)
         } else {
@@ -398,10 +411,13 @@ pub fn worktree_sizes(paths: Vec<String>) -> Vec<(String, u64)> {
         .into_iter()
         .filter(|p| Path::new(p).is_dir())
         .filter_map(|p| {
+            // BSD `du -sk` can print a valid summary line to stdout while
+            // still exiting non-zero (e.g. a permission-denied subdirectory
+            // inside the worktree). Parse stdout regardless of exit status —
+            // only omit the path when no number can be parsed out of it.
+            // Per-path isolation: `filter_map` means one path's du failure
+            // never affects the others.
             let out = Command::new("du").args(["-sk", &p]).output().ok()?;
-            if !out.status.success() {
-                return None;
-            }
             let text = String::from_utf8_lossy(&out.stdout);
             let kb = text.split_whitespace().next()?.parse::<u64>().ok()?;
             Some((p, kb))
@@ -1386,6 +1402,47 @@ index e69de29..0cfbf08 100644
         let summary = repo_summary(root).unwrap();
         let main_row = summary.worktrees.iter().find(|w| w.current).unwrap();
         assert!(!main_row.off_convention);
+    }
+
+    #[test]
+    fn main_worktree_is_not_off_convention_when_called_from_a_linked_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join(CANONICAL_WORKTREE_DIR).join("feature-x");
+        git_run(
+            root,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "feature-x"],
+        );
+
+        // Call repo_summary with the LINKED worktree's path as cwd — this is
+        // the common case, since Covenant's own workflow does feature work
+        // inside .covenant/worktrees/<slug>, not the main checkout.
+        let summary = repo_summary(&wt).unwrap();
+
+        let root_canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let main_row = summary
+            .worktrees
+            .iter()
+            .find(|w| {
+                std::path::Path::new(&w.path)
+                    .canonicalize()
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.path))
+                    == root_canonical
+            })
+            .expect("main worktree should be present in the summary");
+
+        // Sanity check: this call was made FROM the linked worktree, so the
+        // main worktree's `current` flag must be false. If this assertion
+        // ever fails, the test stopped reproducing the bug scenario.
+        assert!(
+            !main_row.current,
+            "sanity: cwd was the linked worktree, so the main worktree must not be `current`"
+        );
+        assert!(
+            !main_row.off_convention,
+            "the main worktree must never be off_convention, regardless of which worktree cwd is"
+        );
     }
 
     #[test]
