@@ -651,6 +651,9 @@ body.tabbar-left.canon-cockpit-open .canon-reader {
   position: absolute;
   top: 10px;
   right: 12px;
+  /* Above the sticky section header (z-index 5) — its opaque fill would
+     otherwise paint over the esc pill and hide it. */
+  z-index: 10;
   display: inline-flex;
   align-items: center;
   border: 0;
