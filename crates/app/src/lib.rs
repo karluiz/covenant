@@ -2579,6 +2579,17 @@ async fn worktree_sizes(paths: Vec<String>) -> Result<Vec<(String, u64)>, String
 }
 
 #[tauri::command]
+async fn worktree_reclaim(
+    cwd: String,
+    paths: Vec<String>,
+) -> Result<Vec<git_tools::ReclaimOutcome>, String> {
+    let path = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::reclaim_worktrees(&path, paths))
+        .await
+        .map_err(|e| format!("worktree_reclaim join: {e}"))?
+}
+
+#[tauri::command]
 async fn git_switch_branch(
     state: State<'_, AppState>,
     cwd: String,
@@ -5309,6 +5320,7 @@ pub fn run() {
             get_dir_context,
             git_repo_summary,
             worktree_sizes,
+            worktree_reclaim,
             git_switch_branch,
             git_changes,
             beacon_workflow_runs,

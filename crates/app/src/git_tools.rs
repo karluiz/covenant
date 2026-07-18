@@ -208,6 +208,65 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
     })
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ReclaimOutcome {
+    pub path: String,
+    pub removed: bool,
+    /// Present when `removed` is false. Shown to the user verbatim.
+    pub reason: Option<String>,
+}
+
+/// Removes worktrees that this function itself classifies as `Spent`, and
+/// deletes their branches. Refuses everything else.
+///
+/// The caller's classification is deliberately ignored: state is re-derived
+/// here so a stale UI, or a direct IPC call, cannot delete live work.
+pub fn reclaim_worktrees(
+    cwd: &Path,
+    paths: Vec<String>,
+) -> Result<Vec<ReclaimOutcome>, String> {
+    let summary = repo_summary(cwd)?;
+    let mut outcomes = Vec::with_capacity(paths.len());
+
+    for path in paths {
+        let target = canonical_or_self(Path::new(&path));
+        let Some(wt) = summary
+            .worktrees
+            .iter()
+            .find(|w| canonical_or_self(Path::new(&w.path)) == target)
+        else {
+            outcomes.push(ReclaimOutcome {
+                path,
+                removed: false,
+                reason: Some("unknown worktree".into()),
+            });
+            continue;
+        };
+
+        if wt.state != WorktreeState::Spent {
+            outcomes.push(ReclaimOutcome {
+                path,
+                removed: false,
+                reason: Some(format!("not spent (state: {:?})", wt.state).to_lowercase()),
+            });
+            continue;
+        }
+
+        if let Err(e) = git(cwd, &["worktree", "remove", &wt.path]) {
+            outcomes.push(ReclaimOutcome { path, removed: false, reason: Some(e) });
+            continue;
+        }
+        // The branch is merged, so -d is safe and refuses anything unmerged.
+        if let Some(branch) = &wt.branch {
+            let _ = git(cwd, &["branch", "-d", branch]);
+        }
+        outcomes.push(ReclaimOutcome { path, removed: true, reason: None });
+    }
+
+    let _ = git(cwd, &["worktree", "prune"]);
+    Ok(outcomes)
+}
+
 pub fn switch_branch(cwd: &Path, branch: &str) -> Result<GitRepoSummary, String> {
     validate_branch_name(branch)?;
     let out = Command::new("git")
@@ -1468,5 +1527,103 @@ index e69de29..0cfbf08 100644
         let out = worktree_sizes(vec![real.to_string_lossy().to_string(), gone]);
         assert_eq!(out.len(), 1, "missing paths are omitted, not zeroed");
         assert!(out[0].1 > 0);
+    }
+
+    #[test]
+    fn reclaim_removes_a_spent_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join("wt-done");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "done"]);
+        std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
+        git_run(&wt, &["add", "."]);
+        git_run(&wt, &["commit", "-q", "-m", "w"]);
+        git_run(root, &["merge", "-q", "--no-ff", "-m", "m", "done"]);
+
+        let out = reclaim_worktrees(root, vec![wt.to_string_lossy().to_string()]).unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(out[0].removed, "reason: {:?}", out[0].reason);
+        assert!(!wt.exists(), "directory is gone");
+
+        let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
+        assert!(!branches.lines().any(|l| l.trim() == "done"), "branch deleted too");
+    }
+
+    #[test]
+    fn reclaim_refuses_an_unmerged_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join("wt-live");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "live"]);
+        std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
+        git_run(&wt, &["add", "."]);
+        git_run(&wt, &["commit", "-q", "-m", "w"]);
+
+        let out = reclaim_worktrees(root, vec![wt.to_string_lossy().to_string()]).unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(!out[0].removed);
+        assert!(out[0].reason.as_deref().unwrap_or("").contains("not spent"));
+        assert!(wt.exists(), "untouched");
+    }
+
+    #[test]
+    fn reclaim_refuses_a_dirty_worktree_even_if_merged() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join("wt-dirty");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "dirty"]);
+        std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
+        git_run(&wt, &["add", "."]);
+        git_run(&wt, &["commit", "-q", "-m", "w"]);
+        git_run(root, &["merge", "-q", "--no-ff", "-m", "m", "dirty"]);
+        std::fs::write(wt.join("tracked.txt"), "uncommitted\n").unwrap();
+
+        let out = reclaim_worktrees(root, vec![wt.to_string_lossy().to_string()]).unwrap();
+        assert!(!out[0].removed);
+        assert!(wt.exists());
+    }
+
+    #[test]
+    fn reclaim_refuses_the_current_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let out = reclaim_worktrees(root, vec![root.to_string_lossy().to_string()]).unwrap();
+        assert!(!out[0].removed);
+        assert!(root.exists());
+    }
+
+    #[test]
+    fn reclaim_refuses_a_path_that_is_not_a_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let out = reclaim_worktrees(root, vec!["/tmp/not-a-worktree".to_string()]).unwrap();
+        assert!(!out[0].removed);
+        assert!(out[0].reason.as_deref().unwrap_or("").contains("unknown"));
+    }
+
+    #[test]
+    fn one_refusal_does_not_abort_the_batch() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let good = root.join("wt-good");
+        git_run(root, &["worktree", "add", "-q", good.to_str().unwrap(), "-b", "good"]);
+        std::fs::write(good.join("tracked.txt"), "x\n").unwrap();
+        git_run(&good, &["add", "."]);
+        git_run(&good, &["commit", "-q", "-m", "w"]);
+        git_run(root, &["merge", "-q", "--no-ff", "-m", "m", "good"]);
+
+        let out = reclaim_worktrees(
+            root,
+            vec!["/tmp/nope".to_string(), good.to_string_lossy().to_string()],
+        )
+        .unwrap();
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().any(|o| o.removed), "the valid one still went through");
     }
 }
