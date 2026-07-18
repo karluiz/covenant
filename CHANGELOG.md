@@ -6,6 +6,64 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.37 — Covenant Gist + Canon detect/adopt/import
+
+### Added
+
+- **Covenant Gist — share any file, view-only**: a share icon in the
+  Structure editor header and a "Share as gist" / "Copy gist link" /
+  "Revoke gist" set in the Files-tree right-click menu publish the current
+  file behind a secret `forge.covenant.uno/g/:token` link. `.md` renders as
+  markdown, everything else as `<pre>` with a line-number gutter — no
+  comments, no verdict, no login. Desktop side lives in
+  `crates/app/src/covenant_gist.rs` (commands `gist_publish` / `gist_get_share`
+  / `gist_revoke`, backed by a `gist_shares.json` store keyed by path) and
+  `ui/src/gist/{api,share}.ts`; re-sharing a file reuses its link. Server side
+  is migration `0010_gists.sql` + `src/gist.rs` + `templates/gist.html`
+  (already deployed to forge).
+
+- **Canon detects & adopts foreign context**: Canon now surfaces skills,
+  agents, commands, and MCP servers already present in a repo's executor
+  directories with a "detected" badge, and a one-click **Adopt** pulls each
+  into Canon source (`adopt()` / `canon_adopt`, `status()` `detected_in`).
+  Detection is projection run backwards. Spans `feat(canon)` detection +
+  adoption across subagents/commands/mcp/skills.
+
+- **Canon import from skills.sh**: paste `owner/repo --skill <name>` in the
+  Skills section and Canon shells `npx skills add`, then auto-adopts the delta
+  (`canon_import_skill`, `adopt_new_skills`) — composes with detection/adoption.
+  Ref parsing (`parse_skills_ref`) validates against shell and flag injection.
+
+- **Confirm-before-quit guard**: ⌘Q, the red traffic-light on the last window,
+  and dock → Quit are intercepted in Rust (`RunEvent::ExitRequested` with
+  `code = None` → `prevent_exit`) and confirmed via a two-button toast, so a
+  fat-fingered ⌘Q can't kill running terminals and operators. On confirm,
+  `exit(0)` re-enters with `code = Some` and passes straight through.
+  `crates/app/src/lib.rs`, `ui/src/main.ts`, `ui/src/notifications/toast.ts`.
+
+- **Landing Canon / CDLC section**: adds a Canon / CDLC section with phase
+  icons to the landing page.
+
+### Changed
+
+- **Cloud sync drops operator & spec synchronization**: removes operator and
+  spec sync from the cloud-sync path (`feat(cloud-sync)`).
+
+### Fixed
+
+- **skills.sh import runs `npx` with the real PATH**: `canon_import_skill`
+  now shells `npx` through a login-shell PATH (GUI apps launch with a minimal
+  PATH that lacks `npx`) and sets `kill_on_drop` so an import timeout doesn't
+  leak the child.
+- **Gist share reflects on-screen edits**: the editor-header share button
+  flushes the live buffer via `save()` (a no-op when clean) before publishing,
+  so an unsaved edit ships instead of stale on-disk bytes; the button is styled
+  to match its sibling header buttons.
+- **Canon adopt robustness**: detected names are slugified on adopt so
+  capitalized names become adoptable, adopt errors surface as a toast rather
+  than a blocking alert, and MCP adopt removes the stale foreign key from
+  `.mcp.json`.
+
 ## v0.9.36 — Restore the overlay-card workspace switch
 
 ### Changed
