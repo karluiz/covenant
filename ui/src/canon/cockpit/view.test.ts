@@ -386,7 +386,7 @@ describe("CanonCockpitView module filter toolbar", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelectorAll(".canon-skill-row").length).toBe(2);
     });
-    const bar = v.element.querySelector<HTMLElement>(".canon-toolbar")!;
+    const bar = v.element.querySelector<HTMLElement>(".canon-filter-bar")!;
     expect(bar).toBeTruthy();
     expect(bar.hidden).toBe(false); // revealed once rows loaded
 
@@ -416,7 +416,7 @@ describe("CanonCockpitView module filter toolbar", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-cockpit-empty")).toBeTruthy();
     });
-    expect(v.element.querySelector<HTMLElement>(".canon-toolbar")?.hidden).toBe(true);
+    expect(v.element.querySelector<HTMLElement>(".canon-filter-bar")?.hidden).toBe(true);
   });
 
   it("Skills: the header Add button toggles the skills.sh import row", async () => {

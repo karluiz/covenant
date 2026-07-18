@@ -278,7 +278,10 @@ export class CanonCockpitView {
    *  "no matches" note appears when a query hides everything. */
   private filterToolbar(list: HTMLElement, placeholder: string): HTMLElement {
     const bar = document.createElement("div");
-    bar.className = "canon-toolbar";
+    // NOT "canon-toolbar" — that class belongs to the rail panel's org-chip
+    // toolbar (canon/styles.css) and carries padding + a border-bottom that
+    // inset this input and drew a stray divider. Own, unique class.
+    bar.className = "canon-filter-bar";
     bar.hidden = true;
     bar.innerHTML = Icons.search({ size: 14 });
     const input = document.createElement("input");
