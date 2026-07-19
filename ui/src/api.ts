@@ -1375,6 +1375,20 @@ export async function worktreeSizes(paths: string[]): Promise<Array<[string, num
   return invoke<Array<[string, number]>>("worktree_sizes", { paths });
 }
 
+export interface ReclaimOutcome {
+  path: string;
+  removed: boolean;
+  reason: string | null;
+}
+
+export async function worktreeReclaim(cwd: string, paths: string[]): Promise<ReclaimOutcome[]> {
+  return invoke<ReclaimOutcome[]>("worktree_reclaim", { cwd, paths });
+}
+
+export async function worktreeRelocate(cwd: string, path: string): Promise<string> {
+  return invoke<string>("worktree_relocate", { cwd, path });
+}
+
 export interface GitRepoSummary {
   repo_name: string;
   repo_root: string;

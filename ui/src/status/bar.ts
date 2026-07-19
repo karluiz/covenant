@@ -39,6 +39,9 @@ import {
   setSessionMissionContent,
   telegramStatus,
   type TelegramStatus,
+  worktreeReclaim,
+  worktreeRelocate,
+  worktreeSizes,
 } from "../api";
 import { Icons } from "../icons";
 import { brandIconSvg, telegramIconSvg } from "../icons/brands";
@@ -50,7 +53,7 @@ import { makeScoreChip, type ScoreChip } from "../score/chip";
 import { attachTooltip } from "../tooltip/tooltip";
 import { VitalsCluster } from "./vitals";
 import { ContextMenu, type MenuItem } from "../menu/context-menu";
-import { pushInfoToast } from "../notifications/toast";
+import { pushConfirmToast, pushInfoToast } from "../notifications/toast";
 import { reviewApi, type ShareState } from "../review/api";
 import { ReviewPanel } from "../review/panel";
 import { formatChord } from "../platform";
@@ -60,7 +63,7 @@ import {
   getProviderDescription,
   type ProviderHealth,
 } from "./provider-health";
-import { worktreeStateClass, worktreeStateLabel } from "./worktree-state";
+import { worktreeDefaultAction, worktreeStateClass, worktreeStateLabel } from "./worktree-state";
 // TODO(task-17): integrate `renderOperatorChip` here once the LIVE
 // badge + colored-dot composition can be expressed via the shared
 // chip primitive. Today the status-bar operator chip carries a LIVE
@@ -982,9 +985,19 @@ export class StatusBar {
               ? `${wt.dirty_count} changed`
               : escapeHtml(worktreeStateLabel(wt.state))
           }</span>`;
-        const action = wt.current
+        const verb = worktreeDefaultAction(wt);
+        const ACTION_LABEL: Record<string, string> = {
+          open: "Open tab",
+          decide: "Open tab",
+          reclaim: "Reclaim",
+          prune: "Prune",
+          relocate: "Relocate",
+        };
+        const action = verb === "none"
           ? ""
-          : `<button type="button" class="status-git-pop-open-wt" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">Open tab</button>`;
+          : verb === "open" || verb === "decide"
+            ? `<button type="button" class="status-git-pop-open-wt" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">Open tab</button>`
+            : `<button type="button" class="status-git-pop-wt-act" data-verb="${verb}" data-path="${escapeHtml(wt.path)}">${ACTION_LABEL[verb]}</button>`;
         return `
           <div class="status-git-pop-row status-git-pop-worktree${wt.current ? " is-current" : ""}">
             <span class="status-git-pop-row-main">
@@ -998,6 +1011,11 @@ export class StatusBar {
           </div>`;
       }).join("")
       : `<div class="status-git-pop-empty">No worktrees reported by git.</div>`;
+
+    const spent = summary.worktrees.filter((w) => w.state === "spent");
+    const bulk = spent.length > 0
+      ? `<button type="button" class="status-git-pop-reclaim-all">Reclaim ${spent.length} spent</button>`
+      : "";
 
     pop.innerHTML = `
       <div class="status-git-pop-header">
@@ -1016,7 +1034,7 @@ export class StatusBar {
         <div class="status-git-pop-empty status-git-pop-no-match" hidden>No matching branches.</div>
       </section>
       <section class="status-git-pop-section" data-section="worktrees">
-        <h3>Worktrees <span class="status-git-pop-count">${summary.worktrees.length}</span></h3>
+        <h3>Worktrees <span class="status-git-pop-count">${summary.worktrees.length}</span>${bulk}</h3>
         <div class="status-git-pop-list">${worktrees}</div>
         <div class="status-git-pop-empty status-git-pop-no-match" hidden>No matching worktrees.</div>
       </section>
@@ -1099,6 +1117,76 @@ export class StatusBar {
         this.closeBranchPopover();
       });
     });
+    pop.querySelectorAll<HTMLButtonElement>(".status-git-pop-wt-act").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const path = btn.dataset.path ?? "";
+        const verb = btn.dataset.verb ?? "";
+        if (!path) return;
+        btn.disabled = true;
+        try {
+          if (verb === "relocate") {
+            const moved = await worktreeRelocate(cwd, path);
+            pushInfoToast({ message: `Moved to ${compactPath(moved)}` });
+          } else {
+            // prune and reclaim share one command: the backend re-derives state
+            // and refuses anything it does not itself classify as spent.
+            const [outcome] = await worktreeReclaim(cwd, [path]);
+            if (outcome && !outcome.removed) {
+              pushInfoToast({ message: `Could not reclaim: ${outcome.reason ?? "refused"}` });
+              return;
+            }
+            pushInfoToast({ message: "Worktree reclaimed" });
+          }
+          // The popover renders once from openBranchPopover and has no refresh
+          // path; closing it is the honest way to drop now-stale rows.
+          this.closeBranchPopover();
+        } catch (e) {
+          pushInfoToast({ message: String(e) });
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    pop.querySelector<HTMLButtonElement>(".status-git-pop-reclaim-all")
+      ?.addEventListener("click", async (ev) => {
+        const btn = ev.currentTarget as HTMLButtonElement;
+        const paths = summary.worktrees.filter((w) => w.state === "spent").map((w) => w.path);
+        if (paths.length === 0) return;
+        btn.disabled = true;
+        // `du` over every spent worktree is slow, so the size lands in the
+        // confirm copy rather than blocking the popover render.
+        const sizes = await worktreeSizes(paths).catch(() => [] as Array<[string, number]>);
+        const gb = sizes.reduce((sum, [, kb]) => sum + kb, 0) / 1024 / 1024;
+        const detail = gb >= 0.1 ? `, freeing ${gb.toFixed(1)} GB` : "";
+        btn.disabled = false;
+        // Never window.confirm: a native modal blocks the whole webview.
+        pushConfirmToast({
+          // Toast messages render via textContent — do NOT escapeHtml here or
+          // the entities show up literally.
+          message: `Delete ${paths.length} merged worktree(s)${detail}? Their branches are already in ${
+            summary.current_branch ?? "the default branch"
+          }.`,
+          confirmLabel: "Reclaim",
+          onConfirm: () => {
+            void (async () => {
+              try {
+                const outcomes = await worktreeReclaim(cwd, paths);
+                const failed = outcomes.filter((o) => !o.removed);
+                pushInfoToast({
+                  message: failed.length === 0
+                    ? `Reclaimed ${outcomes.length} worktree(s).`
+                    : `Reclaimed ${outcomes.length - failed.length}, refused ${failed.length}.`,
+                });
+              } catch (e) {
+                pushInfoToast({ message: String(e) });
+              } finally {
+                this.closeBranchPopover();
+              }
+            })();
+          },
+        });
+      });
     pop.querySelector<HTMLButtonElement>(".status-git-pop-view-changes")?.addEventListener("click", () => {
       this.closeBranchPopover();
       this.onViewChanges?.();
