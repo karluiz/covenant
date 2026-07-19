@@ -30,7 +30,7 @@ const themes = SPECIAL_THEME_LIST.map((t) => {
 ---
 <div class={compact
   ? "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3"
-  : "grid sm:grid-cols-2 gap-5 not-prose"}>
+  : "grid sm:grid-cols-2 gap-5"}>
   {themes.map((t) => (
     <figure class="border border-mist/10">
       <div class="relative aspect-[16/9] overflow-hidden" style={`background:${t.ground}`}>
