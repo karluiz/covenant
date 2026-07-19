@@ -536,12 +536,28 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
     }
 
     git(main, &["worktree", "remove", &wt.path])?;
-    // Best-effort: -d checks merge status against main's CURRENT HEAD, not
-    // against `base`, so it can still refuse if main has diverged from the
-    // default branch since we computed `ahead`. Failure here is not fatal:
-    // the directory is already gone and the ledger will surface a stray
-    // branch.
-    let _ = git(main, &["branch", "-d", branch]);
+    // `-d`'s refusal is HEAD-relative — it checks merge status against
+    // main's CURRENT HEAD, not against `base` — so it is not a meaningful
+    // safety signal here: a developer's main checkout is usually sitting on
+    // some other feature branch, which the agent branch (cut from `base`)
+    // may not be an ancestor of even though it carries zero commits beyond
+    // `base`. Try `-d` first (cheap, and correct whenever HEAD happens to be
+    // `base`-compatible); if it refuses, fall back to an explicit ancestry
+    // check against the SAME `base` the `rev-list` gate above already
+    // proved `ahead == 0` for. `rev-list <base>..<branch> == 0` plus
+    // `merge-base --is-ancestor <branch> <base>` are both base-relative and
+    // therefore both correct — the redundancy that motivated preferring
+    // `-d` is preserved, it is just now measuring the right target. Only a
+    // passing ancestry check may fall back to `-D`; if it does not pass,
+    // the branch is left alone under all circumstances. Failure here is
+    // non-fatal either way: the directory is already gone and the ledger
+    // will surface a stray branch.
+    if git(main, &["branch", "-d", branch]).is_err() {
+        let is_ancestor = git(main, &["merge-base", "--is-ancestor", branch, &base]).is_ok();
+        if is_ancestor {
+            let _ = git(main, &["branch", "-D", branch]);
+        }
+    }
     let _ = git(main, &["worktree", "prune"]);
     Ok(true)
 }
@@ -2616,6 +2632,55 @@ index e69de29..0cfbf08 100644
         assert!(
             !branches.lines().any(|l| l.trim() == "agent/self-0719-eee"),
             "branch delete must run from the main worktree, not the deleted cwd",
+        );
+    }
+
+    #[test]
+    fn retire_deletes_the_branch_even_when_main_has_diverged_from_default() {
+        // Live-verification regression: `git branch -d` refuses based on the
+        // invoking repo's CURRENT HEAD, not the default branch. If the
+        // developer's main checkout has moved to some other feature branch
+        // (the common case, not an edge case), the agent branch — which
+        // still points at the default branch it was cut from — can be
+        // unmerged into THAT branch's history even though it has zero
+        // commits of its own relative to the default branch. The worktree
+        // still gets removed; the branch is orphaned. Both must be gone.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root); // default branch "main", tip = commit A
+
+        // Fork a feature branch from A, and give it its own commit (F) —
+        // this is the developer's real working branch.
+        git_run(root, &["switch", "-q", "-c", "fix/gist-binary-guard"]);
+        std::fs::write(root.join("feature-only.txt"), "wip\n").unwrap();
+        git_run(root, &["add", "."]);
+        git_run(root, &["commit", "-q", "-m", "feature work"]);
+
+        // Back on main, advance it independently (B) so the feature branch
+        // does NOT contain main's new tip — a real divergence, not just a
+        // fast-forward ahead of main.
+        git_run(root, &["switch", "-q", "main"]);
+        std::fs::write(root.join("main-only.txt"), "advance\n").unwrap();
+        git_run(root, &["add", "."]);
+        git_run(root, &["commit", "-q", "-m", "main advances"]);
+
+        // Cut the agent branch from main's current tip (B): zero commits of
+        // its own relative to "main", so the existing rev-list gate passes.
+        let path = create_worktree(root, "agent/orphan-0719-fff", None).unwrap();
+
+        // Now move the MAIN checkout onto the feature branch (F), which does
+        // NOT contain B. `git branch -d agent/orphan-0719-fff` from `root`
+        // checks merge status against F (current HEAD) and must refuse,
+        // exactly as it did in live verification — even though the branch
+        // is trivially an ancestor of "main" (it IS main's tip).
+        git_run(root, &["switch", "-q", "fix/gist-binary-guard"]);
+
+        assert!(retire_worktree(root, &path).unwrap());
+        assert!(!Path::new(&path).exists());
+        let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
+        assert!(
+            !branches.lines().any(|l| l.trim() == "agent/orphan-0719-fff"),
+            "branch must be deleted via ancestry-against-base, not HEAD-relative -d",
         );
     }
 }
