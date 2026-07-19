@@ -2064,6 +2064,16 @@ export async function structureCopyInto(
   return invoke<string[]>("structure_copy_into", { sources, destDir });
 }
 
+/// Paths of files on the OS clipboard (⌘C in Finder). Empty otherwise.
+export async function structureClipboardFiles(): Promise<string[]> {
+  return invoke<string[]>("structure_clipboard_files");
+}
+
+/// Put file paths on the OS clipboard (so tree Copy pastes in Finder too).
+export async function structureClipboardSetFiles(paths: string[]): Promise<void> {
+  return invoke<void>("structure_clipboard_set_files", { paths });
+}
+
 /// Move tree entries into `destDir` (internal drag-to-move between folders).
 /// Returns the new top-level paths. Collisions auto-rename; a source already
 /// in `destDir` is a no-op.

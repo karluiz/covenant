@@ -3535,6 +3535,69 @@ async fn structure_copy_into(
         .map_err(|e| format!("copy_into join: {e}"))?
 }
 
+/// Paths of files currently on the OS clipboard (⌘C in Finder). Empty when
+/// the clipboard holds anything else. macOS only for now.
+#[tauri::command]
+fn structure_clipboard_files() -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use objc2::runtime::AnyObject;
+        use objc2::{class, msg_send};
+        let pb: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
+        if pb.is_null() {
+            return Vec::new();
+        }
+        // NSFilenamesPboardType — the array-of-paths flavor Finder writes.
+        let ty: *mut AnyObject =
+            msg_send![class!(NSString), stringWithUTF8String: c"NSFilenamesPboardType".as_ptr()];
+        let list: *mut AnyObject = msg_send![pb, propertyListForType: ty];
+        if list.is_null() {
+            return Vec::new();
+        }
+        let count: usize = msg_send![list, count];
+        (0..count)
+            .filter_map(|i| {
+                let s: *mut AnyObject = msg_send![list, objectAtIndex: i];
+                let c: *const std::ffi::c_char = msg_send![s, UTF8String];
+                (!c.is_null()).then(|| std::ffi::CStr::from_ptr(c).to_string_lossy().into_owned())
+            })
+            .collect()
+    }
+    // ponytail: macOS-only; add the Windows CF_HDROP path when Windows ships.
+    #[cfg(not(target_os = "macos"))]
+    Vec::new()
+}
+
+/// Put file paths on the OS clipboard, so a tree Copy also pastes in Finder
+/// (and is the single source of truth for the tree's own Paste).
+#[tauri::command]
+fn structure_clipboard_set_files(paths: Vec<String>) {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use objc2::runtime::AnyObject;
+        use objc2::{class, msg_send};
+        let pb: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
+        if pb.is_null() {
+            return;
+        }
+        let ty: *mut AnyObject =
+            msg_send![class!(NSString), stringWithUTF8String: c"NSFilenamesPboardType".as_ptr()];
+        let arr: *mut AnyObject = msg_send![class!(NSMutableArray), array];
+        for p in &paths {
+            let Ok(c) = std::ffi::CString::new(p.as_str()) else {
+                continue;
+            };
+            let s: *mut AnyObject = msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()];
+            let _: () = msg_send![arr, addObject: s];
+        }
+        let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: ty];
+        let _: i64 = msg_send![pb, declareTypes: types, owner: std::ptr::null::<AnyObject>()];
+        let _: bool = msg_send![pb, setPropertyList: arr, forType: ty];
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = paths;
+}
+
 /// Move tree entries into a directory (internal drag-to-move between
 /// folders). Rename when possible, copy+delete across filesystems.
 #[tauri::command]
@@ -5393,6 +5456,8 @@ pub fn run() {
             structure_rename_path,
             structure_trash_path,
             structure_copy_into,
+            structure_clipboard_files,
+            structure_clipboard_set_files,
             structure_move_into,
             structure_search,
             structure_find_files,
@@ -5627,6 +5692,15 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::resolve_scope;
+
+    /// The pasteboard round-trip: what Copy writes is what Paste reads.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn clipboard_files_round_trip() {
+        let want = vec!["/tmp/a.txt".to_string(), "/tmp/b c.txt".to_string()];
+        super::structure_clipboard_set_files(want.clone());
+        assert_eq!(super::structure_clipboard_files(), want);
+    }
 
     #[test]
     fn one_shot_skips_persistence() {

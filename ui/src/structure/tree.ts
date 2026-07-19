@@ -12,6 +12,8 @@ import { ContextMenu, type MenuItem } from "../menu/context-menu";
 import { formatChord } from "../platform";
 import { shareFileAsGist, copyGistLink, revokeGist } from "../gist/share";
 import {
+  structureClipboardFiles,
+  structureClipboardSetFiles,
   structureCopyInto,
   structureCreatePath,
   structureListDir,
@@ -125,10 +127,12 @@ export class StructureTree {
   /// started — avoids two reveals interleaving DOM updates.
   private revealGen = 0;
 
-  /// Internal copy/paste clipboard (VS Code-style ⌘C/⌘V). Holds the
-  /// source path; paste copies it into the destination dir via the same
-  /// collision-safe `copy_into` used for Finder drops — pasting into the
-  /// same folder yields `name (2)`, i.e. duplicate.
+  /// Copy/paste clipboard (VS Code-style ⌘C/⌘V). The OS clipboard is the
+  /// source of truth — Copy writes the path there too, so Finder↔tree
+  /// copy/paste works both ways. This field is only the fallback for
+  /// platforms where the native clipboard isn't wired yet (non-macOS).
+  /// Paste uses the same collision-safe `copy_into` as Finder drops —
+  /// pasting into the same folder yields `name (2)`, i.e. duplicate.
   private clipboardPath: string | null = null;
   /// Last row the user clicked or right-clicked — the target for keyboard
   /// ⌘C/⌘V and the `.is-selected` outline. Distinct from `activeNode`
@@ -169,7 +173,7 @@ export class StructureTree {
       if ((ev.target as HTMLElement).closest(".structure-node")) return;
       ev.preventDefault();
       if (!this.cwd) return;
-      this.openRootContextMenu(ev.clientX, ev.clientY);
+      void this.openRootContextMenu(ev.clientX, ev.clientY);
     });
 
     // Focusable so ⌘C/⌘V land here when the tree (not the editor) is
@@ -188,8 +192,8 @@ export class StructureTree {
     const key = ev.key.toLowerCase();
     if (key === "c" && this.selectedNode) {
       ev.preventDefault();
-      this.clipboardPath = this.selectedNode.entry.path;
-    } else if (key === "v" && this.clipboardPath) {
+      this.copyToClipboard(this.selectedNode.entry.path);
+    } else if (key === "v") {
       ev.preventDefault();
       void this.pasteClipboard(this.selectedNode);
     }
@@ -210,15 +214,28 @@ export class StructureTree {
   /// folder itself, into a file's parent, or the tree root when nothing is
   /// selected. Then copy the clipboard path in via `ingestDrop` (same
   /// collision-safe copy + expand + refresh as a Finder drop).
+  private copyToClipboard(path: string): void {
+    this.clipboardPath = path;
+    void structureClipboardSetFiles([path]).catch(() => {});
+  }
+
+  /// What a Paste would ingest: the OS clipboard (Finder ⌘C, and our own
+  /// Copy, which writes there) falling back to the in-memory path.
+  private async clipboardSources(): Promise<string[]> {
+    const os = await structureClipboardFiles().catch(() => [] as string[]);
+    if (os.length > 0) return os;
+    return this.clipboardPath ? [this.clipboardPath] : [];
+  }
+
   private async pasteClipboard(target: NodeState | null): Promise<void> {
-    const src = this.clipboardPath;
-    if (!src || !this.cwd) return;
+    const src = await this.clipboardSources();
+    if (src.length === 0 || !this.cwd) return;
     let destDir: string;
     if (!target) destDir = this.cwd;
     else if (target.entry.kind === "dir" && !target.entry.is_symlink)
       destDir = target.entry.path;
     else destDir = parentDir(target.entry.path, this.cwd);
-    await this.ingestDrop([src], destDir);
+    await this.ingestDrop(src, destDir);
   }
 
   /// Pointer-based drag-to-move. We can't use HTML5 DnD here: the Tauri
@@ -620,14 +637,15 @@ export class StructureTree {
       ev.preventDefault();
       this.selectNode(node);
       // ContextMenu.show handles the <html> CSS zoom counter-scaling.
-      this.openContextMenu(ev.clientX, ev.clientY, node);
+      void this.openContextMenu(ev.clientX, ev.clientY, node);
     });
 
     return node;
   }
 
-  private openContextMenu(x: number, y: number, node: NodeState): void {
+  private async openContextMenu(x: number, y: number, node: NodeState): Promise<void> {
     const items: MenuItem[] = [];
+    const pending = await this.clipboardSources();
 
     // For directories, offer creating new entries inside them. We
     // skip this for files (parent is implicit) and for symlinked
@@ -646,14 +664,12 @@ export class StructureTree {
       {
         label: "Copy",
         shortcut: formatChord(["mod", "C"]),
-        onClick: () => {
-          this.clipboardPath = node.entry.path;
-        },
+        onClick: () => this.copyToClipboard(node.entry.path),
       },
     );
-    if (this.clipboardPath) {
+    if (pending.length > 0) {
       items.push({
-        label: "Paste",
+        label: pending.length > 1 ? `Paste ${pending.length} items` : "Paste",
         shortcut: formatChord(["mod", "V"]),
         onClick: () => void this.pasteClipboard(node),
       });
@@ -706,18 +722,19 @@ export class StructureTree {
   /// Context menu for the empty list background / header — i.e. the tree
   /// root, with no node under the cursor. Offers creating entries at the
   /// root and revealing the root in Finder.
-  private openRootContextMenu(x: number, y: number): void {
+  private async openRootContextMenu(x: number, y: number): Promise<void> {
     const dir = this.cwd;
     if (!dir) return;
+    const pending = await this.clipboardSources();
     const items: MenuItem[] = [
       { label: "New File", onClick: () => this.startCreateInRoot("file") },
       { label: "New Folder", onClick: () => this.startCreateInRoot("dir") },
       { divider: true },
       { label: "Reveal in Finder", onClick: () => this.revealInFinder(dir) },
     ];
-    if (this.clipboardPath) {
+    if (pending.length > 0) {
       items.push({
-        label: "Paste",
+        label: pending.length > 1 ? `Paste ${pending.length} items` : "Paste",
         shortcut: formatChord(["mod", "V"]),
         onClick: () => void this.pasteClipboard(null),
       });
