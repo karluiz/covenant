@@ -170,9 +170,16 @@ that path is user-initiated behind a confirmation which says so in as many words
 Retirement is automatic and silent, so it gets the stricter gate.
 
 **No new persistence.** All four conditions are derived: three from git, the
-fourth from `listTabSnapshots()` — the same channel the relocate guard already
-uses. Nothing marks a worktree as "Covenant-created"; there is no registry to
-drift out of sync. This is the same discipline as the lifecycle states.
+fourth by reading straight off `this.tabs` / `tab.panes` in the tab manager.
+Deliberately NOT `listTabSnapshots()` (the channel the relocate guard uses
+elsewhere): that helper reports only `activePane(t)` per tab, which is correct
+for its other callers but would make a *background* pane of a split tab —
+`cd`'d into a different worktree than the one currently showing — invisible
+here. Occupancy has to cover every pane of every tab, or the backend's clean
+tree with no commits would look identical to an unoccupied worktree and delete
+the directory out from under a live shell. Nothing marks a worktree as
+"Covenant-created"; there is no registry to drift out of sync. This is the
+same discipline as the lifecycle states.
 
 ## Degradation
 
