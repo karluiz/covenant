@@ -106,9 +106,33 @@ pub fn create_worktree(cwd: &Path, slug: &str, base: Option<&str>) -> Result<Str
   shared main, not from the half-finished state of whatever branch the user is
   standing on.
 
-Both launch paths already carry a working directory — `SpawnSpec.cwd` and
-`SpawnAcpOpts.cwd` — so the worktree path is resolved before launch and passed
-through existing plumbing.
+### Launch paths
+
+An earlier draft of this spec claimed "both launch paths already carry a working
+directory". That was wrong, and the correction changes user-visible behaviour.
+There are three paths, and only one opens anything new:
+
+| Path | Today |
+|---|---|
+| `createAcpTab({cwd})` | Opens a new ACP tab with a cwd. The worktree drops in unchanged. |
+| `runSpawn` (PTY) | Writes the cmdline into the session you are **already in** via `writeToSession`. No new tab, no cwd to set. `SpawnSpec.cwd` exists as a field but this path never uses it. |
+| `defaultAgentCmdline` | Preloads a cmdline into a fresh tab. |
+
+The PTY path is the most used one — Ctrl+N, the spawn picker, "Start agent" in
+the pane context menu — and it is the path that filled `.claude/worktrees/`.
+
+**Decision: in worktree mode, a PTY spawn opens a new tab** cwd'd into the
+worktree, via the existing `createTab({ cwd, initialCommand })`. Agents are then
+born isolated on every path, consistently.
+
+This is a real behaviour change: today Ctrl+N runs the agent where you are
+standing; it will open a tab instead. Accepted deliberately. The alternatives
+were rejected: writing `cd <worktree>` into the current terminal hijacks the
+user's own cwd and strands them in a directory that may be removed on close,
+and limiting worktrees to ACP spawns would exempt exactly the executors that
+caused the original mess.
+
+A spawn with `worktree: false` keeps today's in-place behaviour untouched.
 
 ## Retirement
 
