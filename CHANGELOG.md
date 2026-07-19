@@ -6,6 +6,58 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.41 — Agent branches name themselves
+
+### Added
+
+- **The agent branch takes the tab's inferred title.** A worktree Covenant hands
+  out is born as `agent/claude-0719-y72`; once the tab earns a title it becomes
+  `agent/worktree-prevention-0719-y72`. Both title sources — `title_suggested`
+  for PTY tabs and the ACP adapter's `onTitle` — now route through one
+  `applyInferredTitle` in `ui/src/tabs/manager.ts`, backed by
+  `retitle_worktree_branch` and the `worktree_retitle` command.
+
+  Only the branch moves. `git worktree move` on a live checkout would pull the
+  floor out from under the agent running inside it, and the popover shows the
+  branch anyway, so the directory keeps its birth name. The birth suffix is
+  preserved, which makes collisions impossible without any retry logic and keeps
+  the name traceable back to the launch. Renaming stops as soon as a remote
+  branch exists under that name — a published name is somebody else's reference.
+
+- **Landing: a worktrees section.** The pitch no competitor can make, because
+  each harness only knows its own convention: *whichever harness you use today,
+  and whichever one you adopt next*. Deployed separately from the app
+  (`landing/src/components/Worktrees.astro`).
+
+### Changed
+
+- **The floating notch hides when the main window merely fills the screen**, not
+  only when it is truly fullscreen — a window dragged to full size shows the
+  inline rack too, so the overlay was pure noise on top of the app
+  (`crates/app/src/notch.rs`, new `main_covers_screen`).
+- **Zoom and reset-appearance controls** reworked in Settings, with the
+  structure tree and zoom handling updated to match (`ui/src/settings/panel.ts`,
+  `ui/src/zoom.ts`, `ui/src/structure/tree.ts`).
+- **The changes panel header gets a top border**, closing the bar against what
+  sits above it (`ui/src/changes/changes.css`).
+
+### Fixed
+
+- **Retitling was gated on the wrong question and never fired.** The guard asked
+  whether the branch had an upstream — but `create_worktree` bases agent
+  branches on `origin/<default>`, and branching from a remote-tracking ref makes
+  git configure tracking automatically. Every agent branch is therefore born
+  *with* an upstream, so the guard refused every rename, always. "Has an
+  upstream" means "knows where it came from", not "is published"; the real check
+  is whether a remote branch exists under this branch's own name. Unit fixtures
+  could not reproduce it — with no `origin`, the base falls back to a local
+  branch and no tracking is set — so a test standing up a real bare remote was
+  added alongside the fix.
+
+- **Light-based Special Themes inherit the light ANSI 16** instead of the dark
+  palette, so terminal colors match the theme they were derived from
+  (`ui/src/tabs/manager.ts`, `ui/src/tabs/term-theme.test.ts`).
+
 ## v0.9.40 — Covenant hands out the worktree
 
 ### Added
