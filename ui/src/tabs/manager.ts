@@ -122,6 +122,7 @@ import {
 import { installPaneSplitter } from "./pane-splitter";
 import { positionGlassIndicator } from "./glass-indicator";
 import { sessionHintsFromTabs, type SessionHint } from "../convergence/hints";
+import type { SpecialTermTheme } from "../theme/special";
 
 /// Ensure a Familiar exists for the given session. If one is already
 /// registered backend-side (e.g. survived a relaunch), reuse it;
@@ -185,7 +186,23 @@ const TERMINAL_THEME_LIGHT = {
   brightWhite:   "#8c959f",
 } as const;
 
-function termTheme(): typeof TERMINAL_THEME_DARK | typeof TERMINAL_THEME_LIGHT {
+/// The active Special Theme's palette, pushed in by main.ts's applyTheme.
+/// A setter rather than an import because manager.ts importing main.ts
+/// would close an import cycle (main.ts imports TabManager).
+let activeSpecialTerm: SpecialTermTheme | null = null;
+
+export function setActiveSpecialTermTheme(t: SpecialTermTheme | null): void {
+  activeSpecialTerm = t;
+}
+
+export function termTheme():
+  | typeof TERMINAL_THEME_DARK
+  | typeof TERMINAL_THEME_LIGHT
+  | SpecialTermTheme {
+  // A Special Theme wins over both defaults, including under theme-light:
+  // TERMINAL_THEME_LIGHT's background is near-opaque white, which would
+  // hide the artwork behind the terminal grid.
+  if (activeSpecialTerm) return activeSpecialTerm;
   return document.body.classList.contains("theme-light")
     ? TERMINAL_THEME_LIGHT
     : TERMINAL_THEME_DARK;

@@ -49,6 +49,12 @@ import { Icons } from "./icons";
 import { RightRailController, type RailTarget } from "./titlebar/right-rail";
 import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, takeCliOpenPaths, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, claudeThemeFor, type ThemeMode } from "./theme/mode";
+import {
+  SPECIAL_THEMES,
+  isSpecialThemeId,
+  applySpecialTokens,
+  clearSpecialTokens,
+} from "./theme/special";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
@@ -71,7 +77,7 @@ import { resourcesSetActive, resourcesSampleNow, onResourcesUpdate } from "./api
 import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
-import { TabManager, type TabManifestV1 } from "./tabs/manager";
+import { TabManager, type TabManifestV1, setActiveSpecialTermTheme } from "./tabs/manager";
 import { activePane } from "./tabs/pane";
 import { applyCustomTabStyle, applyFoldedRailStyle, applyPresetTabStyle, applyTabbarPosition } from "./tabs/custom-style";
 import { applyIndicatorVisibility } from "./indicators";
@@ -165,20 +171,47 @@ let unwatchSystem: (() => void) | null = null;
 /// Latest applied theme mode, mirrored here so `runSpawn` can resolve the
 /// Claude theme for a freshly-launched executor without re-reading settings.
 let activeThemeMode: ThemeMode = "system";
+/// Latest applied Special Theme id, mirrored alongside `activeThemeMode` so
+/// `resolveTheme` can recover a light-based special theme's `base` when
+/// picking the executor's Claude theme — without this, `resolveTheme` gets
+/// no id, falls through its unknown-id branch, and always hands `dark` to
+/// `claudeThemeFor` even while `bunny` is active.
+let activeSpecialId: string | null = null;
 
 /// Single source of truth for theme application. Resolves system mode,
 /// flips the body class, calls the Rust effect swap, and reapplies the
 /// xterm palette to every live terminal. Idempotent.
+///
+/// For `special`, the theme's own `base` drives the light/dark body class
+/// and the vibrancy material, and its tokens are written inline on <body>
+/// (which is what lets a light-based special theme keep translucency —
+/// see applySpecialTokens).
 async function applyTheme(
   mode: ThemeMode,
   tabs: { applyTerminalTheme: () => void },
+  specialId?: string | null,
+  scrim?: number | null,
 ): Promise<void> {
   activeThemeMode = mode;
-  const resolved = resolveTheme(mode);
   const body = document.body;
+
+  const special =
+    mode === "special" && isSpecialThemeId(specialId)
+      ? SPECIAL_THEMES[specialId]
+      : null;
+  activeSpecialId = special?.id ?? null;
+
+  const resolved = resolveTheme(mode, specialId);
   body.classList.toggle("theme-light", resolved === "light");
   body.classList.toggle("theme-dark", resolved === "dark");
+  // True Dark and Special are mutually exclusive: one forces opaque
+  // pure-black chrome, the other needs translucency to show the art.
   body.classList.toggle("theme-true-dark", mode === "true_dark");
+  body.classList.toggle("theme-special", special !== null);
+
+  if (special) applySpecialTokens(body, special, scrim ?? special.scrim);
+  else clearSpecialTokens(body);
+  setActiveSpecialTermTheme(special ? special.term : null);
 
   unwatchSystem?.();
   unwatchSystem = null;
@@ -514,10 +547,19 @@ async function boot(): Promise<void> {
   // (especially the boot splash) immediately gets the light/dark skin.
   // applyTheme() runs again below once terminals are available.
   const initialThemeMode = (initialSettings?.window?.theme ?? "system") as ThemeMode;
-  const initialResolvedTheme = resolveTheme(initialThemeMode);
+  const initialSpecialId = initialSettings?.window?.special_theme ?? null;
+  const initialScrim = initialSettings?.window?.special_scrim ?? null;
+  const initialResolvedTheme = resolveTheme(initialThemeMode, initialSpecialId);
   document.body.classList.toggle("theme-light", initialResolvedTheme === "light");
   document.body.classList.toggle("theme-dark", initialResolvedTheme === "dark");
   document.body.classList.toggle("theme-true-dark", initialThemeMode === "true_dark");
+  // Paint the art before first frame so the boot splash already wears the
+  // theme — same reason the light/dark class is set this early.
+  if (initialThemeMode === "special" && isSpecialThemeId(initialSpecialId)) {
+    const t = SPECIAL_THEMES[initialSpecialId];
+    document.body.classList.add("theme-special");
+    applySpecialTokens(document.body, t, initialScrim ?? t.scrim);
+  }
   applyTabbarCollapsed(localStorage.getItem(TABBAR_LEFT_COLLAPSED_KEY) === "1");
   applyStoredSidebarWidths();
 
@@ -1230,7 +1272,7 @@ async function boot(): Promise<void> {
 
   // Initial theme apply now that the TabManager exists. Settings may have
   // been unreachable at the early boot block above — fall back to "system".
-  void applyTheme(initialThemeMode, manager);
+  void applyTheme(initialThemeMode, manager, initialSpecialId, initialScrim);
 
   // Late-binding ref so the spawns chip onAdd callback can open Settings
   // even though SettingsPanel is instantiated further down in boot().
@@ -1249,7 +1291,8 @@ async function boot(): Promise<void> {
   if (spawnsMount) {
     // Claude Code theme to inject so the executor matches Covenant. The
     // osc133 shell wrapper is idempotent and won't double-inject once set.
-    const claudeTheme = (): string => claudeThemeFor(resolveTheme(activeThemeMode));
+    const claudeTheme = (): string =>
+      claudeThemeFor(resolveTheme(activeThemeMode, activeSpecialId));
     const runSpawn = (id: string, target?: SessionId): void => {
       void (async () => {
         const sid = target ?? manager.activeSessionId();
@@ -1913,16 +1956,21 @@ async function boot(): Promise<void> {
   // whenever settings save. Background mode swaps a body class — pure
   // CSS reflow, no need to re-init xterm.
   // Live preview while the appearance radios are toggled — no save needed.
-  settings.onPreview = ({ theme, background }) => {
+  settings.onPreview = ({ theme, background, specialTheme, specialScrim }) => {
     applyWindowBackground(background);
-    void applyTheme(theme, manager);
+    void applyTheme(theme, manager, specialTheme, specialScrim);
   };
 
   settings.onSaved = (next) => {
     setDiscordPresenceEnabled(next.discord_presence_enabled ?? false);
     manager.applyTerminalSettings(next.terminal);
     applyWindowBackground(next.window?.background ?? "vibrant");
-    void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
+    void applyTheme(
+      (next.window?.theme ?? "system") as ThemeMode,
+      manager,
+      next.window?.special_theme ?? null,
+      next.window?.special_scrim ?? null,
+    );
     applyTabbarPosition(next.tabbar_position ?? "top");
     document.body.classList.toggle("zen-icons", next.zen_icons ?? false);
     applyFoldedRailStyle(next.folded_rail_style ?? "legacy");

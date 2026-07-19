@@ -1154,7 +1154,7 @@ export interface TerminalConfig {
 
 export type WindowBackground = "solid" | "vibrant" | "translucent";
 
-export type ThemeMode = "dark" | "light" | "system" | "true_dark";
+export type ThemeMode = "dark" | "light" | "system" | "true_dark" | "special";
 export type ResolvedTheme = "dark" | "light";
 
 /// Cosmetic tab/group skin. Mirrors the Rust `TabStyle` enum. Applied by
@@ -1191,6 +1191,10 @@ export interface WindowConfig {
   background: WindowBackground;
   theme?: ThemeMode;
   tab_style?: TabStyle;
+  /// Which Special Theme is active. Only meaningful when theme === "special".
+  special_theme?: string | null;
+  /// User-adjusted scrim; null/undefined means the theme's calibrated default.
+  special_scrim?: number | null;
 }
 
 export interface AomConfig {

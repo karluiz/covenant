@@ -36,3 +36,21 @@ describe("resolveTheme", () => {
     expect(resolveTheme("system")).toBe("light");
   });
 });
+
+describe("resolveTheme with special themes", () => {
+  it("resolves special to the named theme's own base", () => {
+    expect(resolveTheme("special", "jjk")).toBe("dark");
+    expect(resolveTheme("special", "bunny")).toBe("light");
+  });
+
+  it("falls back to dark when the special id is unknown or missing", () => {
+    expect(resolveTheme("special", "naruto")).toBe("dark");
+    expect(resolveTheme("special", null)).toBe("dark");
+    expect(resolveTheme("special", undefined)).toBe("dark");
+  });
+
+  it("ignores the special id for non-special modes", () => {
+    expect(resolveTheme("light", "jjk")).toBe("light");
+    expect(resolveTheme("dark", "bunny")).toBe("dark");
+  });
+});
