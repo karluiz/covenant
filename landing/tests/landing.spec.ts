@@ -9,7 +9,7 @@ test("renders all sections and animates the score funnel", async ({ page }) => {
     "Parallel operators, one surface",
     "Hard blocklist",
     "Covenant Score",
-    "brew install covenant",
+    "brew install --cask karluiz/covenant/covenant",
     "Read the covenant",
   ]) {
     await expect(page.getByText(text).first()).toBeVisible();
