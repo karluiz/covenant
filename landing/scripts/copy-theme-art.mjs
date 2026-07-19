@@ -12,7 +12,7 @@
 // the artwork is duplicated here, and by this script rather than by hand.
 //
 // Run automatically via the `prebuild` npm script before every `astro build`.
-import { readdir, copyFile, mkdir } from "node:fs/promises";
+import { readdir, copyFile, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,6 +20,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const srcDir = join(here, "..", "..", "ui", "assets", "themes");
 const destDir = join(here, "..", "public", "themes");
 
+// Clear the destination first so a theme removed from the registry doesn't
+// leave a stale .webp behind on a developer machine that already ran this.
+await rm(destDir, { recursive: true, force: true });
 await mkdir(destDir, { recursive: true });
 
 const files = (await readdir(srcDir)).filter((f) => f.endsWith(".webp"));

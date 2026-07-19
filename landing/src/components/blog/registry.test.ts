@@ -1,3 +1,6 @@
+import { readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   SPECIAL_THEME_LIST,
@@ -40,6 +43,30 @@ describe("app theme registry import", () => {
     for (const c of [r, g, b]) {
       expect(c).toBeGreaterThanOrEqual(0);
       expect(c).toBeLessThanOrEqual(255);
+    }
+  });
+
+  it("has an artwork file named after every theme id", () => {
+    // ThemeGallery resolves images as `/themes/${t.id}.webp` because Astro's
+    // build turns the registry's .webp imports into ImageMetadata objects
+    // rather than URL strings. That makes the id↔filename match load-bearing
+    // and otherwise unguarded: the app builds, this suite passes, and the copy
+    // script succeeds even when they diverge — only the rendered page breaks.
+    //
+    // Not `new URL("../../ui/...", import.meta.url)`: under the repo-root
+    // vitest config (jsdom environment), the global `URL` constructor
+    // resolves relative paths against `window.location`, not the `base`
+    // argument, silently landing on `http://localhost:3000/...` and throwing
+    // "must be of scheme file" on readdirSync. fileURLToPath + node:path
+    // sidesteps that shadowed global (verified: fails under the root config
+    // with `new URL`, passes with this). It's also cwd-independent, unlike a
+    // `process.cwd()`-based path — cwd differs between `test:unit` (run from
+    // landing/) and the root `npm test` (run from the worktree root).
+    const dir = join(dirname(fileURLToPath(import.meta.url)), "../../../../ui/assets/themes");
+    const files = new Set(readdirSync(dir));
+    for (const t of SPECIAL_THEME_LIST) {
+      expect(files, `theme "${t.id}" needs ui/assets/themes/${t.id}.webp`)
+        .toContain(`${t.id}.webp`);
     }
   });
 });

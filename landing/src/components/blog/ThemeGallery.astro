@@ -42,7 +42,7 @@ const themes = SPECIAL_THEME_LIST.map((t) => {
         <figcaption class="flex items-center justify-between gap-3 px-3 py-2">
           <span class="text-sm text-mist/90">{t.name}</span>
           <span class="flex items-center gap-2 font-mono text-[10px] uppercase tracking-eyebrow text-mist/50">
-            <span class="inline-block h-2.5 w-2.5" style={`background:${t.accent}`}></span>
+            <span class="inline-block h-2.5 w-2.5" aria-hidden="true" style={`background:${t.accent}`}></span>
             {t.base} · scrim {t.scrim}
           </span>
         </figcaption>
