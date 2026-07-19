@@ -82,13 +82,18 @@ interface TerminalConfig {
 }
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
-type ThemeMode = "dark" | "light" | "system" | "true_dark";
+type ThemeMode = "dark" | "light" | "system" | "true_dark" | "special";
 type TabStyle = "classic" | "forge" | "glass" | "crt";
 
 interface WindowConfig {
   background: WindowBackground;
   theme?: ThemeMode;
   tab_style?: TabStyle;
+  /// Which Special Theme is active. No control in this panel yet — carried
+  /// through on save so an unrelated settings change doesn't clobber it.
+  special_theme?: string | null;
+  /// User-adjusted scrim for the active Special Theme; same carry-through.
+  special_scrim?: number | null;
 }
 
 interface AomConfig {
@@ -2108,6 +2113,10 @@ export class SettingsPanel {
             selectedTabStyle() === "custom"
               ? (this.current!.window?.tab_style ?? "classic")
               : ((selectedTabStyle() as TabStyle) || "classic"),
+          // No control in this panel yet — carry the freshest persisted
+          // value through so submitting an unrelated field doesn't erase it.
+          special_theme: freshSettings.window?.special_theme,
+          special_scrim: freshSettings.window?.special_scrim,
         },
         aom: {
           default_budget_usd: Math.max(

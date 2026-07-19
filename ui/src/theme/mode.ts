@@ -1,12 +1,25 @@
 /// Theme axis — independent of `window_background`. `system` follows the
 /// macOS appearance via prefers-color-scheme; the resolved value is what
 /// we actually apply to the DOM and pass to the backend.
-export type ThemeMode = "dark" | "light" | "system" | "true_dark";
+///
+/// `special` is a wallpaper-backed Special Theme; which one is a separate
+/// setting (`window.special_theme`), so resolving it needs that id.
+import { SPECIAL_THEMES, isSpecialThemeId } from "./special";
+
+export type ThemeMode = "dark" | "light" | "system" | "true_dark" | "special";
 export type ResolvedTheme = "dark" | "light";
 
 const LIGHT_QUERY = "(prefers-color-scheme: light)";
 
-export function resolveTheme(mode: ThemeMode): ResolvedTheme {
+export function resolveTheme(
+  mode: ThemeMode,
+  specialId?: string | null,
+): ResolvedTheme {
+  if (mode === "special") {
+    // An unknown id means a hand-edited config.json. Fall back rather
+    // than render a broken theme.
+    return isSpecialThemeId(specialId) ? SPECIAL_THEMES[specialId].base : "dark";
+  }
   if (mode === "light") return "light";
   if (mode === "dark" || mode === "true_dark") return "dark";
   return window.matchMedia(LIGHT_QUERY).matches ? "light" : "dark";
