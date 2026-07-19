@@ -4511,6 +4511,14 @@ body.theme-light .providers-md__rail-item.is-active { background: rgba(0, 0, 0, 
    `.providers-md__btn--primary` (0,1,0), so it steals the accent fill and
    leaves the primary button wearing the plain button surface with white
    text on it — illegible. Restate the fill here to win it back. */
+/* Ghost button: the shared theme-light .providers-md__btn fill would
+   otherwise turn it into a solid surface. */
+body.theme-light .providers-md__btn--danger {
+    background: transparent;
+}
+body.theme-light .providers-md__btn--danger:hover {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
 body.theme-light .providers-md__btn--primary {
     background: var(--accent);
     border-color: transparent;
@@ -11564,6 +11572,12 @@ body.theme-light .tabbar-rail-spine-seg:hover {
     background: color-mix(in srgb, var(--rail-color) 85%, transparent);
 }
 
+/* Full strength, above the hover tint — the base theme-light rule would
+   otherwise hold the active segment at 60%. */
+body.theme-light .tabbar-rail-spine-seg.active {
+    background: var(--rail-color);
+}
+
 /* ---- Drafts page ---- */
 #drafts-page {
   display: grid;
@@ -15857,6 +15871,8 @@ body.theme-light .mission-page-status-ok {
     opacity: 0.9;
 }
 body.theme-light .mission-page-badge--missing {
+    /* body.theme-light .mission-page-badge would otherwise fill it. */
+    background: none;
     color: var(--fail);
     border-color: color-mix(in srgb, var(--fail) 35%, transparent);
 }
@@ -16208,6 +16224,8 @@ body.theme-light .structure-preview-xlsx-tab {
 }
 body.theme-light .structure-preview-xlsx-tab.active {
     color: var(--text-primary);
+    /* body.theme-light .structure-preview-xlsx-tab forces transparent. */
+    background: rgb(var(--ink-rgb) / 0.06);
     border-color: var(--border);
 }
 
@@ -16884,6 +16902,12 @@ body.theme-light .onboarding-secondary:hover {
 
 body.theme-light .onboarding-dot {
     background: rgba(0, 0, 0, 0.18);
+}
+
+/* Restated at this specificity: the rule above outranks
+   `.onboarding-dot.is-active` and would flatten the active step. */
+body.theme-light .onboarding-dot.is-active {
+    background: var(--accent);
 }
 
 body.theme-light .onboarding-skip:hover {
