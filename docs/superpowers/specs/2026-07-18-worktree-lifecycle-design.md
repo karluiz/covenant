@@ -74,8 +74,14 @@ Plus one orthogonal flag:
 
 `OffConvention` is orthogonal to the other four — a worktree can be both `Spent`
 and `OffConvention`. It is carried as a separate boolean flag, not a sixth
-variant, and the lifecycle state wins when choosing the default action (a Spent
-worktree in the wrong place gets reclaimed, not relocated).
+variant.
+
+Action precedence, in order: `current` → `Orphan` → `Spent` → `off_convention`
+→ `Stale` → open. So the *retiring* states outrank the flag (a Spent worktree in
+the wrong place gets reclaimed, not relocated — no point moving what you are
+about to delete), but the flag outranks `Stale`: a stale worktree in the wrong
+place is offered Relocate rather than Decide, because moving it is the concrete
+action available and the decision can wait.
 
 Precedence among the four lifecycle states, evaluated in order: `Orphan` →
 `Active` → `Spent` → `Stale`. A worktree matching none of these is `Active`
