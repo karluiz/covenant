@@ -50,6 +50,13 @@ pub struct GitWorktreeSummary {
     pub merged: bool,
     pub last_commit_unix: Option<i64>,
     pub off_convention: bool,
+    /// True for exactly one row: the worktree `git worktree list --porcelain`
+    /// lists first. NOT the same as `current` (see the module-level note on
+    /// that field) — this is what the frontend needs to tell "this is the
+    /// repo's main worktree" apart from "this happens to be where the call
+    /// came from", e.g. to withhold Reclaim on the main worktree when the
+    /// popover is opened from a linked one.
+    pub is_main: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -61,6 +68,12 @@ pub struct GitRepoSummary {
     pub dirty_count: u32,
     pub branches: Vec<GitBranchSummary>,
     pub worktrees: Vec<GitWorktreeSummary>,
+    /// The repo's default branch (`main`/`master`/whatever `origin/HEAD`
+    /// resolves to) — NOT `current_branch`, which is `git branch
+    /// --show-current` against the CALLING cwd. `merged`/reclaim eligibility
+    /// is computed against this, so any copy that tells the user "this is
+    /// already merged into X" must say this, not `current_branch`.
+    pub default_branch: String,
 }
 
 pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
@@ -143,6 +156,7 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
         let wt_canonical = canonical_or_self(wt_path);
         wt.current = wt_canonical == current_root;
         let is_main_worktree = main_worktree_root.as_ref() == Some(&wt_canonical);
+        wt.is_main = is_main_worktree;
         wt.off_convention =
             !is_main_worktree && !wt.bare && !wt_canonical.starts_with(&canonical_root);
         wt.dirty_count = if path_exists {
@@ -221,6 +235,7 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
         dirty_count: status_count(cwd).unwrap_or(0),
         branches,
         worktrees,
+        default_branch,
     })
 }
 
@@ -327,7 +342,7 @@ pub fn reclaim_worktrees(
                 outcomes.push(ReclaimOutcome {
                     path,
                     removed: false,
-                    reason: Some(format!("not spent (state: {other:?})").to_lowercase()),
+                    reason: Some(format!("not spent or orphan (state: {other:?})").to_lowercase()),
                 });
             }
         }
@@ -339,8 +354,17 @@ pub fn reclaim_worktrees(
 
 /// Moves a worktree under `CANONICAL_WORKTREE_DIR`. Returns the new path.
 ///
-/// Refuses anything not provably idle: `git worktree move` under a live session
-/// pulls the floor out from under it.
+/// Refuses everything this layer can actually see: the calling worktree, the
+/// repo's main worktree, and anything with an uncommitted change. That is
+/// NOT the full idle guard the design spec describes ("no attached tab, no
+/// running executor process with that cwd, and a clean tree — all three") —
+/// `git_tools` is a pure git/filesystem layer with no visibility into open
+/// tabs or running processes, and that is a layering fact, not an oversight.
+/// The "no attached tab" half of idle is the CALLER's responsibility: the
+/// status-bar git popover (`ui/src/status/worktree-state.ts`,
+/// `worktreeDefaultAction`) is expected to withhold the Relocate action for
+/// any worktree that has a live tab cwd'd into it before this function is
+/// ever invoked.
 pub fn relocate_worktree(cwd: &Path, path: &str) -> Result<String, String> {
     let summary = repo_summary(cwd)?;
     let target = canonical_or_self(Path::new(path));
@@ -458,6 +482,7 @@ fn parse_worktree_list(text: &str) -> Vec<GitWorktreeSummary> {
                 merged: false,
                 last_commit_unix: None,
                 off_convention: false,
+                is_main: false,
             });
             continue;
         }
@@ -1553,6 +1578,38 @@ index e69de29..0cfbf08 100644
             .unwrap_or(false)
     }
 
+    // Regression for the bulk-reclaim confirm toast naming the wrong branch:
+    // it used `current_branch` (the CALLING cwd's branch) instead of the
+    // repo's actual default branch. `repo_summary` already computes
+    // `default_branch(cwd)` internally to derive `merged`; this asserts the
+    // same value is exposed on the wire rather than recomputed (and
+    // potentially drifting) on the frontend.
+    #[test]
+    fn repo_summary_reports_the_default_branch() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root); // creates on "main", see init_repo's pinned -b main
+
+        let summary = repo_summary(root).unwrap();
+        assert_eq!(summary.default_branch, "main");
+    }
+
+    #[test]
+    fn repo_summary_default_branch_survives_a_feature_checkout() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        git_run(root, &["checkout", "-q", "-b", "feat/worktree-lifecycle"]);
+
+        // `current_branch` now reflects the checked-out feature branch, but
+        // `default_branch` must still report the repo's actual default —
+        // this is exactly the divergence the bulk-reclaim confirm copy
+        // needs to name correctly.
+        let summary = repo_summary(root).unwrap();
+        assert_eq!(summary.current_branch.as_deref(), Some("feat/worktree-lifecycle"));
+        assert_eq!(summary.default_branch, "main");
+    }
+
     #[test]
     fn repo_summary_marks_a_merged_worktree_spent() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -1657,6 +1714,53 @@ index e69de29..0cfbf08 100644
         assert!(
             !main_row.off_convention,
             "the main worktree must never be off_convention, regardless of which worktree cwd is"
+        );
+    }
+
+    // `wt.current` means "matches the calling cwd", which is NOT the same
+    // question as "is this the repo's main worktree" — the conflation two
+    // Critical bugs already shipped from. `is_main` is the dedicated,
+    // cwd-independent field the frontend needs to answer that second
+    // question (e.g. to withhold Reclaim on main when queried from a linked
+    // worktree, see `worktreeDefaultAction`).
+    #[test]
+    fn is_main_is_independent_of_the_calling_cwd() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let linked = root.join(CANONICAL_WORKTREE_DIR).join("side");
+        git_run(root, &["worktree", "add", "-q", linked.to_str().unwrap(), "-b", "side"]);
+
+        // Called from the MAIN worktree: main.current == true, main.is_main == true.
+        let summary_from_main = repo_summary(root).unwrap();
+        let main_row = summary_from_main.worktrees.iter().find(|w| w.current).unwrap();
+        assert!(main_row.is_main);
+        let linked_row_from_main = summary_from_main
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("side"))
+            .unwrap();
+        assert!(!linked_row_from_main.is_main);
+
+        // Called from the LINKED worktree: main.current == false, but
+        // main.is_main must still be true — this is the exact split
+        // `current` cannot express on its own.
+        let summary_from_linked = repo_summary(&linked).unwrap();
+        let root_canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let main_row_from_linked = summary_from_linked
+            .worktrees
+            .iter()
+            .find(|w| {
+                std::path::Path::new(&w.path)
+                    .canonicalize()
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.path))
+                    == root_canonical
+            })
+            .expect("main worktree present in the summary");
+        assert!(!main_row_from_linked.current, "sanity: cwd was the linked worktree");
+        assert!(
+            main_row_from_linked.is_main,
+            "is_main must not depend on which worktree the call originated from"
         );
     }
 

@@ -247,10 +247,14 @@ describe("git worktree popover — destructive click wiring", () => {
     merged: true,
     last_commit_unix: 1000,
     off_convention: false,
+    is_main: false,
     ...overrides,
   });
 
-  const summaryWith = (worktrees: GitWorktreeSummary[]): GitRepoSummary => ({
+  const summaryWith = (
+    worktrees: GitWorktreeSummary[],
+    overrides: Partial<GitRepoSummary> = {},
+  ): GitRepoSummary => ({
     repo_name: "repo",
     repo_root: cwd,
     current_branch: "main",
@@ -258,6 +262,8 @@ describe("git worktree popover — destructive click wiring", () => {
     dirty_count: 0,
     branches: [],
     worktrees,
+    default_branch: "main",
+    ...overrides,
   });
 
   // Opens the branch popover directly rather than driving it through the
@@ -358,5 +364,97 @@ describe("git worktree popover — destructive click wiring", () => {
     const actBtn = document.querySelector<HTMLButtonElement>(".status-git-pop-wt-act");
     expect(actBtn).not.toBeNull();
     expect(actBtn!.dataset.path).toBe(evilPath);
+  });
+
+  it("bulk reclaim confirm copy names the repo's default branch, not the calling cwd's branch", async () => {
+    // The calling cwd (`cwd = "/repo"`) is on a feature branch, but `merged`
+    // (and thus reclaim eligibility) is computed against the repo's actual
+    // default branch. The confirm copy must say THAT, not `current_branch`.
+    gitRepoSummaryMock.mockResolvedValue(
+      summaryWith(
+        [wt({ path: "/repo/.covenant/worktrees/a", branch: "a" })],
+        { current_branch: "feat/worktree-lifecycle", default_branch: "main" },
+      ),
+    );
+    openPopover();
+    await flush();
+
+    document
+      .querySelector<HTMLButtonElement>(".status-git-pop-reclaim-all")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    expect(pushConfirmToastMock).toHaveBeenCalledOnce();
+    const toast = pushConfirmToastMock.mock.calls[0][0] as { message: string };
+    expect(toast.message).toContain("already in main.");
+    expect(toast.message).not.toContain("feat/worktree-lifecycle");
+  });
+
+  it("Enter on a highlighted row whose default verb is destructive still opens, never reclaims/prunes/relocates", async () => {
+    const opened = vi.fn();
+    bar.onOpenGitWorktree = opened;
+    gitRepoSummaryMock.mockResolvedValue(
+      summaryWith([wt({ path: "/repo/.covenant/worktrees/a", branch: "a", state: "spent" })]),
+    );
+    openPopover();
+    await flush();
+
+    // Row's default verb is Reclaim, so it renders .status-git-pop-wt-act,
+    // not .status-git-pop-open-wt.
+    expect(document.querySelector(".status-git-pop-open-wt")).toBeNull();
+    const actBtn = document.querySelector<HTMLButtonElement>(".status-git-pop-wt-act");
+    expect(actBtn).not.toBeNull();
+    expect(actBtn!.dataset.verb).toBe("reclaim");
+
+    const search = document.querySelector<HTMLInputElement>(".status-git-pop-search-input")!;
+    // Single matching row: the keydown handler auto-selects it without an
+    // ArrowDown first (see `navRows().length === 1` fallback).
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await flush();
+
+    expect(opened).toHaveBeenCalledWith("/repo/.covenant/worktrees/a", "a");
+    expect(worktreeReclaimMock).not.toHaveBeenCalled();
+  });
+
+  it("does not render a Relocate button for an off-convention worktree with a live occupying tab", async () => {
+    bar.getOccupiedCwds = () => ["/elsewhere/stray-worktree"];
+    gitRepoSummaryMock.mockResolvedValue(
+      summaryWith([
+        wt({
+          path: "/elsewhere/stray-worktree",
+          branch: "stray",
+          state: "active",
+          merged: false,
+          off_convention: true,
+        }),
+      ]),
+    );
+    openPopover();
+    await flush();
+
+    const actBtn = document.querySelector<HTMLButtonElement>(".status-git-pop-wt-act");
+    expect(actBtn).toBeNull();
+    expect(document.body.textContent).not.toContain("Relocate");
+  });
+
+  it("still renders a Relocate button for an off-convention worktree with no occupying tab", async () => {
+    bar.getOccupiedCwds = () => ["/repo"]; // some other, unrelated tab
+    gitRepoSummaryMock.mockResolvedValue(
+      summaryWith([
+        wt({
+          path: "/elsewhere/stray-worktree",
+          branch: "stray",
+          state: "active",
+          merged: false,
+          off_convention: true,
+        }),
+      ]),
+    );
+    openPopover();
+    await flush();
+
+    const actBtn = document.querySelector<HTMLButtonElement>(".status-git-pop-wt-act");
+    expect(actBtn).not.toBeNull();
+    expect(actBtn!.dataset.verb).toBe("relocate");
   });
 });

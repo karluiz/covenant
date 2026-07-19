@@ -197,6 +197,15 @@ export class StatusBar {
   /// worktree in its own terminal tab.
   public onOpenGitWorktree: ((path: string, label: string) => void) | null = null;
 
+  /// Pulled (not pushed) when the worktree popover renders: the cwd of every
+  /// currently open tab, not just the active one. `relocate_worktree` on the
+  /// Rust side has no visibility into open tabs — it is a pure git/filesystem
+  /// function — so this is where the "no attached tab" half of the relocate
+  /// idle guard actually gets enforced (see `worktreeDefaultAction` in
+  /// `worktree-state.ts`). Wired by main.ts to the tab manager's
+  /// `listTabSnapshots()`. Left null in tests that don't care about it.
+  public getOccupiedCwds: (() => string[]) | null = null;
+
   /// Fired from the git branch popover "View changes" action.
   /// Wired by main.ts to open the ChangesSurface for the active repo.
   public onViewChanges: (() => void) | null = null;
@@ -975,6 +984,7 @@ export class StatusBar {
       }).join("")
       : `<div class="status-git-pop-empty">No local branches found.</div>`;
 
+    const occupiedCwds = new Set(this.getOccupiedCwds?.() ?? []);
     const worktrees = summary.worktrees.length > 0
       ? summary.worktrees.map((wt) => {
         const label = worktreeLabel(wt);
@@ -985,7 +995,7 @@ export class StatusBar {
               ? `${wt.dirty_count} changed`
               : escapeHtml(worktreeStateLabel(wt.state))
           }</span>`;
-        const verb = worktreeDefaultAction(wt);
+        const verb = worktreeDefaultAction(wt, occupiedCwds);
         const ACTION_LABEL: Record<string, string> = {
           open: "Open tab",
           decide: "Open tab",
@@ -998,8 +1008,13 @@ export class StatusBar {
           : verb === "open" || verb === "decide"
             ? `<button type="button" class="status-git-pop-open-wt" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">Open tab</button>`
             : `<button type="button" class="status-git-pop-wt-act" data-verb="${verb}" data-path="${escapeHtml(wt.path)}">${ACTION_LABEL[verb]}</button>`;
+        // data-path/data-label live on the ROW too, not just the open-tab
+        // button — rows whose default verb is reclaim/prune/relocate render
+        // no "Open tab" button at all, but Enter must still be able to open
+        // them (see the keydown handler below: Enter always opens, never
+        // triggers a destructive action).
         return `
-          <div class="status-git-pop-row status-git-pop-worktree${wt.current ? " is-current" : ""}">
+          <div class="status-git-pop-row status-git-pop-worktree${wt.current ? " is-current" : ""}" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">
             <span class="status-git-pop-row-main">
               <span class="status-git-pop-row-name">${escapeHtml(label)}</span>
               <span class="status-git-pop-row-meta">${escapeHtml(compactPath(wt.path))}${
@@ -1090,7 +1105,19 @@ export class StatusBar {
           if (row.classList.contains("status-git-pop-branch")) {
             if (!(row as HTMLButtonElement).disabled) (row as HTMLButtonElement).click();
           } else {
-            row.querySelector<HTMLButtonElement>(".status-git-pop-open-wt")?.click();
+            // Enter always OPENS the row's worktree, regardless of which
+            // action button it renders — rows whose default verb is
+            // reclaim/prune/relocate have no "Open tab" button, but Enter
+            // must never fall through to a silent no-op, and it must never
+            // trigger a destructive action either. Read path/label straight
+            // off the row (present on every worktree row) rather than a
+            // button that may not exist.
+            const path = row.dataset.path;
+            const label = row.dataset.label;
+            if (path && label) {
+              this.onOpenGitWorktree?.(path, label);
+              this.closeBranchPopover();
+            }
           }
         } else if (e.key === "Escape" && search.value) {
           e.stopPropagation();
@@ -1168,8 +1195,13 @@ export class StatusBar {
         pushConfirmToast({
           // Toast messages render via textContent — do NOT escapeHtml here or
           // the entities show up literally.
+          // `default_branch`, not `current_branch`: `merged` is computed
+          // against the repo's actual default branch, but `current_branch`
+          // is the CALLING cwd's branch — opening this popover from a
+          // feature worktree would otherwise put a falsehood inside a
+          // confirmation for a bulk directory deletion.
           message: `Delete ${paths.length} merged worktree(s)${detail}? Their branches are already in ${
-            summary.current_branch ?? "the default branch"
+            summary.default_branch
           }.`,
           confirmLabel: "Reclaim",
           onCancel: () => {

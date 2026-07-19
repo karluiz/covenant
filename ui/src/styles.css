@@ -6727,8 +6727,6 @@ body.theme-light .status-git-popover {
 }
 .status-git-pop-clean::before,
 .status-git-pop-dirty::before,
-.status-git-pop-badge.is-clean::before,
-.status-git-pop-badge.is-dirty::before,
 .status-git-pop-badge.is-here::before,
 .status-git-pop-wt-active::before,
 .status-git-pop-wt-stale::before,
@@ -6744,9 +6742,6 @@ body.theme-light .status-git-popover {
 .status-git-pop-clean::before { background: var(--ok); }
 .status-git-pop-dirty { color: var(--running); }
 .status-git-pop-dirty::before { background: var(--running); }
-.status-git-pop-badge.is-clean::before { background: var(--ok); }
-.status-git-pop-badge.is-dirty { color: var(--running); }
-.status-git-pop-badge.is-dirty::before { background: var(--running); }
 .status-git-pop-badge.is-here { color: var(--accent); }
 .status-git-pop-badge.is-here::before { background: var(--accent); }
 .status-git-pop-wt-active { color: var(--ok); }

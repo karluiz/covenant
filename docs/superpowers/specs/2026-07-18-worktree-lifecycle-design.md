@@ -133,10 +133,33 @@ was the source of two separate defects during implementation.
   wrong place still works.
 - **Relocation requires idle.** `git worktree move` under a live session pulls
   the floor out from under it. Idle means: no attached tab, no running executor
-  process with that cwd, and a clean tree. All three.
-- **Neither the current worktree nor the MAIN worktree is ever reclaimed or
-  relocated.** Even if it qualifies. These are two separate guards, because they
-  are two different worktrees whenever the call originates from a linked one.
+  process with that cwd, and a clean tree. All three — but split across two
+  layers, because `git_tools` is a pure git/filesystem module with no
+  visibility into sessions. `relocate_worktree` (Rust) enforces the clean-tree
+  half plus the calling-worktree/main-worktree guards; it cannot see open tabs
+  at all. The no-attached-tab half is enforced by the caller instead:
+  `worktreeDefaultAction` (`ui/src/status/worktree-state.ts`) withholds the
+  Relocate action for any worktree with a live tab cwd'd into it, using the
+  tab manager's `listTabSnapshots()` (which already covers background tabs,
+  not just the focused one — every executor process in Covenant runs inside a
+  tab, so this also covers "no running executor process with that cwd" in
+  practice). A worktree relocated via a hand-crafted IPC call rather than the
+  popover is not protected by this frontend guard.
+- **Neither the current worktree nor the MAIN worktree is ever relocated.**
+  Even if it qualifies. `relocate_worktree` enforces this with two explicit,
+  separate guards, because they are two different worktrees whenever the call
+  originates from a linked one.
+- **Reclaim protects the current worktree and the main worktree by different
+  means, and only one of them is an explicit guard.** The current worktree is
+  protected structurally: it can never classify as `Spent` or `Orphan` in the
+  first place (`derive_state` forces `current` to `Active`), so
+  `reclaim_worktrees`'s own state gate refuses it before any removal is
+  attempted. The MAIN worktree has no such gate — `reclaim_worktrees` never
+  special-cases "is this the main worktree" — and relies entirely on `git
+  worktree remove`'s own hard refusal to remove a repository's main working
+  tree. That is a real guard, just not one Covenant wrote; it only becomes
+  reachable at all when the main worktree happens to pass every other check
+  (clean, checked out on a branch already merged into the default branch).
 
 ## Homologation
 
@@ -269,8 +292,11 @@ Rust, in `crates/app/src/git_tools.rs` tests plus a fixture repo helper:
 - `worktree_reclaim` refuses a non-Spent, non-Orphan path even when asked
   directly — the central safety test.
 - An `Orphan` reclaim drops the admin record and leaves the branch intact.
-- Reclaim refuses the current worktree, and refuses the MAIN worktree when
-  called from a linked one — the two guards are tested separately.
+- Reclaim refuses the current worktree (structurally, via `derive_state`
+  forcing it `Active`) and separately refuses the MAIN worktree when called
+  from a linked one (via `git worktree remove`'s own refusal, with no
+  explicit main-worktree gate in `reclaim_worktrees` — the test proves the
+  removal is stopped by git, not by an earlier check) — tested separately.
 - Relocate lands under the MAIN root, not nested in the calling worktree, and
   leaves the calling worktree clean.
 - Slug derivation strips each prefix form.

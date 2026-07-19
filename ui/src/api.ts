@@ -1369,6 +1369,10 @@ export interface GitWorktreeSummary {
   merged: boolean;
   last_commit_unix: number | null;
   off_convention: boolean;
+  /** True for exactly one row: the repo's main worktree. NOT the same as
+   * `current` ("matches the calling cwd") — a linked worktree calling in
+   * sees `current: true` on itself and `is_main: true` on a *different* row. */
+  is_main: boolean;
 }
 
 export async function worktreeSizes(paths: string[]): Promise<Array<[string, number]>> {
@@ -1397,6 +1401,10 @@ export interface GitRepoSummary {
   dirty_count: number;
   branches: GitBranchSummary[];
   worktrees: GitWorktreeSummary[];
+  /** The repo's actual default branch (main/master/origin-HEAD) — NOT
+   * `current_branch`, which is the CALLING cwd's branch. `merged` is computed
+   * against this, so copy claiming "already merged into X" must say this. */
+  default_branch: string;
 }
 
 export async function gitRepoSummary(cwd: string): Promise<GitRepoSummary> {

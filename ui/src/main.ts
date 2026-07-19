@@ -1483,6 +1483,13 @@ async function boot(): Promise<void> {
   statusBar.onOpenGitWorktree = (path, label) => {
     void manager.createTab({ cwd: path, customName: label });
   };
+  // Relocate must not be offered for a worktree with a live tab cwd'd into
+  // it — git_tools::relocate_worktree can't see open tabs at all (pure
+  // git/filesystem layer), so this is the seam that actually enforces that
+  // half of "idle". Pulled fresh on every popover open rather than kept in
+  // sync, since listTabSnapshots() is already the cheap read-only snapshot
+  // main.ts uses elsewhere (see `listTabs` below).
+  statusBar.getOccupiedCwds = () => manager.listTabSnapshots().map((t) => t.cwd);
 
   // Post-publish toast "Open in Set Mission" fires this event with the
   // published spec path so we can wire it directly into the active tab
