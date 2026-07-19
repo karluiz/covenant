@@ -4383,7 +4383,12 @@ body.theme-true-dark .settings-nav a.active { background: rgb(var(--ink-rgb) / 0
     color: #0c0e12;
     font-weight: 600;
 }
-.providers-md__btn--primary:hover { background: #93b6f9; }
+/* Lightened accent rather than a hardcoded blue — the literal turned every
+   theme's primary button the same shade on hover, including the rose accent
+   of the light-based `bunny` Special Theme. */
+.providers-md__btn--primary:hover {
+    background: color-mix(in srgb, var(--accent) 82%, #fff);
+}
 .providers-md__btn--danger {
     color: var(--danger);
     border-color: color-mix(in srgb, var(--danger) 38%, transparent);
@@ -4441,7 +4446,7 @@ body.theme-true-dark .settings-nav a.active { background: rgb(var(--ink-rgb) / 0
     z-index: 10;
 }
 .providers-md__add-card {
-    background: var(--bg-panel);
+    background: var(--bg-overlay);
     border: 1px solid var(--border);
     border-radius: 0;
     padding: 20px 22px;
@@ -4502,7 +4507,15 @@ body.theme-light .providers-md__add-field input {
     color: var(--text-primary);
 }
 body.theme-light .providers-md__rail-item.is-active { background: rgba(0, 0, 0, 0.05); }
-body.theme-light .providers-md__btn--primary { color: #fff; }
+/* `body.theme-light .providers-md__btn` above is more specific (0,2,1) than
+   `.providers-md__btn--primary` (0,1,0), so it steals the accent fill and
+   leaves the primary button wearing the plain button surface with white
+   text on it — illegible. Restate the fill here to win it back. */
+body.theme-light .providers-md__btn--primary {
+    background: var(--accent);
+    border-color: transparent;
+    color: #fff;
+}
 body.theme-light .providers-md__rail-name { color: var(--text-primary); }
 body.theme-light .providers-md__pane-title { color: var(--text-primary); }
 body.theme-light .providers-md__pane-glyph { color: #fff; }
@@ -9232,7 +9245,7 @@ body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])
     z-index: 1000;
     min-width: 160px;
     padding: 6px;
-    background: var(--bg-panel);
+    background: var(--bg-overlay);
     border: 1px solid var(--border);
     border-radius: 0;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
@@ -10092,7 +10105,7 @@ body.theme-light .structure-confirm-cancel {
 /* Generic modal cancel button + keycap. Used by Convergence overlay
    and the Persona Composer modal so they share visual language. */
 .modal-cancel-btn {
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   border: 1px solid var(--border);
   color: var(--fg, inherit);
   padding: 6px 10px 6px 14px;
@@ -11923,7 +11936,7 @@ body.theme-light .drafts-primary:not(:disabled) {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   font-size: 12px;
 }
 .wiz-popover-head-title {
@@ -11946,7 +11959,7 @@ body.theme-light .drafts-primary:not(:disabled) {
   padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: 0;
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   transition: border-color 0.12s ease;
 }
 .wiz-popover-card:hover { border-color: var(--accent); }
@@ -11989,7 +12002,7 @@ body.theme-light .drafts-primary:not(:disabled) {
   display: flex; justify-content: flex-end;
   padding: 6px 10px;
   border-top: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
 }
 .wiz-popover-regen {
   display: inline-flex; align-items: center; gap: 4px;
@@ -12093,7 +12106,7 @@ body.theme-light .wiz-modal { box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18); }
 .wiz-modal-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Post-publish toast (AC7) ─────────────────────────────────────────── */
-.drafts-toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 0; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 150; font-size: 13px; }
+.drafts-toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg-overlay); border: 1px solid var(--border); border-radius: 0; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 150; font-size: 13px; }
 .drafts-toast button { background: var(--accent); color: #fff; border: 0; padding: 4px 10px; border-radius: 0; cursor: pointer; font-size: 12px; }
 .drafts-toast .drafts-toast-close { background: transparent; color: var(--muted); padding: 2px 6px; }
 
