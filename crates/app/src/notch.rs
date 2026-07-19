@@ -467,10 +467,7 @@ pub fn spawn_bridge(
                     );
                     let main_win = app.get_webview_window("main");
                     let suppress = hub.inline_mode()
-                        || main_win
-                            .as_ref()
-                            .and_then(|w| w.is_fullscreen().ok())
-                            .unwrap_or(false)
+                        || main_covers_screen(&app)
                         || (!notch_mode
                             && main_win
                                 .as_ref()
@@ -545,6 +542,19 @@ async fn emit_with_tokens(
         }
     }
     let _ = app.emit("notch:state", &value);
+}
+
+/// True when the main window fills the screen (fullscreen OR maximized).
+/// In both cases the main UI's inline rack carries the status, so the
+/// floating overlay is pure noise hovering over the app.
+/// ponytail: `is_maximized` is a frame-vs-visible-frame compare; a window
+/// merely dragged to full size counts too, which is the intent here.
+pub fn main_covers_screen(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .map(|w| {
+            w.is_fullscreen().unwrap_or(false) || w.is_maximized().unwrap_or(false)
+        })
+        .unwrap_or(false)
 }
 
 /// Show the notch window in the right place with the right macOS collection
