@@ -6,6 +6,91 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.38 — Worktree lifecycle in the git popover + Canon cockpit polish
+
+### Added
+
+- **Worktree lifecycle — Covenant now says which worktrees are dead**: the
+  status-bar git popover listed every worktree but only knew whether it was
+  dirty, so worktrees merged long ago rendered as a healthy green `CLEAN`.
+  `GitWorktreeSummary` in `crates/app/src/git_tools.rs` now carries a derived
+  `state` — `Active` / `Stale` (no commit in 14 days) / `Spent` (merged into the
+  default branch and clean) / `Orphan` (registered in git, directory gone) —
+  plus an orthogonal `off_convention` flag, `merged`, `last_commit_unix` and
+  `is_main`. Nothing is stored: every state is recomputed from
+  `git worktree list --porcelain`, `git status`, `git branch --merged` and
+  `git log -1` on each summary. `ui/src/status/worktree-state.ts` maps each
+  state to its badge class and to exactly **one** default action, so the user
+  accepts a verdict instead of choosing a git command.
+
+- **Reclaim, relocate and prune from the popover**: three new commands —
+  `worktree_reclaim`, `worktree_relocate`, `worktree_sizes` — plus per-row
+  action buttons and a bulk **Reclaim N spent** in the worktrees section head.
+  Reclaim removes merged worktrees and their branches; relocate moves a stray
+  worktree under the canonical root; prune drops the git record for a directory
+  that is already gone (never its branch — an orphan's branch may hold the last
+  copy of unmerged work). `du` runs only when a size is actually needed, so
+  opening the popover never blocks on it.
+
+- **`.covenant/worktrees/<slug>` as the canonical worktree root**: harness-
+  neutral on purpose. Every coding agent picks its own location today —
+  `.claude/worktrees/`, `.worktrees/`, scattered siblings — and adopting any one
+  executor's default would make that executor's convention everyone's problem.
+  Worktrees outside the root are flagged and offered a move. Design and plan
+  are committed under `docs/superpowers/`.
+
+- **Canon cockpit: filter box on every module, plus ⌘⌥C**: each of the six
+  cockpit modules gets its own filter box and Skills gains an Add button
+  (`ui/src/canon/cockpit/view.ts`), and ⌘⌥C opens the cockpit instantly from
+  anywhere (`ui/src/shortcuts/registry.ts`, registered cross-platform rather
+  than on a hardcoded `metaKey`).
+
+### Changed
+
+- **One row style across the six cockpit modules**: kind glyph and spec index
+  share a 20px lead slot, meta reads description-first, and actions reveal on
+  hover. Deletes the bespoke `.canon-spec-row` in favour of the shared rail
+  chrome (`ui/src/canon/cockpit/cockpit.css`, `ui/src/canon/panel.ts`).
+
+- **A per-group panel that can't open now says what's missing** instead of
+  failing silently, and Project Notes uses the same shortcut-toast treatment as
+  Canon when no group is active (`ui/src/main.ts`).
+
+### Fixed
+
+- **The canonical root was derived from the calling cwd, not the main
+  worktree**: because Covenant's own workflow runs inside worktrees, a linked
+  cwd is the normal case — which made correctly-placed worktrees report
+  `off_convention` and, worse, made relocate target a path nested inside a
+  sibling worktree. The main worktree is now identified structurally (it is
+  always the first entry of `git worktree list --porcelain`) and that single
+  mechanism is reused everywhere. `GitWorktreeSummary.current` means "matches
+  the calling cwd", never "is the main worktree"; conflating the two produced
+  three separate defects.
+
+- **Reclaim never trusts the caller**: `reclaim_worktrees` re-derives state via
+  `repo_summary` and refuses anything it does not itself classify as `Spent` or
+  `Orphan`, re-verifies merge status immediately before removal, and leans on
+  `git worktree remove` (no `--force`) and `git branch -d` as two further
+  independent nets. A stale popover or a hand-crafted IPC call cannot destroy
+  live work.
+
+- **Destructive actions are confirmed and honest about what they delete**: both
+  the per-row and bulk reclaim go through `pushConfirmToast` — never
+  `window.confirm`, which freezes the whole webview — and the copy names the
+  repo's real default branch and warns that untracked and ignored files
+  (`.env`, local databases, build output) go with the directory. Relocate and
+  prune stay one-click, since gating them too would only train the user to
+  click through the one that matters.
+
+- **Filter-bar class collided with the rail toolbar**, the search glyph poked
+  out of the filter box's left edge, the box had no self-defined border, the
+  esc pill sat under the sticky cockpit header, and the Add button was
+  misaligned with it (`ui/src/canon/cockpit/cockpit.css`).
+
+- **Vitals pills in the status bar are square** again, matching the rest of the
+  chrome (`ui/src/styles.css`).
+
 ## v0.9.37 — Covenant Gist + Canon detect/adopt/import
 
 ### Added
