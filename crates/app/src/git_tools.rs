@@ -471,6 +471,78 @@ pub fn relocate_worktree(cwd: &Path, path: &str) -> Result<String, String> {
     Ok(dest_str)
 }
 
+/// Removes a worktree Covenant handed out, when it provably holds nothing.
+///
+/// Returns `Ok(true)` if it was removed, `Ok(false)` if it was deliberately
+/// kept. Keeping is never an error — the lifecycle ledger classifies survivors
+/// later as Active / Stale / Spent.
+///
+/// Conditions, all required: under the canonical root, not the main worktree,
+/// no commits beyond its base, and a clean tree (untracked files count as
+/// dirty — a scratch file is still someone's work).
+///
+/// The "no other tab is standing in it" condition lives in the caller: this
+/// module has no visibility into sessions.
+pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
+    let summary = repo_summary(cwd)?;
+    let target = canonical_or_self(Path::new(path));
+
+    let main_root = summary
+        .worktrees
+        .first()
+        .map(|w| canonical_or_self(Path::new(&w.path)))
+        .ok_or_else(|| "no worktrees reported by git".to_string())?;
+    if target == main_root {
+        return Ok(false);
+    }
+    if !target.starts_with(main_root.join(CANONICAL_WORKTREE_DIR)) {
+        return Ok(false);
+    }
+
+    // Retirement must also survive being called with the worktree itself as
+    // `cwd` — that is exactly how the closing tab calls it (covered by
+    // `retire_called_with_the_worktree_itself_as_cwd_still_removes_it`).
+
+    let Some(wt) = summary
+        .worktrees
+        .iter()
+        .find(|w| canonical_or_self(Path::new(&w.path)) == target)
+    else {
+        return Ok(false);
+    };
+    if wt.dirty_count > 0 {
+        return Ok(false);
+    }
+    let Some(branch) = wt.branch.as_deref() else {
+        return Ok(false);
+    };
+
+    // Every git call below runs from the MAIN worktree, never from `cwd`.
+    // The caller is the closing tab, which passes the worktree being retired
+    // as its own cwd — git can refuse to remove the worktree it was invoked
+    // from, and the directory is about to stop existing either way.
+    let main = main_root.as_path();
+
+    // `--porcelain` in status already counts untracked files, so dirty_count
+    // covers scratch files. What is left to prove is "no commits of its own".
+    let base = default_branch(main);
+    let ahead = git(main, &["rev-list", "--count", &format!("{base}..{branch}")])
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(1); // unknown → assume it has work, keep it
+    if ahead > 0 {
+        return Ok(false);
+    }
+
+    git(main, &["worktree", "remove", &wt.path])?;
+    // The branch has no commits beyond base, so -d cannot refuse it and there
+    // is nothing to lose. Failure here is not fatal: the directory is already
+    // gone and the ledger will surface a stray branch.
+    let _ = git(main, &["branch", "-d", branch]);
+    let _ = git(main, &["worktree", "prune"]);
+    Ok(true)
+}
+
 pub fn switch_branch(cwd: &Path, branch: &str) -> Result<GitRepoSummary, String> {
     validate_branch_name(branch)?;
     let out = Command::new("git")
@@ -2436,5 +2508,99 @@ index e69de29..0cfbf08 100644
 
         let path = create_worktree(root, "agent/explicit-0719-ddd", Some("side")).unwrap();
         assert!(Path::new(&path).join("side-only.txt").exists());
+    }
+
+    #[test]
+    fn retire_removes_an_untouched_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/untouched-0719-aaa", None).unwrap();
+
+        assert!(retire_worktree(root, &path).unwrap());
+        assert!(!Path::new(&path).exists());
+        let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
+        assert!(
+            !branches.lines().any(|l| l.trim() == "agent/untouched-0719-aaa"),
+            "an empty worktree's branch has nothing in it either",
+        );
+    }
+
+    #[test]
+    fn retire_keeps_a_worktree_with_commits() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/worked-0719-bbb", None).unwrap();
+        let wt = Path::new(&path);
+        std::fs::write(wt.join("new.txt"), "real work\n").unwrap();
+        git_run(wt, &["add", "."]);
+        git_run(wt, &["commit", "-q", "-m", "real work"]);
+
+        assert!(!retire_worktree(root, &path).unwrap());
+        assert!(wt.exists());
+    }
+
+    #[test]
+    fn retire_keeps_a_dirty_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/dirty-0719-ccc", None).unwrap();
+        std::fs::write(Path::new(&path).join("tracked.txt"), "uncommitted\n").unwrap();
+
+        assert!(!retire_worktree(root, &path).unwrap());
+        assert!(Path::new(&path).exists());
+    }
+
+    #[test]
+    fn retire_keeps_an_untracked_only_worktree() {
+        // No commits and `git status` sees an untracked file: still someone's
+        // work (a scratch file, a .env). Not ours to delete.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/scratch-0719-ddd", None).unwrap();
+        std::fs::write(Path::new(&path).join("scratch.txt"), "notes\n").unwrap();
+
+        assert!(!retire_worktree(root, &path).unwrap());
+        assert!(Path::new(&path).exists());
+    }
+
+    #[test]
+    fn retire_refuses_a_worktree_outside_the_canonical_root() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let stray = root.join("stray");
+        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "stray"]);
+
+        assert!(!retire_worktree(root, stray.to_str().unwrap()).unwrap());
+        assert!(stray.exists());
+    }
+
+    #[test]
+    fn retire_refuses_the_main_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        assert!(!retire_worktree(root, root.to_str().unwrap()).unwrap());
+        assert!(root.exists());
+    }
+
+    #[test]
+    fn retire_called_with_the_worktree_itself_as_cwd_still_removes_it() {
+        // The exact calling pattern the closing tab uses (Task 7): `cwd` IS
+        // the worktree being retired. All git calls must run from the MAIN
+        // worktree, never from `cwd`, since git can refuse to remove the
+        // worktree it was invoked from, and that directory is about to stop
+        // existing.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/self-0719-eee", None).unwrap();
+
+        assert!(retire_worktree(Path::new(&path), &path).unwrap());
+        assert!(!Path::new(&path).exists());
     }
 }
