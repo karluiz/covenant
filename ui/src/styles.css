@@ -355,6 +355,131 @@ body.theme-special::after {
     opacity: var(--special-scrim);
 }
 
+/* Settings -> Appearance -> Special themes gallery. Tiles show the real
+   artwork at the theme's own shipped scrim, so the choice is never blind. */
+.special-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.special-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 0 0 8px;
+    background: transparent;
+    border: 1px solid rgb(var(--ink-rgb) / 0.1);
+    border-radius: 0;
+    cursor: pointer;
+    text-align: left;
+    color: var(--fg-dim);
+    font: inherit;
+    font-size: 12px;
+}
+
+.special-tile:hover {
+    border-color: rgb(var(--ink-rgb) / 0.22);
+    color: var(--fg);
+}
+
+.special-tile:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.special-tile[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--fg);
+}
+
+.special-tile-art {
+    position: relative;
+    display: block;
+    aspect-ratio: 16 / 9;
+    background-size: cover;
+    background-position: right bottom;
+}
+
+.special-tile-veil {
+    position: absolute;
+    inset: 0;
+    display: block;
+}
+
+.special-tile-name {
+    padding: 0 8px;
+}
+
+.special-scrim-row {
+    margin-top: 12px;
+}
+
+.special-scrim-row output {
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Native range input needs a full reset: body.theme-light forces a white
+   background on every `.settings-field input` (see the light-theme block
+   below), which paints a solid rectangle behind the thumb for a range
+   input specifically (radios/checkboxes ignore `background` unless
+   appearance is reset too, but a native range input does not). `bunny` is
+   light-based, so this slider WILL render under theme-light. The #id
+   selector's specificity beats the class-based rule regardless of theme,
+   and every visual property is redeclared so no browser default or theme
+   override shows through. */
+#special-scrim {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    margin: 8px 0 4px;
+    background: rgb(var(--ink-rgb) / 0.14);
+    border: none;
+    border-radius: 0;
+    cursor: pointer;
+}
+
+#special-scrim::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 0;
+    background: var(--accent);
+    cursor: pointer;
+    margin-top: -4px;
+}
+
+#special-scrim::-moz-range-track {
+    height: 4px;
+    background: rgb(var(--ink-rgb) / 0.14);
+    border: none;
+    border-radius: 0;
+}
+
+#special-scrim::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 0;
+    background: var(--accent);
+    border: none;
+    cursor: pointer;
+}
+
+/* windowBgRadios are disabled while a special theme owns the background —
+   dim them so the disabled state reads, not just "stopped responding". */
+.settings-radio:has(input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.settings-radio:has(input:disabled):hover {
+    border-color: var(--border);
+}
+
 #layout {
     position: relative;
     display: grid;

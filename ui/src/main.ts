@@ -1948,20 +1948,21 @@ async function boot(): Promise<void> {
   // whenever settings save. Background mode swaps a body class — pure
   // CSS reflow, no need to re-init xterm.
   // Live preview while the appearance radios are toggled — no save needed.
-  settings.onPreview = ({ theme, background }) => {
+  settings.onPreview = ({ theme, background, specialTheme, specialScrim }) => {
     applyWindowBackground(background);
-    // TODO(task-6): pass special_theme / special_scrim — without them a
-    // saved Special Theme clears its own artwork on the next save.
-    void applyTheme(theme, manager);
+    void applyTheme(theme, manager, specialTheme, specialScrim);
   };
 
   settings.onSaved = (next) => {
     setDiscordPresenceEnabled(next.discord_presence_enabled ?? false);
     manager.applyTerminalSettings(next.terminal);
     applyWindowBackground(next.window?.background ?? "vibrant");
-    // TODO(task-6): pass special_theme / special_scrim — without them a
-    // saved Special Theme clears its own artwork on the next save.
-    void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
+    void applyTheme(
+      (next.window?.theme ?? "system") as ThemeMode,
+      manager,
+      next.window?.special_theme ?? null,
+      next.window?.special_scrim ?? null,
+    );
     applyTabbarPosition(next.tabbar_position ?? "top");
     document.body.classList.toggle("zen-icons", next.zen_icons ?? false);
     applyFoldedRailStyle(next.folded_rail_style ?? "legacy");
