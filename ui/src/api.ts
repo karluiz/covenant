@@ -1393,6 +1393,20 @@ export async function worktreeRelocate(cwd: string, path: string): Promise<strin
   return invoke<string>("worktree_relocate", { cwd, path });
 }
 
+export async function worktreeCreate(
+  cwd: string,
+  slug: string,
+  base?: string,
+): Promise<string> {
+  return invoke<string>("worktree_create", { cwd, slug, base: base ?? null });
+}
+
+/// Resolves true when the worktree was removed, false when it was kept
+/// because it held something. Never throws for "kept".
+export async function worktreeRetire(cwd: string, path: string): Promise<boolean> {
+  return invoke<boolean>("worktree_retire", { cwd, path });
+}
+
 export interface GitRepoSummary {
   repo_name: string;
   repo_root: string;

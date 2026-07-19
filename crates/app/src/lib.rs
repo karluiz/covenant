@@ -2598,6 +2598,28 @@ async fn worktree_relocate(cwd: String, path: String) -> Result<String, String> 
 }
 
 #[tauri::command]
+async fn worktree_create(
+    cwd: String,
+    slug: String,
+    base: Option<String>,
+) -> Result<String, String> {
+    let root = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || {
+        git_tools::create_worktree(&root, &slug, base.as_deref())
+    })
+    .await
+    .map_err(|e| format!("worktree_create join: {e}"))?
+}
+
+#[tauri::command]
+async fn worktree_retire(cwd: String, path: String) -> Result<bool, String> {
+    let root = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::retire_worktree(&root, &path))
+        .await
+        .map_err(|e| format!("worktree_retire join: {e}"))?
+}
+
+#[tauri::command]
 async fn git_switch_branch(
     state: State<'_, AppState>,
     cwd: String,
@@ -5393,6 +5415,8 @@ pub fn run() {
             worktree_sizes,
             worktree_reclaim,
             worktree_relocate,
+            worktree_create,
+            worktree_retire,
             git_switch_branch,
             git_changes,
             beacon_workflow_runs,
