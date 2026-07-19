@@ -4491,13 +4491,13 @@ body.theme-true-dark .settings-nav a.active { background: rgb(var(--ink-rgb) / 0
 }
 
 /* Light-theme adjustments */
-body.theme-light .providers-md__frame { background: #fff; }
+body.theme-light .providers-md__frame { background: var(--bg-overlay); }
 body.theme-light .providers-md__section { background: #f5f6f8; border-color: rgba(0, 0, 0, 0.06); }
 body.theme-light .providers-md__input,
 body.theme-light .providers-md__icon-btn,
 body.theme-light .providers-md__btn,
 body.theme-light .providers-md__add-field input {
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: rgba(0, 0, 0, 0.1);
     color: var(--text-primary);
 }
@@ -11278,7 +11278,7 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
 
 body.theme-light .tabbar-rail-peek,
 body.theme-light .tabbar-rail-cell-peek {
-    background: #ffffff;
+    background: var(--bg-overlay);
     border-color: var(--border);
     border-left-color: color-mix(in srgb, var(--rail-color) 70%, var(--border));
     color: var(--text-primary);
@@ -15775,7 +15775,7 @@ body.theme-light .settings-field input,
 body.theme-light .settings-field select,
 body.theme-light .settings-field textarea {
     color: var(--text-primary) !important;
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: var(--border);
 }
 body.theme-light input::placeholder,
@@ -15795,7 +15795,7 @@ body.theme-light .mission-page-footer {
     border-color: var(--border);
 }
 body.theme-light .mission-page-search-row {
-    background: rgba(255, 255, 255, 0.96);
+    background: var(--bg-overlay);
 }
 body.theme-light .mission-page-close:hover .settings-esc {
     background: rgba(0, 0, 0, 0.06);
@@ -15803,7 +15803,7 @@ body.theme-light .mission-page-close:hover .settings-esc {
 }
 body.theme-light .mission-page-search,
 body.theme-light .mission-page-input {
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: var(--border);
     color: var(--text-primary);
 }
@@ -15852,7 +15852,7 @@ body.theme-light .mission-page-link {
     color: var(--accent);
 }
 body.theme-light .mission-page-error {
-    background: color-mix(in srgb, var(--fail) 9%, #fff);
+    background: color-mix(in srgb, var(--fail) 9%, var(--bg-overlay));
     border-color: color-mix(in srgb, var(--fail) 28%, transparent);
     color: var(--fail);
 }
@@ -15870,13 +15870,13 @@ body.theme-light .mission-page-preview-truncated {
     color: #9a6a18;
 }
 body.theme-light .mission-page-newmodal {
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: var(--border);
     color: var(--text-primary);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 }
 body.theme-light .mission-page-newmodal input {
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: var(--border);
     color: var(--text-primary);
 }
@@ -15906,7 +15906,7 @@ body.theme-light .titlebar-icon-btn:hover:not(:disabled) {
 /* ── Floating terminal finder: use light chrome when it is opened from
        terminal panes in light mode. Editor ⌘F is handled by CM/preview. ─ */
 body.theme-light .term-finder {
-    background: rgba(255, 255, 255, 0.96);
+    background: var(--bg-overlay);
     border-color: var(--border);
     color: var(--text-primary);
     box-shadow:
@@ -15956,7 +15956,7 @@ body.theme-light .term-finder--nomatch .term-finder__counter {
 
 /* ── Toasts / terminal notifications: light surface + readable text ─ */
 body.theme-light .toast {
-    background: #ffffff;
+    background: var(--bg-overlay);
     color: var(--text-primary);
     border-color: var(--border);
     border-left-color: var(--accent);
@@ -15999,7 +15999,7 @@ body.theme-light #status-bar { color: var(--text-primary); }
 
 /* ── Spawns / executor popover (hardcoded dark in spawns/styles.css) ── */
 body.theme-light .spawns-popover {
-    background: #fff !important;
+    background: var(--bg-overlay) !important;
     border: 1px solid var(--border) !important;
     color: var(--text-primary) !important;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -16020,7 +16020,7 @@ body.theme-light .spawns-popover__add:hover {
 
 /* ── Workspace switcher row context menu ─────────── */
 body.theme-light .workspace-rowmenu {
-    background: #fff;
+    background: var(--bg-overlay);
     border: 1px solid var(--border);
     color: var(--text-primary);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -16070,7 +16070,7 @@ body.theme-light .settings-cancel,
 body.theme-light .mission-viewer-cancel,
 body.theme-light .mission-page-cancel,
 body.theme-light .modal-actions button.btn-cancel {
-    background: #fff;
+    background: var(--bg-overlay);
     color: var(--text-primary);
     border: 1px solid var(--border);
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
@@ -16136,7 +16136,7 @@ body.theme-light .new-tab-kbd {
 
 /* ── Tooltip: proper light variant (light bg + dark text) ────── */
 body.theme-light .ck-tooltip {
-    background: #ffffff;
+    background: var(--bg-overlay);
     color: var(--text-primary);
     border: 1px solid var(--border);
     box-shadow:
@@ -18438,7 +18438,7 @@ body.theme-light .teammate-panel-switcher {
 }
 body.theme-light .task-card {
   border-color: rgba(15, 23, 42, 0.14);
-  background: #ffffff;
+  background: var(--bg-overlay);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .task-card__header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -18479,7 +18479,7 @@ body.theme-light .task-card {
   font-size: 12.5px;
 }
 body.theme-light .task-pill {
-  background: #ffffff;
+  background: var(--bg-overlay);
   border-color: rgba(15, 23, 42, 0.14);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
@@ -19123,14 +19123,14 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
 body.theme-light .task-item {
   border: 1px solid rgba(15, 23, 42, 0.10);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--bg-overlay);
   margin-bottom: 8px;
 }
 body.theme-light .task-item:hover {
   border-color: rgba(15, 23, 42, 0.18);
 }
 body.theme-light .task-item.is-open {
-  background: #ffffff;
+  background: var(--bg-overlay);
   border-color: rgba(15, 23, 42, 0.22);
 }
 .task-item__head {
@@ -20450,7 +20450,7 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 }
 .rail-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .rail-search input::placeholder { color: var(--fg-dim); }
-/* The light theme's global `body.theme-light input { background: #fff }`
+/* The light theme's global `body.theme-light input { background: var(--bg-overlay) }`
    reset (see ~:15385) outspecifies .rail-search input and repaints the
    white box — same escape hatch the command palette needed. */
 body.theme-light .rail-search input { background: none; border: 0; }
@@ -20674,5 +20674,5 @@ body.theme-light .rail-search input { background: none; border: 0; }
 body.theme-light .tg-input,
 body.theme-light .tg-secret input,
 body.theme-light .tg-icon-btn,
-body.theme-light .tg-btn { background: #fff; border-color: rgba(0,0,0,0.1); }
+body.theme-light .tg-btn { background: var(--bg-overlay); border-color: rgba(0,0,0,0.1); }
 body.theme-light .tg-section { background: #f5f6f8; border-color: rgba(0,0,0,0.06); }

@@ -266,6 +266,9 @@ const OWNED_PROPS = [
   "--danger",
   "--tab-bg-active",
   "--bg-elevated",
+  "--settings-btn-fill",
+  "--settings-btn-fill-hover",
+  "--op-card-fill",
 ] as const;
 
 /// Translucency forced while a Special Theme is active. Without this a
@@ -313,6 +316,12 @@ export function applySpecialTokens(
   // --bg-elevated goes further still, as the most-lifted card surface.
   set("--tab-bg-active", rgbFn(shade(base, 10)));
   set("--bg-elevated", rgbFn(shade(base, 14)));
+  // body.theme-light hardcodes these three to #ffffff. Without an override
+  // they stay pure white under `bunny` (the one light-based theme), which
+  // reads as bright slabs punched through the artwork.
+  set("--settings-btn-fill", rgbFn(shade(base, 10)));
+  set("--settings-btn-fill-hover", rgbFn(shade(base, 16)));
+  set("--op-card-fill", rgbFn(shade(base, 10)));
   set("--border", "rgb(var(--ink-rgb) / 0.12)");
   set("--accent", t.accent);
   if (t.danger) set("--danger", t.danger);
