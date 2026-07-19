@@ -102,8 +102,8 @@ import type { Org } from "./api";
 import { SpawnsChip, spawnBrandGlyph } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor, quickCallAcp } from "./spawns/shortcuts";
-import { wantsWorktree, agentSlug } from "./spawns/worktree-launch";
-import { worktreeCreate } from "./api";
+import { resolveLaunch, isSilentWorktreeFailure } from "./spawns/worktree-launch";
+import { worktreeCreate, worktreeRetire } from "./api";
 import {
   TeammatePanel,
   buildTaskInjection,
@@ -1261,37 +1261,58 @@ async function boot(): Promise<void> {
         if (!spec || !spec.command) return;
         // Covenant hands out the worktree so no executor ever reaches the
         // question of where one goes. Failure here degrades to the current
-        // cwd — isolation must never be why an agent fails to start.
+        // cwd — isolation must never be why an agent fails to start. The
+        // decision itself lives in resolveLaunch (worktree-launch.ts) so
+        // it's reachable from a test without mounting the app.
         const baseCwd = manager.activeCwd();
-        let launchCwd = baseCwd;
-        let isolated = false;
-        if (wantsWorktree(spec) && baseCwd) {
-          try {
-            launchCwd = await worktreeCreate(
-              baseCwd,
-              agentSlug(spec, new Date(), Math.random),
-            );
-            isolated = true;
-          } catch (e) {
-            pushInfoToast({ message: `Launching in place — worktree failed: ${String(e)}` });
-          }
+        const { cwd: launchCwd, isolated, error } = await resolveLaunch(spec, baseCwd, {
+          create: worktreeCreate,
+          now: () => new Date(),
+          rand: Math.random,
+        });
+        // "Not a git repository" is the expected, silent path outside a
+        // repo — the design promises launching in the cwd exactly as today,
+        // with no noise. Any other failure (permissions, a colliding slug,
+        // disk) still surfaces.
+        if (error && !isSilentWorktreeFailure(error)) {
+          pushInfoToast({ message: `Launching in place — worktree failed: ${error}` });
         }
+        // If a worktree was created but the tab below never attaches to it
+        // (creation returns null or throws), retire it best-effort so the
+        // error path doesn't leave garbage — mirrors tab-close retirement
+        // and stays fire-and-forget for the same reason.
+        const retireOrphanedWorktree = (): void => {
+          if (isolated && launchCwd) {
+            void worktreeRetire(launchCwd, launchCwd).catch(() => {});
+          }
+        };
+        const attachOrRetire = async <T>(create: () => Promise<T | null>): Promise<T | null> => {
+          let tab: T | null;
+          try {
+            tab = await create();
+          } catch (e) {
+            retireOrphanedWorktree();
+            throw e;
+          }
+          if (!tab) retireOrphanedWorktree();
+          return tab;
+        };
         // ACP spawn: opens a chat tab — there is no in-terminal ACP mode.
         // Eligibility re-checked here in case the command was edited after
         // the flag was set.
         const acpExec = spec.acp || quickCallAcp() ? acpExecutorFor(spec) : null;
         if (acpExec) {
-          await manager.createAcpTab({
-            cwd: launchCwd,
-            executor: acpExec,
-          });
+          await attachOrRetire(() => manager.createAcpTab({ cwd: launchCwd, executor: acpExec }));
           return;
         }
         const cmdline = buildSpawnCmdline(spec, claudeTheme()) + "\n";
         if (isolated && launchCwd) {
           // A PTY spawn normally writes into the session you are already in.
           // There is no cwd to set on that path, so isolation means a new tab.
-          await manager.createTab({ cwd: launchCwd, initialCommand: cmdline });
+          const tab = await attachOrRetire(() =>
+            manager.createTab({ cwd: launchCwd, initialCommand: cmdline }),
+          );
+          if (!tab) return;
           manager.setActiveSpawnId(spec.id);
           await chip.refresh();
           requestAnimationFrame(() => manager.focusActive());

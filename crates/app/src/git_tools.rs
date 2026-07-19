@@ -561,24 +561,34 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
         .find(|w| w.is_main)
         .map(|w| canonical_or_self(Path::new(&w.path)))
         .ok_or_else(|| "no worktrees reported by git".to_string())?;
-    if target == main_root {
-        return Ok(false);
-    }
-    if !target.starts_with(main_root.join(CANONICAL_WORKTREE_DIR)) {
-        return Ok(false);
-    }
 
-    // Retirement must also survive being called with the worktree itself as
-    // `cwd` — that is exactly how the closing tab calls it (covered by
-    // `retire_called_with_the_worktree_itself_as_cwd_still_removes_it`).
-
-    let Some(wt) = summary
+    // Resolve `target` to the worktree that CONTAINS it, not just the one it
+    // names exactly. An agent `cd`-ing into a subdirectory of its own
+    // worktree (e.g. `<worktree>/crates/app`) is completely normal — the tab
+    // still owns that worktree, and requiring an exact path match meant
+    // retirement silently never fired once the shell moved. Every linked
+    // worktree lives inside the main worktree's own directory tree (under
+    // `.covenant/worktrees`), so the main worktree is *always* a containing
+    // candidate too; picking the LONGEST containing path is what keeps a
+    // nested worktree from being mistaken for its parent. Every refusal
+    // below (main, canonical root, clean, pristine, no commits beyond base)
+    // then applies to the RESOLVED worktree, not the literal `target` path.
+    let resolved = summary
         .worktrees
         .iter()
-        .find(|w| canonical_or_self(Path::new(&w.path)) == target)
-    else {
+        .map(|w| (w, canonical_or_self(Path::new(&w.path))))
+        .filter(|(_, root)| target.starts_with(root))
+        .max_by_key(|(_, root)| root.as_os_str().len());
+    let Some((wt, wt_root)) = resolved else {
         return Ok(false);
     };
+
+    if wt_root == main_root {
+        return Ok(false);
+    }
+    if !wt_root.starts_with(main_root.join(CANONICAL_WORKTREE_DIR)) {
+        return Ok(false);
+    }
     if wt.dirty_count > 0 {
         return Ok(false);
     }
@@ -588,8 +598,9 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
 
     // Every git call below runs from the MAIN worktree, never from `cwd`.
     // The caller is the closing tab, which passes the worktree being retired
-    // as its own cwd — git can refuse to remove the worktree it was invoked
-    // from, and the directory is about to stop existing either way.
+    // (or a subdirectory of it) as its own cwd — git can refuse to remove
+    // the worktree it was invoked from, and the directory is about to stop
+    // existing either way.
     let main = main_root.as_path();
 
     // `--porcelain` in status already counts untracked files, so dirty_count
@@ -2849,6 +2860,41 @@ index e69de29..0cfbf08 100644
             !branches.lines().any(|l| l.trim() == "agent/self-0719-eee"),
             "branch delete must run from the main worktree, not the deleted cwd",
         );
+    }
+
+    #[test]
+    fn retire_resolves_a_subdirectory_to_the_worktree_that_contains_it() {
+        // The shell inside a worktree tab is free to `cd` around — into
+        // `crates/app`, say. The tab still passes that path as its cwd when
+        // it closes, and retirement must resolve it back to the worktree
+        // root it belongs to rather than refusing on an exact-match miss.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/nested-0719-iii", None).unwrap();
+        let wt = Path::new(&path);
+        let subdir = wt.join("crates").join("app");
+        std::fs::create_dir_all(&subdir).unwrap();
+
+        assert!(retire_worktree(root, subdir.to_str().unwrap()).unwrap());
+        assert!(!wt.exists());
+    }
+
+    #[test]
+    fn retire_refuses_a_subdirectory_of_the_main_worktree() {
+        // Containment resolution must not let a subdirectory of the MAIN
+        // worktree resolve to anything retireable — the main worktree is
+        // always a containing candidate (every linked worktree lives inside
+        // its directory tree), so this pins that it still loses to the
+        // main-worktree refusal rather than being retired by accident.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let subdir = root.join("src");
+        std::fs::create_dir_all(&subdir).unwrap();
+
+        assert!(!retire_worktree(root, subdir.to_str().unwrap()).unwrap());
+        assert!(root.exists());
     }
 
     #[test]

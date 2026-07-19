@@ -35,3 +35,56 @@ export function agentSlug(spec: SpawnSpec, now: Date, rand: () => number): strin
   const suffix = Math.min(Math.floor(rand() * 46656), 46655).toString(36).padStart(3, "0");
   return `agent/${executor}-${mm}${dd}-${suffix}`;
 }
+
+/// `worktreeCreate`'s failure message outside a git repository is literally
+/// git's own stderr for `git rev-parse --show-toplevel` — "fatal: not a git
+/// repository (or any of the parent directories): .git" — propagated up
+/// through `repo_summary`. The design promises that path stays silent
+/// ("launch in the cwd exactly as today"), so the call site uses this to
+/// tell that one expected cause apart from a genuine failure (permissions,
+/// a colliding slug, disk) that the user still needs to see.
+export function isSilentWorktreeFailure(message: string): boolean {
+  return /not a git repository/i.test(message);
+}
+
+/// Result of deciding where an agent launches. `cwd: null` only ever happens
+/// when the caller had no cwd to begin with (e.g. a browser tab is active) —
+/// `resolveLaunch` never turns a real cwd into `null`.
+export interface LaunchResolution {
+  cwd: string | null;
+  isolated: boolean;
+  /// Set only when a worktree was attempted and failed. `isSilentWorktreeFailure`
+  /// tells the caller whether it's toast-worthy.
+  error?: string;
+}
+
+export interface LaunchDeps {
+  /// `worktreeCreate` from `../api`, injected so this stays a pure,
+  /// test-without-mounting-the-app function.
+  create: (cwd: string, slug: string) => Promise<string>;
+  now: () => Date;
+  rand: () => number;
+}
+
+/// The launch decision `runSpawn` used to make inline in `boot()` — pulled
+/// out here so it's reachable from a test. Mirrors the three cases that were
+/// previously untestable: opt-out launches at the plain cwd, a create
+/// failure falls back to the plain cwd (still surfacing why), and success
+/// hands back the worktree path with `isolated: true` — which is what tells
+/// the PTY-spawn call site to open a NEW tab instead of writing into the
+/// current session.
+export async function resolveLaunch(
+  spec: SpawnSpec,
+  baseCwd: string | null,
+  deps: LaunchDeps,
+): Promise<LaunchResolution> {
+  if (!wantsWorktree(spec) || !baseCwd) {
+    return { cwd: baseCwd, isolated: false };
+  }
+  try {
+    const cwd = await deps.create(baseCwd, agentSlug(spec, deps.now(), deps.rand));
+    return { cwd, isolated: true };
+  } catch (e) {
+    return { cwd: baseCwd, isolated: false, error: String(e) };
+  }
+}

@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { wantsWorktree, agentSlug } from "./worktree-launch";
+import { describe, expect, it, vi } from "vitest";
+import {
+  wantsWorktree,
+  agentSlug,
+  resolveLaunch,
+  isSilentWorktreeFailure,
+} from "./worktree-launch";
 import type { SpawnSpec } from "./types";
 
 const spec = (over: Partial<SpawnSpec> = {}): SpawnSpec => ({
@@ -73,5 +78,63 @@ describe("worktree launch decision", () => {
     expect(suffixOf(low)).toHaveLength(3);
     expect(suffixOf(high)).toHaveLength(3);
     expect(suffixOf(low)).not.toBe(suffixOf(high));
+  });
+});
+
+describe("isSilentWorktreeFailure", () => {
+  it("recognizes git's own not-a-git-repository stderr", () => {
+    expect(
+      isSilentWorktreeFailure(
+        "fatal: not a git repository (or any of the parent directories): .git",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not silence an unrelated failure", () => {
+    expect(isSilentWorktreeFailure("fatal: could not create work tree dir: Permission denied")).toBe(
+      false,
+    );
+  });
+});
+
+describe("resolveLaunch", () => {
+  const deps = () => ({
+    create: vi.fn<(cwd: string, slug: string) => Promise<string>>(),
+    now: () => new Date(2026, 6, 19, 10, 0, 0),
+    rand: () => 0.5,
+  });
+
+  it("launches at the plain cwd, uncreated, when the spawn opts out", async () => {
+    const d = deps();
+    const result = await resolveLaunch(spec({ worktree: false }), "/repo", d);
+    expect(result).toEqual({ cwd: "/repo", isolated: false });
+    expect(d.create).not.toHaveBeenCalled();
+  });
+
+  it("does not attempt creation when there is no base cwd", async () => {
+    const d = deps();
+    const result = await resolveLaunch(spec(), null, d);
+    expect(result).toEqual({ cwd: null, isolated: false });
+    expect(d.create).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the plain cwd and surfaces the reason when create fails", async () => {
+    const d = deps();
+    d.create.mockRejectedValue(new Error("fatal: could not create work tree dir"));
+    const result = await resolveLaunch(spec(), "/repo", d);
+    expect(result.cwd).toBe("/repo");
+    expect(result.isolated).toBe(false);
+    expect(result.error).toContain("could not create work tree dir");
+  });
+
+  it("returns the worktree path and isolated:true on success", async () => {
+    const d = deps();
+    d.create.mockResolvedValue("/repo/.covenant/worktrees/agent/codex-0719-abc");
+    const result = await resolveLaunch(spec(), "/repo", d);
+    expect(result).toEqual({
+      cwd: "/repo/.covenant/worktrees/agent/codex-0719-abc",
+      isolated: true,
+    });
+    expect(d.create).toHaveBeenCalledWith("/repo", expect.stringMatching(/^agent\/codex-0719-/));
   });
 });
