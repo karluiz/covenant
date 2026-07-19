@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "tauri dev --config crates/app/tauri.dev.conf.json",
     "tauri:build": "tauri build",
     "install:app": "./scripts/install.sh",
     "install:app:reuse": "./scripts/install.sh --skip-build",

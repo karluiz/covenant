@@ -449,6 +449,25 @@ Tap auto-discovers under the `homebrew-` prefix. After first install, upgrades a
 
 - `npm install` — frontend + Tauri CLI deps
 - `npm run tauri:dev` — full desktop app with hot reload (`npm run dev` = Vite only)
+
+> **The dev build is a separate app from the installed one.** `tauri:dev` passes
+> `--config crates/app/tauri.dev.conf.json`, which overrides the bundle
+> identifier to `com.karluiz.covenant.dev`. macOS derives everything per-app from
+> that identifier, so the dev build gets its own
+> `~/Library/Application Support/com.karluiz.covenant.dev/` — its own settings,
+> history, scrollback and keychain entries — and `tauri-plugin-single-instance`
+> stops treating the two as the same app, so they can run side by side.
+>
+> Before this, both shared `com.karluiz.covenant`: launching dev while
+> `/Applications/Covenant.app` was open meant two processes writing one
+> `config.json` (last save wins, and an older installed build silently drops
+> fields it does not know) and two inbound Telegram pollers on the same bot
+> token, which Telegram answers with `409 Conflict`.
+>
+> Consequence to expect: **the dev build starts unconfigured** — no API keys, no
+> providers. Seed it by copying the real config once:
+> `cp ~/Library/Application\ Support/com.karluiz.covenant/config.json ~/Library/Application\ Support/com.karluiz.covenant.dev/`
+> Do NOT symlink the two — that reintroduces exactly the shared-state problem.
 - `npm run build` — TS type-check + Vite bundle; `npm run tauri:build` — production build
 - `npm test` — Vitest (run from repo ROOT, not `ui/`); `cargo test --workspace` — Rust tests
 - `cargo fmt --all` && `cargo clippy --workspace --all-targets` before larger PRs
