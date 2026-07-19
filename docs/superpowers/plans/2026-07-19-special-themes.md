@@ -443,8 +443,18 @@ export const SPECIAL_THEMES: Record<SpecialThemeId, SpecialTheme> = {
 export const SPECIAL_THEME_LIST: readonly SpecialTheme[] =
   Object.values(SPECIAL_THEMES);
 
+/// Validation boundary for a persisted theme id. `config.json` is
+/// user-editable, so an unknown value must be rejected rather than
+/// indexed into the registry.
+///
+/// Uses an own-property check, not `in`: `in` walks the prototype chain,
+/// so "constructor" / "toString" / "__proto__" would pass and then resolve
+/// to an Object.prototype member instead of a SpecialTheme.
 export function isSpecialThemeId(v: unknown): v is SpecialThemeId {
-  return typeof v === "string" && v in SPECIAL_THEMES;
+  return (
+    typeof v === "string" &&
+    Object.prototype.hasOwnProperty.call(SPECIAL_THEMES, v)
+  );
 }
 
 /// How far the user's slider may move from a theme's calibrated default.
