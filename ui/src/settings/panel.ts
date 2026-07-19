@@ -29,6 +29,12 @@ import { renderPublicProfileCard } from "../score/profile";
 import { scheduleCloudPush } from "./cloud_push";
 import { INDICATORS, applyIndicatorVisibility } from "../indicators";
 import { formatChord } from "../platform";
+import {
+  SPECIAL_THEME_LIST,
+  SPECIAL_THEMES,
+  clampScrim,
+  isSpecialThemeId,
+} from "../theme/special";
 
 function renderIndicatorChecklist(): string {
   const groups = [...new Set(INDICATORS.map((i) => i.group))];
@@ -82,13 +88,17 @@ interface TerminalConfig {
 }
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
-type ThemeMode = "dark" | "light" | "system" | "true_dark";
+type ThemeMode = "dark" | "light" | "system" | "true_dark" | "special";
 type TabStyle = "classic" | "forge" | "glass" | "crt";
 
 interface WindowConfig {
   background: WindowBackground;
   theme?: ThemeMode;
   tab_style?: TabStyle;
+  /// Which Special Theme is active, set by the tile gallery in Appearance.
+  special_theme?: string | null;
+  /// User-adjusted scrim for the active Special Theme, set by its slider.
+  special_scrim?: number | null;
 }
 
 interface AomConfig {
@@ -255,11 +265,17 @@ export class SettingsPanel {
   /// open tabs without requiring a restart.
   public onSaved: ((next: Settings) => void) | null = null;
 
-  /// Fired as the user toggles Theme / Window-background radios, before
-  /// saving, so chrome + xterm reflect the choice live. close() re-fires
-  /// it with the persisted values to revert an unsaved preview.
+  /// Fired as the user toggles Theme / Window-background radios or picks a
+  /// Special Theme tile, before saving, so chrome + xterm reflect the
+  /// choice live. close() re-fires it with the persisted values to revert
+  /// an unsaved preview.
   public onPreview:
-    | ((p: { theme: ThemeMode; background: WindowBackground }) => void)
+    | ((p: {
+        theme: ThemeMode;
+        background: WindowBackground;
+        specialTheme: string | null;
+        specialScrim: number | null;
+      }) => void)
     | null = null;
 
   /// Optional callback fired when the page closes (any reason). Used
@@ -399,6 +415,8 @@ export class SettingsPanel {
       this.onPreview?.({
         theme: this.current.window?.theme ?? "system",
         background: this.current.window?.background ?? "vibrant",
+        specialTheme: this.current.window?.special_theme ?? null,
+        specialScrim: this.current.window?.special_scrim ?? null,
       });
     }
 
@@ -524,6 +542,36 @@ export class SettingsPanel {
                 <span class="settings-radio-title">Light</span>
                 <span class="settings-radio-hint">Force the light chrome and GitHub Light xterm palette.</span>
               </span>
+            </label>
+          </fieldset>
+          <fieldset class="settings-field settings-radio-group">
+            <legend class="settings-label">Special themes</legend>
+            <small class="settings-hint">
+              Wallpaper-backed identities applied to the whole window. Selecting
+              one replaces the theme above and takes over the window background.
+            </small>
+            <div class="special-theme-grid" id="special-theme-grid">
+              ${SPECIAL_THEME_LIST.map(
+                (t) => `
+                <button type="button" class="special-tile" data-special-id="${t.id}"
+                        aria-pressed="false">
+                  <span class="special-tile-art" style="background-image:url('${t.art}')">
+                    <span class="special-tile-veil"
+                          style="background:${t.veil};opacity:${t.scrim}"></span>
+                  </span>
+                  <span class="special-tile-name">${t.name}</span>
+                </button>`,
+              ).join("")}
+            </div>
+            <label class="settings-field special-scrim-row" id="special-scrim-row" hidden>
+              <span class="settings-label">
+                Scrim <output id="special-scrim-value">0.00</output>
+              </span>
+              <input type="range" name="special_scrim" id="special-scrim"
+                     min="0" max="0.92" step="0.01" />
+              <small class="settings-hint">
+                How much the veil covers the artwork. Bounded to keep text legible.
+              </small>
             </label>
           </fieldset>
           <fieldset class="settings-field settings-radio-group">
@@ -1337,6 +1385,39 @@ export class SettingsPanel {
     const themeRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="theme"]',
     );
+    const specialTiles = form.querySelectorAll<HTMLButtonElement>(
+      "button[data-special-id]",
+    );
+    const specialScrimRow = form.querySelector<HTMLElement>("#special-scrim-row")!;
+    const specialScrim = form.querySelector<HTMLInputElement>("#special-scrim")!;
+    const specialScrimValue = form.querySelector<HTMLOutputElement>(
+      "#special-scrim-value",
+    )!;
+    /// Null when a standard theme mode is selected. Tiles and the four
+    /// theme radios are one exclusive choice expressed as two controls.
+    let selectedSpecial: string | null =
+      this.current.window?.theme === "special" &&
+      isSpecialThemeId(this.current.window?.special_theme)
+        ? this.current.window.special_theme
+        : null;
+
+    const syncSpecialUi = (): void => {
+      specialTiles.forEach((tile) => {
+        const on = tile.dataset.specialId === selectedSpecial;
+        tile.setAttribute("aria-pressed", String(on));
+      });
+      specialScrimRow.hidden = selectedSpecial === null;
+      if (selectedSpecial && isSpecialThemeId(selectedSpecial)) {
+        const t = SPECIAL_THEMES[selectedSpecial];
+        specialScrim.min = String(Math.max(0, t.scrim - 0.2));
+        specialScrim.max = String(Math.min(0.92, t.scrim + 0.2));
+        specialScrimValue.textContent = Number(specialScrim.value).toFixed(2);
+      }
+      // A special theme owns the window background while it is active.
+      windowBgRadios.forEach((r) => {
+        r.disabled = selectedSpecial !== null;
+      });
+    };
     const statusBarEnabled = form.querySelector<HTMLInputElement>(
       'input[name="status_bar_enabled"]',
     )!;
@@ -1475,15 +1556,100 @@ export class SettingsPanel {
     // persisted values if they bail without saving.
     const previewAppearance = (): void => {
       this.onPreview?.({
-        theme: (Array.from(themeRadios).find((r) => r.checked)?.value ??
-          "system") as ThemeMode,
+        theme: selectedSpecial
+          ? "special"
+          : ((Array.from(themeRadios).find((r) => r.checked)?.value ??
+              "system") as ThemeMode),
         background: (Array.from(windowBgRadios).find((r) => r.checked)?.value ??
           "vibrant") as WindowBackground,
+        specialTheme: selectedSpecial,
+        specialScrim: selectedSpecial ? Number(specialScrim.value) : null,
       });
     };
-    [...themeRadios, ...windowBgRadios].forEach((r) =>
-      r.addEventListener("change", previewAppearance),
+
+    themeRadios.forEach((r) =>
+      r.addEventListener("change", () => {
+        // Picking a standard theme clears the special selection.
+        selectedSpecial = null;
+        syncSpecialUi();
+        previewAppearance();
+      }),
     );
+    // Window-background radios are disabled while a special tile is active
+    // (see syncSpecialUi), so in practice this only fires with
+    // selectedSpecial already null — but that disabling is incidental, not
+    // a contract. Do NOT clear selectedSpecial here: if the disabling is
+    // ever relaxed, picking "Solid" must not silently drop the user's
+    // special theme.
+    windowBgRadios.forEach((r) =>
+      r.addEventListener("change", () => {
+        syncSpecialUi();
+        previewAppearance();
+      }),
+    );
+
+    specialTiles.forEach((tile) => {
+      tile.addEventListener("click", () => {
+        const id = tile.dataset.specialId ?? null;
+        // Clicking the active tile deselects it, back to the radios.
+        selectedSpecial = id === selectedSpecial ? null : id;
+        // Tiles and the theme radios are one exclusive choice expressed as
+        // two controls: selecting a tile must visibly uncheck every radio,
+        // and deselecting one must check "system" — the value that will
+        // actually be saved — so the checked radio always matches what's
+        // persisted (see the `theme:` field in the save payload below).
+        themeRadios.forEach((r) => {
+          r.checked = selectedSpecial === null && r.value === "system";
+        });
+        // Bounds before value: syncSpecialUi() sets specialScrim's min/max
+        // for the (possibly new) selectedSpecial. A range input clamps a
+        // `.value` assignment against whatever min/max is CURRENTLY active,
+        // so assigning value first would silently truncate it to the
+        // previously selected theme's window.
+        syncSpecialUi();
+        if (selectedSpecial && isSpecialThemeId(selectedSpecial)) {
+          // Closures lose the `this.current` null-narrowing established by
+          // the guard above; the panel can't be mid-render with no
+          // settings loaded, so this mirrors the `this.current!` pattern
+          // used elsewhere in this file's event handlers.
+          const win = this.current!.window;
+          // Only carry over the persisted scrim when it was saved for THIS
+          // theme; every theme's default is individually calibrated, so a
+          // switch to a different theme should start at its own default.
+          const stored =
+            win?.special_theme === selectedSpecial ? win.special_scrim : null;
+          specialScrim.value = String(
+            clampScrim(
+              selectedSpecial,
+              typeof stored === "number" ? stored : SPECIAL_THEMES[selectedSpecial].scrim,
+            ),
+          );
+          specialScrimValue.textContent = Number(specialScrim.value).toFixed(2);
+        }
+        previewAppearance();
+      });
+    });
+
+    specialScrim.addEventListener("input", () => {
+      specialScrimValue.textContent = Number(specialScrim.value).toFixed(2);
+      previewAppearance();
+    });
+
+    // Seed the slider before the first sync so the row shows a real value.
+    if (selectedSpecial && isSpecialThemeId(selectedSpecial)) {
+      const win = this.current.window;
+      // Only carry over the persisted scrim when it was saved for THIS
+      // theme (see the matching guard in the tile-click handler above).
+      const stored =
+        win?.special_theme === selectedSpecial ? win.special_scrim : null;
+      specialScrim.value = String(
+        clampScrim(
+          selectedSpecial,
+          typeof stored === "number" ? stored : SPECIAL_THEMES[selectedSpecial].scrim,
+        ),
+      );
+    }
+    syncSpecialUi();
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
     zenIcons.checked = this.current.zen_icons ?? false;
     // Live preview — flip the body class as the user toggles; Save
@@ -2005,7 +2171,7 @@ export class SettingsPanel {
     const SEARCH_KEYWORDS: Record<string, string> = {
       "sec-providers": "api key anthropic openai azure ollama lm studio endpoint llm credentials",
       "sec-models": "model routing default fallback",
-      "sec-appearance": "theme dark light color font opacity accent sidebar folded rail collapsed zen icons hover",
+      "sec-appearance": "theme dark light color font opacity accent sidebar folded rail collapsed zen icons hover special wallpaper background art anime jujutsu kaisen kimetsu demon slayer one piece haikyuu bunny senpai scrim",
       "sec-terminal": "shell font cursor scrollback keybindings shortcut hotkey",
       "sec-code-intel": "lsp language server rust-analyzer code intelligence diagnostics autocomplete hover",
       "sec-operators": "autonomous aom budget mind operator achievements",
@@ -2099,15 +2265,25 @@ export class SettingsPanel {
           background:
             (Array.from(windowBgRadios).find((r) => r.checked)
               ?.value as WindowBackground) || "vibrant",
-          theme:
-            (Array.from(themeRadios).find((r) => r.checked)
-              ?.value as ThemeMode) || "system",
+          // selectedSpecial is seeded from window.theme === "special" at open,
+          // so it (not the radio group) is the source of truth for "special"
+          // surviving an untouched reopen — no theme radio is ever checked
+          // for that value, since none of the four has value="special".
+          theme: selectedSpecial
+            ? "special"
+            : (Array.from(themeRadios).find((r) => r.checked)
+                ?.value as ThemeMode) || "system",
           tab_style:
             // "custom" is UI-only (maps to experimental.tab_styles.enabled);
             // keep the last real preset so disabling custom restores it.
             selectedTabStyle() === "custom"
               ? (this.current!.window?.tab_style ?? "classic")
               : ((selectedTabStyle() as TabStyle) || "classic"),
+          special_theme: selectedSpecial,
+          special_scrim:
+            selectedSpecial && isSpecialThemeId(selectedSpecial)
+              ? clampScrim(selectedSpecial, Number(specialScrim.value))
+              : null,
         },
         aom: {
           default_budget_usd: Math.max(

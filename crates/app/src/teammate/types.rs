@@ -141,7 +141,7 @@ pub enum Role {
 
 /// Operator emotional state attached to a message at generation time.
 ///
-/// Mirrors the 9 poses in `ui/operatorsv2/` (filename token, Spanish form).
+/// Mirrors the 9 poses in `ui/assets/operators/` (filename token, Spanish form).
 /// Drives the v2 avatar pose + the sentiment badge in the teammate panel.
 /// Optional on the message: legacy rows + non-operator turns leave it None.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

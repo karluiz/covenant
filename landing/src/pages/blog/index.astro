@@ -1,0 +1,38 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../../layouts/Base.astro";
+
+const posts = (
+  await getCollection("blog", ({ data }) => import.meta.env.DEV || !data.draft)
+).sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+---
+<Base title="Blog — Covenant" description="Notes on building Covenant.">
+  <main class="section">
+    <p class="eyebrow">Blog</p>
+    <h1 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight">Notes on building Covenant.</h1>
+
+    {posts.length === 0 && (
+      <p class="mt-12 text-mist/60">Nothing published yet.</p>
+    )}
+
+    <ul class="mt-12 space-y-8">
+      {posts.map((post) => (
+        <li>
+          <a href={`/blog/${post.slug}`} class="group block">
+            <time
+              datetime={post.data.date.toISOString().slice(0, 10)}
+              class="font-mono text-[11px] uppercase tracking-eyebrow text-mist/50">
+              {post.data.date.toLocaleDateString("en-US", {
+                year: "numeric", month: "long", day: "numeric",
+              })}
+            </time>
+            <h2 class="mt-2 text-xl md:text-2xl font-semibold tracking-tight group-hover:text-moss-400 transition-colors">
+              {post.data.title}
+            </h2>
+            <p class="mt-2 max-w-2xl text-mist/70 leading-relaxed">{post.data.description}</p>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </main>
+</Base>

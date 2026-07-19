@@ -529,6 +529,40 @@ mod tests {
         assert!(n.state.map.lock().unwrap().is_empty());
     }
 
+    /// Regression: the inbound loop must long-poll, not spin.
+    ///
+    /// `inbound::spawn` loops on `get_updates(.., timeout)`. The real client
+    /// hands that timeout to Telegram, which holds the request open. The fake
+    /// used to ignore it and return an empty vec immediately, so with nothing
+    /// queued the loop became a tight busy-loop: it pegged every core and
+    /// starved the runtime badly enough that the `sleep(150ms)` these tests
+    /// use never completed. That is what made `cargo test -p covenant` hang
+    /// until it was run with `--skip telegram`.
+    #[tokio::test]
+    async fn inbound_long_polls_instead_of_spinning() {
+        let fake = Arc::new(FakeTelegramClient::default());
+        // Deliberately no queued updates — the empty-queue path is the one
+        // that used to spin.
+        let n = TelegramNotifier::new(
+            fake.clone(),
+            settings_with_telegram(true, "42"),
+            crate::operator_registry::OperatorRegistry::for_tests("Maya"),
+        );
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let handle = n.spawn_inbound(tx).await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        handle.abort();
+
+        let calls = fake
+            .get_updates_calls
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert!(
+            calls <= 2,
+            "get_updates was called {calls} times in 150ms — the loop is \
+             busy-polling instead of waiting out its long-poll timeout"
+        );
+    }
+
     #[tokio::test]
     async fn callback_query_publishes_resolution() {
         use crate::telegram::types::*;

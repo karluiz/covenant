@@ -16,16 +16,7 @@ export function renderOperatorChip(
   const px = AVATAR_PX[size];
   const parsed = parseAvatar(op.emoji || '');
   let avatar: HTMLElement;
-  if (parsed.kind === 'pack') {
-    const img = document.createElement('img');
-    img.className = 'op-chip-avatar op-chip-avatar-pixel';
-    img.src = parsed.url;
-    img.width = px;
-    img.height = px;
-    img.alt = '';
-    img.draggable = false;
-    avatar = img;
-  } else if (parsed.kind === 'pack2') {
+  if (parsed.kind === 'pack2') {
     // v2 avatar pack: chip surfaces are mood-agnostic (the chip can
     // appear anywhere — operator list, mention popup, AOM hover — and
     // there's no per-bubble sentiment to consult here). Always render

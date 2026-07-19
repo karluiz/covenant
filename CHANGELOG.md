@@ -6,6 +6,66 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.39 — Special themes: wallpaper-backed whole-window art
+
+### Added
+
+- **Special themes — seven whole-window artwork themes**: a new theme class
+  where the window is backed by real artwork instead of a flat surface colour.
+  `ui/src/theme/special.ts` holds the registry — each entry names its art, its
+  base (`dark` / `light`), a default scrim and an xterm palette — with the
+  images shipped as `ui/assets/themes/*.webp`. Ships with Bunny Sempai,
+  Haikyuu, Jujutsu Kaisen, Kimetsu, One Piece, Zero Two and Steins;Gate.
+  Selection and scrim persist across restarts.
+
+- **Art and veil layers**: `ui/src/styles.css` gains two stacked layers behind
+  the app chrome — the artwork itself, and a tunable veil above it that keeps
+  text legible without washing the art out. The scrim slider in Appearance
+  drives the veil's alpha, so the same theme spans "barely tinted" to "almost
+  opaque" without shipping a second variant.
+
+- **Special theme gallery in Appearance**: `ui/src/settings/panel.ts` renders
+  the themes as a tile grid with live previews, mutually exclusive selection
+  and the scrim control revealed only while a special theme is active.
+
+- **Matching xterm palettes**: `ui/src/tabs/manager.ts` swaps the terminal's
+  own 16-colour palette to one tuned per special theme, so terminal output sits
+  in the artwork instead of fighting it.
+
+- **Paste files from the OS clipboard into the file tree**: a new
+  `structure_paste_files` path in `crates/app/src/lib.rs` plus wiring in
+  `ui/src/structure/tree.ts` — copy files in Finder, paste them straight into
+  the tree.
+
+### Fixed
+
+- **Light mode no longer punches white through the artwork**: several sweeps
+  over `ui/src/styles.css` — light-theme surfaces, near-white surfaces the
+  first pass missed, floating surfaces rendering translucent, and modifier
+  backgrounds light mode was stealing — all of which showed as bright plates
+  sitting on top of the art.
+
+- **Tab surfaces derive from the special base**: `ui/src/theme/special.ts` and
+  `ui/src/main.ts` now resolve tab and executor surfaces from the active
+  special theme's base rather than the stock palette, so executor tabs stop
+  reverting to the default chrome mid-theme.
+
+- **Update capsule centers on the window, not the gap**: the titlebar update
+  pill sat in the center grid track, so it drifted left because the right icon
+  cluster outweighs the left. It now uses true window center like the brand
+  wordmark, and sheds "What's new ›" then "UPDATE" as the window narrows
+  (`ui/src/styles.css`).
+
+- **Gist links reach the clipboard again**: WKWebView rejects
+  `navigator.clipboard.writeText` once transient activation is gone — i.e.
+  after the publish round-trip — so share links silently never copied. Both
+  paths in `ui/src/gist/share.ts` route through a new `ui/src/ui/clipboard.ts`
+  helper that falls back to `textarea` + `execCommand`.
+
+- **ACP composer no longer jumps a row on the first keystroke**
+  (`ui/src/executors/acp/acp.css`), and the Somnus header's esc button sits
+  last in the action row instead of first (`ui/src/somnus/panel.ts`).
+
 ## v0.9.38 — Worktree lifecycle in the git popover + Canon cockpit polish
 
 ### Added

@@ -574,7 +574,7 @@ export type TeammateContent =
   | { kind: "report";      data: TaskReport };
 
 /// Operator emotional state attached to a message. Mirrors the Rust
-/// `Sentiment` enum and the filename token of `ui/operatorsv2/<char>_<token>.png`.
+/// `Sentiment` enum and the filename token of `ui/assets/operators/<char>_<token>.png`.
 /// Spanish lowercase form is intentional — it's the storage key, the
 /// avatar lookup key, and the LLM directive token all at once.
 export type Sentiment =
@@ -1154,7 +1154,7 @@ export interface TerminalConfig {
 
 export type WindowBackground = "solid" | "vibrant" | "translucent";
 
-export type ThemeMode = "dark" | "light" | "system" | "true_dark";
+export type ThemeMode = "dark" | "light" | "system" | "true_dark" | "special";
 export type ResolvedTheme = "dark" | "light";
 
 /// Cosmetic tab/group skin. Mirrors the Rust `TabStyle` enum. Applied by
@@ -1191,6 +1191,10 @@ export interface WindowConfig {
   background: WindowBackground;
   theme?: ThemeMode;
   tab_style?: TabStyle;
+  /// Which Special Theme is active. Only meaningful when theme === "special".
+  special_theme?: string | null;
+  /// User-adjusted scrim; null/undefined means the theme's calibrated default.
+  special_scrim?: number | null;
 }
 
 export interface AomConfig {

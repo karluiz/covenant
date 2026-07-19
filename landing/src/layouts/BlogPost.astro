@@ -1,0 +1,68 @@
+---
+import Base from "./Base.astro";
+interface Props { title: string; description: string; date: Date }
+const { title, description, date } = Astro.props;
+const iso = date.toISOString().slice(0, 10);
+const human = date.toLocaleDateString("en-US", {
+  year: "numeric", month: "long", day: "numeric",
+});
+---
+<Base title={`${title} — Covenant`} description={description}>
+  <main class="mx-auto max-w-3xl px-6 py-16 md:py-24">
+    <a href="/blog" class="eyebrow hover:text-mist/90 transition-colors">← All posts</a>
+    <h1 class="mt-6 text-3xl md:text-5xl font-semibold tracking-tight">{title}</h1>
+    <p class="mt-4 text-mist/70 leading-relaxed">{description}</p>
+    <time datetime={iso} class="mt-6 block font-mono text-[11px] uppercase tracking-eyebrow text-mist/50">
+      {human}
+    </time>
+    <div class="prose-covenant mt-12">
+      <slot />
+    </div>
+  </main>
+</Base>
+
+<style is:global>
+  /* Scoped to the post body. Measure stays near 68ch; wide content gets its
+     own horizontal scroller so the page body never scrolls sideways. */
+  .prose-covenant { line-height: 1.7; }
+  .prose-covenant > * + * { margin-top: 1.25rem; }
+  .prose-covenant p,
+  .prose-covenant ul,
+  .prose-covenant ol { max-width: 68ch; color: rgb(232 239 230 / 0.8); }
+  .prose-covenant h2 {
+    margin-top: 3rem; font-size: 1.5rem; font-weight: 600;
+    letter-spacing: -0.02em; color: theme(colors.mist);
+  }
+  .prose-covenant h3 {
+    margin-top: 2rem; font-size: 1.125rem; font-weight: 600;
+    color: theme(colors.mist);
+  }
+  .prose-covenant a { color: theme(colors.moss.400); text-decoration: underline; }
+  .prose-covenant a:hover { color: theme(colors.moss.500); }
+  .prose-covenant strong { color: theme(colors.mist); font-weight: 600; }
+  .prose-covenant ul { list-style: disc; padding-left: 1.25rem; }
+  .prose-covenant ol { list-style: decimal; padding-left: 1.25rem; }
+  .prose-covenant li + li { margin-top: 0.4rem; }
+  .prose-covenant code {
+    font-family: theme(fontFamily.mono); font-size: 0.875em;
+    background: rgb(232 239 230 / 0.07); padding: 0.1em 0.35em;
+  }
+  .prose-covenant pre {
+    background: rgb(232 239 230 / 0.05); border: 1px solid rgb(232 239 230 / 0.1);
+    padding: 1rem; overflow-x: auto; font-size: 0.85rem;
+  }
+  .prose-covenant pre code { background: none; padding: 0; }
+  .prose-covenant blockquote {
+    border-left: 2px solid theme(colors.moss.600); padding-left: 1rem;
+    color: rgb(232 239 230 / 0.7);
+  }
+  .prose-covenant table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .prose-covenant th, .prose-covenant td {
+    text-align: left; padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid rgb(232 239 230 / 0.1);
+  }
+  .prose-covenant th {
+    font-family: theme(fontFamily.mono); font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.1em; color: rgb(232 239 230 / 0.6);
+  }
+</style>

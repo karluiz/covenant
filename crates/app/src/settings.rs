@@ -825,6 +825,11 @@ pub enum ThemeMode {
     /// vibrancy hidden. Resolves to the dark xterm palette.
     #[serde(rename = "true_dark")]
     TrueDark,
+    /// A wallpaper-backed Special Theme. Which one lives in
+    /// `WindowConfig::special_theme`; this variant only says that the
+    /// frontend should consult it. Resolves to the theme's own base
+    /// (dark or light) at the `set_window_theme` boundary.
+    Special,
 }
 
 impl Default for ThemeMode {
@@ -841,6 +846,16 @@ pub struct WindowConfig {
     pub theme: ThemeMode,
     #[serde(default)]
     pub tab_style: TabStyle,
+    /// Which Special Theme is active. Only meaningful when
+    /// `theme == ThemeMode::Special`. Validated frontend-side — an
+    /// unknown id falls back to the dark theme rather than erroring,
+    /// because config.json is user-editable.
+    #[serde(default)]
+    pub special_theme: Option<String>,
+    /// User-adjusted scrim. `None` means the theme's calibrated default.
+    /// The frontend clamps to +/- 0.20 around that default.
+    #[serde(default)]
+    pub special_scrim: Option<f32>,
 }
 
 impl Default for WindowConfig {
@@ -849,6 +864,8 @@ impl Default for WindowConfig {
             background: WindowBackground::default(),
             theme: ThemeMode::default(),
             tab_style: TabStyle::default(),
+            special_theme: None,
+            special_scrim: None,
         }
     }
 }
@@ -1541,6 +1558,36 @@ mod theme_mode_tests {
         assert_eq!(cfg.theme, ThemeMode::Light);
         let back = serde_json::to_string(&cfg).unwrap();
         assert!(back.contains("\"theme\":\"light\""));
+    }
+
+    #[test]
+    fn theme_mode_special_round_trips() {
+        let json = serde_json::to_string(&ThemeMode::Special).unwrap();
+        assert_eq!(json, "\"special\"");
+        let back: ThemeMode = serde_json::from_str("\"special\"").unwrap();
+        assert_eq!(back, ThemeMode::Special);
+    }
+
+    #[test]
+    fn window_config_deserialises_without_special_fields() {
+        // Existing configs on disk predate these fields and must keep loading.
+        let cfg: WindowConfig =
+            serde_json::from_str(r#"{"background":"vibrant","theme":"dark"}"#).unwrap();
+        assert_eq!(cfg.theme, ThemeMode::Dark);
+        assert!(cfg.special_theme.is_none());
+        assert!(cfg.special_scrim.is_none());
+    }
+
+    #[test]
+    fn window_config_round_trips_special_fields() {
+        let cfg: WindowConfig = serde_json::from_str(
+            r#"{"background":"vibrant","theme":"special",
+                 "special_theme":"jjk","special_scrim":0.34}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.theme, ThemeMode::Special);
+        assert_eq!(cfg.special_theme.as_deref(), Some("jjk"));
+        assert_eq!(cfg.special_scrim, Some(0.34));
     }
 }
 

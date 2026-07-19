@@ -20,7 +20,7 @@ pub const REPLY_MAX_TOKENS: u32 = 1024;
 /// Block of text appended to every operator system prompt: ask the model
 /// to tag each reply with one of the 9 sentiment tokens. The token vocab
 /// matches `Sentiment::from_token` (Spanish, lowercase) so the avatar
-/// pack files in `ui/operatorsv2/<character>_<token>.png` resolve
+/// pack files in `ui/assets/operators/<character>_<token>.png` resolve
 /// directly. Glosses are included so the model picks `ver` for shame
 /// rather than reading it as the Spanish infinitive "to see".
 const SENTIMENT_DIRECTIVE: &str = "\n\n# Sentiment tag\n\

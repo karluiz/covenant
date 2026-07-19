@@ -160,7 +160,7 @@ export class SomnusPanel {
     escBtn.setAttribute("aria-label", "Close (Esc)");
     escBtn.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
     escBtn.addEventListener("click", () => this.closeSurface());
-    actions.prepend(escBtn);
+    actions.append(escBtn);
 
     header.append(titleWrap, actions);
 

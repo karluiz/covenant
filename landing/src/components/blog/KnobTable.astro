@@ -1,0 +1,29 @@
+---
+export interface KnobRow { group: string; setting: string; values: string }
+interface Props { rows: KnobRow[] }
+const { rows } = Astro.props;
+---
+<div class="overflow-x-auto border border-mist/10">
+  {/* Cell typography (font, size, case, tracking, colour, padding, borders)
+      comes from .prose-covenant in BlogPost.astro — do not re-add it here. */}
+  <table class="min-w-[34rem]">
+    <thead>
+      <tr>
+        {["Group", "Setting", "Values"].map((h) => (
+          <th scope="col">
+            {h}
+          </th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr>
+          <td class="align-top">{r.group}</td>
+          <td class="align-top">{r.setting}</td>
+          <td class="align-top">{r.values}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>

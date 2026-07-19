@@ -318,6 +318,173 @@ body.theme-true-dark {
     --text-tertiary: #565b63;
 }
 
+/* Special Themes — wallpaper-backed whole-window identities. The art and
+   its veil are two fixed pseudo-elements behind the already-transparent
+   #layout; every panel then composites over them at --surface-alpha,
+   exactly as it composites over the desktop today.
+
+   `position: fixed` is load-bearing, not cosmetic: <body> is a flex
+   container, so an in-flow ::before/::after would become a flex ITEM and
+   consume layout space. Fixed positioning takes them out of flow.
+
+   All the colour tokens come from applySpecialTokens() as inline styles
+   on <body> — inline beats body.theme-light's `--surface-alpha: 1`,
+   which the light-based `bunny` theme would otherwise inherit. */
+body.theme-special::before,
+body.theme-special::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+}
+
+body.theme-special::before {
+    z-index: -2;
+    background-image: var(--special-art);
+    background-size: cover;
+    /* Every source artwork pushes its subject into the right third.
+       Anchoring right keeps the character in the gutter beside the
+       terminal's ragged-right output instead of behind the text. */
+    background-position: right bottom;
+    background-repeat: no-repeat;
+}
+
+body.theme-special::after {
+    z-index: -1;
+    background: var(--special-veil);
+    opacity: var(--special-scrim);
+}
+
+/* Settings -> Appearance -> Special themes gallery. Tiles show the real
+   artwork at the theme's own shipped scrim, so the choice is never blind. */
+.special-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.special-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 0 0 8px;
+    background: transparent;
+    border: 1px solid rgb(var(--ink-rgb) / 0.1);
+    border-radius: 0;
+    cursor: pointer;
+    text-align: left;
+    color: var(--fg-dim);
+    font: inherit;
+    font-size: 12px;
+}
+
+.special-tile:hover {
+    border-color: rgb(var(--ink-rgb) / 0.22);
+    color: var(--fg);
+}
+
+.special-tile:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.special-tile[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--fg);
+}
+
+.special-tile-art {
+    position: relative;
+    display: block;
+    aspect-ratio: 16 / 9;
+    background-size: cover;
+    background-position: right bottom;
+}
+
+.special-tile-veil {
+    position: absolute;
+    inset: 0;
+    display: block;
+}
+
+.special-tile-name {
+    padding: 0 8px;
+}
+
+/* `display: flex` on .settings-field beats the UA [hidden] rule — restate it. */
+.special-scrim-row[hidden] {
+    display: none;
+}
+
+.special-scrim-row {
+    margin-top: 12px;
+}
+
+.special-scrim-row output {
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Native range input needs a full reset: body.theme-light forces a white
+   background on every `.settings-field input` (see the light-theme block
+   below), which paints a solid rectangle behind the thumb for a range
+   input specifically (radios/checkboxes ignore `background` unless
+   appearance is reset too, but a native range input does not). `bunny` is
+   light-based, so this slider WILL render under theme-light. The #id
+   selector's specificity beats the class-based rule regardless of theme,
+   and every visual property is redeclared so no browser default or theme
+   override shows through. */
+#special-scrim {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    margin: 8px 0 4px;
+    background: rgb(var(--ink-rgb) / 0.14);
+    border: none;
+    border-radius: 0;
+    cursor: pointer;
+}
+
+#special-scrim::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 0;
+    background: var(--accent);
+    cursor: pointer;
+    margin-top: -4px;
+}
+
+#special-scrim::-moz-range-track {
+    height: 4px;
+    background: rgb(var(--ink-rgb) / 0.14);
+    border: none;
+    border-radius: 0;
+}
+
+#special-scrim::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 0;
+    background: var(--accent);
+    border: none;
+    cursor: pointer;
+}
+
+/* windowBgRadios are disabled while a special theme owns the background —
+   dim them so the disabled state reads, not just "stopped responding". */
+.settings-radio:has(input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.settings-radio:has(input:disabled):hover {
+    border-color: var(--border);
+}
+
 #layout {
     position: relative;
     display: grid;
@@ -4216,7 +4383,12 @@ body.theme-true-dark .settings-nav a.active { background: rgb(var(--ink-rgb) / 0
     color: #0c0e12;
     font-weight: 600;
 }
-.providers-md__btn--primary:hover { background: #93b6f9; }
+/* Lightened accent rather than a hardcoded blue — the literal turned every
+   theme's primary button the same shade on hover, including the rose accent
+   of the light-based `bunny` Special Theme. */
+.providers-md__btn--primary:hover {
+    background: color-mix(in srgb, var(--accent) 82%, #fff);
+}
 .providers-md__btn--danger {
     color: var(--danger);
     border-color: color-mix(in srgb, var(--danger) 38%, transparent);
@@ -4274,7 +4446,7 @@ body.theme-true-dark .settings-nav a.active { background: rgb(var(--ink-rgb) / 0
     z-index: 10;
 }
 .providers-md__add-card {
-    background: var(--bg-panel);
+    background: var(--bg-overlay);
     border: 1px solid var(--border);
     border-radius: 0;
     padding: 20px 22px;
@@ -4324,18 +4496,34 @@ body.theme-true-dark .settings-nav a.active { background: rgb(var(--ink-rgb) / 0
 }
 
 /* Light-theme adjustments */
-body.theme-light .providers-md__frame { background: #fff; }
-body.theme-light .providers-md__section { background: #f5f6f8; border-color: rgba(0, 0, 0, 0.06); }
+body.theme-light .providers-md__frame { background: var(--bg-overlay); }
+body.theme-light .providers-md__section { background: rgb(var(--ink-rgb) / 0.04); border-color: rgba(0, 0, 0, 0.06); }
 body.theme-light .providers-md__input,
 body.theme-light .providers-md__icon-btn,
 body.theme-light .providers-md__btn,
 body.theme-light .providers-md__add-field input {
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: rgba(0, 0, 0, 0.1);
     color: var(--text-primary);
 }
 body.theme-light .providers-md__rail-item.is-active { background: rgba(0, 0, 0, 0.05); }
-body.theme-light .providers-md__btn--primary { color: #fff; }
+/* `body.theme-light .providers-md__btn` above is more specific (0,2,1) than
+   `.providers-md__btn--primary` (0,1,0), so it steals the accent fill and
+   leaves the primary button wearing the plain button surface with white
+   text on it — illegible. Restate the fill here to win it back. */
+/* Ghost button: the shared theme-light .providers-md__btn fill would
+   otherwise turn it into a solid surface. */
+body.theme-light .providers-md__btn--danger {
+    background: transparent;
+}
+body.theme-light .providers-md__btn--danger:hover {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+body.theme-light .providers-md__btn--primary {
+    background: var(--accent);
+    border-color: transparent;
+    color: #fff;
+}
 body.theme-light .providers-md__rail-name { color: var(--text-primary); }
 body.theme-light .providers-md__pane-title { color: var(--text-primary); }
 body.theme-light .providers-md__pane-glyph { color: #fff; }
@@ -9065,7 +9253,7 @@ body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])
     z-index: 1000;
     min-width: 160px;
     padding: 6px;
-    background: var(--bg-panel);
+    background: var(--bg-overlay);
     border: 1px solid var(--border);
     border-radius: 0;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
@@ -9460,7 +9648,7 @@ body.theme-light .structure-rename-input:focus {
     background: rgba(0, 0, 0, 0.02);
 }
 body.theme-light .structure-confirm-dialog {
-    background: rgb(252 252 253 / 0.99);
+    background: var(--bg-overlay);
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
 }
 body.theme-light .structure-confirm-dialog h3,
@@ -9925,7 +10113,7 @@ body.theme-light .structure-confirm-cancel {
 /* Generic modal cancel button + keycap. Used by Convergence overlay
    and the Persona Composer modal so they share visual language. */
 .modal-cancel-btn {
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   border: 1px solid var(--border);
   color: var(--fg, inherit);
   padding: 6px 10px 6px 14px;
@@ -11111,7 +11299,7 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
 
 body.theme-light .tabbar-rail-peek,
 body.theme-light .tabbar-rail-cell-peek {
-    background: #ffffff;
+    background: var(--bg-overlay);
     border-color: var(--border);
     border-left-color: color-mix(in srgb, var(--rail-color) 70%, var(--border));
     color: var(--text-primary);
@@ -11382,6 +11570,12 @@ body.theme-light .tabbar-rail-spine-seg {
 
 body.theme-light .tabbar-rail-spine-seg:hover {
     background: color-mix(in srgb, var(--rail-color) 85%, transparent);
+}
+
+/* Full strength, above the hover tint — the base theme-light rule would
+   otherwise hold the active segment at 60%. */
+body.theme-light .tabbar-rail-spine-seg.active {
+    background: var(--rail-color);
 }
 
 /* ---- Drafts page ---- */
@@ -11756,7 +11950,7 @@ body.theme-light .drafts-primary:not(:disabled) {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   font-size: 12px;
 }
 .wiz-popover-head-title {
@@ -11779,7 +11973,7 @@ body.theme-light .drafts-primary:not(:disabled) {
   padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: 0;
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   transition: border-color 0.12s ease;
 }
 .wiz-popover-card:hover { border-color: var(--accent); }
@@ -11822,7 +12016,7 @@ body.theme-light .drafts-primary:not(:disabled) {
   display: flex; justify-content: flex-end;
   padding: 6px 10px;
   border-top: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
 }
 .wiz-popover-regen {
   display: inline-flex; align-items: center; gap: 4px;
@@ -11926,7 +12120,7 @@ body.theme-light .wiz-modal { box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18); }
 .wiz-modal-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Post-publish toast (AC7) ─────────────────────────────────────────── */
-.drafts-toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 0; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 150; font-size: 13px; }
+.drafts-toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg-overlay); border: 1px solid var(--border); border-radius: 0; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 150; font-size: 13px; }
 .drafts-toast button { background: var(--accent); color: #fff; border: 0; padding: 4px 10px; border-radius: 0; cursor: pointer; font-size: 12px; }
 .drafts-toast .drafts-toast-close { background: transparent; color: var(--muted); padding: 2px 6px; }
 
@@ -12424,7 +12618,7 @@ body.theme-light .tab-btn.active .tab-op-avatar-wrap .op-avatar-pixel {
 }
 
 body.theme-light .tab-btn .tab-op-level {
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--bg-overlay);
   border-color: rgba(0, 0, 0, 0.16);
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -14591,22 +14785,42 @@ button.status-segment.status-tg:focus-visible {
   pointer-events: auto;
 }
 body.has-update-banner #app-titlebar-brand { display: none; }
-#app-titlebar-center:has(.update-banner) { pointer-events: auto; }
+/* True window center, same trick as #app-titlebar-brand — gap-centering
+   drifts left because the right icon cluster outweighs the left. The center
+   track's containment (container-type/overflow) would trap the absolute
+   child and re-clip it, so drop both while the capsule is mounted; the
+   capsule sheds labels via plain media queries below instead. */
+#app-titlebar-center:has(.update-banner) {
+  pointer-events: auto;
+  container-type: normal;
+  overflow: visible;
+}
+body.has-update-banner .update-banner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
 /* RC presence dot docked inside the capsule — the banner's flex gap
    spaces it; the standalone margin would double it. */
 .update-banner .rc-presence-dot { margin-left: 0; }
 
-/* Responsive: the capsule is centered in the gap between the icon clusters.
-   As that gap tightens, shed the lowest-priority pieces first. "What's new ›"
-   is redundant (the version chip opens the same modal), so it goes first; the
-   "UPDATE" word next. Dot + version + Install + dismiss always survive.
-   Container queries measure the gap itself (see #app-titlebar-center). */
-@container titlebar-center (max-width: 260px) {
+/* Responsive: window-centered, so the capsule collides with the right icon
+   cluster (~380px) at half its own width. Shed the lowest-priority pieces
+   first — "What's new ›" is redundant (the version chip opens the same
+   modal), then the "UPDATE" word. Dot + version + Install + dismiss always
+   survive. */
+@media (max-width: 1080px) {
   .update-banner__whatsnew { display: none; }
 }
-@container titlebar-center (max-width: 200px) {
+@media (max-width: 900px) {
   .update-banner__label { display: none; }
   .update-banner { gap: 6px; padding-right: 2px; }
+}
+@media (max-width: 780px) {
+  .update-banner__version { font-size: 10px; }
+  .update-banner__install { padding: 0 7px; }
 }
 
 .update-banner__pulse {
@@ -15608,7 +15822,7 @@ body.theme-light .settings-field input,
 body.theme-light .settings-field select,
 body.theme-light .settings-field textarea {
     color: var(--text-primary) !important;
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: var(--border);
 }
 body.theme-light input::placeholder,
@@ -15628,7 +15842,7 @@ body.theme-light .mission-page-footer {
     border-color: var(--border);
 }
 body.theme-light .mission-page-search-row {
-    background: rgba(255, 255, 255, 0.96);
+    background: var(--bg-overlay);
 }
 body.theme-light .mission-page-close:hover .settings-esc {
     background: rgba(0, 0, 0, 0.06);
@@ -15636,7 +15850,7 @@ body.theme-light .mission-page-close:hover .settings-esc {
 }
 body.theme-light .mission-page-search,
 body.theme-light .mission-page-input {
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: var(--border);
     color: var(--text-primary);
 }
@@ -15677,6 +15891,8 @@ body.theme-light .mission-page-status-ok {
     opacity: 0.9;
 }
 body.theme-light .mission-page-badge--missing {
+    /* body.theme-light .mission-page-badge would otherwise fill it. */
+    background: none;
     color: var(--fail);
     border-color: color-mix(in srgb, var(--fail) 35%, transparent);
 }
@@ -15685,7 +15901,7 @@ body.theme-light .mission-page-link {
     color: var(--accent);
 }
 body.theme-light .mission-page-error {
-    background: color-mix(in srgb, var(--fail) 9%, #fff);
+    background: color-mix(in srgb, var(--fail) 9%, var(--bg-overlay));
     border-color: color-mix(in srgb, var(--fail) 28%, transparent);
     color: var(--fail);
 }
@@ -15703,13 +15919,13 @@ body.theme-light .mission-page-preview-truncated {
     color: #9a6a18;
 }
 body.theme-light .mission-page-newmodal {
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: var(--border);
     color: var(--text-primary);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 }
 body.theme-light .mission-page-newmodal input {
-    background: #fff;
+    background: var(--bg-overlay);
     border-color: var(--border);
     color: var(--text-primary);
 }
@@ -15739,7 +15955,7 @@ body.theme-light .titlebar-icon-btn:hover:not(:disabled) {
 /* ── Floating terminal finder: use light chrome when it is opened from
        terminal panes in light mode. Editor ⌘F is handled by CM/preview. ─ */
 body.theme-light .term-finder {
-    background: rgba(255, 255, 255, 0.96);
+    background: var(--bg-overlay);
     border-color: var(--border);
     color: var(--text-primary);
     box-shadow:
@@ -15789,7 +16005,7 @@ body.theme-light .term-finder--nomatch .term-finder__counter {
 
 /* ── Toasts / terminal notifications: light surface + readable text ─ */
 body.theme-light .toast {
-    background: #ffffff;
+    background: var(--bg-overlay);
     color: var(--text-primary);
     border-color: var(--border);
     border-left-color: var(--accent);
@@ -15832,7 +16048,7 @@ body.theme-light #status-bar { color: var(--text-primary); }
 
 /* ── Spawns / executor popover (hardcoded dark in spawns/styles.css) ── */
 body.theme-light .spawns-popover {
-    background: #fff !important;
+    background: var(--bg-overlay) !important;
     border: 1px solid var(--border) !important;
     color: var(--text-primary) !important;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -15853,7 +16069,7 @@ body.theme-light .spawns-popover__add:hover {
 
 /* ── Workspace switcher row context menu ─────────── */
 body.theme-light .workspace-rowmenu {
-    background: #fff;
+    background: var(--bg-overlay);
     border: 1px solid var(--border);
     color: var(--text-primary);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -15903,7 +16119,7 @@ body.theme-light .settings-cancel,
 body.theme-light .mission-viewer-cancel,
 body.theme-light .mission-page-cancel,
 body.theme-light .modal-actions button.btn-cancel {
-    background: #fff;
+    background: var(--bg-overlay);
     color: var(--text-primary);
     border: 1px solid var(--border);
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
@@ -15969,7 +16185,7 @@ body.theme-light .new-tab-kbd {
 
 /* ── Tooltip: proper light variant (light bg + dark text) ────── */
 body.theme-light .ck-tooltip {
-    background: #ffffff;
+    background: var(--bg-overlay);
     color: var(--text-primary);
     border: 1px solid var(--border);
     box-shadow:
@@ -16028,6 +16244,8 @@ body.theme-light .structure-preview-xlsx-tab {
 }
 body.theme-light .structure-preview-xlsx-tab.active {
     color: var(--text-primary);
+    /* body.theme-light .structure-preview-xlsx-tab forces transparent. */
+    background: rgb(var(--ink-rgb) / 0.06);
     border-color: var(--border);
 }
 
@@ -16704,6 +16922,12 @@ body.theme-light .onboarding-secondary:hover {
 
 body.theme-light .onboarding-dot {
     background: rgba(0, 0, 0, 0.18);
+}
+
+/* Restated at this specificity: the rule above outranks
+   `.onboarding-dot.is-active` and would flatten the active step. */
+body.theme-light .onboarding-dot.is-active {
+    background: var(--accent);
 }
 
 body.theme-light .onboarding-skip:hover {
@@ -17417,7 +17641,7 @@ body.theme-light .teammate-panel-avatar .op-avatar {
   pointer-events: none;
 }
 /* Emotion hue palette. Tokens (Spanish) match the filename suffix in
- * ui/operatorsv2/. Each modifier only sets the tint color; the base rule
+ * ui/assets/operators/. Each modifier only sets the tint color; the base rule
  * derives fill + border + text from it. */
 .teammate-panel-sentiment--neutral     { --sentiment-color: #6b7280; }
 .teammate-panel-sentiment--feliz       { --sentiment-color: #16a34a; }
@@ -18271,7 +18495,7 @@ body.theme-light .teammate-panel-switcher {
 }
 body.theme-light .task-card {
   border-color: rgba(15, 23, 42, 0.14);
-  background: #ffffff;
+  background: var(--bg-overlay);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .task-card__header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -18312,11 +18536,11 @@ body.theme-light .task-card {
   font-size: 12.5px;
 }
 body.theme-light .task-pill {
-  background: #ffffff;
+  background: var(--bg-overlay);
   border-color: rgba(15, 23, 42, 0.14);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
-body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
+body.theme-light .task-pill--clickable:hover { background: rgb(var(--ink-rgb) / 0.03); }
 .task-pill--confirmed { border-left: 2px solid rgba(80, 200, 120, 0.55); }
 .task-pill--cancelled { border-left: 2px solid rgba(255,255,255,0.18); opacity: 0.55; }
 .task-pill--clickable { cursor: pointer; transition: background 120ms; }
@@ -18956,14 +19180,14 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
 body.theme-light .task-item {
   border: 1px solid rgba(15, 23, 42, 0.10);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--bg-overlay);
   margin-bottom: 8px;
 }
 body.theme-light .task-item:hover {
   border-color: rgba(15, 23, 42, 0.18);
 }
 body.theme-light .task-item.is-open {
-  background: #ffffff;
+  background: var(--bg-overlay);
   border-color: rgba(15, 23, 42, 0.22);
 }
 .task-item__head {
@@ -20283,7 +20507,7 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 }
 .rail-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .rail-search input::placeholder { color: var(--fg-dim); }
-/* The light theme's global `body.theme-light input { background: #fff }`
+/* The light theme's global `body.theme-light input { background: var(--bg-overlay) }`
    reset (see ~:15385) outspecifies .rail-search input and repaints the
    white box — same escape hatch the command palette needed. */
 body.theme-light .rail-search input { background: none; border: 0; }
@@ -20507,5 +20731,5 @@ body.theme-light .rail-search input { background: none; border: 0; }
 body.theme-light .tg-input,
 body.theme-light .tg-secret input,
 body.theme-light .tg-icon-btn,
-body.theme-light .tg-btn { background: #fff; border-color: rgba(0,0,0,0.1); }
-body.theme-light .tg-section { background: #f5f6f8; border-color: rgba(0,0,0,0.06); }
+body.theme-light .tg-btn { background: var(--bg-overlay); border-color: rgba(0,0,0,0.1); }
+body.theme-light .tg-section { background: rgb(var(--ink-rgb) / 0.04); border-color: rgba(0,0,0,0.06); }

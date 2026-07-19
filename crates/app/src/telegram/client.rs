@@ -130,6 +130,7 @@ impl TelegramClient for ReqwestTelegramClient {
 #[cfg(test)]
 pub mod fake {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     #[derive(Default)]
@@ -139,6 +140,9 @@ pub mod fake {
         pub answers: Mutex<Vec<String>>,
         pub queued_updates: Mutex<Vec<Vec<Update>>>,
         pub next_message_id: Mutex<i64>,
+        /// How many times the inbound loop has polled. Lets a test assert
+        /// the loop is long-polling rather than spinning.
+        pub get_updates_calls: AtomicUsize,
     }
 
     #[async_trait]
@@ -178,14 +182,35 @@ pub mod fake {
             &self,
             _t: &str,
             _offset: Option<i64>,
-            _timeout: u64,
+            timeout: u64,
         ) -> anyhow::Result<Vec<Update>> {
-            let mut q = self.queued_updates.lock().unwrap();
-            if q.is_empty() {
-                Ok(vec![])
-            } else {
-                Ok(q.remove(0))
+            self.get_updates_calls.fetch_add(1, Ordering::Relaxed);
+
+            // Take the batch under the lock and release it before awaiting:
+            // a std::sync::MutexGuard held across `.await` makes the future
+            // !Send and will not compile inside tokio::spawn.
+            let next = {
+                let mut q = self.queued_updates.lock().unwrap();
+                if q.is_empty() {
+                    None
+                } else {
+                    Some(q.remove(0))
+                }
+            };
+            if let Some(updates) = next {
+                return Ok(updates);
             }
+
+            // Honour the long poll. The real client hands `timeout` to
+            // Telegram, which holds the request open that long when there is
+            // nothing to return. Returning an empty vec immediately instead
+            // turns `inbound::spawn`'s loop into a tight busy-loop: it pegs
+            // every core and starves the runtime, so the 150ms sleep the
+            // tests use to let the task run never completes and the whole
+            // suite hangs. That is why `cargo test -p covenant` needed
+            // `--skip telegram` to finish.
+            tokio::time::sleep(std::time::Duration::from_secs(timeout)).await;
+            Ok(vec![])
         }
         async fn get_me(&self, _t: &str) -> anyhow::Result<()> {
             Ok(())

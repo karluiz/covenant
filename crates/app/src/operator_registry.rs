@@ -736,7 +736,7 @@ impl OperatorRegistry {
         let op = Operator {
             id: OperatorId(Ulid::new()),
             name: "Default".into(),
-            emoji: "pack:oldbusinessman1".into(),
+            emoji: "pack2:morrie".into(),
             color: "#6B7280".into(),
             tags: vec![],
             persona: cfg.persona.clone(),
@@ -811,7 +811,7 @@ impl OperatorRegistry {
         let n = to_upgrade.len();
         for id in to_upgrade {
             if let Some(mut op) = self.get(id) {
-                op.emoji = "pack:oldbusinessman1".to_string();
+                op.emoji = "pack2:morrie".to_string();
                 op.updated_at_unix_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as u64)

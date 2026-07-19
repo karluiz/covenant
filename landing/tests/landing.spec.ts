@@ -9,7 +9,7 @@ test("renders all sections and animates the score funnel", async ({ page }) => {
     "Parallel operators, one surface",
     "Hard blocklist",
     "Covenant Score",
-    "brew install covenant",
+    "brew install --cask karluiz/covenant/covenant",
     "Read the covenant",
   ]) {
     await expect(page.getByText(text).first()).toBeVisible();
@@ -19,4 +19,18 @@ test("renders all sections and animates the score funnel", async ({ page }) => {
   await page.locator("[data-score-funnel]").scrollIntoViewIfNeeded();
   await expect(page.locator('[data-stage="spc"]')).toHaveText("12", { timeout: 4_000 });
   await expect(page.locator('[data-stage="pr"]')).toHaveText("27");
+});
+
+test("renders the customization section", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#customization").scrollIntoViewIfNeeded();
+  await expect(page.getByText("A terminal you stare at all day")).toBeVisible();
+  // The gallery renders one figure per theme, straight from the app registry.
+  await expect(page.locator("#customization figure")).toHaveCount(7);
+});
+
+test("serves the blog index", async ({ page }) => {
+  const res = await page.goto("/blog");
+  expect(res?.status()).toBe(200);
+  await expect(page.locator("h1")).toContainText("Notes on building Covenant");
 });
