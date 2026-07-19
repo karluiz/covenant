@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev --port 4321",
+    "prebuild": "node scripts/copy-theme-art.mjs",
     "build": "astro build",
     "preview": "astro preview",
     "check": "astro check",

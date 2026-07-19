@@ -1,0 +1,52 @@
+---
+// The only file that reaches into the desktop app. Everything it renders —
+// scrim, ground, accent — is the same data the app applies at runtime, so
+// adding a theme to Covenant updates this gallery with no edit here.
+// Guarded by ./registry.test.ts.
+//
+// The artwork itself is the one exception: Astro's build pipeline
+// auto-transforms `.webp` imports into an ImageMetadata object rather than
+// a URL string (unlike the app's plain-Vite build), so `t.art` cannot be
+// used directly here. `npm run prebuild` (scripts/copy-theme-art.mjs)
+// copies the same files into public/themes/ and we address them by id.
+import { SPECIAL_THEME_LIST, compositeGround } from "../../../../ui/src/theme/special";
+
+interface Props { compact?: boolean }
+const { compact = false } = Astro.props;
+
+const themes = SPECIAL_THEME_LIST.map((t) => {
+  const [r, g, b] = compositeGround(t, t.scrim);
+  return {
+    id: t.id,
+    name: t.name,
+    art: `/themes/${t.id}.webp`,
+    accent: t.accent,
+    base: t.base,
+    scrim: t.scrim.toFixed(2),
+    ground: t.ground,
+    composited: `rgb(${r} ${g} ${b})`,
+  };
+});
+---
+<div class={compact
+  ? "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3"
+  : "grid sm:grid-cols-2 gap-5 not-prose"}>
+  {themes.map((t) => (
+    <figure class="border border-mist/10">
+      <div class="relative aspect-[16/9] overflow-hidden" style={`background:${t.ground}`}>
+        <img src={t.art} alt={`${t.name} theme wallpaper`} loading="lazy"
+             class="absolute inset-0 h-full w-full object-cover object-right-bottom" />
+        <div class="absolute inset-0" style={`background:${t.composited};opacity:${t.scrim}`}></div>
+      </div>
+      {!compact && (
+        <figcaption class="flex items-center justify-between gap-3 px-3 py-2">
+          <span class="text-sm text-mist/90">{t.name}</span>
+          <span class="flex items-center gap-2 font-mono text-[10px] uppercase tracking-eyebrow text-mist/50">
+            <span class="inline-block h-2.5 w-2.5" style={`background:${t.accent}`}></span>
+            {t.base} · scrim {t.scrim}
+          </span>
+        </figcaption>
+      )}
+    </figure>
+  ))}
+</div>
