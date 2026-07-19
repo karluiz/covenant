@@ -57,10 +57,14 @@ Four lifecycle states, mutually exclusive:
 
 | State | Derived from | Action | Count today |
 |---|---|---|---|
-| `Active` | Uncommitted changes, or commits ahead of the default branch, or a live tab attached | Open | 2 |
+| `Active` | The current worktree, or uncommitted changes, or unmerged with a commit inside `STALE_AFTER_DAYS` | Open | 2 |
 | `Stale` | Unmerged and clean, no commit in 14 days | Decide | 4 |
 | `Spent` | Branch merged into the default branch, working tree clean | Reclaim | 17 |
 | `Orphan` | Registered in git, path missing from disk | Prune | 0 |
+
+`Active` and `Stale` are disjoint complements over the unmerged-and-clean set,
+split by age. An earlier draft defined `Active` as "commits ahead of the default
+branch", which collides with `Stale` — every unmerged branch is ahead.
 
 Plus one orthogonal flag:
 
@@ -89,21 +93,50 @@ All inputs come from git plus one filesystem call:
 
 The default branch is resolved once per repo from
 `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`, then
-`master`.
+`master`, then the current branch. **Every candidate is verified to resolve
+locally before being used** — a stale `origin/HEAD` after a default-branch
+rename would otherwise make `git branch --merged` fail, silently emptying the
+merged set so nothing is ever `Spent` and the whole feature quietly does nothing.
 
-Disk size is the expensive input. It is computed lazily and cached in memory for
-the session; the ledger renders without it and fills sizes in as they arrive.
+Disk size is the expensive input. It is NOT a field on `GitWorktreeSummary` and
+is never computed during `repo_summary` — `du` over ~23 worktrees takes seconds
+and would block every popover open. It has its own command, `worktree_sizes`,
+called only when a size is actually needed (to fill in the reclaim confirmation).
+
+**The canonical root is derived from the MAIN worktree, never from the calling
+cwd.** `repo_summary` is invoked with the active terminal tab's cwd, which in
+this project is usually a linked worktree; deriving the root from it made
+correctly-placed worktrees report `off_convention` and, worse, made `relocate`
+target a path nested inside a sibling worktree. The main worktree is identified
+structurally — `git worktree list --porcelain` always returns it first — and
+that single mechanism is reused everywhere. Note that `GitWorktreeSummary.current`
+means "matches the calling cwd", NOT "is the main worktree"; conflating the two
+was the source of two separate defects during implementation.
 
 ### Safety rules
 
-- **Reclaim only ever deletes `Spent`.** Merged-and-clean is the sole condition
-  under which Covenant removes a worktree without a question.
+- **Reclaim deletes `Spent`, and prunes `Orphan`.** Merged-and-clean is the only
+  condition under which Covenant removes a worktree's *files*. `Orphan` is
+  accepted too, but it is a different operation: the directory is already gone,
+  so only the stale git admin record is dropped, and **the branch is never
+  deleted** — an orphan's branch may hold the last copy of unmerged work.
+- **The caller's classification is never trusted.** `reclaim_worktrees`
+  re-derives state itself via `repo_summary` and refuses anything it does not
+  compute as `Spent` or `Orphan`. A stale UI or a hand-crafted IPC call cannot
+  destroy live work.
+- **Merge status is re-verified immediately before removal.** `git worktree
+  remove` re-checks cleanliness on its own but not merge status, so a worktree
+  that gained an unmerged commit after the state snapshot would otherwise lose
+  its checkout. `git branch -d` (lowercase, refuses unmerged) is a second,
+  independent net beneath that.
 - **`OffConvention` is a warning, never a deletion reason.** A worktree in the
   wrong place still works.
 - **Relocation requires idle.** `git worktree move` under a live session pulls
   the floor out from under it. Idle means: no attached tab, no running executor
   process with that cwd, and a clean tree. All three.
-- **The current worktree is never reclaimed or relocated.** Even if it qualifies.
+- **Neither the current worktree nor the MAIN worktree is ever reclaimed or
+  relocated.** Even if it qualifies. These are two separate guards, because they
+  are two different worktrees whenever the call originates from a linked one.
 
 ## Homologation
 
@@ -175,40 +208,55 @@ pub struct GitWorktreeSummary {
     pub off_convention: bool,
     pub merged: bool,
     pub last_commit_unix: Option<i64>,
-    pub size_kb: Option<u64>,
 }
 ```
 
+`size_kb` is deliberately absent — see Derivation above.
+
 New commands:
 
-- `worktree_reclaim(paths: Vec<String>) -> ReclaimReport` — re-derives state
-  server-side and refuses any path that is not `Spent`. Never trusts the
-  frontend's classification. Runs `git worktree remove` then
-  `git branch -d`, and `git worktree prune` once at the end.
-- `worktree_relocate(path: String) -> Result<String>` — re-checks idle, then
+- `worktree_reclaim(cwd, paths: Vec<String>) -> Vec<ReclaimOutcome>` — re-derives
+  state server-side and refuses any path it does not itself compute as `Spent` or
+  `Orphan`. For `Spent`: re-verifies merge status, then `git worktree remove`,
+  then `git branch -d`. For `Orphan`: drops the admin record only, branch
+  untouched. `git worktree prune` runs once at the end.
+- `worktree_relocate(cwd, path: String) -> Result<String>` — re-checks idle, then
   `git worktree move` to the canonical root. Returns the new path.
-- `worktree_create(slug: String, base: Option<String>) -> String` — creates at
-  the canonical root and returns the path, for spawn/ACP launch.
+- `worktree_sizes(paths: Vec<String>) -> Vec<(String, u64)>` — `du -sk` per path,
+  missing paths omitted, per-path failures isolated.
 
-`ReclaimReport` carries per-path outcome (removed / refused with reason) so a
-partial failure is legible rather than silent.
+`ReclaimOutcome` carries per-path outcome (`removed` plus a `reason` when
+refused) so a partial failure is legible rather than silent.
+
+Deferred to the prevention phase: `worktree_create(slug, base) -> String`, which
+creates at the canonical root for spawn/ACP launch.
 
 ### Frontend
 
-- `ui/src/git/` popover: render `state` instead of `CLEAN`, using the existing
-  semantic dot. `Spent` must not read as healthy.
-- New Worktrees section following the established `.rail-*` chrome: census strip
-  over state counts, one `.rail-row` per worktree grouped by state, hover-reveal
-  actions, `.rail-empty` when the repo has none. Bulk **Reclaim spent** in the
-  section head, behind a confirm naming the count and the reclaimed size.
+**The git popover IS the ledger.** It already lists every worktree with sections,
+counts, filtering, and per-row buttons, so it gains the state and the actions
+rather than a second surface being built beside it. Zero new panels: the
+diagnosis appears where the user already looks.
+
+- `ui/src/status/bar.ts` popover: render `state` instead of `CLEAN`, using the
+  existing semantic dot. `Spent` must not read as healthy.
+- Per-row action button carrying the single default verb, plus a bulk
+  **Reclaim N spent** in the section head, behind a confirm naming the count and
+  the reclaimed size.
+- `ui/src/status/worktree-state.ts` holds the pure state→label/class/verb
+  mapping so it is unit-testable without mounting the bar.
+- Confirmation uses `pushConfirmToast`, never `window.confirm` — a native modal
+  blocks the entire webview. Toast copy is NOT escaped (toasts render via
+  `textContent`); row markup IS.
+- The popover renders once and has no refresh path, so a successful mutation
+  closes it rather than leaving stale rows on screen.
 
 ### Error handling
 
-- Any git invocation failing for one worktree degrades that row to `Active` with
-  the error surfaced in its tooltip — never silently drops it from the ledger,
-  and never classifies it as deletable.
-- `worktree_reclaim` is per-path fallible; one failure does not abort the batch.
-- A repo with no worktrees, or a non-git cwd, renders `.rail-empty`.
+- Any git invocation failing for one worktree degrades that row to `Active` —
+  never silently dropped, and never classified as deletable.
+- `worktree_reclaim` is per-path fallible; one failure does not abort the batch,
+  and a partial failure is reported as partial, never as success.
 
 ## Testing
 
@@ -218,25 +266,31 @@ Rust, in `crates/app/src/git_tools.rs` tests plus a fixture repo helper:
   unclassifiable-defaults-to-Active rule.
 - `off_convention` is orthogonal: a Spent worktree outside the root reclaims
   rather than relocates.
-- `worktree_reclaim` refuses a non-Spent path even when asked directly — the
-  central safety test.
-- Reclaim never touches the current worktree.
+- `worktree_reclaim` refuses a non-Spent, non-Orphan path even when asked
+  directly — the central safety test.
+- An `Orphan` reclaim drops the admin record and leaves the branch intact.
+- Reclaim refuses the current worktree, and refuses the MAIN worktree when
+  called from a linked one — the two guards are tested separately.
+- Relocate lands under the MAIN root, not nested in the calling worktree, and
+  leaves the calling worktree clean.
 - Slug derivation strips each prefix form.
 - Extend `parses_worktree_porcelain` for nested-worktree paths.
 
-Frontend (`vitest`): census counts group correctly; a `Spent` row does not render
-the healthy dot.
+Frontend (`vitest`): a `Spent` row does not render the healthy dot; each state
+gets a distinct dot class; the bulk reclaim does not fire without confirmation;
+a partial failure is reported honestly; a path containing a double quote cannot
+break out of its `data-path` attribute.
 
 ## Phases
 
 Each phase ships independently.
 
-1. **Truth in the existing view.** Backend state derivation + the popover
-   showing it. No new surface — the diagnosis appears where the user already
-   looks. Delivers the ability to *see* the 44 GB.
-2. **Ledger and reclaim.** The Worktrees section, per-row actions, bulk reclaim,
-   relocation. Delivers the ability to *fix* it.
-3. **Covenant hands out the worktree.** Spawn and ACP launch into a fresh
+1. **Diagnosis and repair *(shipped)*.** Backend state derivation, the popover
+   telling the truth, and the reclaim / relocate / prune actions wired into it.
+   Delivers both the ability to *see* the 44 GB and the ability to *reclaim* it.
+   Originally planned as two phases; merged because seeing without fixing is
+   half a feature.
+2. **Covenant hands out the worktree.** Spawn and ACP launch into a fresh
    canonical worktree; the Canon artifact projecting the rule into `AGENTS.md`
    and the other instruction files ships alongside as the backstop. Delivers the
    guarantee that it does not come back.
