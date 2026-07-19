@@ -155,6 +155,34 @@ describe("Launch as ACP tab", () => {
   });
 });
 
+describe("Isolate in a worktree", () => {
+  const wtRow = (host: HTMLElement): HTMLElement =>
+    host.querySelector<HTMLElement>('[data-role="worktree"]')!;
+
+  it("checks the box when worktree is absent (upgrading installs stay isolated)", async () => {
+    const host = await mount();
+    expect(wtRow(host).querySelector<HTMLInputElement>("input")!.checked).toBe(true);
+  });
+
+  it("unchecks the box when worktree: false was persisted", async () => {
+    vi.mocked(listSpawns).mockResolvedValue([
+      spec({ id: "s-claude", label: "Claude", command: "claude", default: true, worktree: false }),
+    ]);
+    const host = await mount();
+    expect(wtRow(host).querySelector<HTMLInputElement>("input")!.checked).toBe(false);
+  });
+
+  it("toggling the checkbox persists worktree: false", async () => {
+    const host = await mount();
+    const check = wtRow(host).querySelector<HTMLInputElement>("input")!;
+    check.checked = false;
+    check.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    const calls = vi.mocked(upsertSpawn).mock.calls;
+    expect(calls[calls.length - 1]![0].worktree).toBe(false);
+  });
+});
+
 describe("ACP agents section mount", () => {
   it("survives master-detail re-renders (rail click / add / delete) and stays single", async () => {
     const host = await mount();

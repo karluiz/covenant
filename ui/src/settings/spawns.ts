@@ -268,6 +268,26 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
     acpRow.append(acpCheck, acpText);
     detailHost.appendChild(acpRow);
 
+    // Isolation toggle. Unlike ACP this is not gated on the command — every
+    // spawn can be isolated, and every spawn but the base shell is by default.
+    const wtRow = document.createElement("label");
+    wtRow.className = "spawns-md-acp";
+    wtRow.dataset["role"] = "worktree";
+    const wtCheck = document.createElement("input");
+    wtCheck.type = "checkbox";
+    // Absent means isolated — a spawns.json written before this field existed
+    // opts IN, so upgrading installs inherit isolation without a migration.
+    wtCheck.checked = spec.worktree !== false;
+    const wtText = document.createElement("span");
+    wtText.textContent = "Isolate in a worktree";
+    wtRow.append(wtCheck, wtText);
+    attachTooltip(
+      wtRow,
+      "Covenant creates a worktree for this spawn and launches it there, so the agent never picks its own location.",
+    );
+    detailHost.appendChild(wtRow);
+    wtCheck.addEventListener("change", () => { void persist(); });
+
     const currentDraft = (): { command: string; args: string[] } => ({
       command: cmdInp.value.trim(),
       args: argsInp.value.trim().split(/\s+/).filter(Boolean),
@@ -299,7 +319,11 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
         command: cmdInp.value.trim(),
         args: argsRaw ? argsRaw.split(/\s+/).filter(Boolean) : [],
       };
-      return { ...draft, acp: acpCheck.checked && acpExecutorFor(draft) !== null };
+      return {
+        ...draft,
+        acp: acpCheck.checked && acpExecutorFor(draft) !== null,
+        worktree: wtCheck.checked,
+      };
     };
     const persist = async (): Promise<void> => {
       await persistSpec(collect());
