@@ -6,7 +6,7 @@ import { homeFromCwd, resolveCdArg, filterDirs, parseCdLine } from "./cd-resolve
 const DEBOUNCE_MS = 120;
 
 // POSIX single-quote escaping: ' -> '\''
-function shq(s: string): string {
+export function shq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 

@@ -45,6 +45,7 @@ import {
 import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SessionId, SpecCandidate, Task } from "./api";
 import { AfkOverlay } from "./aom/afk";
+import { shq } from "./terminal/cd-picker";
 import { Icons } from "./icons";
 import { RightRailController, type RailTarget } from "./titlebar/right-rail";
 import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, takeCliOpenPaths, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
@@ -1295,10 +1296,17 @@ async function boot(): Promise<void> {
     // osc133 shell wrapper is idempotent and won't double-inject once set.
     const claudeTheme = (): string =>
       claudeThemeFor(resolveTheme(activeThemeMode, activeSpecialId));
-    const runSpawn = (id: string, target?: SessionId): void => {
+    const runSpawn = (id: string, target?: SessionId, inGroup?: string): void => {
       void (async () => {
-        const sid = target ?? manager.activeSessionId();
-        if (!sid) return;
+        // Group-scoped launch (group context menu): take an idle tab in that
+        // group if there is one. Otherwise the tab created below is placed in
+        // the group — never loose in the tabbar.
+        const group = inGroup
+          ? manager.groupInfo(inGroup)
+          : manager.activeGroup();
+        const idleInGroup = inGroup ? manager.idleSessionInGroup(inGroup) : null;
+        const sid = target ?? idleInGroup ?? manager.activeSessionId();
+        if (!sid && !group) return;
         const specs = await listSpawns();
         const spec = specs.find((s) => s.id === id);
         if (!spec || !spec.command) return;
@@ -1307,7 +1315,7 @@ async function boot(): Promise<void> {
         // cwd — isolation must never be why an agent fails to start. The
         // decision itself lives in resolveLaunch (worktree-launch.ts) so
         // it's reachable from a test without mounting the app.
-        const baseCwd = manager.activeCwd();
+        const baseCwd = (inGroup ? group?.rootDir ?? null : null) ?? manager.activeCwd();
         const { cwd: launchCwd, isolated, error } = await resolveLaunch(spec, baseCwd, {
           create: worktreeCreate,
           now: () => new Date(),
@@ -1349,11 +1357,31 @@ async function boot(): Promise<void> {
           return;
         }
         const cmdline = buildSpawnCmdline(spec, claudeTheme()) + "\n";
-        if (isolated && launchCwd) {
+        // An idle session is a free seat: cd into the worktree and launch
+        // there instead of opening a tab nobody asked for. Only the active
+        // session — that's the one the user is looking at — and only when no
+        // executor holds it (pane.executor, from foreground detection).
+        const reuseIdle =
+          isolated &&
+          !!launchCwd &&
+          !!sid &&
+          (sid === idleInGroup ||
+            (sid === manager.activeSessionId() && !manager.activeExecutor()));
+        // Reusing a group's idle tab means bringing it forward first —
+        // otherwise the agent starts in a tab the user can't see.
+        if (reuseIdle && sid !== manager.activeSessionId()) {
+          manager.activateBySessionId(sid as SessionId);
+        }
+        if (isolated && launchCwd && !reuseIdle) {
           // A PTY spawn normally writes into the session you are already in.
           // There is no cwd to set on that path, so isolation means a new tab.
           const tab = await attachOrRetire(() =>
-            manager.createTab({ cwd: launchCwd, initialCommand: cmdline }),
+            manager.createTab({
+              cwd: launchCwd,
+              initialCommand: cmdline,
+              groupId: group?.id ?? null,
+              color: group?.color ?? null,
+            }),
           );
           if (!tab) return;
           manager.setActiveSpawnId(spec.id);
@@ -1361,7 +1389,25 @@ async function boot(): Promise<void> {
           requestAnimationFrame(() => manager.focusActive());
           return;
         }
-        const bytes = new TextEncoder().encode(cmdline);
+        // Group launch with every tab busy and no isolation to place: still
+        // a new tab, still inside the group.
+        if (!sid) {
+          const tab = await attachOrRetire(() =>
+            manager.createTab({
+              cwd: launchCwd,
+              initialCommand: cmdline,
+              groupId: group?.id ?? null,
+              color: group?.color ?? null,
+            }),
+          );
+          if (!tab) return;
+          manager.setActiveSpawnId(spec.id);
+          await chip.refresh();
+          requestAnimationFrame(() => manager.focusActive());
+          return;
+        }
+        const line = reuseIdle ? `cd ${shq(launchCwd as string)} && ${cmdline}` : cmdline;
+        const bytes = new TextEncoder().encode(line);
         await writeToSession(sid, bytes);
         manager.setActiveSpawnId(spec.id);
         await chip.refresh();
@@ -1378,6 +1424,15 @@ async function boot(): Promise<void> {
         const specs = await listSpawns();
         const spec = specs.find((s) => s.default) ?? specs[0];
         if (spec) runSpawn(spec.id, sid);
+      })();
+    };
+    // Group context menu → "Start new agent": same default spawn, scoped to
+    // the group (idle tab reuse + placement live in runSpawn).
+    manager.runDefaultAgentInGroup = (groupId: string): void => {
+      void (async () => {
+        const specs = await listSpawns();
+        const spec = specs.find((s) => s.default) ?? specs[0];
+        if (spec) runSpawn(spec.id, undefined, groupId);
       })();
     };
     // "Start agent" menu items ask for the default spawn's brand glyph
