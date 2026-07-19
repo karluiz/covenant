@@ -171,6 +171,12 @@ let unwatchSystem: (() => void) | null = null;
 /// Latest applied theme mode, mirrored here so `runSpawn` can resolve the
 /// Claude theme for a freshly-launched executor without re-reading settings.
 let activeThemeMode: ThemeMode = "system";
+/// Latest applied Special Theme id, mirrored alongside `activeThemeMode` so
+/// `resolveTheme` can recover a light-based special theme's `base` when
+/// picking the executor's Claude theme — without this, `resolveTheme` gets
+/// no id, falls through its unknown-id branch, and always hands `dark` to
+/// `claudeThemeFor` even while `bunny` is active.
+let activeSpecialId: string | null = null;
 
 /// Single source of truth for theme application. Resolves system mode,
 /// flips the body class, calls the Rust effect swap, and reapplies the
@@ -193,6 +199,7 @@ async function applyTheme(
     mode === "special" && isSpecialThemeId(specialId)
       ? SPECIAL_THEMES[specialId]
       : null;
+  activeSpecialId = special?.id ?? null;
 
   const resolved = resolveTheme(mode, specialId);
   body.classList.toggle("theme-light", resolved === "light");
@@ -1284,7 +1291,8 @@ async function boot(): Promise<void> {
   if (spawnsMount) {
     // Claude Code theme to inject so the executor matches Covenant. The
     // osc133 shell wrapper is idempotent and won't double-inject once set.
-    const claudeTheme = (): string => claudeThemeFor(resolveTheme(activeThemeMode));
+    const claudeTheme = (): string =>
+      claudeThemeFor(resolveTheme(activeThemeMode, activeSpecialId));
     const runSpawn = (id: string, target?: SessionId): void => {
       void (async () => {
         const sid = target ?? manager.activeSessionId();

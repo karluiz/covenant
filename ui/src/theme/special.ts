@@ -264,6 +264,8 @@ const OWNED_PROPS = [
   "--border",
   "--accent",
   "--danger",
+  "--tab-bg-active",
+  "--bg-elevated",
 ] as const;
 
 /// Translucency forced while a Special Theme is active. Without this a
@@ -298,6 +300,19 @@ export function applySpecialTokens(
   // Rails and floating UI stay opaque — DESIGN.md hard rule 7.
   set("--sidebar-bg", rgbFn(shade(base, 4)));
   set("--bg-overlay", rgbFn(shade(base, -8)));
+  // The active tab and elevated/card surfaces are opaque in every built-in
+  // theme (:root, body.theme-light, body.theme-true-dark all hardcode
+  // solid hex here) — so these derive without --surface-alpha too, same as
+  // sidebar-bg/bg-overlay above. Both lift toward the veil rather than away
+  // from it: shade()'s positive delta always brightens (moves every
+  // channel toward 255), which reads as "raised" for a dark ground *and*
+  // for bunny's light ground alike, matching how body.theme-light's own
+  // --bg-panel/--tab-bg-active/--bg-elevated are already brighter than
+  // its --bg. --tab-bg-active sits just above --bg-panel (the selected
+  // surface reads slightly more raised than plain panel chrome);
+  // --bg-elevated goes further still, as the most-lifted card surface.
+  set("--tab-bg-active", rgbFn(shade(base, 10)));
+  set("--bg-elevated", rgbFn(shade(base, 14)));
   set("--border", "rgb(var(--ink-rgb) / 0.12)");
   set("--accent", t.accent);
   if (t.danger) set("--danger", t.danger);

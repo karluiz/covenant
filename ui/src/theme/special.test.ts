@@ -150,6 +150,12 @@ describe("applySpecialTokens / clearSpecialTokens", () => {
     // sidebar and overlay are always opaque per DESIGN.md
     expect(body.style.getPropertyValue("--sidebar-bg")).toBe("rgb(36 28 58)");
     expect(body.style.getPropertyValue("--bg-overlay")).toBe("rgb(24 16 46)");
+    // active tab and elevated/card surfaces are also opaque, and lift
+    // further above the composited base than --bg-panel does — the tab
+    // chrome must read as the same raised material as the wallpaper, not
+    // a stock slab.
+    expect(body.style.getPropertyValue("--tab-bg-active")).toBe("rgb(42 34 64)");
+    expect(body.style.getPropertyValue("--bg-elevated")).toBe("rgb(46 38 68)");
   });
 
   it("forces surface-alpha below 1 so the art is never fully occluded", () => {
@@ -181,7 +187,7 @@ describe("applySpecialTokens / clearSpecialTokens", () => {
     for (const prop of [
       "--special-art", "--special-veil", "--special-scrim", "--surface-alpha",
       "--bg", "--bg-panel", "--bg-tabbar", "--sidebar-bg", "--bg-overlay",
-      "--border", "--accent", "--danger",
+      "--border", "--accent", "--danger", "--tab-bg-active", "--bg-elevated",
     ]) {
       expect(body.style.getPropertyValue(prop)).toBe("");
     }

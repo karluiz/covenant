@@ -1567,10 +1567,22 @@ export class SettingsPanel {
       });
     };
 
-    [...themeRadios, ...windowBgRadios].forEach((r) =>
+    themeRadios.forEach((r) =>
       r.addEventListener("change", () => {
         // Picking a standard theme clears the special selection.
         selectedSpecial = null;
+        syncSpecialUi();
+        previewAppearance();
+      }),
+    );
+    // Window-background radios are disabled while a special tile is active
+    // (see syncSpecialUi), so in practice this only fires with
+    // selectedSpecial already null — but that disabling is incidental, not
+    // a contract. Do NOT clear selectedSpecial here: if the disabling is
+    // ever relaxed, picking "Solid" must not silently drop the user's
+    // special theme.
+    windowBgRadios.forEach((r) =>
+      r.addEventListener("change", () => {
         syncSpecialUi();
         previewAppearance();
       }),
