@@ -2105,8 +2105,9 @@ export class SettingsPanel {
             (Array.from(windowBgRadios).find((r) => r.checked)
               ?.value as WindowBackground) || "vibrant",
           theme:
-            (Array.from(themeRadios).find((r) => r.checked)
-              ?.value as ThemeMode) || "system",
+            (Array.from(themeRadios).find((r) => r.checked)?.value as ThemeMode) ??
+            freshSettings.window?.theme ??
+            "system",
           tab_style:
             // "custom" is UI-only (maps to experimental.tab_styles.enabled);
             // keep the last real preset so disabling custom restores it.

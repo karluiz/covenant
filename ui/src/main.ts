@@ -54,7 +54,6 @@ import {
   isSpecialThemeId,
   applySpecialTokens,
   clearSpecialTokens,
-  type SpecialTheme,
 } from "./theme/special";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -172,10 +171,6 @@ let unwatchSystem: (() => void) | null = null;
 /// Latest applied theme mode, mirrored here so `runSpawn` can resolve the
 /// Claude theme for a freshly-launched executor without re-reading settings.
 let activeThemeMode: ThemeMode = "system";
-/// The Special Theme currently painted, or null under the four standard
-/// modes. Task 5 reads this inside applyTheme to push the palette into the
-/// tabs module — kept module-private rather than exported.
-let activeSpecialTheme: SpecialTheme | null = null;
 
 /// Single source of truth for theme application. Resolves system mode,
 /// flips the body class, calls the Rust effect swap, and reapplies the
@@ -198,11 +193,6 @@ async function applyTheme(
     mode === "special" && isSpecialThemeId(specialId)
       ? SPECIAL_THEMES[specialId]
       : null;
-  activeSpecialTheme = special;
-  // No reader yet within this task — Task 5 pushes this into the tabs
-  // module via a setter added here. Referenced so strict noUnusedLocals
-  // doesn't flag the write-only state in the meantime.
-  void activeSpecialTheme;
 
   const resolved = resolveTheme(mode, specialId);
   body.classList.toggle("theme-light", resolved === "light");
@@ -1959,6 +1949,8 @@ async function boot(): Promise<void> {
   // Live preview while the appearance radios are toggled — no save needed.
   settings.onPreview = ({ theme, background }) => {
     applyWindowBackground(background);
+    // TODO(task-6): pass special_theme / special_scrim — without them a
+    // saved Special Theme clears its own artwork on the next save.
     void applyTheme(theme, manager);
   };
 
@@ -1966,6 +1958,8 @@ async function boot(): Promise<void> {
     setDiscordPresenceEnabled(next.discord_presence_enabled ?? false);
     manager.applyTerminalSettings(next.terminal);
     applyWindowBackground(next.window?.background ?? "vibrant");
+    // TODO(task-6): pass special_theme / special_scrim — without them a
+    // saved Special Theme clears its own artwork on the next save.
     void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
     applyTabbarPosition(next.tabbar_position ?? "top");
     document.body.classList.toggle("zen-icons", next.zen_icons ?? false);
