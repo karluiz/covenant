@@ -656,11 +656,24 @@ pub fn retitle_worktree_branch(
     let Some(tail) = birth_slug_tail(branch) else {
         return Ok(None);
     };
-    // Once the branch is published, its name is somebody else's reference:
+    // Once the branch is PUBLISHED, its name is somebody else's reference:
     // renaming locally would orphan the remote and break anyone tracking it.
-    // An upstream is a real, checkable signal of that — unlike the branch's
-    // shape, which looks identical before and after a retitle.
-    if git(&main_root, &["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")]).is_ok() {
+    //
+    // "Has an upstream" is the wrong question. `create_worktree` bases agent
+    // branches on `origin/<default>`, and branching from a remote-tracking ref
+    // makes git set up tracking automatically — so every agent branch is born
+    // WITH an upstream (pointing at origin/main) and this guard would refuse
+    // every rename, forever. Live verification caught exactly that; the unit
+    // fixtures missed it because they have no `origin`, so the base falls back
+    // to a local branch and no tracking is configured.
+    //
+    // The real question is whether a remote branch exists under THIS name.
+    let published = git(&main_root, &["for-each-ref", "--format=%(refname:short)", "refs/remotes"])
+        .unwrap_or_default()
+        .lines()
+        .any(|r| r.trim().rsplit_once('/').is_some_and(|(_, name)| name == branch)
+            || r.trim().split_once('/').is_some_and(|(_, rest)| rest == branch));
+    if published {
         return Ok(None);
     }
     let Some(slug) = title_slug(title) else {
@@ -3274,7 +3287,36 @@ index e69de29..0cfbf08 100644
     }
 
     #[test]
-    fn retitle_refuses_once_the_branch_has_an_upstream() {
+    fn retitle_still_renames_a_branch_born_from_origin() {
+        // The regression live verification caught: create_worktree bases on
+        // `origin/<default>`, and branching from a remote-tracking ref makes
+        // git configure tracking automatically. Every agent branch therefore
+        // HAS an upstream from birth — guarding on that refused every rename.
+        // Fixtures without an `origin` cannot reproduce this.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let origin_tmp = tempfile::TempDir::new().unwrap();
+        let origin = origin_tmp.path().join("origin.git");
+        git_run(root, &["init", "-q", "--bare", origin.to_str().unwrap()]);
+        git_run(root, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        git_run(root, &["push", "-q", "-u", "origin", "main"]);
+
+        let path = create_worktree(root, "agent/claude-0719-y72", None).unwrap();
+        // Confirm the premise: the branch really does have an upstream.
+        assert!(
+            git(root, &["rev-parse", "--abbrev-ref", "agent/claude-0719-y72@{upstream}"]).is_ok(),
+            "premise: a branch based on origin/main tracks it",
+        );
+
+        let renamed = retitle_worktree_branch(root, &path, "Live probe title")
+            .unwrap()
+            .expect("an unpublished branch must still be renameable");
+        assert_eq!(renamed, "agent/live-probe-title-0719-y72");
+    }
+
+    #[test]
+    fn retitle_refuses_once_the_branch_itself_is_published() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
         init_repo(root);
