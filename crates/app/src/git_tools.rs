@@ -255,7 +255,8 @@ pub struct ReclaimOutcome {
 ///
 /// `Spent` and `Orphan` get deliberately different treatment:
 ///   - `Spent` (merged + clean): removes the checkout AND deletes the
-///     branch (`git branch -d`, which itself refuses anything unmerged).
+///     branch, ancestry-verified against the default branch (see the
+///     `Spent` arm below for why plain `git branch -d` isn't safe here).
 ///   - `Orphan` (path already gone from disk): there is nothing on disk to
 ///     lose, so dropping git's stale admin record is safe — but the branch
 ///     is left untouched. An orphaned worktree's branch may be the only
@@ -266,6 +267,20 @@ pub fn reclaim_worktrees(
     paths: Vec<String>,
 ) -> Result<Vec<ReclaimOutcome>, String> {
     let summary = repo_summary(cwd)?;
+    // Every git call in the `Spent` arm below runs from the MAIN worktree,
+    // never from `cwd`. `retire_worktree` hit and fixed the identical bug:
+    // `git branch -d` checks merge status against the invoking repository's
+    // CURRENT HEAD, not the default branch this function already verified
+    // the branch is merged into — and `cwd` is routinely a linked worktree
+    // (Covenant's own workflow calls this from inside
+    // `.covenant/worktrees/<slug>`) sitting on an arbitrary branch. Reuse
+    // the same `is_main` marker `repo_summary` already computes rather than
+    // inventing a second mechanism.
+    let main_root = summary
+        .worktrees
+        .iter()
+        .find(|w| w.is_main)
+        .map(|w| PathBuf::from(&w.path));
     let mut outcomes = Vec::with_capacity(paths.len());
 
     for path in paths {
@@ -285,6 +300,16 @@ pub fn reclaim_worktrees(
 
         match wt.state {
             WorktreeState::Spent => {
+                let Some(main) = main_root.as_deref() else {
+                    outcomes.push(ReclaimOutcome {
+                        path,
+                        removed: false,
+                        reason: Some("no worktrees reported by git".into()),
+                    });
+                    continue;
+                };
+                let base = default_branch(main);
+
                 // `repo_summary` snapshotted merge status once, at the top
                 // of this call. `git worktree remove` re-validates
                 // cleanliness on its own (it refuses a dirty tree), which
@@ -295,13 +320,12 @@ pub fn reclaim_worktrees(
                 // dirty-check alone wouldn't catch it), refuse instead of
                 // deleting the checkout out from under it.
                 if let Some(branch) = &wt.branch {
-                    let target = default_branch(cwd);
-                    if !branch_is_merged_into(cwd, branch, &target) {
+                    if !branch_is_merged_into(main, branch, &base) {
                         outcomes.push(ReclaimOutcome {
                             path,
                             removed: false,
                             reason: Some(format!(
-                                "branch \"{branch}\" is no longer confirmed merged into \"{target}\"; \
+                                "branch \"{branch}\" is no longer confirmed merged into \"{base}\"; \
                                  left the checkout in place rather than risk deleting unmerged work"
                             )),
                         });
@@ -309,13 +333,33 @@ pub fn reclaim_worktrees(
                     }
                 }
 
-                if let Err(e) = git(cwd, &["worktree", "remove", &wt.path]) {
+                if let Err(e) = git(main, &["worktree", "remove", &wt.path]) {
                     outcomes.push(ReclaimOutcome { path, removed: false, reason: Some(e) });
                     continue;
                 }
-                // The branch is merged, so -d is safe and refuses anything unmerged.
+                // `-d`'s refusal is HEAD-relative — it checks merge status
+                // against `main`'s CURRENT HEAD, not against `base` — so it
+                // is not a meaningful safety signal here: the invoking
+                // repo's main checkout is usually sitting on some other
+                // feature branch, which this branch (already proved merged
+                // into `base` above) may not be an ancestor of. Try `-d`
+                // first (cheap, and correct whenever HEAD happens to be
+                // `base`-compatible); if it refuses, fall back to an
+                // explicit ancestry check against the SAME `base` the
+                // re-verify above already confirmed this branch merges
+                // into. Only a passing ancestry check may fall back to
+                // `-D`; if it does not pass, the branch is left alone under
+                // all circumstances. Failure here is non-fatal either way:
+                // the directory is already gone and the lifecycle ledger
+                // will surface a stray branch.
                 if let Some(branch) = &wt.branch {
-                    let _ = git(cwd, &["branch", "-d", branch]);
+                    if git(main, &["branch", "-d", branch]).is_err() {
+                        let is_ancestor =
+                            git(main, &["merge-base", "--is-ancestor", branch, &base]).is_ok();
+                        if is_ancestor {
+                            let _ = git(main, &["branch", "-D", branch]);
+                        }
+                    }
                 }
                 outcomes.push(ReclaimOutcome { path, removed: true, reason: None });
             }
@@ -2449,6 +2493,77 @@ index e69de29..0cfbf08 100644
         assert!(
             git_run_ok(root, &["rev-parse", "--show-toplevel"]),
             "root is still a functioning git worktree"
+        );
+    }
+
+    #[test]
+    fn reclaim_deletes_the_branch_even_when_main_has_diverged_from_default() {
+        // Live-verification regression, identical bug shape to
+        // `retire_deletes_the_branch_even_when_main_has_diverged_from_default`:
+        // `git branch -d` refuses based on the invoking repo's CURRENT HEAD,
+        // not the default branch `reclaim_worktrees` actually verified
+        // merge status against. If the developer's main checkout has moved
+        // to some other feature branch (the common case), the agent
+        // branch — cut from the default branch and fully merged back into
+        // it — can still be unmerged into THAT branch's history. Reproduced
+        // live: `git branch -d agent/claude-0719-y72` failed with "not
+        // fully merged" even though the branch was fully merged into main.
+        // The worktree must still be removed; the branch must also be gone.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root); // default branch "main", tip = commit A
+
+        // Fork a feature branch from A, and give it its own commit (F) —
+        // this is the developer's real working branch, the one main will be
+        // sitting on when reclaim runs.
+        git_run(root, &["switch", "-q", "-c", "fix/gist-binary-guard"]);
+        std::fs::write(root.join("feature-only.txt"), "wip\n").unwrap();
+        git_run(root, &["add", "."]);
+        git_run(root, &["commit", "-q", "-m", "feature work"]);
+
+        // Back on main, cut the agent worktree/branch and merge it back —
+        // this is what makes it classify as Spent.
+        git_run(root, &["switch", "-q", "main"]);
+        let wt = root.join(CANONICAL_WORKTREE_DIR).join("agent-claude-0719-y72");
+        git_run(
+            root,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "agent/claude-0719-y72"],
+        );
+        std::fs::write(wt.join("agent-work.txt"), "done\n").unwrap();
+        git_run(&wt, &["add", "."]);
+        git_run(&wt, &["commit", "-q", "-m", "agent work"]);
+        git_run(root, &["merge", "-q", "--no-ff", "-m", "merge", "agent/claude-0719-y72"]);
+
+        // Now move the MAIN checkout onto the feature branch (F), which does
+        // NOT contain the merge commit. `git branch -d
+        // agent/claude-0719-y72` from `root` checks merge status against F
+        // (current HEAD) and must refuse, exactly as it did in live
+        // verification, even though the branch is fully merged into "main".
+        git_run(root, &["switch", "-q", "fix/gist-binary-guard"]);
+
+        let summary = repo_summary(root).unwrap();
+        let row = summary
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("agent/claude-0719-y72"))
+            .expect("agent worktree row present");
+        assert_eq!(
+            row.state,
+            WorktreeState::Spent,
+            "sanity: setup must reproduce Spent even though main has diverged"
+        );
+
+        let path = wt.canonicalize().unwrap().to_string_lossy().to_string();
+        let out = reclaim_worktrees(root, vec![path]).unwrap();
+
+        assert_eq!(out.len(), 1);
+        assert!(out[0].removed, "reason: {:?}", out[0].reason);
+        assert!(!wt.exists(), "worktree directory is gone");
+
+        let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
+        assert!(
+            !branches.lines().any(|l| l.trim() == "agent/claude-0719-y72"),
+            "branch must be deleted via ancestry-against-base, not HEAD-relative -d",
         );
     }
 
