@@ -3898,6 +3898,14 @@ body.tabbar-left.sidebar-view-somnus #layout:has(> #capabilities-page:not([hidde
     color: var(--accent);
 }
 
+/* Section title that carries an action on the right (e.g. Reset defaults). */
+.settings-section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
 /* Subsection inside a section — used for AOM grouped under Operator.
    Smaller + muted vs the section title; restores top spacing because
    it sits between fields. */
@@ -10084,9 +10092,13 @@ body.theme-light .structure-confirm-cancel {
    ─────────────────────────────────────────────────────────────────── */
 .convergence-overlay {
   position: fixed;
-  inset: 0;
+  top: 38px;
+  left: 0;
+  right: 0;
+  bottom: var(--statusbar-h, 26px);
   z-index: 1400;
   background: var(--bg-overlay);
+  border-top: 1px solid var(--border);
   padding: 24px;
   overflow: auto;
   display: flex;

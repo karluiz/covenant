@@ -5209,17 +5209,17 @@ pub fn run() {
                             ) {
                                 if !focused {
                                     notch::show_notch(&notch, corner);
+                                } else if notch::main_covers_screen(&h) {
+                                    // Focused AND filling the screen: the pill
+                                    // would just hover over the app's own chrome.
+                                    let _ = notch.hide();
                                 }
                                 return;
                             }
                             if focused {
                                 let _ = notch.hide();
                             } else {
-                                let fullscreen = h
-                                    .get_webview_window("main")
-                                    .and_then(|w| w.is_fullscreen().ok())
-                                    .unwrap_or(false);
-                                if !fullscreen {
+                                if !notch::main_covers_screen(&h) {
                                     notch::show_notch(&notch, corner);
                                 }
                             }
@@ -5243,10 +5243,7 @@ pub fn run() {
                                     )
                                     .await;
                                 }
-                                let fs = h
-                                    .get_webview_window("main")
-                                    .and_then(|w| w.is_fullscreen().ok())
-                                    .unwrap_or(false);
+                                let fs = notch::main_covers_screen(&h);
                                 // Publish the settled state every poll (not just
                                 // on transitions) so the bridge's authoritative
                                 // flag can never drift from reality.

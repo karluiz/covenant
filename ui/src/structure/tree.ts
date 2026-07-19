@@ -43,6 +43,17 @@ interface NodeState {
   el: HTMLLIElement;
 }
 
+/// "New Group Here" — a group rooted at `dir`, named after its
+/// basename, with a shell tab inside. Same anchor as `covenant <path>`,
+/// so it also reuses an existing group already rooted there.
+/// ponytail: dynamic import of main.ts to reach the TabManager singleton
+/// without a static cycle (main → tree). Thread a callback in if the
+/// tree ever needs more than one manager call.
+async function openGroupAt(dir: string): Promise<void> {
+  const { tabsManager } = await import("../main");
+  await tabsManager?.openCliPath(dir, true);
+}
+
 const LS_KEY_PREFIX = "covenant.structure.expanded.";
 const LS_KEY_SHOW_IGNORED = "covenant.structure.showIgnored";
 
@@ -655,6 +666,8 @@ export class StructureTree {
       items.push(
         { label: "New File", onClick: () => void this.startCreateInDir(node, "file") },
         { label: "New Folder", onClick: () => void this.startCreateInDir(node, "dir") },
+        { divider: true },
+        { label: "New Group Here", onClick: () => void openGroupAt(node.entry.path) },
         { divider: true },
       );
     }

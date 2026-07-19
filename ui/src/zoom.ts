@@ -59,6 +59,14 @@ class ZoomController {
     };
   }
 
+  /// Set zoom directly (1.0 = 100%). Clamped to [MIN, MAX].
+  setLevel(value: number): void {
+    this.set(round(value));
+  }
+
+  /// Allowed range, as percentages — for UI controls.
+  static readonly RANGE = { min: MIN * 100, max: MAX * 100, step: STEP * 100 };
+
   private set(value: number): void {
     const clamped = Math.max(MIN, Math.min(MAX, value));
     if (Math.abs(clamped - this.current) < 0.001) return;

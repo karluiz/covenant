@@ -29,6 +29,7 @@ import { renderPublicProfileCard } from "../score/profile";
 import { scheduleCloudPush } from "./cloud_push";
 import { INDICATORS, applyIndicatorVisibility } from "../indicators";
 import { formatChord } from "../platform";
+import { zoom } from "../zoom";
 import {
   SPECIAL_THEME_LIST,
   SPECIAL_THEMES,
@@ -512,7 +513,12 @@ export class SettingsPanel {
           </label>
         </section>
         <section class="settings-section" id="sec-appearance">
-          <h3 class="settings-section-title">Appearance</h3>
+          <h3 class="settings-section-title settings-section-title-row">
+            Appearance
+            <button type="button" class="settings-btn" data-role="reset-appearance">
+              Reset defaults
+            </button>
+          </h3>
           <fieldset class="settings-field settings-radio-group">
             <legend class="settings-label">Theme</legend>
             <label class="settings-radio">
@@ -988,6 +994,15 @@ export class SettingsPanel {
               <code>"Inter"</code>, <code>"IBM Plex Sans"</code>, or any
               installed sans family — always end with
               <code>sans-serif</code> as a fallback.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">UI size</span>
+            <input type="number" name="ui_zoom" min="60" max="200" step="10" />
+            <small class="settings-hint">
+              Percentage scale for the whole chrome — same control as
+              <code>⌘+</code> / <code>⌘-</code> / <code>⌘0</code>. Applies
+              immediately and persists on its own; Save is not needed.
             </small>
           </label>
         </section>
@@ -1474,6 +1489,17 @@ export class SettingsPanel {
     const uiFont = form.querySelector<HTMLInputElement>(
       'input[name="ui_font"]',
     )!;
+    // ponytail: UI size lives in localStorage via the zoom controller, not
+    // in Settings config — so it applies live and skips the save round-trip.
+    const uiZoom = form.querySelector<HTMLInputElement>(
+      'input[name="ui_zoom"]',
+    )!;
+    uiZoom.value = String(Math.round(zoom.level() * 100));
+    uiZoom.addEventListener("change", () => {
+      const pct = Number(uiZoom.value);
+      if (Number.isFinite(pct)) zoom.setLevel(pct / 100);
+      uiZoom.value = String(Math.round(zoom.level() * 100));
+    });
     const notifOpEscalate = form.querySelector<HTMLInputElement>(
       'input[name="notif_op_escalate"]',
     )!;
@@ -1694,6 +1720,35 @@ export class SettingsPanel {
     });
     uiFont.value = this.current.ui_font_family ?? "";
     discordPresenceEnabled.checked = this.current.discord_presence_enabled ?? false;
+
+    // Reset defaults — puts every Appearance control back to its shipped
+    // value and live-previews it. Nothing is persisted until Save, so
+    // Cancel still backs out (close() re-applies the stored settings).
+    form
+      .querySelector<HTMLButtonElement>('[data-role="reset-appearance"]')
+      ?.addEventListener("click", () => {
+        selectedSpecial = null;
+        themeRadios.forEach((r) => { r.checked = r.value === "system"; });
+        windowBgRadios.forEach((r) => { r.checked = r.value === "vibrant"; });
+        syncSpecialUi();
+        statusBarEnabled.checked = true;
+        zenIcons.checked = false;
+        document.body.classList.remove("zen-icons");
+        notchEnabled.checked = true;
+        notchCorner.value = "bottom-right";
+        notchSoundOnDone.checked = true;
+        indicatorChecks.forEach((cb) => { cb.checked = true; });
+        previewIndicators();
+        tabbarPosRadios.forEach((r) => { r.checked = r.value === "top"; });
+        applyTabbarPosition("top");
+        foldedRailRadios.forEach((r) => { r.checked = r.value === "legacy"; });
+        applyFoldedRailStyle("legacy");
+        tabStyleRadios.forEach((r) => { r.checked = r.value === "classic"; });
+        applyPresetTabStyle("classic");
+        if (customTabStyleCard) customTabStyleCard.hidden = true;
+        uiFont.value = "";
+        previewAppearance();
+      });
     const n: NotificationConfig = this.current.notifications ?? {
       on_operator_escalate: true,
       on_aom_error: true,
