@@ -412,6 +412,11 @@ body.theme-special::after {
     padding: 0 8px;
 }
 
+/* `display: flex` on .settings-field beats the UA [hidden] rule — restate it. */
+.special-scrim-row[hidden] {
+    display: none;
+}
+
 .special-scrim-row {
     margin-top: 12px;
 }

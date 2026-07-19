@@ -1581,20 +1581,39 @@ export class SettingsPanel {
         const id = tile.dataset.specialId ?? null;
         // Clicking the active tile deselects it, back to the radios.
         selectedSpecial = id === selectedSpecial ? null : id;
+        // Tiles and the theme radios are one exclusive choice expressed as
+        // two controls: selecting a tile must visibly uncheck every radio,
+        // and deselecting one must check "system" — the value that will
+        // actually be saved — so the checked radio always matches what's
+        // persisted (see the `theme:` field in the save payload below).
+        themeRadios.forEach((r) => {
+          r.checked = selectedSpecial === null && r.value === "system";
+        });
+        // Bounds before value: syncSpecialUi() sets specialScrim's min/max
+        // for the (possibly new) selectedSpecial. A range input clamps a
+        // `.value` assignment against whatever min/max is CURRENTLY active,
+        // so assigning value first would silently truncate it to the
+        // previously selected theme's window.
+        syncSpecialUi();
         if (selectedSpecial && isSpecialThemeId(selectedSpecial)) {
           // Closures lose the `this.current` null-narrowing established by
           // the guard above; the panel can't be mid-render with no
           // settings loaded, so this mirrors the `this.current!` pattern
           // used elsewhere in this file's event handlers.
-          const stored = this.current!.window?.special_scrim;
+          const win = this.current!.window;
+          // Only carry over the persisted scrim when it was saved for THIS
+          // theme; every theme's default is individually calibrated, so a
+          // switch to a different theme should start at its own default.
+          const stored =
+            win?.special_theme === selectedSpecial ? win.special_scrim : null;
           specialScrim.value = String(
             clampScrim(
               selectedSpecial,
               typeof stored === "number" ? stored : SPECIAL_THEMES[selectedSpecial].scrim,
             ),
           );
+          specialScrimValue.textContent = Number(specialScrim.value).toFixed(2);
         }
-        syncSpecialUi();
         previewAppearance();
       });
     });
@@ -1606,7 +1625,11 @@ export class SettingsPanel {
 
     // Seed the slider before the first sync so the row shows a real value.
     if (selectedSpecial && isSpecialThemeId(selectedSpecial)) {
-      const stored = this.current.window?.special_scrim;
+      const win = this.current.window;
+      // Only carry over the persisted scrim when it was saved for THIS
+      // theme (see the matching guard in the tile-click handler above).
+      const stored =
+        win?.special_theme === selectedSpecial ? win.special_scrim : null;
       specialScrim.value = String(
         clampScrim(
           selectedSpecial,
