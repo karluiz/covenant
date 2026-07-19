@@ -32,6 +32,10 @@ export interface ConfirmToast {
   confirmLabel?: string;
   cancelLabel?: string;
   onConfirm: () => void;
+  /// Called when the user backs out via Cancel instead of confirming.
+  /// Optional — most callers have nothing to undo (their disable-the-button
+  /// guard, if any, was never taken in the first place).
+  onCancel?: () => void;
 }
 
 const AUTO_DISMISS_MS = 12_000;
@@ -172,7 +176,10 @@ export class ToastHost {
 
     card.querySelector<HTMLElement>(".toast-btn-cancel")!.addEventListener(
       "click",
-      dismiss,
+      () => {
+        dismiss();
+        toast.onCancel?.();
+      },
     );
     card.querySelector<HTMLElement>(".toast-btn-confirm")!.addEventListener(
       "click",

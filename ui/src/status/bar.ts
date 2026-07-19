@@ -1159,7 +1159,11 @@ export class StatusBar {
         const sizes = await worktreeSizes(paths).catch(() => [] as Array<[string, number]>);
         const gb = sizes.reduce((sum, [, kb]) => sum + kb, 0) / 1024 / 1024;
         const detail = gb >= 0.1 ? `, freeing ${gb.toFixed(1)} GB` : "";
-        btn.disabled = false;
+        // Stay disabled through the confirm toast AND the reclaim call
+        // itself — only re-enabled below, on cancel or once onConfirm
+        // settles. Re-enabling here (before the user has actually decided)
+        // let a second click during the confirm window fire a concurrent
+        // reclaim over the same paths.
         // Never window.confirm: a native modal blocks the whole webview.
         pushConfirmToast({
           // Toast messages render via textContent — do NOT escapeHtml here or
@@ -1168,6 +1172,9 @@ export class StatusBar {
             summary.current_branch ?? "the default branch"
           }.`,
           confirmLabel: "Reclaim",
+          onCancel: () => {
+            btn.disabled = false;
+          },
           onConfirm: () => {
             void (async () => {
               try {
@@ -1181,6 +1188,7 @@ export class StatusBar {
               } catch (e) {
                 pushInfoToast({ message: String(e) });
               } finally {
+                btn.disabled = false;
                 this.closeBranchPopover();
               }
             })();

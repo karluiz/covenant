@@ -232,11 +232,20 @@ pub struct ReclaimOutcome {
     pub reason: Option<String>,
 }
 
-/// Removes worktrees that this function itself classifies as `Spent`, and
-/// deletes their branches. Refuses everything else.
+/// Removes worktrees that this function itself classifies as `Spent` or
+/// `Orphan`. Refuses everything else.
 ///
 /// The caller's classification is deliberately ignored: state is re-derived
 /// here so a stale UI, or a direct IPC call, cannot delete live work.
+///
+/// `Spent` and `Orphan` get deliberately different treatment:
+///   - `Spent` (merged + clean): removes the checkout AND deletes the
+///     branch (`git branch -d`, which itself refuses anything unmerged).
+///   - `Orphan` (path already gone from disk): there is nothing on disk to
+///     lose, so dropping git's stale admin record is safe — but the branch
+///     is left untouched. An orphaned worktree's branch may be the only
+///     remaining copy of unmerged work, and there is no working tree left
+///     to run the merge re-check against anyway.
 pub fn reclaim_worktrees(
     cwd: &Path,
     paths: Vec<String>,
@@ -259,47 +268,69 @@ pub fn reclaim_worktrees(
             continue;
         };
 
-        if wt.state != WorktreeState::Spent {
-            outcomes.push(ReclaimOutcome {
-                path,
-                removed: false,
-                reason: Some(format!("not spent (state: {:?})", wt.state).to_lowercase()),
-            });
-            continue;
-        }
+        match wt.state {
+            WorktreeState::Spent => {
+                // `repo_summary` snapshotted merge status once, at the top
+                // of this call. `git worktree remove` re-validates
+                // cleanliness on its own (it refuses a dirty tree), which
+                // closes half of the TOCTOU gap, but it has no opinion on
+                // merge status. So re-verify, right here, immediately
+                // before deleting: if the branch picked up a new unmerged
+                // commit since the snapshot (tree still clean, so the
+                // dirty-check alone wouldn't catch it), refuse instead of
+                // deleting the checkout out from under it.
+                if let Some(branch) = &wt.branch {
+                    let target = default_branch(cwd);
+                    if !branch_is_merged_into(cwd, branch, &target) {
+                        outcomes.push(ReclaimOutcome {
+                            path,
+                            removed: false,
+                            reason: Some(format!(
+                                "branch \"{branch}\" is no longer confirmed merged into \"{target}\"; \
+                                 left the checkout in place rather than risk deleting unmerged work"
+                            )),
+                        });
+                        continue;
+                    }
+                }
 
-        // `repo_summary` snapshotted merge status once, at the top of this
-        // call. `git worktree remove` re-validates cleanliness on its own
-        // (it refuses a dirty tree), which closes half of the TOCTOU gap,
-        // but it has no opinion on merge status. So re-verify, right here,
-        // immediately before deleting: if the branch picked up a new
-        // unmerged commit since the snapshot (tree still clean, so the
-        // dirty-check alone wouldn't catch it), refuse instead of deleting
-        // the checkout out from under it.
-        if let Some(branch) = &wt.branch {
-            let target = default_branch(cwd);
-            if !branch_is_merged_into(cwd, branch, &target) {
+                if let Err(e) = git(cwd, &["worktree", "remove", &wt.path]) {
+                    outcomes.push(ReclaimOutcome { path, removed: false, reason: Some(e) });
+                    continue;
+                }
+                // The branch is merged, so -d is safe and refuses anything unmerged.
+                if let Some(branch) = &wt.branch {
+                    let _ = git(cwd, &["branch", "-d", branch]);
+                }
+                outcomes.push(ReclaimOutcome { path, removed: true, reason: None });
+            }
+
+            WorktreeState::Orphan => {
+                // The directory is already gone from disk. `git worktree
+                // remove` handles that gracefully on its own — with nothing
+                // left to check for dirtiness, it just drops the admin
+                // entry, no `--force` needed (verified empirically: a plain
+                // `git worktree remove <gone-path>` succeeds and prunes the
+                // record). Composes fine with the unconditional `git
+                // worktree prune` below, which is now a no-op for this
+                // entry. NEVER touch the branch here — no merge re-check
+                // either, since there is no working tree left to check
+                // anything against.
+                if let Err(e) = git(cwd, &["worktree", "remove", &wt.path]) {
+                    outcomes.push(ReclaimOutcome { path, removed: false, reason: Some(e) });
+                    continue;
+                }
+                outcomes.push(ReclaimOutcome { path, removed: true, reason: None });
+            }
+
+            other => {
                 outcomes.push(ReclaimOutcome {
                     path,
                     removed: false,
-                    reason: Some(format!(
-                        "branch \"{branch}\" is no longer confirmed merged into \"{target}\"; \
-                         left the checkout in place rather than risk deleting unmerged work"
-                    )),
+                    reason: Some(format!("not spent (state: {other:?})").to_lowercase()),
                 });
-                continue;
             }
         }
-
-        if let Err(e) = git(cwd, &["worktree", "remove", &wt.path]) {
-            outcomes.push(ReclaimOutcome { path, removed: false, reason: Some(e) });
-            continue;
-        }
-        // The branch is merged, so -d is safe and refuses anything unmerged.
-        if let Some(branch) = &wt.branch {
-            let _ = git(cwd, &["branch", "-d", branch]);
-        }
-        outcomes.push(ReclaimOutcome { path, removed: true, reason: None });
     }
 
     let _ = git(cwd, &["worktree", "prune"]);
@@ -1863,6 +1894,8 @@ index e69de29..0cfbf08 100644
 
     #[test]
     fn reclaim_refuses_an_unmerged_worktree() {
+        // Unmerged + clean + recently committed classifies as Active — this
+        // doubles as the "Active is still refused" coverage.
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
         init_repo(root);
@@ -1872,11 +1905,102 @@ index e69de29..0cfbf08 100644
         git_run(&wt, &["add", "."]);
         git_run(&wt, &["commit", "-q", "-m", "w"]);
 
+        let summary = repo_summary(root).unwrap();
+        let row = summary.worktrees.iter().find(|w| w.branch.as_deref() == Some("live")).unwrap();
+        assert_eq!(row.state, WorktreeState::Active, "sanity: setup must reproduce Active");
+
         let out = reclaim_worktrees(root, vec![wt.to_string_lossy().to_string()]).unwrap();
         assert_eq!(out.len(), 1);
         assert!(!out[0].removed);
         assert!(out[0].reason.as_deref().unwrap_or("").contains("not spent"));
         assert!(wt.exists(), "untouched");
+    }
+
+    #[test]
+    fn reclaim_refuses_a_stale_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join("wt-stale");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "stale-branch"]);
+        std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
+        git_run(&wt, &["add", "."]);
+        // Backdate the commit so it falls outside STALE_AFTER_DAYS: clean +
+        // unmerged + old classifies as Stale (see derive_state).
+        let old = "2000-01-01T00:00:00";
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&wt)
+            .args(["commit", "-q", "-m", "old work"])
+            .env("GIT_AUTHOR_DATE", old)
+            .env("GIT_COMMITTER_DATE", old)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+
+        let summary = repo_summary(root).unwrap();
+        let row = summary
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("stale-branch"))
+            .unwrap();
+        assert_eq!(row.state, WorktreeState::Stale, "sanity: setup must reproduce Stale");
+
+        let outcome = reclaim_worktrees(root, vec![wt.to_string_lossy().to_string()]).unwrap();
+        assert_eq!(outcome.len(), 1);
+        assert!(!outcome[0].removed);
+        assert!(outcome[0].reason.as_deref().unwrap_or("").contains("not spent"));
+        assert!(wt.exists(), "untouched");
+    }
+
+    // --- Finding 1: Prune (Orphan reclaim) ------------------------------
+
+    #[test]
+    fn reclaim_removes_an_orphan_worktree_but_keeps_the_branch() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join("wt-orphan");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "orphan-branch"]);
+        std::fs::write(wt.join("tracked.txt"), "unmerged work\n").unwrap();
+        git_run(&wt, &["add", "."]);
+        git_run(&wt, &["commit", "-q", "-m", "unmerged work"]);
+
+        // Pre-canonicalize while the directory still exists: once it's gone,
+        // `canonical_or_self` can no longer resolve it and falls back to the
+        // raw string it was given (see the duplicate-path test above for the
+        // same gotcha). Passing an already-canonical path keeps that
+        // fallback matching the cached summary row's (canonical) path.
+        let path = wt.canonicalize().unwrap().to_string_lossy().to_string();
+
+        // Simulate the user deleting the directory out from under git,
+        // without going through `git worktree remove` — this is exactly
+        // what makes a worktree Orphan rather than Spent/Stale/Active.
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        let summary = repo_summary(root).unwrap();
+        let row = summary
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("orphan-branch"))
+            .expect("orphan row present");
+        assert_eq!(row.state, WorktreeState::Orphan, "sanity: setup must reproduce Orphan");
+
+        let out = reclaim_worktrees(root, vec![path]).unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(out[0].removed, "reason: {:?}", out[0].reason);
+
+        let listed = git(root, &["worktree", "list", "--porcelain"]).unwrap();
+        assert!(
+            !listed.contains("orphan-branch"),
+            "admin entry should be gone: {listed}"
+        );
+
+        let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
+        assert!(
+            branches.lines().any(|l| l.trim() == "orphan-branch"),
+            "branch must survive an orphan reclaim — it may be the only copy of unmerged work"
+        );
     }
 
     #[test]

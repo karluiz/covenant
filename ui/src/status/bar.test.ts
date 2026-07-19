@@ -5,15 +5,21 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // bar.ts imports telegramStatus, getDirContext, etc. which call
 // @tauri-apps/api/core#invoke at import time or in the constructor.
 // We stub the whole module so jsdom doesn't explode.
+const worktreeReclaimMock = vi.fn();
+const worktreeSizesMock = vi.fn();
+const gitRepoSummaryMock = vi.fn();
 vi.mock("../api", () => ({
   telegramStatus: vi.fn().mockResolvedValue("disabled"),
   getDirContext: vi.fn().mockResolvedValue({ git: null, runtime: null }),
   aomStatus: vi.fn().mockResolvedValue(null),
-  gitRepoSummary: vi.fn().mockResolvedValue(null),
+  gitRepoSummary: (cwd: string) => gitRepoSummaryMock(cwd),
   gitSwitchBranch: vi.fn().mockResolvedValue(null),
   getSessionMissionContent: vi.fn().mockResolvedValue(null),
   getSessionPlanContent: vi.fn().mockResolvedValue(null),
   setSessionMissionContent: vi.fn().mockResolvedValue(null),
+  worktreeReclaim: (cwd: string, paths: string[]) => worktreeReclaimMock(cwd, paths),
+  worktreeSizes: (paths: string[]) => worktreeSizesMock(paths),
+  worktreeRelocate: vi.fn(),
 }));
 
 vi.mock("../aom/connectivity", () => ({
@@ -33,9 +39,16 @@ vi.mock("../ui/markdown", () => ({
   renderMarkdown: vi.fn((s: string) => s),
 }));
 
+const pushConfirmToastMock = vi.fn();
+const pushInfoToastMock = vi.fn();
+vi.mock("../notifications/toast", () => ({
+  pushConfirmToast: (t: unknown) => pushConfirmToastMock(t),
+  pushInfoToast: (t: unknown) => pushInfoToastMock(t),
+}));
+
 // -------------------------------------------------------------------------
 import { StatusBar } from "./bar";
-import type { MissionInfo } from "../api";
+import type { GitRepoSummary, GitWorktreeSummary, MissionInfo } from "../api";
 
 describe("StatusBar.setTwoRow", () => {
   let host: HTMLDivElement;
@@ -207,5 +220,143 @@ describe("mission chip context menu", () => {
       .find((m) => m.dataset.action === "clear")!;
     remove.click();
     expect(clear).toHaveBeenCalledWith("sess-1");
+  });
+});
+
+describe("git worktree popover — destructive click wiring", () => {
+  let host: HTMLDivElement;
+  let bar: StatusBar;
+  const cwd = "/repo";
+
+  // Flushes the microtask queue so a chain of `await`s inside a click
+  // handler (worktreeSizes → pushConfirmToast, then later worktreeReclaim →
+  // pushInfoToast) has settled before assertions run.
+  const flush = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  const wt = (overrides: Partial<GitWorktreeSummary>): GitWorktreeSummary => ({
+    path: "/repo/.covenant/worktrees/x",
+    branch: "feat/x",
+    head: "abc123",
+    current: false,
+    detached: false,
+    bare: false,
+    dirty_count: 0,
+    state: "spent",
+    merged: true,
+    last_commit_unix: 1000,
+    off_convention: false,
+    ...overrides,
+  });
+
+  const summaryWith = (worktrees: GitWorktreeSummary[]): GitRepoSummary => ({
+    repo_name: "repo",
+    repo_root: cwd,
+    current_branch: "main",
+    detached_head: null,
+    dirty_count: 0,
+    branches: [],
+    worktrees,
+  });
+
+  // Opens the branch popover directly rather than driving it through the
+  // full cwd-detection → render flow (that path is unrelated to what these
+  // tests cover: the popover's own reclaim click wiring).
+  const openPopover = (): void => {
+    (bar as unknown as { currentCwd: string | null }).currentCwd = cwd;
+    const anchor = document.createElement("span");
+    document.body.appendChild(anchor);
+    (bar as unknown as { openBranchPopover: (a: HTMLElement) => void }).openBranchPopover(anchor);
+  };
+
+  beforeEach(() => {
+    (globalThis as unknown as { __APP_VERSION__: string }).__APP_VERSION__ = "0.0.0-test";
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    bar = new StatusBar(host);
+    bar.setEnabled(false);
+    bar.setEnabled(true);
+    worktreeReclaimMock.mockReset().mockResolvedValue([]);
+    worktreeSizesMock.mockReset().mockResolvedValue([]);
+    gitRepoSummaryMock.mockReset();
+    pushConfirmToastMock.mockReset();
+    pushInfoToastMock.mockReset();
+  });
+
+  it("bulk reclaim does not call worktreeReclaim until the confirm toast is actually confirmed", async () => {
+    gitRepoSummaryMock.mockResolvedValue(
+      summaryWith([
+        wt({ path: "/repo/.covenant/worktrees/a", branch: "a" }),
+        wt({ path: "/repo/.covenant/worktrees/b", branch: "b" }),
+      ]),
+    );
+    openPopover();
+    await flush();
+
+    const btn = document.querySelector<HTMLButtonElement>(".status-git-pop-reclaim-all");
+    expect(btn).not.toBeNull();
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    // The confirm toast was requested, but nobody has confirmed it yet.
+    expect(pushConfirmToastMock).toHaveBeenCalledOnce();
+    expect(worktreeReclaimMock).not.toHaveBeenCalled();
+
+    // Only actually invoking onConfirm — standing in for a real click on
+    // the toast's confirm button — should trigger the destructive call.
+    const toast = pushConfirmToastMock.mock.calls[0][0] as { onConfirm: () => void };
+    toast.onConfirm();
+    await flush();
+
+    expect(worktreeReclaimMock).toHaveBeenCalledWith(cwd, [
+      "/repo/.covenant/worktrees/a",
+      "/repo/.covenant/worktrees/b",
+    ]);
+  });
+
+  it("reports a partial failure honestly instead of as a full success", async () => {
+    gitRepoSummaryMock.mockResolvedValue(
+      summaryWith([
+        wt({ path: "/repo/.covenant/worktrees/a", branch: "a" }),
+        wt({ path: "/repo/.covenant/worktrees/b", branch: "b" }),
+      ]),
+    );
+    worktreeReclaimMock.mockResolvedValue([
+      { path: "/repo/.covenant/worktrees/a", removed: true, reason: null },
+      { path: "/repo/.covenant/worktrees/b", removed: false, reason: "not spent (state: active)" },
+    ]);
+    openPopover();
+    await flush();
+
+    document
+      .querySelector<HTMLButtonElement>(".status-git-pop-reclaim-all")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const toast = pushConfirmToastMock.mock.calls[0][0] as { onConfirm: () => void };
+    toast.onConfirm();
+    await flush();
+
+    expect(pushInfoToastMock).toHaveBeenCalledOnce();
+    const info = pushInfoToastMock.mock.calls[0][0] as { message: string };
+    expect(info.message).toContain("refused 1");
+    expect(info.message).not.toMatch(/^Reclaimed 2 worktree\(s\)\.$/);
+  });
+
+  it("escapes a double quote in a worktree path so it cannot break out of the data-path attribute", async () => {
+    const evilPath = '/repo/.covenant/worktrees/weird"name';
+    gitRepoSummaryMock.mockResolvedValue(
+      summaryWith([wt({ path: evilPath, branch: "weird", state: "orphan", merged: false })]),
+    );
+    openPopover();
+    await flush();
+
+    // Orphan's default action is Prune, rendered as a .status-git-pop-wt-act
+    // button — the same markup path a Spent/Reclaim row uses.
+    const actBtn = document.querySelector<HTMLButtonElement>(".status-git-pop-wt-act");
+    expect(actBtn).not.toBeNull();
+    expect(actBtn!.dataset.path).toBe(evilPath);
   });
 });
