@@ -182,14 +182,30 @@ describe("applySpecialTokens / clearSpecialTokens", () => {
   });
 
   it("clearSpecialTokens removes every property it set", () => {
-    applySpecialTokens(body, SPECIAL_THEMES.jjk, 0.34);
+    // Derived from what was actually written rather than a hand-kept list:
+    // a hardcoded enumeration silently stops covering any token added to
+    // applySpecialTokens but forgotten in OWNED_PROPS, which is exactly the
+    // leak this test exists to catch. kimetsu is used because it is the one
+    // theme that also supplies --danger.
+    applySpecialTokens(body, SPECIAL_THEMES.kimetsu, 0.36);
+    const written = Array.from(body.style);
+    expect(written).toContain("--danger");
+    expect(written.length).toBeGreaterThan(10);
+
     clearSpecialTokens(body);
-    for (const prop of [
-      "--special-art", "--special-veil", "--special-scrim", "--surface-alpha",
-      "--bg", "--bg-panel", "--bg-tabbar", "--sidebar-bg", "--bg-overlay",
-      "--border", "--accent", "--danger", "--tab-bg-active", "--bg-elevated",
-    ]) {
+    for (const prop of written) {
       expect(body.style.getPropertyValue(prop)).toBe("");
     }
+    expect(Array.from(body.style)).toHaveLength(0);
+  });
+
+  it("overrides the white fills body.theme-light hardcodes", () => {
+    // Without these, `bunny` (the light-based theme) keeps #ffffff here and
+    // the surfaces punch bright slabs through the artwork.
+    applySpecialTokens(body, SPECIAL_THEMES.bunny, 0.55);
+    // composited base (213, 212, 215)
+    expect(body.style.getPropertyValue("--settings-btn-fill")).toBe("rgb(223 222 225)");
+    expect(body.style.getPropertyValue("--settings-btn-fill-hover")).toBe("rgb(229 228 231)");
+    expect(body.style.getPropertyValue("--op-card-fill")).toBe("rgb(223 222 225)");
   });
 });
