@@ -64,6 +64,21 @@ describe("isSpecialThemeId", () => {
     expect(isSpecialThemeId(undefined)).toBe(false);
     expect(isSpecialThemeId(7)).toBe(false);
   });
+
+  it("rejects inherited Object.prototype keys", () => {
+    // `in` would accept all of these; the guard must use an own-property
+    // check because it validates a user-editable config value.
+    for (const key of [
+      "constructor",
+      "toString",
+      "valueOf",
+      "hasOwnProperty",
+      "isPrototypeOf",
+      "__proto__",
+    ]) {
+      expect(isSpecialThemeId(key)).toBe(false);
+    }
+  });
 });
 
 describe("clampScrim", () => {

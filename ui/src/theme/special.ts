@@ -20,6 +20,9 @@ import onepieceArt from "../../assets/themes/onepiece.webp";
 import haikyuuArt from "../../assets/themes/haikyuu.webp";
 import bunnyArt from "../../assets/themes/bunny.webp";
 
+/// Stable identifier for a Special Theme. Also the key under which the
+/// theme is persisted in `config.json` and the `data-special-id` value on
+/// its settings tile.
 export type SpecialThemeId =
   | "jjk"
   | "kimetsu"
@@ -68,6 +71,8 @@ const TRANSPARENT = "rgba(0, 0, 0, 0)";
 const BLACK_VEIL = "#000000";
 const WHITE_VEIL = "#ffffff";
 
+/// The registry. Adding a Special Theme means adding one entry here and
+/// one .webp under ui/assets/themes/ — nothing else in the app changes.
 export const SPECIAL_THEMES: Record<SpecialThemeId, SpecialTheme> = {
   jjk: {
     id: "jjk",
@@ -166,11 +171,23 @@ export const SPECIAL_THEMES: Record<SpecialThemeId, SpecialTheme> = {
   },
 };
 
+/// Iteration order for the settings gallery. Derived from SPECIAL_THEMES
+/// so the two can never drift.
 export const SPECIAL_THEME_LIST: readonly SpecialTheme[] =
   Object.values(SPECIAL_THEMES);
 
+/// Validation boundary for a persisted theme id. `config.json` is
+/// user-editable, so an unknown value must be rejected rather than
+/// indexed into the registry.
+///
+/// Uses an own-property check, not `in`: `in` walks the prototype chain,
+/// so "constructor" / "toString" / "__proto__" would pass and then resolve
+/// to an Object.prototype member instead of a SpecialTheme.
 export function isSpecialThemeId(v: unknown): v is SpecialThemeId {
-  return typeof v === "string" && v in SPECIAL_THEMES;
+  return (
+    typeof v === "string" &&
+    Object.prototype.hasOwnProperty.call(SPECIAL_THEMES, v)
+  );
 }
 
 /// How far the user's slider may move from a theme's calibrated default.
@@ -201,6 +218,10 @@ function hexToRgb(hex: string): [number, number, number] {
 /// The artwork's ground after the veil is applied — the colour every
 /// surface token derives from, so panel chrome reads as the same material
 /// as the wallpaper behind it.
+///
+/// Assumes `scrim` is already within the theme's usable range — callers
+/// outside applySpecialTokens should pass it through clampScrim first, or
+/// an out-of-range value yields components outside 0-255.
 export function compositeGround(
   t: SpecialTheme,
   scrim: number,
