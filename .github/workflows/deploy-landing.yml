@@ -6,6 +6,11 @@ on:
     paths:
       - "landing/**"
       - ".github/workflows/deploy-landing.yml"
+      # the landing build reads these desktop-app paths directly (blog theme
+      # gallery imports the theme registry and copies its artwork), so a
+      # change here must redeploy the site too
+      - "ui/src/theme/special.ts"
+      - "ui/assets/themes/**"
   workflow_dispatch:
 
 permissions:
@@ -29,6 +34,7 @@ jobs:
         with:
           node-version: 20
       - run: npm install
+      - run: npm run test:unit
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
