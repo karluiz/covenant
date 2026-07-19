@@ -1,0 +1,62 @@
+---
+title: "Making the terminal yours"
+description: "Seven wallpaper-backed themes, five tab styles, and about twenty-five other knobs — plus why the scrim on each theme is a measured value, not a taste call."
+date: 2026-07-19
+draft: true
+---
+
+import ThemeGallery from "../../components/blog/ThemeGallery.astro";
+import KnobTable from "../../components/blog/KnobTable.astro";
+
+{/*
+  SCAFFOLD — the structure and the data are here; the prose is yours.
+  Every heading below is a suggestion, not a constraint. Delete freely.
+
+  Material worth using, all verifiable in the repo:
+   - Grounds were sampled by median-cut quantisation of each artwork, not
+     eyeballed. See docs/superpowers/specs/2026-07-19-special-themes-design.md
+   - Scrims are calibrated so all seven composited surfaces land in a
+     10.8-12.2:1 contrast band against their own terminal foreground,
+     asserted in ui/src/theme/special.test.ts
+   - Steins;Gate has a pure-white ground (1.000 luminance), so it ships as a
+     LIGHT theme with a BLACK veil — the case that forced the scrim to be a
+     veil colour plus an alpha rather than a darkening amount
+   - Every artwork puts its subject in the right third, which is why the art
+     is anchored `right bottom`: terminal text hugs the left
+*/}
+
+## The themes
+
+<ThemeGallery />
+
+## Why the scrim is measured, not chosen
+
+## Everything else you can change
+
+<KnobTable rows={[
+  { group: "Theme",  setting: "theme",               values: "system / dark / true_dark / light / special" },
+  { group: "Theme",  setting: "special_theme",       values: "jjk, kimetsu, onepiece, haikyuu, zerotwo, bunny, steinsgate" },
+  { group: "Theme",  setting: "special_scrim",       values: "±0.20 around each theme's calibrated default" },
+  { group: "Window", setting: "window_background",   values: "solid / vibrant / translucent" },
+  { group: "Window", setting: "zen_icons",           values: "on / off" },
+  { group: "Window", setting: "status_bar_enabled",  values: "on / off" },
+  { group: "Window", setting: "notch_enabled",       values: "on / off" },
+  { group: "Tabs",   setting: "tab_style",           values: "classic / forge / glass / crt / custom" },
+  { group: "Tabs",   setting: "tab_custom_*",        values: "bg, shape, height, gap, indicator, gradient start/end, group shape, group bg" },
+  { group: "Tabs",   setting: "tabbar_position",     values: "top / left" },
+  { group: "Rails",  setting: "folded_rail_style",   values: "legacy / glyph / labels / spine" },
+  { group: "Type",   setting: "ui_font",             values: "chrome font stack override" },
+  { group: "Type",   setting: "term_font",           values: "terminal family" },
+  { group: "Type",   setting: "term_size",           values: "point size" },
+  { group: "Type",   setting: "term_letter_spacing", values: "-10 to 10 px, DPR-normalised" },
+  { group: "Type",   setting: "term_line_height",    values: "0.8 to 2.0" },
+  { group: "Type",   setting: "term_ligatures",      values: "on / off" },
+]} />
+
+## Where it all lives
+
+Everything above persists to a single file:
+
+```
+~/Library/Application Support/com.karluiz.covenant/config.json
+```

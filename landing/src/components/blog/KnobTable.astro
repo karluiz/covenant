@@ -1,0 +1,27 @@
+---
+export interface KnobRow { group: string; setting: string; values: string }
+interface Props { rows: KnobRow[] }
+const { rows } = Astro.props;
+---
+<div class="not-prose overflow-x-auto border border-mist/10">
+  <table class="w-full border-collapse text-sm min-w-[34rem]">
+    <thead>
+      <tr>
+        {["Group", "Setting", "Values"].map((h) => (
+          <th class="border-b border-mist/10 px-3 py-2 text-left font-mono text-[10px] uppercase tracking-eyebrow text-mist/50">
+            {h}
+          </th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr>
+          <td class="border-b border-mist/5 px-3 py-2 align-top text-mist/60">{r.group}</td>
+          <td class="border-b border-mist/5 px-3 py-2 align-top font-mono text-[12px] text-mist/90">{r.setting}</td>
+          <td class="border-b border-mist/5 px-3 py-2 align-top text-mist/70">{r.values}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
