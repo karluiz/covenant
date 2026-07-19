@@ -12,7 +12,7 @@
 // restoration which is its own arch change (M7+ scope).
 
 import { currentPlatform, formatChord } from "../platform";
-import { Terminal, type IDisposable } from "@xterm/xterm";
+import { Terminal, type IDisposable, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -164,12 +164,11 @@ const TERMINAL_THEME_DARK = {
   selectionBackground: "#2a3148",
 } as const;
 
-const TERMINAL_THEME_LIGHT = {
-  background: "rgba(255, 255, 255, 0.97)",
-  foreground: "#24292f",
-  cursor: "#2f6fed",
-  cursorAccent: "#ffffff",
-  selectionBackground: "#b6d4fe",
+/// The ANSI 16 on their own, so a light-based Special Theme can borrow them
+/// without also inheriting the near-opaque white background below. xterm's
+/// built-in defaults are tuned for a dark background — on a light one their
+/// cyan/blue wash out to near-invisible (`ls` directory names, git hints).
+const ANSI_LIGHT = {
   black:   "#24292f",
   red:     "#cf222e",
   green:   "#116329",
@@ -188,23 +187,40 @@ const TERMINAL_THEME_LIGHT = {
   brightWhite:   "#8c959f",
 } as const;
 
+const TERMINAL_THEME_LIGHT = {
+  background: "rgba(255, 255, 255, 0.97)",
+  foreground: "#24292f",
+  cursor: "#2f6fed",
+  cursorAccent: "#ffffff",
+  selectionBackground: "#b6d4fe",
+  ...ANSI_LIGHT,
+} as const;
+
 /// The active Special Theme's palette, pushed in by main.ts's applyTheme.
 /// A setter rather than an import because manager.ts importing main.ts
 /// would close an import cycle (main.ts imports TabManager).
 let activeSpecialTerm: SpecialTermTheme | null = null;
+let activeSpecialBase: "dark" | "light" = "dark";
 
-export function setActiveSpecialTermTheme(t: SpecialTermTheme | null): void {
+export function setActiveSpecialTermTheme(
+  t: SpecialTermTheme | null,
+  base: "dark" | "light" = "dark",
+): void {
   activeSpecialTerm = t;
+  activeSpecialBase = base;
 }
 
-export function termTheme():
-  | typeof TERMINAL_THEME_DARK
-  | typeof TERMINAL_THEME_LIGHT
-  | SpecialTermTheme {
+export function termTheme(): ITheme {
   // A Special Theme wins over both defaults, including under theme-light:
   // TERMINAL_THEME_LIGHT's background is near-opaque white, which would
-  // hide the artwork behind the terminal grid.
-  if (activeSpecialTerm) return activeSpecialTerm;
+  // hide the artwork behind the terminal grid. A light-based one still
+  // needs the light ANSI 16 underneath — xterm's dark-tuned defaults are
+  // unreadable over a light ground.
+  if (activeSpecialTerm) {
+    return activeSpecialBase === "light"
+      ? { ...ANSI_LIGHT, ...activeSpecialTerm }
+      : activeSpecialTerm;
+  }
   return document.body.classList.contains("theme-light")
     ? TERMINAL_THEME_LIGHT
     : TERMINAL_THEME_DARK;
