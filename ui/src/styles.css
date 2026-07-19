@@ -17641,7 +17641,7 @@ body.theme-light .teammate-panel-avatar .op-avatar {
   pointer-events: none;
 }
 /* Emotion hue palette. Tokens (Spanish) match the filename suffix in
- * ui/operatorsv2/. Each modifier only sets the tint color; the base rule
+ * ui/assets/operators/. Each modifier only sets the tint color; the base rule
  * derives fill + border + text from it. */
 .teammate-panel-sentiment--neutral     { --sentiment-color: #6b7280; }
 .teammate-panel-sentiment--feliz       { --sentiment-color: #16a34a; }

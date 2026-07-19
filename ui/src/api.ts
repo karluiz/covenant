@@ -574,7 +574,7 @@ export type TeammateContent =
   | { kind: "report";      data: TaskReport };
 
 /// Operator emotional state attached to a message. Mirrors the Rust
-/// `Sentiment` enum and the filename token of `ui/operatorsv2/<char>_<token>.png`.
+/// `Sentiment` enum and the filename token of `ui/assets/operators/<char>_<token>.png`.
 /// Spanish lowercase form is intentional — it's the storage key, the
 /// avatar lookup key, and the LLM directive token all at once.
 export type Sentiment =

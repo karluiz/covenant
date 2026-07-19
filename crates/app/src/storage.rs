@@ -788,7 +788,7 @@ impl Storage {
             [],
         );
         // 5.x Operator sentiment: lowercase Spanish token (matches the
-        // `Sentiment` enum + `ui/operatorsv2/<char>_<token>.png` filenames).
+        // `Sentiment` enum + `ui/assets/operators/<char>_<token>.png` filenames).
         // NULL for legacy rows, user turns, and operator turns where the
         // LLM emitted no parseable `SENTIMENT:` directive.
         let _ = conn.execute(
