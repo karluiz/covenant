@@ -6081,15 +6081,29 @@ export class TabManager {
     // Stamp the final name in the cache before disposal so closed-tab
     // labels survive for the operator-decisions panel.
     const closePane = activePane(tab);
-    const closingCwd = closePane.cwd || null;
-    // Covenant handed this worktree out; take it back once nobody is
-    // standing in it. Called after this.tabs.splice() below so
-    // listTabSnapshots() no longer reports the closing tab itself — the
-    // backend independently proves the worktree holds no work. A `false`
-    // return means it deliberately kept the worktree; that's a normal
-    // outcome, not an error. Fire-and-forget: a failed retirement must
-    // never block a tab close — the lifecycle ledger surfaces anything
-    // left behind.
+    // Every pane of the closing tab is being vacated, not just the active
+    // one — a split tab can have its background pane cd'd into a different
+    // worktree than the one showing. Deduped so a same-cwd split doesn't
+    // attempt retirement twice.
+    const closingCwds = Array.from(
+      new Set(tab.panes.map((p) => p.cwd).filter((c): c is string => !!c)),
+    );
+    // Covenant handed these worktrees out; take them back once nobody is
+    // standing in them. Called after this.tabs.splice() below so `this.tabs`
+    // no longer contains the closing tab — the backend independently proves
+    // each worktree holds no work. A `false` return means it deliberately
+    // kept the worktree; that's a normal outcome, not an error.
+    // Fire-and-forget: a failed retirement must never block a tab close —
+    // the lifecycle ledger surfaces anything left behind.
+    //
+    // Occupancy must be built from EVERY pane of every remaining tab, not
+    // just each tab's active pane. listTabSnapshots() (used elsewhere, e.g.
+    // the spec-prompt module) only reports activePane(t) per tab — correct
+    // for its other callers, but here it makes a background pane standing
+    // in the worktree invisible, and the backend genuinely deletes the
+    // directory out from under that live shell (a clean tree with no
+    // commits satisfies every check the backend makes). Read straight off
+    // `this.tabs` / `tab.panes` instead.
     //
     // Skipped during `inReplace` (workspace-switch teardown: move-group,
     // replaceFromManifest, disposeHibernated) for the same reason the
@@ -6100,14 +6114,17 @@ export class TabManager {
     // accepted for scrollback: err on leaving it, the lifecycle ledger
     // classifies it later.
     const retireClosedWorktree = (): void => {
-      if (this.inReplace || !closingCwd) return;
-      const remaining = this.listTabSnapshots()
-        .map((t) => t.cwd)
+      if (this.inReplace || closingCwds.length === 0) return;
+      const remaining = this.tabs
+        .flatMap((t) => t.panes)
+        .map((p) => p.cwd)
         .filter((c): c is string => !!c);
-      if (shouldRetire(closingCwd, remaining)) {
-        void worktreeRetire(closingCwd, closingCwd).catch(() => {
-          /* keep quiet: the ledger surfaces anything left behind */
-        });
+      for (const cwd of closingCwds) {
+        if (shouldRetire(cwd, remaining)) {
+          void worktreeRetire(cwd, cwd).catch(() => {
+            /* keep quiet: the ledger surfaces anything left behind */
+          });
+        }
       }
     };
     const closeSessionId = closePane.sessionId;

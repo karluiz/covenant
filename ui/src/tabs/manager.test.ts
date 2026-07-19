@@ -2,9 +2,14 @@ import { describe, expect, it, beforeAll, vi } from "vitest";
 import { TabManager, shouldRetire, type TabManifestV1 } from "./manager";
 
 // activate() reports the new active tab to the backend; jsdom has no Tauri
-// IPC bridge, so stub it out. Nothing here asserts on backend calls.
+// IPC bridge, so stub it out. Kept as a vi.fn() (via vi.hoisted, since
+// vi.mock factories are hoisted above imports) so worktree-retirement tests
+// can assert which backend commands actually fired.
+const mocks = vi.hoisted(() => ({
+  invoke: vi.fn((_cmd: string, ..._args: unknown[]) => Promise.resolve(undefined)),
+}));
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: () => Promise.resolve(),
+  invoke: mocks.invoke,
   Channel: class {
     onmessage: ((d: unknown) => void) | null = null;
   },
@@ -297,5 +302,165 @@ describe("worktree retirement on tab close", () => {
 
   it("never retires when the closing tab has no cwd", () => {
     expect(shouldRetire(null, [])).toBe(false);
+  });
+});
+
+function fakePane(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    kind: "shell",
+    sessionId: null,
+    cwd: "/tmp",
+    el: null,
+    xterm: null,
+    operator: null,
+    observer_ids: [],
+    ...overrides,
+  };
+}
+
+function retireCalls(): unknown[][] {
+  return mocks.invoke.mock.calls.filter(([cmd]) => cmd === "worktree_retire");
+}
+
+describe("worktree retirement occupancy covers every pane, not just active", () => {
+  // finalizeCloseTab builds its occupancy list to feed shouldRetire(). If
+  // that list only reflects each remaining tab's ACTIVE pane, a background
+  // (non-active) pane standing in the closing worktree is invisible and the
+  // backend genuinely deletes the directory out from under that live shell.
+  it("does not retire when a remaining tab's NON-active pane occupies the worktree", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      activeId: string | null;
+    };
+    const worktree = "/repo/.covenant/worktrees/agent-codex-0719-aaa";
+
+    // Split tab "bg": pane[0] (ACTIVE) sits elsewhere in the repo; pane[1]
+    // (background, NOT active) is cd'd into the worktree about to close.
+    const bgTab = {
+      id: "bg",
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [fakePane({ cwd: "/repo" }), fakePane({ cwd: worktree })],
+      layout: { kind: "split", orientation: "vertical", activePaneIdx: 0 },
+      disposers: [],
+    };
+    // Tab "closer" is the one actually closing; its cwd is the worktree.
+    const closerTab = {
+      id: "closer",
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [fakePane({ cwd: worktree })],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    };
+    priv.tabs.push(bgTab, closerTab);
+    priv.activeId = "closer";
+
+    mocks.invoke.mockClear();
+    m.closeTab("closer");
+
+    expect(retireCalls()).toHaveLength(0);
+  });
+
+  it("still retires when no remaining pane (active or background) occupies the worktree", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      activeId: string | null;
+    };
+    const worktree = "/repo/.covenant/worktrees/agent-codex-0719-ccc";
+
+    const bgTab = {
+      id: "bg",
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [fakePane({ cwd: "/repo" }), fakePane({ cwd: "/repo/other" })],
+      layout: { kind: "split", orientation: "vertical", activePaneIdx: 0 },
+      disposers: [],
+    };
+    const closerTab = {
+      id: "closer",
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [fakePane({ cwd: worktree })],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    };
+    priv.tabs.push(bgTab, closerTab);
+    priv.activeId = "closer";
+
+    mocks.invoke.mockClear();
+    m.closeTab("closer");
+
+    const calls = retireCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[1]).toEqual({ cwd: worktree, path: worktree });
+  });
+});
+
+describe("worktree retirement respects the inReplace guard", () => {
+  // The previous wave added `this.inReplace ||` to the retirement guard so
+  // that workspace-switch teardown (moveGroupTo, replaceFromManifest,
+  // disposeHibernated) never retires a worktree a respawn is about to reuse.
+  // That divergence from the original brief had zero regression coverage.
+  it("retires on an ordinary close (inReplace false)", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      activeId: string | null;
+      inReplace: boolean;
+    };
+    const worktree = "/repo/.covenant/worktrees/agent-codex-0719-ddd";
+    const closerTab = {
+      id: "closer",
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [fakePane({ cwd: worktree })],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    };
+    priv.tabs.push(closerTab);
+    priv.activeId = "closer";
+    priv.inReplace = false;
+
+    mocks.invoke.mockClear();
+    m.closeTab("closer");
+
+    const calls = retireCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[1]).toEqual({ cwd: worktree, path: worktree });
+  });
+
+  it("does not retire during workspace-switch teardown (inReplace true)", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      activeId: string | null;
+      inReplace: boolean;
+    };
+    const worktree = "/repo/.covenant/worktrees/agent-codex-0719-eee";
+    const closerTab = {
+      id: "closer",
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [fakePane({ cwd: worktree })],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    };
+    priv.tabs.push(closerTab);
+    priv.activeId = "closer";
+    priv.inReplace = true;
+
+    mocks.invoke.mockClear();
+    m.closeTab("closer");
+
+    expect(retireCalls()).toHaveLength(0);
   });
 });
