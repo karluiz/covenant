@@ -80,6 +80,7 @@ import {
   deleteScrollback,
   tabManifestSave,
   worktreeRetire,
+  worktreeRetitle,
   writeToSession,
   type MissionInfo,
   type Operator,
@@ -747,6 +748,32 @@ function saveSessionNameCache(m: Map<string, CachedSessionName>): void {
 /// Whether the closing tab's worktree may be handed to the backend for
 /// retirement. Proves only the half this layer can see — "no remaining tab is
 /// standing in it". The backend independently proves it holds no work.
+/// Applies an inferred title to a tab, and renames its worktree branch to
+/// match when the tab lives in one Covenant handed out.
+///
+/// Both title sources converge here: `title_suggested` (PTY, from the screen
+/// summarizer) and the ACP adapter's `onTitle`. A user-set `customName` still
+/// wins for DISPLAY via tabDisplayName — this only ever touches `defaultTitle`.
+///
+/// The branch rename is fire-and-forget and deliberately silent. It is a
+/// cosmetic improvement to a name the user may never look at; it must not
+/// delay the tabbar repaint, and a failure must not surface as an error.
+export function applyInferredTitle(
+  tab: { defaultTitle: string | null; panes: Array<{ cwd: string }> },
+  title: string,
+  repaint: () => void,
+): void {
+  const clean = title.trim();
+  if (!clean) return;
+  tab.defaultTitle = clean;
+  repaint();
+  const cwd = tab.panes[0]?.cwd;
+  if (!cwd) return;
+  void worktreeRetitle(cwd, cwd, clean).catch(() => {
+    /* cosmetic: the birth slug remains, which is still readable */
+  });
+}
+
 export function shouldRetire(closingCwd: string | null, remainingCwds: string[]): boolean {
   if (!closingCwd) return false;
   const prefix = closingCwd.endsWith("/") ? closingCwd : `${closingCwd}/`;
@@ -3590,9 +3617,8 @@ export class TabManager {
             } else if (event.kind === "title_suggested") {
               // AI-generated activity label. Only update the auto title;
               // a user-set customName always wins (see tabDisplayName).
-              if (tabRef.current && event.title.trim().length > 0) {
-                tabRef.current.defaultTitle = event.title.trim();
-                this.renderTabbar();
+              if (tabRef.current) {
+                applyInferredTitle(tabRef.current, event.title, () => this.renderTabbar());
               }
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) {
@@ -4966,8 +4992,7 @@ export class TabManager {
         onTitle: (title) => {
           const t = this.tabs.find((x) => x.id === id);
           if (!t) return;
-          t.defaultTitle = title;
-          this.renderTabbar();
+          applyInferredTitle(t, title, () => this.renderTabbar());
         },
         // `/rename <name>` in the ACP composer — authoritative customName,
         // same path as double-click / context-menu rename.

@@ -2612,6 +2612,20 @@ async fn worktree_create(
 }
 
 #[tauri::command]
+async fn worktree_retitle(
+    cwd: String,
+    path: String,
+    title: String,
+) -> Result<Option<String>, String> {
+    let root = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || {
+        git_tools::retitle_worktree_branch(&root, &path, &title)
+    })
+    .await
+    .map_err(|e| format!("worktree_retitle join: {e}"))?
+}
+
+#[tauri::command]
 async fn worktree_retire(cwd: String, path: String) -> Result<bool, String> {
     let root = PathBuf::from(cwd);
     tokio::task::spawn_blocking(move || git_tools::retire_worktree(&root, &path))
@@ -5417,6 +5431,7 @@ pub fn run() {
             worktree_relocate,
             worktree_create,
             worktree_retire,
+            worktree_retitle,
             git_switch_branch,
             git_changes,
             beacon_workflow_runs,

@@ -557,6 +557,126 @@ pub fn relocate_worktree(cwd: &Path, path: &str) -> Result<String, String> {
 ///
 /// The "no other tab is standing in it" condition lives in the caller: this
 /// module has no visibility into sessions.
+/// The trailing `-<MMDD>-<suffix>` of an agent slug, if `branch` has one.
+///
+/// This identifies the part to PRESERVE across a retitle, not whether the
+/// branch has been retitled before — a retitled branch keeps the same shape
+/// (`agent/worktree-prevention-0719-y72` is indistinguishable from
+/// `agent/claude-0719-y72`), so the shape cannot carry that meaning. What
+/// stops the churn is the upstream check in `retitle_worktree_branch`.
+fn birth_slug_tail(branch: &str) -> Option<String> {
+    let rest = branch.strip_prefix("agent/")?;
+    let mut parts = rest.rsplitn(3, '-');
+    let suffix = parts.next()?;
+    let date = parts.next()?;
+    parts.next()?; // the executor segment must exist
+    let ok = suffix.len() == 3
+        && suffix.chars().all(|c| c.is_ascii_alphanumeric())
+        && date.len() == 4
+        && date.chars().all(|c| c.is_ascii_digit());
+    ok.then(|| format!("{date}-{suffix}"))
+}
+
+/// `"Worktree prevention"` -> `"worktree-prevention"`. `None` when the title
+/// carries nothing usable in a git ref.
+fn title_slug(title: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut dash = false;
+    for c in title.chars().flat_map(|c| c.to_lowercase()) {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+            dash = false;
+        } else if !out.is_empty() && !dash {
+            out.push('-');
+            dash = true;
+        }
+        if out.len() >= 40 {
+            break;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
+/// Renames a Covenant-created worktree's branch to reflect an inferred tab
+/// title. Returns the new branch name, or `None` when nothing was renamed.
+///
+/// Only the BRANCH moves. The directory keeps its birth name deliberately:
+/// `git worktree move` on a live checkout pulls the floor out from under the
+/// agent running inside it, which is the same hazard `relocate_worktree`
+/// refuses for. Renaming the ref is safe — git rewrites the linked worktree's
+/// HEAD in place and the running shell never notices, since its cwd is
+/// unchanged.
+///
+/// The birth suffix is preserved (`agent/worktree-prevention-346`) rather than
+/// dropped. It costs nothing, keeps the name traceable back to the launch, and
+/// makes collisions with a same-titled sibling impossible without any retry
+/// logic.
+///
+/// The branch is retitled every time the inferred title changes, for as long
+/// as it stays local. Titles settle after the first few turns of a
+/// conversation, and renaming an unpublished, agent-owned ref is cheap — so
+/// converging on the best-known name beats freezing the first guess.
+///
+/// Every "not applicable" case returns `Ok(None)`, never an error: a rename
+/// that cannot happen must never disturb the tab that triggered it.
+pub fn retitle_worktree_branch(
+    cwd: &Path,
+    path: &str,
+    title: &str,
+) -> Result<Option<String>, String> {
+    let summary = repo_summary(cwd)?;
+    let target = canonical_or_self(Path::new(path));
+
+    let main_root = summary
+        .worktrees
+        .iter()
+        .find(|w| w.is_main)
+        .map(|w| canonical_or_self(Path::new(&w.path)))
+        .ok_or_else(|| "no worktrees reported by git".to_string())?;
+
+    // Same containment resolution `retire_worktree` uses: an agent that cd'd
+    // into a subdirectory of its own worktree still owns that worktree.
+    let resolved = summary
+        .worktrees
+        .iter()
+        .map(|w| (w, canonical_or_self(Path::new(&w.path))))
+        .filter(|(_, root)| target.starts_with(root))
+        .max_by_key(|(_, root)| root.as_os_str().len());
+    let Some((wt, wt_root)) = resolved else {
+        return Ok(None);
+    };
+    if wt_root == main_root || !wt_root.starts_with(main_root.join(CANONICAL_WORKTREE_DIR)) {
+        return Ok(None);
+    }
+
+    let Some(branch) = wt.branch.as_deref() else {
+        return Ok(None);
+    };
+    let Some(tail) = birth_slug_tail(branch) else {
+        return Ok(None);
+    };
+    // Once the branch is published, its name is somebody else's reference:
+    // renaming locally would orphan the remote and break anyone tracking it.
+    // An upstream is a real, checkable signal of that — unlike the branch's
+    // shape, which looks identical before and after a retitle.
+    if git(&main_root, &["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")]).is_ok() {
+        return Ok(None);
+    }
+    let Some(slug) = title_slug(title) else {
+        return Ok(None);
+    };
+
+    let renamed = format!("agent/{slug}-{tail}");
+    if renamed == branch {
+        return Ok(None);
+    }
+    // Run from the main worktree, never `cwd` — the caller is a tab standing
+    // inside the worktree whose branch is moving.
+    git(&main_root, &["branch", "-m", branch, &renamed])?;
+    Ok(Some(renamed))
+}
+
 pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
     let summary = repo_summary(cwd)?;
     let target = canonical_or_self(Path::new(path));
@@ -3083,4 +3203,125 @@ index e69de29..0cfbf08 100644
             "branch must be deleted via ancestry-against-base, not HEAD-relative -d",
         );
     }
+    #[test]
+    fn birth_slug_tail_matches_only_the_shape_create_worktree_emits() {
+        assert_eq!(birth_slug_tail("agent/claude-0719-y72").as_deref(), Some("0719-y72"));
+        assert_eq!(birth_slug_tail("agent/pi-agent-1231-abc").as_deref(), Some("1231-abc"));
+        // Already retitled — must not be renamed a second time.
+        assert_eq!(birth_slug_tail("agent/worktree-prevention-0719-y72").as_deref(), Some("0719-y72"));
+        assert_eq!(birth_slug_tail("agent/worktree-prevention"), None);
+        // Not ours.
+        assert_eq!(birth_slug_tail("feat/something"), None);
+        assert_eq!(birth_slug_tail("agent/claude-071-y72"), None); // date too short
+        assert_eq!(birth_slug_tail("agent/claude-0719-y7"), None); // suffix too short
+        assert_eq!(birth_slug_tail("agent/x"), None);
+    }
+
+    #[test]
+    fn title_slug_produces_a_legal_ref_fragment() {
+        assert_eq!(title_slug("Worktree prevention").as_deref(), Some("worktree-prevention"));
+        assert_eq!(title_slug("Fix: the CI race!").as_deref(), Some("fix-the-ci-race"));
+        assert_eq!(title_slug("  spaced  out  ").as_deref(), Some("spaced-out"));
+        assert_eq!(title_slug("café ñandú").as_deref(), Some("caf-and"));
+        assert_eq!(title_slug("!!!"), None);
+        assert_eq!(title_slug(""), None);
+        // Long titles are capped, and never end on a dash.
+        let long = title_slug(&"very long title ".repeat(10)).unwrap();
+        assert!(long.len() <= 40, "got {long}");
+        assert!(!long.ends_with('-'), "got {long}");
+    }
+
+    #[test]
+    fn retitle_renames_the_branch_and_the_live_worktree_follows() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/claude-0719-y72", None).unwrap();
+
+        let renamed = retitle_worktree_branch(root, &path, "Worktree prevention")
+            .unwrap()
+            .expect("renamed");
+        assert_eq!(renamed, "agent/worktree-prevention-0719-y72");
+
+        // The directory deliberately does NOT move — moving a live checkout
+        // would pull the floor out from under the agent inside it.
+        assert!(Path::new(&path).is_dir());
+        // ...but the worktree now reports the new branch, and still works.
+        let after = repo_summary(root).unwrap();
+        let row = after
+            .worktrees
+            .iter()
+            .find(|w| canonical_or_self(Path::new(&w.path)) == canonical_or_self(Path::new(&path)))
+            .unwrap();
+        assert_eq!(row.branch.as_deref(), Some("agent/worktree-prevention-0719-y72"));
+    }
+
+    #[test]
+    fn retitle_follows_a_changing_title_while_the_branch_is_local() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/claude-0719-y72", None).unwrap();
+
+        let first = retitle_worktree_branch(root, &path, "First title").unwrap().expect("first");
+        assert_eq!(first, "agent/first-title-0719-y72");
+        // A later, better title wins: the birth suffix is preserved throughout,
+        // so this converges rather than accumulating.
+        let second = retitle_worktree_branch(root, &path, "Second title").unwrap().expect("second");
+        assert_eq!(second, "agent/second-title-0719-y72");
+        // The same title twice is a genuine no-op.
+        assert_eq!(retitle_worktree_branch(root, &path, "Second title").unwrap(), None);
+    }
+
+    #[test]
+    fn retitle_refuses_once_the_branch_has_an_upstream() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/claude-0719-y72", None).unwrap();
+
+        // Stand up a real remote and publish the branch. The bare repo lives in
+        // its OWN TempDir — putting it in the shared system temp dir makes
+        // parallel runs of this test collide on one `origin.git`.
+        let origin_tmp = tempfile::TempDir::new().unwrap();
+        let origin = origin_tmp.path().join("origin.git");
+        git_run(root, &["init", "-q", "--bare", origin.to_str().unwrap()]);
+        git_run(root, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        git_run(Path::new(&path), &["push", "-q", "-u", "origin", "agent/claude-0719-y72"]);
+
+        // Published means somebody else may be tracking the name.
+        assert_eq!(retitle_worktree_branch(root, &path, "Too late").unwrap(), None);
+    }
+
+    #[test]
+    fn retitle_resolves_a_subdirectory_to_its_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let path = create_worktree(root, "agent/claude-0719-y72", None).unwrap();
+        let sub = Path::new(&path).join("deep/inside");
+        std::fs::create_dir_all(&sub).unwrap();
+
+        let renamed = retitle_worktree_branch(root, sub.to_str().unwrap(), "Deep work")
+            .unwrap()
+            .expect("renamed from a subdirectory");
+        assert_eq!(renamed, "agent/deep-work-0719-y72");
+    }
+
+    #[test]
+    fn retitle_refuses_the_main_worktree_and_anything_outside_the_canonical_root() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        assert_eq!(retitle_worktree_branch(root, root.to_str().unwrap(), "Nope").unwrap(), None);
+
+        let stray = root.join("stray");
+        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "agent/claude-0719-zzz"]);
+        assert_eq!(
+            retitle_worktree_branch(root, stray.to_str().unwrap(), "Also nope").unwrap(),
+            None,
+        );
+        assert!(stray.exists());
+    }
+
 }

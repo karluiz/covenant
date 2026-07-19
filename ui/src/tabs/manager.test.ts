@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, vi } from "vitest";
-import { TabManager, shouldRetire, type TabManifestV1 } from "./manager";
+import { TabManager, applyInferredTitle, shouldRetire, type TabManifestV1 } from "./manager";
 
 // activate() reports the new active tab to the backend; jsdom has no Tauri
 // IPC bridge, so stub it out. Kept as a vi.fn() (via vi.hoisted, since
@@ -462,5 +462,34 @@ describe("worktree retirement respects the inReplace guard", () => {
     m.closeTab("closer");
 
     expect(retireCalls()).toHaveLength(0);
+  });
+});
+
+describe("inferred title -> branch rename", () => {
+  const tab = (cwd: string) => ({ defaultTitle: null as string | null, panes: [{ cwd }] });
+
+  it("sets the title and repaints before any git work", () => {
+    const t = tab("/repo/.covenant/worktrees/agent-claude-0719-y72");
+    let painted = false;
+    applyInferredTitle(t, "  Worktree prevention  ", () => { painted = true; });
+    // Trimmed, applied, and the tabbar repainted synchronously — the rename is
+    // fire-and-forget and must never gate the visible update.
+    expect(t.defaultTitle).toBe("Worktree prevention");
+    expect(painted).toBe(true);
+  });
+
+  it("ignores an empty title without touching the tab", () => {
+    const t = tab("/repo/.covenant/worktrees/agent-claude-0719-y72");
+    t.defaultTitle = "kept";
+    let painted = false;
+    applyInferredTitle(t, "   ", () => { painted = true; });
+    expect(t.defaultTitle).toBe("kept");
+    expect(painted).toBe(false);
+  });
+
+  it("still applies the title when the tab has no cwd to rename against", () => {
+    const t = tab("");
+    applyInferredTitle(t, "No cwd", () => {});
+    expect(t.defaultTitle).toBe("No cwd");
   });
 });

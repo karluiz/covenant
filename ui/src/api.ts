@@ -1407,6 +1407,18 @@ export async function worktreeCreate(
 
 /// Resolves true when the worktree was removed, false when it was kept
 /// because it held something. Never throws for "kept".
+/// Renames a Covenant-created worktree's branch to match an inferred tab
+/// title. Resolves the new branch name, or null when nothing was renamed —
+/// null is the ordinary outcome (not our worktree, already published, title
+/// unusable) and never an error.
+export async function worktreeRetitle(
+  cwd: string,
+  path: string,
+  title: string,
+): Promise<string | null> {
+  return invoke<string | null>("worktree_retitle", { cwd, path, title });
+}
+
 export async function worktreeRetire(cwd: string, path: string): Promise<boolean> {
   return invoke<boolean>("worktree_retire", { cwd, path });
 }
