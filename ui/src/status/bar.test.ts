@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const worktreeReclaimMock = vi.fn();
 const worktreeSizesMock = vi.fn();
 const gitRepoSummaryMock = vi.fn();
+const worktreeRelocateMock = vi.fn();
 vi.mock("../api", () => ({
   telegramStatus: vi.fn().mockResolvedValue("disabled"),
   getDirContext: vi.fn().mockResolvedValue({ git: null, runtime: null }),
@@ -19,7 +20,7 @@ vi.mock("../api", () => ({
   setSessionMissionContent: vi.fn().mockResolvedValue(null),
   worktreeReclaim: (cwd: string, paths: string[]) => worktreeReclaimMock(cwd, paths),
   worktreeSizes: (paths: string[]) => worktreeSizesMock(paths),
-  worktreeRelocate: vi.fn(),
+  worktreeRelocate: (cwd: string, path: string) => worktreeRelocateMock(cwd, path),
 }));
 
 vi.mock("../aom/connectivity", () => ({
@@ -287,8 +288,75 @@ describe("git worktree popover — destructive click wiring", () => {
     worktreeReclaimMock.mockReset().mockResolvedValue([]);
     worktreeSizesMock.mockReset().mockResolvedValue([]);
     gitRepoSummaryMock.mockReset();
+    worktreeRelocateMock.mockReset().mockResolvedValue("/repo/.covenant/worktrees/x");
     pushConfirmToastMock.mockReset();
     pushInfoToastMock.mockReset();
+  });
+
+  /// Clicks the single per-row action button rendered for `worktrees[0]`.
+  const clickRowAction = async (worktrees: GitWorktreeSummary[]): Promise<HTMLButtonElement> => {
+    gitRepoSummaryMock.mockResolvedValue(summaryWith(worktrees));
+    openPopover();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const btn = document.querySelector<HTMLButtonElement>(".status-git-pop-wt-act");
+    expect(btn).not.toBeNull();
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return btn!;
+  };
+
+  it("per-row reclaim does not delete until the confirm toast is confirmed", async () => {
+    await clickRowAction([wt({ path: "/repo/stray", branch: "feat/gone", off_convention: true })]);
+
+    expect(pushConfirmToastMock).toHaveBeenCalledOnce();
+    expect(worktreeReclaimMock).not.toHaveBeenCalled();
+
+    const toast = pushConfirmToastMock.mock.calls[0][0] as { onConfirm: () => void };
+    toast.onConfirm();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(worktreeReclaimMock).toHaveBeenCalledWith(cwd, ["/repo/stray"]);
+  });
+
+  it("per-row reclaim confirm warns that ignored files go with the directory", async () => {
+    // The branch is provably merged, so committed work is never at risk —
+    // the untracked/ignored files are the only thing the user can actually
+    // lose, and the only reason this confirm exists at all.
+    await clickRowAction([wt({ path: "/repo/stray", branch: "feat/gone" })]);
+
+    const toast = pushConfirmToastMock.mock.calls[0][0] as { message: string };
+    expect(toast.message).toMatch(/untracked and ignored files/i);
+    expect(toast.message).toContain("main");
+  });
+
+  it("cancelling a per-row reclaim deletes nothing and re-enables the button", async () => {
+    const btn = await clickRowAction([wt({ path: "/repo/stray", branch: "feat/gone" })]);
+    expect(btn.disabled).toBe(true);
+
+    const toast = pushConfirmToastMock.mock.calls[0][0] as { onCancel: () => void };
+    toast.onCancel();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(worktreeReclaimMock).not.toHaveBeenCalled();
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("relocate is not gated behind a confirm — it moves a checkout, it deletes nothing", async () => {
+    await clickRowAction([
+      wt({ path: "/repo/stray", branch: "feat/live", state: "active", merged: false, off_convention: true }),
+    ]);
+
+    expect(pushConfirmToastMock).not.toHaveBeenCalled();
+    expect(worktreeRelocateMock).toHaveBeenCalledWith(cwd, "/repo/stray");
+  });
+
+  it("prune is not gated behind a confirm — the directory is already gone", async () => {
+    await clickRowAction([
+      wt({ path: "/repo/vanished", branch: "feat/vanished", state: "orphan", merged: false }),
+    ]);
+
+    expect(pushConfirmToastMock).not.toHaveBeenCalled();
+    expect(worktreeReclaimMock).toHaveBeenCalledWith(cwd, ["/repo/vanished"]);
   });
 
   it("bulk reclaim does not call worktreeReclaim until the confirm toast is actually confirmed", async () => {
@@ -386,7 +454,9 @@ describe("git worktree popover — destructive click wiring", () => {
 
     expect(pushConfirmToastMock).toHaveBeenCalledOnce();
     const toast = pushConfirmToastMock.mock.calls[0][0] as { message: string };
-    expect(toast.message).toContain("already in main.");
+    // Pinned by position, not by trailing punctuation — the sentence after
+    // the branch name is free to change.
+    expect(toast.message).toMatch(/already in main\b/);
     expect(toast.message).not.toContain("feat/worktree-lifecycle");
   });
 

@@ -1007,7 +1007,7 @@ export class StatusBar {
           ? ""
           : verb === "open" || verb === "decide"
             ? `<button type="button" class="status-git-pop-open-wt" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">Open tab</button>`
-            : `<button type="button" class="status-git-pop-wt-act" data-verb="${verb}" data-path="${escapeHtml(wt.path)}">${ACTION_LABEL[verb]}</button>`;
+            : `<button type="button" class="status-git-pop-wt-act" data-verb="${verb}" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">${ACTION_LABEL[verb]}</button>`;
         // data-path/data-label live on the ROW too, not just the open-tab
         // button — rows whose default verb is reclaim/prune/relocate render
         // no "Open tab" button at all, but Enter must still be able to open
@@ -1145,33 +1145,68 @@ export class StatusBar {
       });
     });
     pop.querySelectorAll<HTMLButtonElement>(".status-git-pop-wt-act").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const path = btn.dataset.path ?? "";
-        const verb = btn.dataset.verb ?? "";
-        if (!path) return;
-        btn.disabled = true;
+      /// Runs the row's verb. Split out so the reclaim path can call it from
+      /// behind a confirm while relocate/prune still fire on the first click.
+      const run = async (path: string, verb: string): Promise<void> => {
         try {
           if (verb === "relocate") {
             const moved = await worktreeRelocate(cwd, path);
             pushInfoToast({ message: `Moved to ${compactPath(moved)}` });
           } else {
             // prune and reclaim share one command: the backend re-derives state
-            // and refuses anything it does not itself classify as spent.
+            // and refuses anything it does not itself classify as spent or orphan.
             const [outcome] = await worktreeReclaim(cwd, [path]);
             if (outcome && !outcome.removed) {
               pushInfoToast({ message: `Could not reclaim: ${outcome.reason ?? "refused"}` });
               return;
             }
-            pushInfoToast({ message: "Worktree reclaimed" });
+            pushInfoToast({ message: verb === "prune" ? "Stale entry pruned" : "Worktree reclaimed" });
           }
           // The popover renders once from openBranchPopover and has no refresh
           // path; closing it is the honest way to drop now-stale rows.
           this.closeBranchPopover();
         } catch (e) {
           pushInfoToast({ message: String(e) });
-        } finally {
-          btn.disabled = false;
         }
+      };
+
+      btn.addEventListener("click", async () => {
+        const path = btn.dataset.path ?? "";
+        const verb = btn.dataset.verb ?? "";
+        const label = btn.dataset.label ?? "this worktree";
+        if (!path) return;
+        btn.disabled = true;
+
+        // Only `reclaim` destroys anything. `relocate` moves a checkout and
+        // `prune` drops a git record for a directory that is already gone —
+        // gating those behind a confirm would only train the user to click
+        // through the one that matters.
+        if (verb !== "reclaim") {
+          try {
+            await run(path, verb);
+          } finally {
+            btn.disabled = false;
+          }
+          return;
+        }
+
+        // Toast copy renders via textContent — do NOT escapeHtml it.
+        // The untracked-files warning is the whole reason this confirm
+        // exists: the branch is provably merged, so nothing COMMITTED is at
+        // risk, but `git worktree remove` deletes ignored files silently and
+        // that is the part nobody expects.
+        pushConfirmToast({
+          message: `Delete ${label}? Its branch is merged into ${summary.default_branch}, so no committed work is lost — but untracked and ignored files inside it (.env, local databases, build output) are deleted with it.`,
+          confirmLabel: "Reclaim",
+          onCancel: () => {
+            btn.disabled = false;
+          },
+          onConfirm: () => {
+            void run(path, verb).finally(() => {
+              btn.disabled = false;
+            });
+          },
+        });
       });
     });
 
@@ -1202,7 +1237,7 @@ export class StatusBar {
           // confirmation for a bulk directory deletion.
           message: `Delete ${paths.length} merged worktree(s)${detail}? Their branches are already in ${
             summary.default_branch
-          }.`,
+          }, so no committed work is lost — but untracked and ignored files inside them (.env, local databases, build output) are deleted too.`,
           confirmLabel: "Reclaim",
           onCancel: () => {
             btn.disabled = false;
