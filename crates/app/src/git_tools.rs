@@ -445,11 +445,17 @@ pub fn create_worktree(cwd: &Path, slug: &str, base: Option<&str>) -> Result<Str
 
 /// The ref an agent branch should be cut from when the caller didn't pin one:
 /// `origin/<default branch>` when that remote-tracking ref resolves, else the
-/// local default branch. Deliberately NOT folded into `default_branch` itself
-/// — `retire_worktree`'s ahead-count and `reclaim_worktrees`' merge re-check
-/// both depend on `default_branch`'s current local-name semantics, and this
-/// preference is specific to "what should a freshly created agent branch be
-/// based on", not "what name does this repo call its default branch".
+/// local default branch. Also the ref `retire_worktree` measures its
+/// ahead-count against — create and retire must agree on what "no commits of
+/// its own" means, or an everyday `git fetch` (which moves `origin/<default>`
+/// without touching the local branch) makes retire see a freshly created,
+/// untouched worktree as "ahead". Deliberately NOT folded into `default_branch`
+/// itself — `reclaim_worktrees`' merge re-check (and the `merged` flag /
+/// `derive_state` lifecycle classification behind it) still depends on
+/// `default_branch`'s current local-name semantics, since a worktree's
+/// Spent/Stale classification is a different question ("has this landed on
+/// the branch a human would call merged") from "what did the agent's branch
+/// start from".
 fn preferred_base(cwd: &Path) -> String {
     let local = default_branch(cwd);
     let remote = format!("origin/{local}");
@@ -604,8 +610,20 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
     let main = main_root.as_path();
 
     // `--porcelain` in status already counts untracked files, so dirty_count
-    // covers scratch files. What is left to prove is "no commits of its own".
-    let base = default_branch(main);
+    // covers scratch files. What is left to prove is "no commits of its own"
+    // — and "its own" has to be measured against whatever `create_worktree`
+    // actually cut this branch from. `create_worktree` bases new worktrees on
+    // `preferred_base` (`origin/<default>` when that ref resolves, else the
+    // local default branch), NOT on `default_branch` directly. Using
+    // `default_branch(main)` here — the LOCAL default branch — used to make
+    // create and retire disagree: after a plain `git fetch` (an everyday
+    // event, no merge involved) advances `origin/<default>` past the local
+    // branch, an untouched worktree picks up the commit(s) origin already had
+    // that local `main` doesn't, so `rev-list local_main..branch` reports
+    // "ahead" for a worktree the agent never touched. Use the same
+    // `preferred_base` resolution `create_worktree` used, so an untouched
+    // worktree is reliably 0-ahead regardless of when the caller last fetched.
+    let base = preferred_base(main);
     let ahead = git(main, &["rev-list", "--count", &format!("{base}..{branch}")])
         .ok()
         .and_then(|s| s.trim().parse::<u32>().ok())
@@ -620,9 +638,11 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
     // by `dirty_count`'s definition can still hold real content: an agent's
     // `npm install`, scratch notes written to a gitignored path, anything.
     // Re-check immediately before removal with `--ignored=matching`, which
-    // does surface ignored entries (recursing into ignored directories
-    // rather than reporting just the directory name), and refuse if it
-    // reports anything at all. This is scoped to the removal gate only —
+    // does surface ignored entries — as `!! <path>` lines, one per ignored
+    // top-level entry, not recursed into — and refuse if it reports anything
+    // at all. The point isn't parsing what it reports, it's that a pristine
+    // worktree reports nothing; any output at all means there is content on
+    // disk this gate hasn't accounted for. This is scoped to the removal gate only —
     // `derive_state`/`dirty_count` deliberately do not count ignored files,
     // so the lifecycle ledger doesn't misclassify a worktree as dirty just
     // because it has a populated `node_modules/`.
@@ -2770,6 +2790,62 @@ index e69de29..0cfbf08 100644
             !branches.lines().any(|l| l.trim() == "agent/untouched-0719-aaa"),
             "an empty worktree's branch has nothing in it either",
         );
+    }
+
+    #[test]
+    fn retire_removes_an_untouched_worktree_when_local_main_lags_origin() {
+        // Reproduces the regression: `create_worktree` bases new worktrees on
+        // `origin/<default>` when it resolves (see
+        // `create_worktree_prefers_origin_default_over_a_lagging_local_default`),
+        // but `retire_worktree`'s ahead-count used to be computed against the
+        // LOCAL default branch instead. After a plain `git fetch` (no merge)
+        // advances `origin/main` past local `main`, a completely untouched,
+        // freshly created worktree is `rev-list origin/main..branch == 0`
+        // (correct: zero commits of its own) but `rev-list main..branch ==
+        // 1` (the one commit origin already had that local main doesn't) —
+        // so the old code refused to retire it even though the agent never
+        // touched it. An everyday `git fetch` must not silently disable
+        // retirement.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let bare = tmp.path().join("origin.git");
+        std::fs::create_dir_all(&bare).unwrap();
+        git_run(&bare, &["init", "-q", "--bare", "-b", "main"]);
+
+        let root = tmp.path().join("work");
+        std::fs::create_dir_all(&root).unwrap();
+        init_repo(&root);
+        git_run(&root, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git_run(&root, &["push", "-q", "-u", "origin", "main"]);
+
+        // Advance origin/main independently, from a second clone, so the
+        // caller's local "main" falls behind it — a real lag, not a
+        // fast-forward the caller could trivially pick up.
+        let other = tmp.path().join("other-clone");
+        git_run(tmp.path(), &["clone", "-q", bare.to_str().unwrap(), other.to_str().unwrap()]);
+        git_run(&other, &["config", "user.email", "t@t.t"]);
+        git_run(&other, &["config", "user.name", "t"]);
+        std::fs::write(other.join("origin-only.txt"), "from origin\n").unwrap();
+        git_run(&other, &["add", "."]);
+        git_run(&other, &["commit", "-q", "-m", "origin advances"]);
+        git_run(&other, &["push", "-q", "origin", "main"]);
+
+        // Bring the remote-tracking ref up to date without moving local
+        // "main" — this is `git fetch`, not `git pull`.
+        git_run(&root, &["fetch", "-q", "origin"]);
+        assert!(
+            !root.join("origin-only.txt").exists(),
+            "sanity: local main must still be behind"
+        );
+
+        // A fresh, completely untouched worktree — cut from origin/main per
+        // `create_worktree`'s own preference, not from the lagging local main.
+        let path = create_worktree(&root, "agent/lagging-0719-jjj", None).unwrap();
+
+        assert!(
+            retire_worktree(&root, &path).unwrap(),
+            "an untouched worktree must retire even when local main lags origin/main"
+        );
+        assert!(!Path::new(&path).exists());
     }
 
     #[test]
