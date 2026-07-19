@@ -11,6 +11,7 @@ import { resolveFileIcon, resolveFolderIcon } from "./file-icons";
 import { ContextMenu, type MenuItem } from "../menu/context-menu";
 import { formatChord } from "../platform";
 import { shareFileAsGist, copyGistLink, revokeGist } from "../gist/share";
+import { pushInfoToast } from "../notifications/toast";
 import {
   structureClipboardFiles,
   structureClipboardSetFiles,
@@ -684,23 +685,22 @@ export class StructureTree {
       },
     );
 
-    if (node.entry.kind === "file") {
+    if (node.entry.kind === "file" && isShareableAsGist(node.entry.path)) {
       items.push(
         { divider: true },
         {
           label: "Share as gist",
           onClick: () =>
-            void shareFileAsGist(node.entry.path).catch((err) => this.showError(`Share failed: ${err}`)),
+            void shareFileAsGist(node.entry.path).catch((err) => gistErrorToast("Share", err)),
         },
         {
           label: "Copy gist link",
-          onClick: () =>
-            void copyGistLink(node.entry.path).catch((err) => this.showError(`Copy failed: ${err}`)),
+          onClick: () => void copyGistLink(node.entry.path).catch((err) => gistErrorToast("Copy", err)),
         },
         {
           label: "Revoke gist",
           danger: true,
-          onClick: () => void revokeGist(node.entry.path).catch((err) => this.showError(`Revoke failed: ${err}`)),
+          onClick: () => void revokeGist(node.entry.path).catch((err) => gistErrorToast("Revoke", err)),
         },
       );
     }
@@ -1126,6 +1126,36 @@ function parentDir(path: string, fallback: string): string {
   const idx = trimmed.lastIndexOf("/");
   if (idx <= 0) return fallback;
   return trimmed.slice(0, idx);
+}
+
+/// Gists are text-only (the backend reads the file as UTF-8). Hide the
+/// gist actions for extensions that are never text, so the menu doesn't
+/// offer an action that can only fail.
+// ponytail: extension sniff, not content sniff — a binary with a .txt
+// extension still fails, and `gistErrorToast` explains why.
+const BINARY_EXTS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "icns", "tiff", "heic", "avif",
+  "pdf", "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "jar", "war",
+  "mp3", "wav", "flac", "ogg", "m4a", "aac",
+  "mp4", "mov", "avi", "mkv", "webm",
+  "ttf", "otf", "woff", "woff2", "eot",
+  "so", "dylib", "dll", "exe", "bin", "o", "a", "rlib", "wasm", "class", "pyc",
+  "db", "sqlite", "sqlite3", "psd", "sketch", "fig",
+]);
+
+export function isShareableAsGist(path: string): boolean {
+  const name = path.split("/").pop() ?? "";
+  const idx = name.lastIndexOf(".");
+  if (idx <= 0) return true; // no extension (or dotfile) — assume text
+  return !BINARY_EXTS.has(name.slice(idx + 1).toLowerCase());
+}
+
+function gistErrorToast(verb: string, err: unknown): void {
+  const raw = String(err);
+  const message = /valid UTF-8/i.test(raw)
+    ? "Gists are text-only — this file isn't valid UTF-8."
+    : `${verb} failed: ${raw}`;
+  pushInfoToast({ message });
 }
 
 function shortenCwd(cwd: string): string {

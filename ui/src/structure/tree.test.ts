@@ -8,7 +8,7 @@ vi.mock("../api", () => ({
   structureMoveInto: vi.fn(),
 }));
 
-import { StructureTree } from "./tree";
+import { StructureTree, isShareableAsGist } from "./tree";
 import { structureListDir, structureMoveInto } from "../api";
 
 const listDirMock = structureListDir as unknown as ReturnType<typeof vi.fn>;
@@ -264,5 +264,15 @@ describe("StructureTree internal drag-to-move", () => {
       moveEntry(src: string, dest: string): Promise<void>;
     }).moveEntry("/cwd/a.md", "/cwd");
     expect(moveIntoMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("isShareableAsGist", () => {
+  it("hides gist actions for binaries, keeps them for text", () => {
+    expect(isShareableAsGist("/cwd/logo.PNG")).toBe(false);
+    expect(isShareableAsGist("/cwd/app.wasm")).toBe(false);
+    expect(isShareableAsGist("/cwd/notes.md")).toBe(true);
+    expect(isShareableAsGist("/cwd/Makefile")).toBe(true);
+    expect(isShareableAsGist("/cwd/.gitignore")).toBe(true);
   });
 });
