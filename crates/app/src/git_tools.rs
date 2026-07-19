@@ -374,8 +374,13 @@ pub fn reclaim_worktrees(
                 // worktree prune` below, which is now a no-op for this
                 // entry. NEVER touch the branch here — no merge re-check
                 // either, since there is no working tree left to check
-                // anything against.
-                if let Err(e) = git(cwd, &["worktree", "remove", &wt.path]) {
+                // anything against. Runs from the main worktree for the same
+                // reason the `Spent` arm above does — one cwd doctrine for
+                // every git call this function makes, even though an admin
+                // record drop and a repo-wide prune don't actually depend on
+                // which worktree invokes them.
+                let main = main_root.as_deref().unwrap_or(cwd);
+                if let Err(e) = git(main, &["worktree", "remove", &wt.path]) {
                     outcomes.push(ReclaimOutcome { path, removed: false, reason: Some(e) });
                     continue;
                 }
@@ -392,15 +397,18 @@ pub fn reclaim_worktrees(
         }
     }
 
-    let _ = git(cwd, &["worktree", "prune"]);
+    let _ = git(main_root.as_deref().unwrap_or(cwd), &["worktree", "prune"]);
     Ok(outcomes)
 }
 
 /// Creates a worktree for `slug` under the canonical root and returns its path.
 ///
-/// `base` defaults to the repo's default branch — an agent should start from
-/// shared main, not from the half-finished state of whatever branch the caller
-/// happens to be standing on.
+/// `base` defaults to `origin/<default branch>` when that ref resolves,
+/// falling back to the local default branch otherwise — an agent should
+/// start from shared main, not from the half-finished state of whatever
+/// branch the caller happens to be standing on, nor from a local `main` that
+/// may itself be behind `origin/main`. See `preferred_base` for why this
+/// preference lives here rather than inside `default_branch` itself.
 ///
 /// The canonical root is anchored to the MAIN worktree, never to `cwd`:
 /// `repo_summary` is normally called with a linked worktree's cwd (Covenant
@@ -411,12 +419,13 @@ pub fn create_worktree(cwd: &Path, slug: &str, base: Option<&str>) -> Result<Str
         return Err("empty worktree slug".into());
     }
     let summary = repo_summary(cwd)?;
-    // `git worktree list --porcelain` always lists the main worktree first;
-    // `summary.worktrees` preserves that ordering. Same single mechanism
-    // `relocate_worktree` and `off_convention` already use.
+    // Identify the main worktree via `is_main` — the single mechanism
+    // `retire_worktree` and `reclaim_worktrees` already use, rather than a
+    // second, merely-equivalent-today spelling (`.first()`).
     let main_root = summary
         .worktrees
-        .first()
+        .iter()
+        .find(|w| w.is_main)
         .map(|w| PathBuf::from(&w.path))
         .ok_or_else(|| "no worktrees reported by git".to_string())?;
 
@@ -428,12 +437,27 @@ pub fn create_worktree(cwd: &Path, slug: &str, base: Option<&str>) -> Result<Str
         return Err(format!("{} already exists", dest.display()));
     }
 
-    let base_ref = base
-        .map(str::to_string)
-        .unwrap_or_else(|| default_branch(cwd));
+    let base_ref = base.map(str::to_string).unwrap_or_else(|| preferred_base(cwd));
     let dest_str = dest.to_string_lossy().to_string();
     git(cwd, &["worktree", "add", "-q", &dest_str, "-b", slug, &base_ref])?;
     Ok(dest_str)
+}
+
+/// The ref an agent branch should be cut from when the caller didn't pin one:
+/// `origin/<default branch>` when that remote-tracking ref resolves, else the
+/// local default branch. Deliberately NOT folded into `default_branch` itself
+/// — `retire_worktree`'s ahead-count and `reclaim_worktrees`' merge re-check
+/// both depend on `default_branch`'s current local-name semantics, and this
+/// preference is specific to "what should a freshly created agent branch be
+/// based on", not "what name does this repo call its default branch".
+fn preferred_base(cwd: &Path) -> String {
+    let local = default_branch(cwd);
+    let remote = format!("origin/{local}");
+    if git(cwd, &["rev-parse", "--verify", "--quiet", &remote]).is_ok() {
+        remote
+    } else {
+        local
+    }
 }
 
 /// Moves a worktree under `CANONICAL_WORKTREE_DIR`. Returns the new path.
@@ -579,6 +603,22 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
         return Ok(false);
     }
 
+    // `dirty_count` above is `git status --porcelain`, which never reports
+    // gitignored entries. `git worktree remove` (deliberately never called
+    // with --force here) deletes them anyway — so a worktree that is clean
+    // by `dirty_count`'s definition can still hold real content: an agent's
+    // `npm install`, scratch notes written to a gitignored path, anything.
+    // Re-check immediately before removal with `--ignored=matching`, which
+    // does surface ignored entries (recursing into ignored directories
+    // rather than reporting just the directory name), and refuse if it
+    // reports anything at all. This is scoped to the removal gate only —
+    // `derive_state`/`dirty_count` deliberately do not count ignored files,
+    // so the lifecycle ledger doesn't misclassify a worktree as dirty just
+    // because it has a populated `node_modules/`.
+    if !worktree_is_pristine(Path::new(&wt.path)) {
+        return Ok(false);
+    }
+
     git(main, &["worktree", "remove", &wt.path])?;
     // `-d`'s refusal is HEAD-relative — it checks merge status against
     // main's CURRENT HEAD, not against `base` — so it is not a meaningful
@@ -690,6 +730,20 @@ fn parse_worktree_list(text: &str) -> Vec<GitWorktreeSummary> {
 fn status_count(cwd: &Path) -> Result<u32, String> {
     let text = git(cwd, &["status", "--porcelain"])?;
     Ok(text.lines().filter(|l| !l.trim().is_empty()).count() as u32)
+}
+
+/// True only when `wt_path` has nothing on disk beyond git's own bookkeeping
+/// — no tracked changes, no untracked files, and no gitignored files either.
+/// Used exclusively as `retire_worktree`'s final removal gate: plain `git
+/// status --porcelain` (what `dirty_count` uses) never reports ignored
+/// entries, so it cannot see a populated gitignored directory. Any failure
+/// to run the check is treated as "not pristine" — the safe default is to
+/// refuse removal.
+fn worktree_is_pristine(wt_path: &Path) -> bool {
+    match git(wt_path, &["status", "--porcelain", "--ignored=matching"]) {
+        Ok(text) => text.lines().all(|l| l.trim().is_empty()),
+        Err(_) => false,
+    }
 }
 
 /// Resolves the repo's default branch: origin's HEAD (verified to still exist
@@ -2630,6 +2684,53 @@ index e69de29..0cfbf08 100644
     }
 
     #[test]
+    fn create_worktree_prefers_origin_default_over_a_lagging_local_default() {
+        // The spec's whole point: an agent starts from shared main, not from
+        // whatever the caller's local checkout happens to have. Set up an
+        // `origin` whose default branch has moved ahead of the local one —
+        // without a fetch-time origin/HEAD symref, since `default_branch`
+        // itself only ever resolves a LOCAL name (see its own doc comment) —
+        // and prove the new worktree is cut from `origin/main`, not the
+        // locally-behind `main`.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let bare = tmp.path().join("origin.git");
+        std::fs::create_dir_all(&bare).unwrap();
+        git_run(&bare, &["init", "-q", "--bare", "-b", "main"]);
+
+        let root = tmp.path().join("work");
+        std::fs::create_dir_all(&root).unwrap();
+        init_repo(&root);
+        git_run(&root, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git_run(&root, &["push", "-q", "-u", "origin", "main"]);
+
+        // Advance origin/main independently, from a second clone, so the
+        // caller's local "main" falls behind it — a real lag, not a
+        // fast-forward the caller could trivially pick up.
+        let other = tmp.path().join("other-clone");
+        git_run(tmp.path(), &["clone", "-q", bare.to_str().unwrap(), other.to_str().unwrap()]);
+        git_run(&other, &["config", "user.email", "t@t.t"]);
+        git_run(&other, &["config", "user.name", "t"]);
+        std::fs::write(other.join("origin-only.txt"), "from origin\n").unwrap();
+        git_run(&other, &["add", "."]);
+        git_run(&other, &["commit", "-q", "-m", "origin advances"]);
+        git_run(&other, &["push", "-q", "origin", "main"]);
+
+        // Bring the remote-tracking ref up to date without moving local
+        // "main" — this is `git fetch`, not `git pull`.
+        git_run(&root, &["fetch", "-q", "origin"]);
+        assert!(
+            !root.join("origin-only.txt").exists(),
+            "sanity: local main must still be behind"
+        );
+
+        let path = create_worktree(&root, "agent/remote-base-0719-iii", None).unwrap();
+        assert!(
+            Path::new(&path).join("origin-only.txt").exists(),
+            "must branch from origin/main, not the locally-behind local main",
+        );
+    }
+
+    #[test]
     fn create_worktree_honors_an_explicit_base() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
@@ -2748,6 +2849,68 @@ index e69de29..0cfbf08 100644
             !branches.lines().any(|l| l.trim() == "agent/self-0719-eee"),
             "branch delete must run from the main worktree, not the deleted cwd",
         );
+    }
+
+    #[test]
+    fn retire_keeps_a_worktree_containing_only_gitignored_files() {
+        // `dirty_count` comes from `git status --porcelain`, which never
+        // reports gitignored entries — so a worktree containing nothing but
+        // a populated gitignored directory (e.g. an agent's `npm install` +
+        // scratch notes) reports dirty_count == 0 and ahead == 0, and would
+        // otherwise sail through retirement even though `git worktree
+        // remove` (no --force) deletes ignored files right along with
+        // everything else.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        // .gitignore must be committed on the base branch so it takes effect
+        // in the new worktree too.
+        std::fs::write(root.join(".gitignore"), "ignored-dir/\n").unwrap();
+        git_run(root, &["add", ".gitignore"]);
+        git_run(root, &["commit", "-q", "-m", "add gitignore"]);
+
+        let path = create_worktree(root, "agent/ignored-0719-ggg", None).unwrap();
+        let wt = Path::new(&path);
+        std::fs::create_dir_all(wt.join("ignored-dir")).unwrap();
+        std::fs::write(
+            wt.join("ignored-dir").join("notes.txt"),
+            "agent scratch notes\n",
+        )
+        .unwrap();
+
+        // Sanity: this is exactly the hole the fix closes — plain porcelain
+        // status must not see the ignored file.
+        assert_eq!(
+            status_count(wt).unwrap(),
+            0,
+            "sanity: porcelain status must not see the ignored file"
+        );
+
+        assert!(
+            !retire_worktree(root, &path).unwrap(),
+            "must not retire — ignored content on disk"
+        );
+        assert!(
+            wt.exists(),
+            "worktree, and the ignored notes inside it, must survive"
+        );
+        assert!(wt.join("ignored-dir").join("notes.txt").exists());
+    }
+
+    #[test]
+    fn retire_still_removes_a_worktree_with_no_ignored_files() {
+        // The pristine gate must not false-positive just because a
+        // `.gitignore` exists — only actual ignored *content* should refuse.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        std::fs::write(root.join(".gitignore"), "ignored-dir/\n").unwrap();
+        git_run(root, &["add", ".gitignore"]);
+        git_run(root, &["commit", "-q", "-m", "add gitignore"]);
+
+        let path = create_worktree(root, "agent/pristine-0719-hhh", None).unwrap();
+        assert!(retire_worktree(root, &path).unwrap());
+        assert!(!Path::new(&path).exists());
     }
 
     #[test]
