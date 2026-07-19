@@ -77,7 +77,7 @@ import { resourcesSetActive, resourcesSampleNow, onResourcesUpdate } from "./api
 import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
-import { TabManager, type TabManifestV1 } from "./tabs/manager";
+import { TabManager, type TabManifestV1, setActiveSpecialTermTheme } from "./tabs/manager";
 import { activePane } from "./tabs/pane";
 import { applyCustomTabStyle, applyFoldedRailStyle, applyPresetTabStyle, applyTabbarPosition } from "./tabs/custom-style";
 import { applyIndicatorVisibility } from "./indicators";
@@ -204,6 +204,7 @@ async function applyTheme(
 
   if (special) applySpecialTokens(body, special, scrim ?? special.scrim);
   else clearSpecialTokens(body);
+  setActiveSpecialTermTheme(special ? special.term : null);
 
   unwatchSystem?.();
   unwatchSystem = null;
