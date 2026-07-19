@@ -352,6 +352,46 @@ pub fn reclaim_worktrees(
     Ok(outcomes)
 }
 
+/// Creates a worktree for `slug` under the canonical root and returns its path.
+///
+/// `base` defaults to the repo's default branch — an agent should start from
+/// shared main, not from the half-finished state of whatever branch the caller
+/// happens to be standing on.
+///
+/// The canonical root is anchored to the MAIN worktree, never to `cwd`:
+/// `repo_summary` is normally called with a linked worktree's cwd (Covenant
+/// does feature work inside `.covenant/worktrees/<slug>`), and anchoring to the
+/// caller nests new worktrees inside sibling ones.
+pub fn create_worktree(cwd: &Path, slug: &str, base: Option<&str>) -> Result<String, String> {
+    if slug.trim().is_empty() {
+        return Err("empty worktree slug".into());
+    }
+    let summary = repo_summary(cwd)?;
+    // `git worktree list --porcelain` always lists the main worktree first;
+    // `summary.worktrees` preserves that ordering. Same single mechanism
+    // `relocate_worktree` and `off_convention` already use.
+    let main_root = summary
+        .worktrees
+        .first()
+        .map(|w| PathBuf::from(&w.path))
+        .ok_or_else(|| "no worktrees reported by git".to_string())?;
+
+    let dir_name = slug.replace('/', "-");
+    let root = main_root.join(CANONICAL_WORKTREE_DIR);
+    std::fs::create_dir_all(&root).map_err(|e| format!("create {}: {e}", root.display()))?;
+    let dest = root.join(&dir_name);
+    if dest.exists() {
+        return Err(format!("{} already exists", dest.display()));
+    }
+
+    let base_ref = base
+        .map(str::to_string)
+        .unwrap_or_else(|| default_branch(cwd));
+    let dest_str = dest.to_string_lossy().to_string();
+    git(cwd, &["worktree", "add", "-q", &dest_str, "-b", slug, &base_ref])?;
+    Ok(dest_str)
+}
+
 /// Moves a worktree under `CANONICAL_WORKTREE_DIR`. Returns the new path.
 ///
 /// Refuses everything this layer can actually see: the calling worktree, the
@@ -2319,5 +2359,82 @@ index e69de29..0cfbf08 100644
             git_run_ok(root, &["rev-parse", "--show-toplevel"]),
             "root is still a functioning git worktree"
         );
+    }
+
+    #[test]
+    fn create_worktree_lands_under_the_canonical_root() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+
+        let path = create_worktree(root, "agent/claude-0719-a3f", None).unwrap();
+        let expected = canonical_or_self(
+            &root.join(CANONICAL_WORKTREE_DIR).join("agent-claude-0719-a3f"),
+        );
+        assert_eq!(canonical_or_self(Path::new(&path)), expected, "got {path}");
+        assert!(Path::new(&path).is_dir());
+    }
+
+    #[test]
+    fn create_worktree_lands_under_the_MAIN_root_when_called_from_a_linked_worktree() {
+        // The bug shape that shipped twice in the predecessor: deriving the
+        // canonical root from the CALLING cwd instead of the main worktree.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let caller = root.join(CANONICAL_WORKTREE_DIR).join("caller");
+        git_run(root, &["worktree", "add", "-q", caller.to_str().unwrap(), "-b", "caller"]);
+
+        let path = create_worktree(&caller, "agent/codex-0719-b7c", None).unwrap();
+        let expected = canonical_or_self(
+            &root.join(CANONICAL_WORKTREE_DIR).join("agent-codex-0719-b7c"),
+        );
+        assert_eq!(canonical_or_self(Path::new(&path)), expected, "got {path}");
+        assert!(!path.contains("caller"), "must not nest inside the caller: {path}");
+        // The caller must not be dirtied as a side effect.
+        assert_eq!(status_count(&caller).unwrap(), 0);
+    }
+
+    #[test]
+    fn create_worktree_refuses_a_slug_that_already_exists() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        create_worktree(root, "agent/dup-0719-aaa", None).unwrap();
+        let err = create_worktree(root, "agent/dup-0719-aaa", None).unwrap_err();
+        assert!(err.contains("already exists"), "got {err}");
+    }
+
+    #[test]
+    fn create_worktree_branches_from_the_default_branch_when_base_is_none() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        // Move the caller off main so "branches from HEAD" would be visibly wrong.
+        git_run(root, &["switch", "-q", "-c", "side"]);
+        std::fs::write(root.join("side-only.txt"), "x\n").unwrap();
+        git_run(root, &["add", "."]);
+        git_run(root, &["commit", "-q", "-m", "side commit"]);
+
+        let path = create_worktree(root, "agent/base-0719-ccc", None).unwrap();
+        assert!(
+            !Path::new(&path).join("side-only.txt").exists(),
+            "must branch from the default branch, not the caller's HEAD",
+        );
+    }
+
+    #[test]
+    fn create_worktree_honors_an_explicit_base() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        git_run(root, &["switch", "-q", "-c", "side"]);
+        std::fs::write(root.join("side-only.txt"), "x\n").unwrap();
+        git_run(root, &["add", "."]);
+        git_run(root, &["commit", "-q", "-m", "side commit"]);
+        git_run(root, &["switch", "-q", "main"]);
+
+        let path = create_worktree(root, "agent/explicit-0719-ddd", Some("side")).unwrap();
+        assert!(Path::new(&path).join("side-only.txt").exists());
     }
 }
