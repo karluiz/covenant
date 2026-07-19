@@ -921,6 +921,9 @@
 }
 .acp-chat-textarea {
   resize: none;
+  /* border-box or the JS auto-grow (height = scrollHeight) re-adds the 12px
+     vertical padding on the first keystroke — a phantom row-height jump. */
+  box-sizing: border-box;
   border: none;
   outline: none;
   background: transparent;
