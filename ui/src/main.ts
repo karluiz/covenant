@@ -213,7 +213,7 @@ async function applyTheme(
 
   if (special) applySpecialTokens(body, special, scrim ?? special.scrim);
   else clearSpecialTokens(body);
-  setActiveSpecialTermTheme(special ? special.term : null);
+  setActiveSpecialTermTheme(special ? special.term : null, special?.base);
 
   unwatchSystem?.();
   unwatchSystem = null;
