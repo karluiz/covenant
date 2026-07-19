@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, vi } from "vitest";
-import { TabManager, type TabManifestV1 } from "./manager";
+import { TabManager, shouldRetire, type TabManifestV1 } from "./manager";
 
 // activate() reports the new active tab to the backend; jsdom has no Tauri
 // IPC bridge, so stub it out. Nothing here asserts on backend calls.
@@ -276,5 +276,26 @@ describe("TabManager disposeHibernated leaves the live strip intact", () => {
         (el) => el.dataset.tabId,
       ),
     ).toEqual(["live"]);
+  });
+});
+
+describe("worktree retirement on tab close", () => {
+  it("does not retire a worktree another tab is still standing in", async () => {
+    const occupied = ["/repo/.covenant/worktrees/agent-codex-0719-aaa"];
+    expect(shouldRetire("/repo/.covenant/worktrees/agent-codex-0719-aaa", occupied)).toBe(false);
+  });
+
+  it("retires a worktree no remaining tab occupies", () => {
+    expect(shouldRetire("/repo/.covenant/worktrees/agent-codex-0719-aaa", ["/repo"])).toBe(true);
+  });
+
+  it("treats a nested cwd as occupying the worktree", () => {
+    // The agent cd'd into a subdirectory; the worktree is still in use.
+    const occupied = ["/repo/.covenant/worktrees/agent-codex-0719-aaa/crates/app"];
+    expect(shouldRetire("/repo/.covenant/worktrees/agent-codex-0719-aaa", occupied)).toBe(false);
+  });
+
+  it("never retires when the closing tab has no cwd", () => {
+    expect(shouldRetire(null, [])).toBe(false);
   });
 });

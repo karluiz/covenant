@@ -79,6 +79,7 @@ import {
   replayScrollback,
   deleteScrollback,
   tabManifestSave,
+  worktreeRetire,
   writeToSession,
   type MissionInfo,
   type Operator,
@@ -726,6 +727,14 @@ function saveSessionNameCache(m: Map<string, CachedSessionName>): void {
   }
 }
 
+/// Whether the closing tab's worktree may be handed to the backend for
+/// retirement. Proves only the half this layer can see — "no remaining tab is
+/// standing in it". The backend independently proves it holds no work.
+export function shouldRetire(closingCwd: string | null, remainingCwds: string[]): boolean {
+  if (!closingCwd) return false;
+  const prefix = closingCwd.endsWith("/") ? closingCwd : `${closingCwd}/`;
+  return !remainingCwds.some((c) => c === closingCwd || c.startsWith(prefix));
+}
 
 export class TabManager {
   private readonly tabs: Tab[] = [];
@@ -6072,6 +6081,35 @@ export class TabManager {
     // Stamp the final name in the cache before disposal so closed-tab
     // labels survive for the operator-decisions panel.
     const closePane = activePane(tab);
+    const closingCwd = closePane.cwd || null;
+    // Covenant handed this worktree out; take it back once nobody is
+    // standing in it. Called after this.tabs.splice() below so
+    // listTabSnapshots() no longer reports the closing tab itself — the
+    // backend independently proves the worktree holds no work. A `false`
+    // return means it deliberately kept the worktree; that's a normal
+    // outcome, not an error. Fire-and-forget: a failed retirement must
+    // never block a tab close — the lifecycle ledger surfaces anything
+    // left behind.
+    //
+    // Skipped during `inReplace` (workspace-switch teardown: move-group,
+    // replaceFromManifest, disposeHibernated) for the same reason the
+    // scrollback delete below is skipped — those tabs' cwds can reopen in
+    // another workspace, and moveGroupTo in particular respawns a PTY into
+    // this exact worktree path afterward. Retiring it here would delete
+    // the directory out from under that respawn. Same tradeoff already
+    // accepted for scrollback: err on leaving it, the lifecycle ledger
+    // classifies it later.
+    const retireClosedWorktree = (): void => {
+      if (this.inReplace || !closingCwd) return;
+      const remaining = this.listTabSnapshots()
+        .map((t) => t.cwd)
+        .filter((c): c is string => !!c);
+      if (shouldRetire(closingCwd, remaining)) {
+        void worktreeRetire(closingCwd, closingCwd).catch(() => {
+          /* keep quiet: the ledger surfaces anything left behind */
+        });
+      }
+    };
     const closeSessionId = closePane.sessionId;
     if (closeSessionId) this.rememberSessionName(closeSessionId, tabDisplayName(tab));
     // Belt-and-suspenders: unpin operator before closing. Backend also
@@ -6090,6 +6128,7 @@ export class TabManager {
         this.workspace.removeChild(tab.pane);
       }
       this.tabs.splice(idx, 1);
+      retireClosedWorktree();
       if (this.tabs.length === 0) {
         this.activeId = null;
         this.renderTabbar();
@@ -6151,6 +6190,7 @@ export class TabManager {
       this.workspace.removeChild(tab.pane);
     }
     this.tabs.splice(idx, 1);
+    retireClosedWorktree();
 
     if (this.tabs.length === 0) {
       this.activeId = null;
