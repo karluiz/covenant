@@ -182,6 +182,54 @@ Frontend (`vitest`):
 - Retirement is skipped when another tab snapshot shares the worktree's cwd.
 - A `create_worktree` failure still launches the agent.
 
+## Branch deletion — a defect live verification caught that nothing else did
+
+Retirement deletes the retired worktree's branch. The obvious tool is
+`git branch -d`, which refuses to delete an unmerged branch — a free second
+safety net beneath the function's own "no commits beyond base" check.
+
+**It is not a net. It measures the wrong thing.** `git branch -d` checks merge
+status against *the invoking repository's current HEAD*, not against the default
+branch. Live verification reproduced the consequence: with the main checkout
+sitting on a feature branch (`fix/gist-binary-guard`), retiring a worktree whose
+branch pointed at `main` produced
+
+```
+error: The branch 'agent/claude-0719-y72' is not fully merged.
+```
+
+The worktree was removed; the branch survived. A developer's main checkout is
+usually on some feature branch, so this is the common case, not an edge case —
+prevention would have accumulated orphan `agent/*` branches indefinitely, which
+is precisely the garbage this design set out not to create.
+
+**Resolution.** Try `-d` first; if it refuses, verify ancestry explicitly with
+`git merge-base --is-ancestor <branch> <base>` against the same base the
+ahead-count already proved zero against, and only then fall back to `-D`. If
+ancestry does not hold, leave the branch alone. Two independent confirmations
+survive — both now measuring the base, not an arbitrary HEAD.
+
+**The same defect existed in shipped code.** `reclaim_worktrees` (v0.9.38) used
+the identical `git branch -d`, and worse, ran it from the *calling* worktree
+rather than the main one, so the HEAD it compared against was arbitrary. Fixed
+in the same pass, with its own regression test.
+
+Neither unit tests nor eight rounds of code review caught this. Live verification
+did, on the first run.
+
+## Live verification
+
+Run 2026-07-19 against the real repository, driving the real launch path
+(Ctrl+N quick-spawn), with the main checkout deliberately on a diverged branch —
+the exact condition that had failed:
+
+| | result |
+|---|---|
+| Tab opened at | `.covenant/worktrees/agent-claude-0719-346` |
+| Branch created | `agent/claude-0719-346` |
+| Closed with no work → worktree | retired |
+| Closed with no work → branch | deleted |
+
 ## Open questions
 
 - Whether the LLM tab title should rename the branch once it lands. Deferred by
