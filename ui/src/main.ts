@@ -102,6 +102,8 @@ import type { Org } from "./api";
 import { SpawnsChip, spawnBrandGlyph } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor, quickCallAcp } from "./spawns/shortcuts";
+import { wantsWorktree, agentSlug } from "./spawns/worktree-launch";
+import { worktreeCreate } from "./api";
 import {
   TeammatePanel,
   buildTaskInjection,
@@ -1257,18 +1259,44 @@ async function boot(): Promise<void> {
         const specs = await listSpawns();
         const spec = specs.find((s) => s.id === id);
         if (!spec || !spec.command) return;
+        // Covenant hands out the worktree so no executor ever reaches the
+        // question of where one goes. Failure here degrades to the current
+        // cwd — isolation must never be why an agent fails to start.
+        const baseCwd = manager.activeCwd();
+        let launchCwd = baseCwd;
+        let isolated = false;
+        if (wantsWorktree(spec) && baseCwd) {
+          try {
+            launchCwd = await worktreeCreate(
+              baseCwd,
+              agentSlug(spec, new Date(), Math.random),
+            );
+            isolated = true;
+          } catch (e) {
+            pushInfoToast({ message: `Launching in place — worktree failed: ${String(e)}` });
+          }
+        }
         // ACP spawn: opens a chat tab — there is no in-terminal ACP mode.
         // Eligibility re-checked here in case the command was edited after
         // the flag was set.
         const acpExec = spec.acp || quickCallAcp() ? acpExecutorFor(spec) : null;
         if (acpExec) {
           await manager.createAcpTab({
-            cwd: manager.activeCwd(),
+            cwd: launchCwd,
             executor: acpExec,
           });
           return;
         }
         const cmdline = buildSpawnCmdline(spec, claudeTheme()) + "\n";
+        if (isolated && launchCwd) {
+          // A PTY spawn normally writes into the session you are already in.
+          // There is no cwd to set on that path, so isolation means a new tab.
+          await manager.createTab({ cwd: launchCwd, initialCommand: cmdline });
+          manager.setActiveSpawnId(spec.id);
+          await chip.refresh();
+          requestAnimationFrame(() => manager.focusActive());
+          return;
+        }
         const bytes = new TextEncoder().encode(cmdline);
         await writeToSession(sid, bytes);
         manager.setActiveSpawnId(spec.id);
@@ -1304,6 +1332,13 @@ async function boot(): Promise<void> {
     };
     // Group context menu → "Start new agent": preload the default spawn's
     // command line into a fresh tab (runs on the shell's first prompt).
+    //
+    // ponytail: not worktree-aware. This returns a cmdline string; the CALLER
+    // creates the tab, so there is no cwd to set from here. Making it isolated
+    // means changing its contract to return {cmdline, cwd} and updating every
+    // caller — worth doing only if this path turns out to be a real source of
+    // stray worktrees. runSpawn (the Ctrl+N / picker / "Start agent" path) is
+    // the one that filled .claude/worktrees.
     manager.defaultAgentCmdline = async (): Promise<string | null> => {
       const specs = await listSpawns();
       const spec = specs.find((s) => s.default) ?? specs[0];
