@@ -4492,7 +4492,7 @@ body.theme-true-dark .settings-nav a.active { background: rgb(var(--ink-rgb) / 0
 
 /* Light-theme adjustments */
 body.theme-light .providers-md__frame { background: var(--bg-overlay); }
-body.theme-light .providers-md__section { background: #f5f6f8; border-color: rgba(0, 0, 0, 0.06); }
+body.theme-light .providers-md__section { background: rgb(var(--ink-rgb) / 0.04); border-color: rgba(0, 0, 0, 0.06); }
 body.theme-light .providers-md__input,
 body.theme-light .providers-md__icon-btn,
 body.theme-light .providers-md__btn,
@@ -9627,7 +9627,7 @@ body.theme-light .structure-rename-input:focus {
     background: rgba(0, 0, 0, 0.02);
 }
 body.theme-light .structure-confirm-dialog {
-    background: rgb(252 252 253 / 0.99);
+    background: var(--bg-overlay);
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
 }
 body.theme-light .structure-confirm-dialog h3,
@@ -12591,7 +12591,7 @@ body.theme-light .tab-btn.active .tab-op-avatar-wrap .op-avatar-pixel {
 }
 
 body.theme-light .tab-btn .tab-op-level {
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--bg-overlay);
   border-color: rgba(0, 0, 0, 0.16);
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -18483,7 +18483,7 @@ body.theme-light .task-pill {
   border-color: rgba(15, 23, 42, 0.14);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
-body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
+body.theme-light .task-pill--clickable:hover { background: rgb(var(--ink-rgb) / 0.03); }
 .task-pill--confirmed { border-left: 2px solid rgba(80, 200, 120, 0.55); }
 .task-pill--cancelled { border-left: 2px solid rgba(255,255,255,0.18); opacity: 0.55; }
 .task-pill--clickable { cursor: pointer; transition: background 120ms; }
@@ -20675,4 +20675,4 @@ body.theme-light .tg-input,
 body.theme-light .tg-secret input,
 body.theme-light .tg-icon-btn,
 body.theme-light .tg-btn { background: var(--bg-overlay); border-color: rgba(0,0,0,0.1); }
-body.theme-light .tg-section { background: #f5f6f8; border-color: rgba(0,0,0,0.06); }
+body.theme-light .tg-section { background: rgb(var(--ink-rgb) / 0.04); border-color: rgba(0,0,0,0.06); }
