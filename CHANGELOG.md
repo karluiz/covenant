@@ -6,6 +6,101 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.40 — Covenant hands out the worktree
+
+### Added
+
+- **Every agent is born in its own worktree, whatever harness it is**: v0.9.38
+  taught Covenant to *see* dead worktrees and reclaim them. This closes the other
+  half — the mess no longer re-forms. Covenant now creates the git worktree
+  itself and launches the executor inside it, so no coding agent ever reaches the
+  question of where a worktree goes. Configuring each harness was never an
+  option: Claude's `EnterWorktree` hardcodes `.claude/worktrees/` and refuses to
+  even *enter* one elsewhere. But every harness checks for existing isolation
+  first and stands down, so handing them one already-isolated makes the
+  convention structural rather than requested.
+
+- **`SpawnSpec.worktree`, defaulting to true for every spawn but the base
+  shell**, with a per-spawn toggle in Harnesses (`crates/app/src/spawns_store.rs`,
+  `ui/src/settings/spawns.ts`). Keying the default off a list of known executor
+  ids was considered and rejected — tomorrow's executor would be born
+  unprotected, which is the original failure mode wearing a new hat.
+
+- **`create_worktree` / `retire_worktree`** in `crates/app/src/git_tools.rs`,
+  exposed as `worktree_create` / `worktree_retire`. Worktrees land at
+  `<main worktree root>/.covenant/worktrees/<slug>` on a branch named
+  `agent/<executor>-<MMDD>-<suffix>`, based on `origin/<default branch>` so an
+  agent starts from shared main rather than your half-finished state.
+
+- **Retirement on tab close.** A worktree Covenant handed out is taken back when
+  it provably holds nothing: under the canonical root, no commits of its own,
+  **pristine on disk**, and no remaining tab pane standing inside it. The
+  decision layer (`ui/src/spawns/worktree-launch.ts`) is pure and unit-tested.
+
+### Changed
+
+- **A PTY spawn in worktree mode now opens a new tab** instead of writing the
+  command line into the terminal you are standing in — that path had no working
+  directory to set otherwise. Ctrl+N, the spawn picker and "Start agent" are all
+  affected. A spawn with isolation switched off keeps the old in-place behaviour
+  exactly (`ui/src/main.ts`).
+
+- **The dev build is now a separate app from the installed one.** `tauri:dev`
+  passes `crates/app/tauri.dev.conf.json`, overriding the bundle identifier to
+  `com.karluiz.covenant.dev`, so the two get separate settings, history,
+  scrollback and keychain entries and can run side by side. Before this, both
+  wrote one `config.json` (last save wins) and ran two Telegram pollers on one
+  bot token, which Telegram answers with `409 Conflict`. Expect the dev build to
+  start unconfigured; seed it by copying `config.json` once — never symlink.
+
+- **Landing: a blog and a customization section.** An MDX content collection with
+  a post layout and index (`landing/src/pages/blog/`), a Customization section
+  and nav link on the home page, and a `ThemeGallery` that reads the app's own
+  theme registry rather than a hand-maintained copy, so the two cannot drift.
+
+- **One operator avatar pack** under `ui/assets/operators`, replacing the
+  scattered copies (`ui/src/operator/avatars.ts`, 188 files touched).
+
+### Fixed
+
+- **`git branch -d` measures against the wrong thing.** It checks merge status
+  against the invoking repository's *current HEAD*, not the default branch — so
+  with your main checkout on a feature branch, which is the normal case, it
+  refused to delete provably-merged agent branches. Worktrees retired; branches
+  piled up. Now: try `-d`, then verify `git merge-base --is-ancestor`, then fall
+  back to `-D` only when ancestry holds. **The same defect was live in
+  `reclaim_worktrees` since v0.9.38** and is fixed in the same pass. Neither unit
+  tests nor eight rounds of review caught it — the first live run did.
+
+- **Retirement could silently delete gitignored files.** `git status --porcelain`
+  does not report them, but `git worktree remove` deletes them anyway — so an
+  agent's `npm install`, its `.env`, or notes written to an ignored path would
+  have been destroyed on a tab close, with no confirmation. Retirement now
+  requires the worktree to be pristine (`--ignored=matching` reporting nothing).
+  `reclaim_worktrees` deliberately keeps deleting ignored content: that path is
+  user-initiated behind a confirmation which says so.
+
+- **Creation and retirement disagreed about the base ref.** Basing new worktrees
+  on `origin/<default>` while counting commits against the *local* default meant
+  that after any plain `git fetch`, an untouched worktree read as one commit
+  ahead — never retired, never classified `Spent`, doubly stuck. Both now resolve
+  the same base.
+
+- **A background pane standing in a worktree was invisible to retirement.**
+  `listTabSnapshots()` reports only each tab's active pane, so a second pane
+  `cd`'d into the worktree did not count as occupancy and the directory was
+  removed out from under its live shell. Occupancy now reads every pane of every
+  tab (`ui/src/tabs/manager.ts`).
+
+- **Retirement missed worktrees whose shell had `cd`'d into a subdirectory** —
+  the lookup required an exact path match, so those leaked permanently. Resolved
+  by containment, longest match first.
+
+- **Sharing a gist no longer wipes the file tree on error**
+  (`ui/src/structure/tree.ts`), and the Telegram test double now honours its
+  long-poll timeout instead of returning instantly
+  (`crates/app/src/telegram/client.rs`).
+
 ## v0.9.39 — Special themes: wallpaper-backed whole-window art
 
 ### Added
