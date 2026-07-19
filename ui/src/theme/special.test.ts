@@ -9,9 +9,35 @@ import {
   clearSpecialTokens,
 } from "./special";
 
+/// WCAG relative luminance / contrast, so the calibration the registry
+/// claims in its comments is actually asserted rather than trusted.
+function luminance(rgb: [number, number, number]): number {
+  const [r, g, b] = rgb.map((c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [
+    number,
+    number,
+    number,
+  ];
+}
+
+function contrast(a: [number, number, number] | string, b: string): number {
+  const la = luminance(typeof a === "string" ? hexToRgb(a) : a);
+  const lb = luminance(hexToRgb(b));
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 describe("SPECIAL_THEMES registry", () => {
-  it("exposes exactly five themes", () => {
-    expect(SPECIAL_THEME_LIST).toHaveLength(5);
+  it("exposes every registered theme", () => {
+    expect(SPECIAL_THEME_LIST).toHaveLength(7);
   });
 
   it("keys match each entry's own id", () => {
@@ -43,12 +69,37 @@ describe("SPECIAL_THEMES registry", () => {
     }
   });
 
-  it("bunny is the only light-based theme and uses a white veil", () => {
-    expect(SPECIAL_THEMES.bunny.base).toBe("light");
-    expect(SPECIAL_THEMES.bunny.veil).toBe("#ffffff");
-    const dark = SPECIAL_THEME_LIST.filter((t) => t.base === "dark");
-    expect(dark).toHaveLength(4);
-    for (const t of dark) expect(t.veil).toBe("#000000");
+  it("moves every ground away from its own terminal ink", () => {
+    // The real invariant, and NOT "dark themes use a black veil, light
+    // themes use white" — that correlation held for the first five and
+    // `steinsgate` breaks it: a pure-white ground (1.000 luminance) needs
+    // a BLACK veil to become a usable surface while still being a light
+    // theme, because its ink is dark. What must always hold is that the
+    // composited ground stays far from the foreground drawn on it.
+    for (const t of SPECIAL_THEME_LIST) {
+      const ratio = contrast(compositeGround(t, t.scrim), t.term.foreground);
+      expect(
+        ratio,
+        `${t.id}: composited ground vs terminal foreground is ${ratio.toFixed(1)}:1`,
+      ).toBeGreaterThan(7);
+    }
+  });
+
+  it("keeps the shipped scrims in one calibrated band", () => {
+    // Grounds span an order of magnitude in luminance (0.025 to 1.000).
+    // Landing them all in a narrow contrast band is what shows the scrim
+    // values were measured rather than guessed — a new theme falling
+    // outside it has not been calibrated yet.
+    const ratios = SPECIAL_THEME_LIST.map((t) =>
+      contrast(compositeGround(t, t.scrim), t.term.foreground),
+    );
+    expect(Math.min(...ratios)).toBeGreaterThan(9);
+    expect(Math.max(...ratios)).toBeLessThan(14);
+  });
+
+  it("has at least one theme per base, so both paths stay exercised", () => {
+    const bases = new Set(SPECIAL_THEME_LIST.map((t) => t.base));
+    expect([...bases].sort()).toEqual(["dark", "light"]);
   });
 });
 

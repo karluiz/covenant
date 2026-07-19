@@ -19,6 +19,8 @@ import kimetsuArt from "../../assets/themes/kimetsu.webp";
 import onepieceArt from "../../assets/themes/onepiece.webp";
 import haikyuuArt from "../../assets/themes/haikyuu.webp";
 import bunnyArt from "../../assets/themes/bunny.webp";
+import zerotwoArt from "../../assets/themes/zerotwo.webp";
+import steinsgateArt from "../../assets/themes/steinsgate.webp";
 
 /// Stable identifier for a Special Theme. Also the key under which the
 /// theme is persisted in `config.json` and the `data-special-id` value on
@@ -28,7 +30,9 @@ export type SpecialThemeId =
   | "kimetsu"
   | "onepiece"
   | "haikyuu"
-  | "bunny";
+  | "bunny"
+  | "zerotwo"
+  | "steinsgate";
 
 /// The subset of xterm's ITheme a Special Theme overrides. Declared
 /// structurally rather than importing ITheme so this module stays free of
@@ -167,6 +171,52 @@ export const SPECIAL_THEMES: Record<SpecialThemeId, SpecialTheme> = {
       cursor: "#b85c79",
       cursorAccent: "#d5d4d7",
       selectionBackground: "#c4bcc0",
+    },
+  },
+  zerotwo: {
+    id: "zerotwo",
+    name: "Zero Two",
+    art: zerotwoArt,
+    base: "dark",
+    /// 0.193 luminance — effectively the same problem as `onepiece`
+    /// (0.205), and it takes the same heavy scrim. The coral composites to
+    /// a deep oxblood, which is the better terminal ground anyway.
+    ground: "#d34a51",
+    veil: BLACK_VEIL,
+    scrim: 0.68,
+    /// Her hair, the one colour in the artwork that is not the red family.
+    accent: "#f49aab",
+    term: {
+      background: TRANSPARENT,
+      foreground: "#f0d6da",
+      cursor: "#f49aab",
+      cursorAccent: "#44181a",
+      selectionBackground: "#6e2a2e",
+    },
+  },
+  steinsgate: {
+    id: "steinsgate",
+    name: "Steins;Gate",
+    art: steinsgateArt,
+    /// The extreme case, and the one that proves veil and base are
+    /// genuinely independent: a PURE WHITE ground (1.000 luminance, 88% of
+    /// the frame). A white veil would do nothing at all, so it takes a
+    /// BLACK veil at a low scrim to bring the white down to a usable
+    /// surface — while still being a light theme, because the ink is dark.
+    base: "light",
+    ground: "#ffffff",
+    veil: BLACK_VEIL,
+    scrim: 0.18,
+    /// Kurisu's tie and hair — the only saturated colour in the artwork.
+    /// Deepened from the source red so it clears 5:1 on the composited
+    /// grey rather than the 4.3:1 the literal tie colour manages.
+    accent: "#9e1b28",
+    term: {
+      background: TRANSPARENT,
+      foreground: "#1c1a1b",
+      cursor: "#9e1b28",
+      cursorAccent: "#d1d1d1",
+      selectionBackground: "#bfbfbf",
     },
   },
 };
