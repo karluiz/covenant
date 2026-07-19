@@ -290,6 +290,65 @@ pub fn reclaim_worktrees(
     Ok(outcomes)
 }
 
+/// Moves a worktree under `CANONICAL_WORKTREE_DIR`. Returns the new path.
+///
+/// Refuses anything not provably idle: `git worktree move` under a live session
+/// pulls the floor out from under it.
+pub fn relocate_worktree(cwd: &Path, path: &str) -> Result<String, String> {
+    let summary = repo_summary(cwd)?;
+    let target = canonical_or_self(Path::new(path));
+    let wt = summary
+        .worktrees
+        .iter()
+        .find(|w| canonical_or_self(Path::new(&w.path)) == target)
+        .ok_or_else(|| "unknown worktree".to_string())?;
+
+    if wt.current {
+        return Err("cannot relocate the current worktree".into());
+    }
+    // `wt.current` only proves "this is the worktree cwd is in" — it does
+    // NOT prove "this is the repo's main worktree" when the call originates
+    // from a different, linked worktree (Covenant's own workflow does
+    // feature work inside .covenant/worktrees/<slug>, so `cwd` is usually a
+    // linked worktree, not main). `git worktree list --porcelain` always
+    // lists the main worktree first — `repo_summary` relies on that exact
+    // fact for `off_convention`, and `summary.worktrees` preserves that
+    // ordering, so reuse it here rather than inventing a second mechanism.
+    let is_main_worktree = summary
+        .worktrees
+        .first()
+        .map(|main| canonical_or_self(Path::new(&main.path)))
+        .as_ref()
+        == Some(&target);
+    if is_main_worktree {
+        return Err("cannot relocate the main worktree".into());
+    }
+    if wt.dirty_count > 0 {
+        return Err(format!(
+            "worktree has {} uncommitted change(s); commit or discard first",
+            wt.dirty_count
+        ));
+    }
+    if !wt.off_convention {
+        return Ok(wt.path.clone());
+    }
+
+    let branch = wt
+        .branch
+        .as_deref()
+        .ok_or_else(|| "cannot relocate a detached worktree".to_string())?;
+    let root = Path::new(&summary.repo_root).join(CANONICAL_WORKTREE_DIR);
+    std::fs::create_dir_all(&root).map_err(|e| format!("create {}: {e}", root.display()))?;
+
+    let dest = root.join(worktree_slug(branch));
+    if dest.exists() {
+        return Err(format!("{} already exists", dest.display()));
+    }
+    let dest_str = dest.to_string_lossy().to_string();
+    git(cwd, &["worktree", "move", &wt.path, &dest_str])?;
+    Ok(dest_str)
+}
+
 pub fn switch_branch(cwd: &Path, branch: &str) -> Result<GitRepoSummary, String> {
     validate_branch_name(branch)?;
     let out = Command::new("git")
@@ -1540,6 +1599,105 @@ index e69de29..0cfbf08 100644
         assert!(
             !main_row.off_convention,
             "the main worktree must never be off_convention, regardless of which worktree cwd is"
+        );
+    }
+
+    #[test]
+    fn relocate_moves_a_stray_worktree_under_the_canonical_root() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let stray = root.join("stray-place");
+        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "feat/thing"]);
+
+        let moved = relocate_worktree(root, stray.to_str().unwrap()).unwrap();
+        assert!(moved.ends_with("/.covenant/worktrees/thing"), "got {moved}");
+        assert!(Path::new(&moved).is_dir());
+        assert!(!stray.exists());
+
+        let summary = repo_summary(root).unwrap();
+        let row = summary.worktrees.iter()
+            .find(|w| w.branch.as_deref() == Some("feat/thing")).unwrap();
+        assert!(!row.off_convention);
+    }
+
+    #[test]
+    fn relocate_refuses_a_dirty_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let stray = root.join("stray-dirty");
+        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "busy"]);
+        std::fs::write(stray.join("tracked.txt"), "uncommitted\n").unwrap();
+
+        let err = relocate_worktree(root, stray.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("uncommitted"), "got {err}");
+        assert!(stray.exists());
+    }
+
+    #[test]
+    fn relocate_refuses_the_current_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let err = relocate_worktree(root, root.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("current"), "got {err}");
+    }
+
+    #[test]
+    fn relocate_is_a_noop_for_a_worktree_already_in_place() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let good = root.join(CANONICAL_WORKTREE_DIR).join("ok");
+        git_run(root, &["worktree", "add", "-q", good.to_str().unwrap(), "-b", "ok"]);
+
+        let out = relocate_worktree(root, good.to_str().unwrap()).unwrap();
+        assert_eq!(canonical_or_self(Path::new(&out)), canonical_or_self(&good));
+        assert!(good.is_dir());
+    }
+
+    // The `current` guard only proves "this is the worktree cwd is in" — it
+    // does NOT prove "this is the repo's main worktree" when the call
+    // originates from a different, linked worktree (Covenant's own workflow:
+    // feature work happens inside .covenant/worktrees/<slug>, so `cwd` is
+    // usually a linked worktree, not main). This reproduces exactly that gap:
+    // call `relocate_worktree` with the main worktree's path while `cwd` is a
+    // different, linked worktree, so `current` is false on the main row and
+    // can't be the thing that saves it.
+    #[test]
+    fn relocate_refuses_the_main_worktree_when_called_from_a_linked_worktree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+
+        let linked = root.join(CANONICAL_WORKTREE_DIR).join("side");
+        git_run(root, &["worktree", "add", "-q", linked.to_str().unwrap(), "-b", "side"]);
+
+        // Sanity check the setup actually reproduces the bug shape: called
+        // from the linked worktree, the main worktree's `current` flag must
+        // be false, or this test isn't exercising the gap at all.
+        let summary = repo_summary(&linked).unwrap();
+        let root_canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let main_row = summary
+            .worktrees
+            .iter()
+            .find(|w| {
+                std::path::Path::new(&w.path)
+                    .canonicalize()
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.path))
+                    == root_canonical
+            })
+            .expect("main worktree present in the summary");
+        assert!(!main_row.current, "sanity: cwd was the linked worktree");
+
+        let err = relocate_worktree(&linked, root.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("main"), "got {err}");
+        assert!(root.exists(), "main worktree directory still present");
+        assert!(root.join(".git").exists(), "still a valid repository");
+        assert!(
+            git_run_ok(root, &["rev-parse", "--show-toplevel"]),
+            "root is still a functioning git worktree"
         );
     }
 
