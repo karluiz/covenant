@@ -30,6 +30,27 @@ function loadCss(): string {
 
 const CSS = loadCss();
 
+/// Strip comments before any selector parsing — comment prose otherwise
+/// reads as a selector and produces phantom findings.
+const CSS_NC = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
+
+interface Rule {
+  selector: string;
+  body: string;
+}
+
+function rules(css: string): Rule[] {
+  const out: Rule[] = [];
+  const re = /(^|[\n};])\s*([^{}@][^{}]{0,400}?)\{([^{}]*)\}/g;
+  for (const m of css.matchAll(re)) {
+    out.push({ selector: m[2].trim(), body: m[3] });
+  }
+  return out;
+}
+
+const setsBackground = (body: string): boolean =>
+  /(^|;)\s*background(-color)?\s*:/i.test(body);
+
 /// Guard against the bug class that shipped twice during Special Themes.
 ///
 /// `body.theme-light` rules that hardcode a white or near-white background
@@ -150,5 +171,120 @@ describe("body.theme-light surfaces follow Special Themes", () => {
       body.theme-light .d { color: #fff; }
     `;
     expect(findHardcodedLightSurfaces(sample)).toHaveLength(0);
+  });
+});
+
+/// Guard against the specificity trap that silently kills modifier states.
+///
+/// `body.theme-light .btn` scores (0,2,1). A modifier rule like
+/// `.btn--primary` scores (0,1,0), and even `.btn--primary:hover` only
+/// (0,2,0) — both LOSE. So a light-theme override on a base class quietly
+/// replaces the background of every modifier and state built on it: the
+/// primary button's accent fill, the active dot, the selected tab.
+///
+/// It stays invisible for a long time because the dark themes have no such
+/// overrides, and in plain light mode the stolen colour is usually white on
+/// white. `bunny` (the light-based Special Theme) is what exposed it, but
+/// the bug was always there.
+///
+/// Fix: restate the modifier's background at `body.theme-light .base--mod`
+/// specificity, right next to the rule that steals it.
+
+interface Theft {
+  derived: string;
+  thief: string;
+}
+
+function findStolenModifierBackgrounds(css: string): Theft[] {
+  const all = rules(css);
+
+  // Base classes whose background body.theme-light overrides, and the
+  // derived selectors that a theme-light rule already restores.
+  const bases = new Map<string, string>();
+  const restored = new Set<string>();
+  for (const { selector, body } of all) {
+    if (!selector.includes("body.theme-light") || !setsBackground(body)) continue;
+    for (const raw of selector.split(",")) {
+      const part = raw.trim();
+      if (!part.includes("body.theme-light")) continue;
+      const base = /^body\.theme-light\s+(\.[A-Za-z0-9_-]+)$/.exec(part);
+      if (base) bases.set(base[1], part);
+      const der =
+        /body\.theme-light\s+(\.[A-Za-z0-9_-]+(?:--[A-Za-z0-9_-]+|\.[A-Za-z0-9_-]+))/.exec(
+          part,
+        );
+      if (der) restored.add(der[1]);
+    }
+  }
+
+  const found = new Map<string, string>();
+  for (const { selector, body } of all) {
+    if (selector.includes("theme-light") || !setsBackground(body)) continue;
+    for (const raw of selector.split(",")) {
+      const part = raw.trim();
+      for (const [base, thief] of bases) {
+        const m = new RegExp(
+          base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+            "(--[A-Za-z0-9_-]+|\\.[A-Za-z0-9_-]+)",
+        ).exec(part);
+        if (!m) continue;
+        const derived = base + m[1];
+        // A descendant target (`.base--mod .child`) is not the element the
+        // base override applies to, so it is not a victim.
+        const tail = part.slice(part.indexOf(m[0]) + m[0].length);
+        if (/\s+\S/.test(tail)) continue;
+        // Specificity: 3+ classes/pseudo-classes would beat (0,2,1).
+        const weight =
+          (part.match(/[.:][A-Za-z-]/g) ?? []).length -
+          2 * (part.match(/::/g) ?? []).length;
+        if (weight < 3 && !restored.has(derived)) found.set(derived, thief);
+      }
+    }
+  }
+  return [...found].map(([derived, thief]) => ({ derived, thief }));
+}
+
+describe("body.theme-light overrides do not steal modifier backgrounds", () => {
+  it("leaves every modifier's own background intact", () => {
+    const thefts = findStolenModifierBackgrounds(CSS_NC);
+    const report = thefts
+      .map((t) => `  ${t.derived}\n      stolen by:  ${t.thief}`)
+      .join("\n");
+    expect(
+      thefts,
+      thefts.length
+        ? `These modifiers lose their background to a less-specific-looking ` +
+            `but higher-specificity light-theme rule:\n${report}\n\n` +
+            `Restate each one as \`body.theme-light <modifier> { background: … }\`.`
+        : "",
+    ).toHaveLength(0);
+  });
+
+  it("detects a theft it is meant to catch", () => {
+    // Guards the guard — see the empty-stylesheet lesson in loadCss above.
+    const sample = `
+      .btn--primary { background: var(--accent); }
+      body.theme-light .btn { background: #fff; }
+    `;
+    expect(findStolenModifierBackgrounds(sample)).toEqual([
+      { derived: ".btn--primary", thief: "body.theme-light .btn" },
+    ]);
+  });
+
+  it("accepts a modifier that is restated under theme-light", () => {
+    const sample = `
+      .btn--primary { background: var(--accent); }
+      body.theme-light .btn { background: #fff; }
+      body.theme-light .btn--primary { background: var(--accent); }
+    `;
+    expect(findStolenModifierBackgrounds(sample)).toHaveLength(0);
+  });
+
+  it("ignores descendant targets, which the base override never reaches", () => {
+    const sample = `
+      .item--active .item__status { background: var(--ok); }
+      body.theme-light .item { background: #fff; }
+    `;
+    expect(findStolenModifierBackgrounds(sample)).toHaveLength(0);
   });
 });
