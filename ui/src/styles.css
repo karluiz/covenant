@@ -318,6 +318,43 @@ body.theme-true-dark {
     --text-tertiary: #565b63;
 }
 
+/* Special Themes — wallpaper-backed whole-window identities. The art and
+   its veil are two fixed pseudo-elements behind the already-transparent
+   #layout; every panel then composites over them at --surface-alpha,
+   exactly as it composites over the desktop today.
+
+   `position: fixed` is load-bearing, not cosmetic: <body> is a flex
+   container, so an in-flow ::before/::after would become a flex ITEM and
+   consume layout space. Fixed positioning takes them out of flow.
+
+   All the colour tokens come from applySpecialTokens() as inline styles
+   on <body> — inline beats body.theme-light's `--surface-alpha: 1`,
+   which the light-based `bunny` theme would otherwise inherit. */
+body.theme-special::before,
+body.theme-special::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+}
+
+body.theme-special::before {
+    z-index: -2;
+    background-image: var(--special-art);
+    background-size: cover;
+    /* Every source artwork pushes its subject into the right third.
+       Anchoring right keeps the character in the gutter beside the
+       terminal's ragged-right output instead of behind the text. */
+    background-position: right bottom;
+    background-repeat: no-repeat;
+}
+
+body.theme-special::after {
+    z-index: -1;
+    background: var(--special-veil);
+    opacity: var(--special-scrim);
+}
+
 #layout {
     position: relative;
     display: grid;
