@@ -1,0 +1,114 @@
+---
+// Worktrees section — mirrors docs/superpowers/specs/2026-07-19-worktree-prevention-design.md
+//
+// The signature is typographic, not decorative: five ragged path shapes
+// resolving into one aligned shape. Raggedness IS the felt experience of the
+// problem, and alignment is the payoff — so the comparison is carried by the
+// paths themselves rather than by a red/green verdict pinned next to them.
+// Path shapes are patterns, never real project names.
+const scattered = [
+  { path: "~/Sources/<repo>-<slug>", note: "ad-hoc git worktree add" },
+  { path: "~/Sources/<abbrev>-<slug>", note: "somebody's shorthand" },
+  { path: "~/Sources/<product>-<slug>", note: "another repo's leftovers" },
+  { path: "<repo>/.claude/worktrees/<slug>", note: "hardcoded, not configurable" },
+  { path: "<repo>/.worktrees/<slug>", note: "the generic fallback" },
+];
+
+// Not a sixth convention — the pathology the five produce between them. Kept
+// apart so it cannot be miscounted against the "5 conventions" stat.
+const nested = { path: "<repo>/<worktree>/<nested>", note: "a worktree inside a worktree" };
+
+const promises = [
+  {
+    title: "Simple",
+    body:
+      "Nobody configures anything. Covenant creates the worktree and launches the agent inside it, so the agent never reaches the question. An executor you adopt next month inherits the same isolation without being added to a list.",
+    icon: `<path d="M4 7h16M4 12h16M4 17h16"/>`,
+  },
+  {
+    title: "Visible",
+    body:
+      "Every worktree carries a state — active, stale, spent, orphan — derived from git, never stored. Each state offers exactly one action. You accept a verdict; you never have to know the git command.",
+    icon: `<circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/>`,
+  },
+  {
+    title: "Nothing lost",
+    body:
+      "A worktree is removed only when it provably holds nothing: merged, clean, and pristine on disk down to the ignored files. Anything else stays, and says why. Deleting is the exception that has to earn itself.",
+    icon: `<path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/>`,
+  },
+];
+---
+<section id="worktrees" class="section">
+  <p class="eyebrow fade-in-up">Worktrees — isolation without the debris</p>
+  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-4xl fade-in-up delay-100">
+    Your agents each invented their own worktree convention. Covenant ends the argument.
+  </h2>
+  <p class="mt-6 max-w-2xl text-mist/70 leading-relaxed fade-in-up delay-100">
+    Claude puts them in <code class="font-mono text-mist/90">.claude/worktrees/</code>. The common
+    fallback uses <code class="font-mono text-mist/90">.worktrees/</code>. Ad-hoc
+    <code class="font-mono text-mist/90">git worktree add</code> scatters siblings across your source
+    folder. None of them is wrong, and that is exactly the problem — five conventions on one repo,
+    and nobody to clean up after them.
+  </p>
+  <p class="mt-4 max-w-2xl text-mist/70 leading-relaxed fade-in-up delay-100">
+    Covenant hands out the worktree and launches the agent inside it, so no agent ever reaches the
+    question. Whichever harness you use today, and whichever one you adopt next.
+  </p>
+
+  <!-- Signature: ragged shapes resolving into one -->
+  <div class="mt-14 grid lg:grid-cols-2 gap-px bg-moss-500/15 border border-moss-500/20 rounded-xl overflow-hidden fade-in-up delay-200">
+    <div class="bg-ink p-6 md:p-8">
+      <div class="flex items-baseline justify-between gap-4 flex-wrap">
+        <span class="font-mono text-[11px] uppercase tracking-eyebrow text-mist/55">Before</span>
+        <span class="font-mono text-[11px] text-mist/60 tabular-nums">
+          26 worktrees · 5 conventions · 65 GB
+        </span>
+      </div>
+      <ul class="mt-6 space-y-2.5 font-mono text-[12px] md:text-[13px] leading-relaxed overflow-x-auto">
+        {scattered.map((s) => (
+          <li class="flex flex-col sm:flex-row sm:items-baseline sm:gap-3">
+            <span class="text-mist/75 whitespace-pre">{s.path}</span>
+            <span class="text-mist/55 text-[11px]">{s.note}</span>
+          </li>
+        ))}
+      </ul>
+      <div class="mt-4 pt-4 border-t border-moss-500/10 font-mono text-[12px] md:text-[13px] flex flex-col sm:flex-row sm:items-baseline sm:gap-3 overflow-x-auto">
+        <span class="text-mist/75 whitespace-pre">{nested.path}</span>
+        <span class="text-mist/55 text-[11px]">{nested.note}</span>
+      </div>
+    </div>
+
+    <div class="bg-moss-500/[0.04] p-6 md:p-8 flex flex-col">
+      <div class="flex items-baseline justify-between gap-4 flex-wrap">
+        <span class="font-mono text-[11px] uppercase tracking-eyebrow text-moss-400">After</span>
+        <span class="font-mono text-[11px] text-moss-400/90 tabular-nums">
+          10 worktrees · 1 convention · 44.4 GB reclaimed
+        </span>
+      </div>
+      <div class="mt-10 flex-1">
+        <p class="font-mono text-[13px] md:text-[15px] text-moss-400 whitespace-pre overflow-x-auto">
+          &lt;repo&gt;/.covenant/worktrees/&lt;agent&gt;
+        </p>
+        <p class="mt-4 text-sm text-mist/60 leading-relaxed max-w-sm">
+          One root, named after nobody's tool. Every worktree left standing has work inside it —
+          the rest retired themselves when their tab closed.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 grid md:grid-cols-3 gap-6">
+    {promises.map((p, i) => (
+      <article class={`rounded-xl border border-moss-500/20 bg-moss-500/[0.04] p-6 fade-in-up delay-${(i + 3) * 100}`}>
+        <div class="flex items-center gap-3">
+          <span class="grid place-items-center w-9 h-9 rounded-lg bg-moss-500/10 text-moss-400 shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" set:html={p.icon} />
+          </span>
+          <h3 class="text-lg font-semibold tracking-tight">{p.title}</h3>
+        </div>
+        <p class="mt-4 text-sm text-mist/70 leading-relaxed">{p.body}</p>
+      </article>
+    ))}
+  </div>
+</section>
