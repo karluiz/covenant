@@ -14785,22 +14785,42 @@ button.status-segment.status-tg:focus-visible {
   pointer-events: auto;
 }
 body.has-update-banner #app-titlebar-brand { display: none; }
-#app-titlebar-center:has(.update-banner) { pointer-events: auto; }
+/* True window center, same trick as #app-titlebar-brand — gap-centering
+   drifts left because the right icon cluster outweighs the left. The center
+   track's containment (container-type/overflow) would trap the absolute
+   child and re-clip it, so drop both while the capsule is mounted; the
+   capsule sheds labels via plain media queries below instead. */
+#app-titlebar-center:has(.update-banner) {
+  pointer-events: auto;
+  container-type: normal;
+  overflow: visible;
+}
+body.has-update-banner .update-banner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
 /* RC presence dot docked inside the capsule — the banner's flex gap
    spaces it; the standalone margin would double it. */
 .update-banner .rc-presence-dot { margin-left: 0; }
 
-/* Responsive: the capsule is centered in the gap between the icon clusters.
-   As that gap tightens, shed the lowest-priority pieces first. "What's new ›"
-   is redundant (the version chip opens the same modal), so it goes first; the
-   "UPDATE" word next. Dot + version + Install + dismiss always survive.
-   Container queries measure the gap itself (see #app-titlebar-center). */
-@container titlebar-center (max-width: 260px) {
+/* Responsive: window-centered, so the capsule collides with the right icon
+   cluster (~380px) at half its own width. Shed the lowest-priority pieces
+   first — "What's new ›" is redundant (the version chip opens the same
+   modal), then the "UPDATE" word. Dot + version + Install + dismiss always
+   survive. */
+@media (max-width: 1080px) {
   .update-banner__whatsnew { display: none; }
 }
-@container titlebar-center (max-width: 200px) {
+@media (max-width: 900px) {
   .update-banner__label { display: none; }
   .update-banner { gap: 6px; padding-right: 2px; }
+}
+@media (max-width: 780px) {
+  .update-banner__version { font-size: 10px; }
+  .update-banner__install { padding: 0 7px; }
 }
 
 .update-banner__pulse {
