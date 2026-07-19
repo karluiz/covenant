@@ -122,8 +122,14 @@ The PTY path is the most used one — Ctrl+N, the spawn picker, "Start agent" in
 the pane context menu — and it is the path that filled `.claude/worktrees/`.
 
 **Decision: in worktree mode, a PTY spawn opens a new tab** cwd'd into the
-worktree, via the existing `createTab({ cwd, initialCommand })`. Agents are then
-born isolated on every path, consistently.
+worktree, via the existing `createTab({ cwd, initialCommand })`. Agents are born
+isolated on **two of the three paths** — `runSpawn` (Ctrl+N, the picker, "Start
+agent") and the ACP path both go through it. `defaultAgentCmdline` is
+deliberately left alone: it returns a cmdline *string* and the caller creates the
+tab, so it has nowhere to put a cwd. Making it isolated means changing its
+contract to `{cmdline, cwd}` and updating every caller — worth doing only if that
+path turns out to be a real source of stray worktrees. `runSpawn` is the one that
+filled `.claude/worktrees/`.
 
 This is a real behaviour change: today Ctrl+N runs the agent where you are
 standing; it will open a tab instead. Accepted deliberately. The alternatives
@@ -140,13 +146,28 @@ On tab close, the worktree is removed **silently** when all four hold:
 
 1. Its cwd is under the canonical root.
 2. It has no commits of its own — `git rev-list <base>..HEAD --count` is 0.
-3. Its working tree is clean.
+3. It is **pristine on disk** — `git status --porcelain --ignored=matching`
+   reports nothing at all.
 4. No other open tab has a cwd inside it.
 
-A worktree with no commits and a clean tree contains nothing. Removing it is
-lossless — the same class of proof that makes `Spent` safe to reclaim, reached
-by a different route. Anything else stays on disk and the lifecycle ledger
-classifies it later as `Active`, `Stale`, or `Spent`.
+Condition 3 says pristine, not clean, and the distinction is the whole point.
+`git status --porcelain` does not report gitignored files, but `git worktree
+remove` deletes them regardless — so gating on "clean" would silently destroy an
+agent's `node_modules`, its `.env`, and any working notes it wrote to an ignored
+path, on a tab close, with no confirmation. Only a worktree with *nothing* on
+disk beyond git's own bookkeeping is provably worthless.
+
+With that, removing it is lossless — the same class of proof that makes `Spent`
+safe to reclaim, reached by a different route. Anything else stays on disk and
+the lifecycle ledger classifies it later as `Active`, `Stale`, or `Spent`.
+
+The incoming path is resolved to the worktree that *contains* it, longest match
+first, so an agent that `cd`'d into a subdirectory of its own worktree still gets
+that worktree retired rather than leaking it.
+
+Note the asymmetry with `reclaim_worktrees`, which does delete ignored content:
+that path is user-initiated behind a confirmation which says so in as many words.
+Retirement is automatic and silent, so it gets the stricter gate.
 
 **No new persistence.** All four conditions are derived: three from git, the
 fourth from `listTabSnapshots()` — the same channel the relocate guard already
