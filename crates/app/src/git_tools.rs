@@ -489,7 +489,8 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
 
     let main_root = summary
         .worktrees
-        .first()
+        .iter()
+        .find(|w| w.is_main)
         .map(|w| canonical_or_self(Path::new(&w.path)))
         .ok_or_else(|| "no worktrees reported by git".to_string())?;
     if target == main_root {
@@ -535,9 +536,11 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
     }
 
     git(main, &["worktree", "remove", &wt.path])?;
-    // The branch has no commits beyond base, so -d cannot refuse it and there
-    // is nothing to lose. Failure here is not fatal: the directory is already
-    // gone and the ledger will surface a stray branch.
+    // Best-effort: -d checks merge status against main's CURRENT HEAD, not
+    // against `base`, so it can still refuse if main has diverged from the
+    // default branch since we computed `ahead`. Failure here is not fatal:
+    // the directory is already gone and the ledger will surface a stray
+    // branch.
     let _ = git(main, &["branch", "-d", branch]);
     let _ = git(main, &["worktree", "prune"]);
     Ok(true)
@@ -2595,6 +2598,13 @@ index e69de29..0cfbf08 100644
         // worktree, never from `cwd`, since git can refuse to remove the
         // worktree it was invoked from, and that directory is about to stop
         // existing.
+        //
+        // The directory-removal assertion alone does not pin this: on some
+        // git versions `worktree remove -C <dir> <dir>` succeeds anyway, and
+        // only the subsequent `branch -d` / `worktree prune` calls fail once
+        // `-C` points at a directory that no longer exists — those failures
+        // are swallowed by `let _ =`. Asserting the branch is gone is what
+        // actually catches a regression to `let main = cwd;`.
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
         init_repo(root);
@@ -2602,5 +2612,10 @@ index e69de29..0cfbf08 100644
 
         assert!(retire_worktree(Path::new(&path), &path).unwrap());
         assert!(!Path::new(&path).exists());
+        let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
+        assert!(
+            !branches.lines().any(|l| l.trim() == "agent/self-0719-eee"),
+            "branch delete must run from the main worktree, not the deleted cwd",
+        );
     }
 }
