@@ -416,12 +416,17 @@ describe("app theme registry import", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Run the test — it should pass immediately**
 
 ```bash
 cd landing && npm run test:unit -- src/components/blog/registry.test.ts
 ```
-Expected: FAIL — the file resolves but there is no `ThemeGallery.astro` yet, so this step is really checking the *import path* works. If it fails with "Cannot find module", the relative depth is wrong: from `landing/src/components/blog/` the repo root is four levels up (`../../../../`).
+
+**This is deliberately not a red-green step.** The registry it guards already exists on `main`; there is nothing to implement to make it pass. It is a *characterisation* test whose job is to fail later, if someone adds an app-only import to `ui/src/theme/special.ts`.
+
+Expected: PASS. If instead it fails with "Cannot find module", the relative depth is wrong — from `landing/src/components/blog/` the repo root is four levels up (`../../../../`).
+
+To confirm it has teeth rather than passing vacuously, temporarily break the path (`../../../../ui/src/theme/nope`), re-run, see it fail to resolve, then restore it. Report that you did this.
 
 - [ ] **Step 3: Verify it also passes under the repo-root config**
 
@@ -736,7 +741,22 @@ import Customization from "../components/Customization.astro";
 
 - [ ] **Step 3: Add the navbar link**
 
-`landing/src/components/Navbar.astro` currently has only `href="/"`. Add a `/blog` link next to the existing nav items, matching whatever markup the neighbouring links use — read the file and follow its pattern rather than inventing new classes.
+`landing/src/components/Navbar.astro` drives both the desktop row and the mobile menu from one `links` array, so this is a single entry — no markup changes.
+
+Add `Blog` between `Canon` and `Remote`:
+
+```ts
+const links = [
+  { href: "#install", label: "Install" },
+  { href: "#canon", label: "Canon" },
+  { href: "/blog", label: "Blog" },
+  { href: "/remote", label: "Remote" },
+  { href: "https://forge.covenant.uno", label: "Forge" },
+  { href: githubUrl, label: "GitHub" },
+];
+```
+
+Note the two anchor links (`#install`, `#canon`) resolve against the current page, so from `/blog` they go nowhere. That is pre-existing — `/remote` has the same behaviour today — and is **not** in scope here.
 
 - [ ] **Step 4: Build and check the section renders**
 
