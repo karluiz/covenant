@@ -344,6 +344,13 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
         return Ok(false);
     }
 
+    // Retirement must also survive being called with the worktree itself as
+    // `cwd` — that is exactly how the closing tab calls it. Add a test:
+    //
+    //   let path = create_worktree(root, "agent/self-0719-eee", None).unwrap();
+    //   assert!(retire_worktree(Path::new(&path), &path).unwrap());
+    //   assert!(!Path::new(&path).exists());
+
     let Some(wt) = summary
         .worktrees
         .iter()
@@ -358,10 +365,16 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
         return Ok(false);
     };
 
+    // Every git call below runs from the MAIN worktree, never from `cwd`.
+    // The caller is the closing tab, which passes the worktree being retired
+    // as its own cwd — git can refuse to remove the worktree it was invoked
+    // from, and the directory is about to stop existing either way.
+    let main = main_root.as_path();
+
     // `--porcelain` in status already counts untracked files, so dirty_count
     // covers scratch files. What is left to prove is "no commits of its own".
-    let base = default_branch(cwd);
-    let ahead = git(cwd, &["rev-list", "--count", &format!("{base}..{branch}")])
+    let base = default_branch(main);
+    let ahead = git(main, &["rev-list", "--count", &format!("{base}..{branch}")])
         .ok()
         .and_then(|s| s.trim().parse::<u32>().ok())
         .unwrap_or(1); // unknown → assume it has work, keep it
@@ -369,15 +382,21 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
         return Ok(false);
     }
 
-    git(cwd, &["worktree", "remove", &wt.path])?;
+    git(main, &["worktree", "remove", &wt.path])?;
     // The branch has no commits beyond base, so -d cannot refuse it and there
     // is nothing to lose. Failure here is not fatal: the directory is already
     // gone and the ledger will surface a stray branch.
-    let _ = git(cwd, &["branch", "-d", branch]);
-    let _ = git(cwd, &["worktree", "prune"]);
+    let _ = git(main, &["branch", "-d", branch]);
+    let _ = git(main, &["worktree", "prune"]);
     Ok(true)
 }
 ```
+
+**Note on `base`:** this compares against the repo's default branch, not the
+`base` a worktree was actually created from. When `create_worktree` was given an
+explicit non-default base, the ahead-count is inflated and the worktree is
+*kept*. That is the safe direction, and recording the real base would mean
+persistence this feature deliberately avoids.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
