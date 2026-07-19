@@ -1,7 +1,14 @@
 ---
+import { getCollection } from "astro:content";
 import ThemeGallery from "./blog/ThemeGallery.astro";
 import { SPECIAL_THEME_LIST } from "../../../ui/src/theme/special";
 const themeCount = SPECIAL_THEME_LIST.length;
+
+// The "making the terminal yours" post ships as a draft. Resolve it instead
+// of hardcoding the href so the link appears only once the post is
+// published (draft: false) — do not "fix" this back to a static href.
+const posts = await getCollection("blog", ({ data }) => import.meta.env.DEV || !data.draft);
+const post = posts.find((p) => p.slug === "making-the-terminal-yours");
 ---
 <section id="customization" class="section">
   <p class="eyebrow fade-in-up">Customization</p>
@@ -16,8 +23,10 @@ const themeCount = SPECIAL_THEME_LIST.length;
   <div class="mt-12 fade-in-up delay-200">
     <ThemeGallery compact />
   </div>
-  <a href="/blog/making-the-terminal-yours"
-     class="mt-10 inline-block font-mono text-[11px] uppercase tracking-eyebrow text-moss-400 hover:text-moss-500 transition-colors fade-in-up delay-300">
-    Read how the themes were built →
-  </a>
+  {post && (
+    <a href={`/blog/${post.slug}`}
+       class="mt-10 inline-block font-mono text-[11px] uppercase tracking-eyebrow text-moss-400 hover:text-moss-500 transition-colors fade-in-up delay-300">
+      Read how the themes were built →
+    </a>
+  )}
 </section>
