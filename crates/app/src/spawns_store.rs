@@ -18,6 +18,18 @@ pub struct SpawnSpec {
     /// Launch as an ACP chat tab instead of a PTY command line.
     #[serde(default)]
     pub acp: bool,
+    /// Launch this spawn inside a fresh worktree at the canonical root.
+    ///
+    /// Defaults to true for every spawn — the base shell is the one thing
+    /// that opts out, and it does so explicitly. Keying the default off a
+    /// list of known executor ids would leave tomorrow's executor
+    /// unprotected, which is the original problem wearing a new hat.
+    #[serde(default = "default_worktree")]
+    pub worktree: bool,
+}
+
+fn default_worktree() -> bool {
+    true
 }
 
 pub struct SpawnStore {
@@ -68,6 +80,7 @@ impl SpawnStore {
                                 cwd: None,
                                 default: false,
                                 acp: false,
+                                worktree: true,
                             });
                             changed = true;
                         }
@@ -96,6 +109,7 @@ impl SpawnStore {
                     cwd: None,
                     default: *id == "claude",
                     acp: false,
+                    worktree: true,
                 })
                 .collect::<Vec<_>>();
             std::fs::create_dir_all(data_dir).ok();
@@ -168,6 +182,7 @@ mod tests {
             cwd: None,
             default: true,
             acp: true,
+            worktree: true,
         };
         let json = serde_json::to_string(&spec).unwrap();
         let back: SpawnSpec = serde_json::from_str(&json).unwrap();
@@ -213,6 +228,7 @@ mod tests {
             cwd: None,
             default: true,
             acp: false,
+            worktree: true,
         }];
         std::fs::write(
             dir.path().join("spawns.json"),
@@ -261,6 +277,7 @@ mod tests {
                 cwd: None,
                 default: false,
                 acp: false,
+                worktree: true,
             })
             .unwrap();
         assert!(store.list().unwrap().iter().any(|s| s.id == "ollama"));
@@ -280,5 +297,33 @@ mod tests {
         std::fs::write(dir.path().join("spawns.json"), "{not json").unwrap();
         let store = SpawnStore::open(dir.path()).unwrap();
         assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn spawns_default_to_isolated() {
+        let spec: SpawnSpec = serde_json::from_str(
+            r#"{"id":"codex","label":"Codex","icon":null,"command":"codex","cwd":null}"#,
+        )
+        .unwrap();
+        assert!(spec.worktree, "a spawn with no explicit flag is isolated");
+    }
+
+    #[test]
+    fn an_explicit_false_is_honored() {
+        let spec: SpawnSpec = serde_json::from_str(
+            r#"{"id":"sh","label":"Shell","icon":null,"command":"zsh","cwd":null,"worktree":false}"#,
+        )
+        .unwrap();
+        assert!(!spec.worktree);
+    }
+
+    #[test]
+    fn a_pre_existing_spawns_json_still_parses() {
+        // Installs upgrading from before this field must not break; they
+        // inherit isolation rather than silently opting out.
+        let legacy = r#"[{"id":"claude","label":"Claude","icon":null,"command":"claude","cwd":null}]"#;
+        let specs: Vec<SpawnSpec> = serde_json::from_str(legacy).unwrap();
+        assert_eq!(specs.len(), 1);
+        assert!(specs[0].worktree);
     }
 }

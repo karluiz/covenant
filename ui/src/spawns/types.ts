@@ -11,4 +11,7 @@ export interface SpawnSpec {
   /// PTY. Only honored when the command maps to an ACP-capable executor
   /// (see acpExecutorFor). Optional: absent in pre-existing spawns.json.
   acp?: boolean;
+  /// Launch inside a fresh worktree at the canonical root. Optional:
+  /// absent in pre-existing spawns.json, where it defaults to true.
+  worktree?: boolean;
 }
