@@ -90,7 +90,6 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
     };
 
     let current_root = canonical_or_self(Path::new(&repo_root));
-    let canonical_root = canonical_or_self(&current_root.join(CANONICAL_WORKTREE_DIR));
     let mut worktrees = parse_worktree_list(&git(cwd, &["worktree", "list", "--porcelain"])?);
 
     // `git worktree list --porcelain` always lists the main worktree first —
@@ -104,6 +103,23 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
     let main_worktree_root = worktrees
         .first()
         .map(|wt| canonical_or_self(Path::new(&wt.path)));
+
+    // The canonical worktree root is likewise always rooted at the MAIN
+    // worktree, never at `current_root` (the calling `cwd`'s own toplevel).
+    // Basing it on `current_root` made every linked worktree compute its
+    // own, wrong, `.covenant/worktrees` root relative to itself — so a
+    // correctly-placed linked worktree reported `off_convention = true`
+    // when queried from its own cwd, and `relocate_worktree` (which derives
+    // its destination the same way, see below) would nest a relocated
+    // worktree inside whichever worktree the caller happened to be standing
+    // in. Fall back to `current_root` only if `worktree list` somehow
+    // returned nothing.
+    let canonical_root = canonical_or_self(
+        &main_worktree_root
+            .clone()
+            .unwrap_or_else(|| current_root.clone())
+            .join(CANONICAL_WORKTREE_DIR),
+    );
 
     let default_branch = default_branch(cwd);
     let merged: std::collections::HashSet<String> = git(
@@ -314,9 +330,11 @@ pub fn relocate_worktree(cwd: &Path, path: &str) -> Result<String, String> {
     // lists the main worktree first — `repo_summary` relies on that exact
     // fact for `off_convention`, and `summary.worktrees` preserves that
     // ordering, so reuse it here rather than inventing a second mechanism.
-    let is_main_worktree = summary
-        .worktrees
-        .first()
+    // The same `main_worktree` row also anchors the destination root below,
+    // rather than `summary.repo_root` (which is the CALLING cwd's own
+    // toplevel, not necessarily the main worktree's).
+    let main_worktree = summary.worktrees.first();
+    let is_main_worktree = main_worktree
         .map(|main| canonical_or_self(Path::new(&main.path)))
         .as_ref()
         == Some(&target);
@@ -337,7 +355,16 @@ pub fn relocate_worktree(cwd: &Path, path: &str) -> Result<String, String> {
         .branch
         .as_deref()
         .ok_or_else(|| "cannot relocate a detached worktree".to_string())?;
-    let root = Path::new(&summary.repo_root).join(CANONICAL_WORKTREE_DIR);
+    // The destination root is always under the MAIN worktree — NOT under
+    // `summary.repo_root`, which is `git rev-parse --show-toplevel` run
+    // against the calling `cwd` and is routinely a linked worktree itself.
+    // Using it here nested the relocated worktree inside whichever worktree
+    // the caller happened to be standing in, and dirtied that worktree's
+    // tree with the newly-created `.covenant/` directory in the process.
+    let main_root = main_worktree
+        .map(|main| Path::new(main.path.as_str()))
+        .unwrap_or_else(|| Path::new(&summary.repo_root));
+    let root = main_root.join(CANONICAL_WORKTREE_DIR);
     std::fs::create_dir_all(&root).map_err(|e| format!("create {}: {e}", root.display()))?;
 
     let dest = root.join(worktree_slug(branch));
@@ -1599,6 +1626,93 @@ index e69de29..0cfbf08 100644
         assert!(
             !main_row.off_convention,
             "the main worktree must never be off_convention, regardless of which worktree cwd is"
+        );
+    }
+
+    // Reproduces the bug directly: `relocate_worktree`'s destination root was
+    // being derived from `summary.repo_root`, i.e. `git rev-parse
+    // --show-toplevel` run against the CALLING cwd — which is a linked
+    // worktree in Covenant's own normal workflow, not the main worktree.
+    // Relocating a *different*, stray worktree while `cwd` sits in some
+    // other linked worktree must still land under the MAIN worktree's
+    // canonical root, and must never touch the calling worktree's own tree.
+    #[test]
+    fn relocate_from_a_linked_worktree_lands_under_the_main_root_not_nested_in_the_caller() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+
+        // The CALLER: a correctly-placed linked worktree, not the target.
+        let caller = root.join(CANONICAL_WORKTREE_DIR).join("caller");
+        git_run(
+            root,
+            &["worktree", "add", "-q", caller.to_str().unwrap(), "-b", "caller-branch"],
+        );
+
+        // The RELOCATION TARGET: a different, stray worktree.
+        let stray = root.join("stray-place");
+        git_run(
+            root,
+            &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "feat/other-thing"],
+        );
+
+        let moved = relocate_worktree(&caller, stray.to_str().unwrap()).unwrap();
+
+        let expected = canonical_or_self(root)
+            .join(CANONICAL_WORKTREE_DIR)
+            .join("other-thing");
+        assert_eq!(
+            canonical_or_self(Path::new(&moved)),
+            canonical_or_self(&expected),
+            "must land under the MAIN worktree's canonical root, got {moved}"
+        );
+        assert!(
+            !moved.contains("caller"),
+            "must not be nested inside the calling worktree's own tree: {moved}"
+        );
+
+        // The calling worktree's tree must remain untouched by the relocation.
+        let status = git(&caller, &["status", "--porcelain"]).unwrap();
+        assert!(
+            status.trim().is_empty(),
+            "calling worktree was dirtied by an unrelated relocation: {status:?}"
+        );
+    }
+
+    // Reproduces the bug directly: `off_convention` was computed from a
+    // `canonical_root` derived from the CALLING cwd's own toplevel, not the
+    // main worktree's. A correctly-placed linked worktree, queried with its
+    // own cwd (the normal case for Covenant's own workflow), must report
+    // `off_convention == false` for its own row.
+    #[test]
+    fn repo_summary_reports_a_correctly_placed_linked_worktree_as_on_convention_from_its_own_cwd()
+    {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+
+        let wt = root.join(CANONICAL_WORKTREE_DIR).join("feature-x");
+        git_run(
+            root,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "feature-x"],
+        );
+
+        // Query repo_summary FROM the linked worktree's own cwd.
+        let summary = repo_summary(&wt).unwrap();
+        let own_row = summary
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("feature-x"))
+            .expect("the linked worktree's own row must be present");
+
+        assert!(
+            own_row.current,
+            "sanity: cwd was this worktree, so its own row must be `current`"
+        );
+        assert!(
+            !own_row.off_convention,
+            "a correctly-placed linked worktree must not be off_convention \
+             when queried from its own cwd"
         );
     }
 
