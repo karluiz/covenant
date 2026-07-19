@@ -96,7 +96,7 @@ derive from. `contrast` is the terminal foreground (`ink`) against it.
 | `kimetsu` | Kimetsu no Yaiba | dark | `#223941` | `#000` | 0.36 | `#16242A` | `#45D6A6` | `#CFDCDA` | 11.3:1 |
 | `haikyuu` | Haikyuu!! | dark | `#27344F` | `#000` | 0.30 | `#1B2437` | `#F0803A` | `#D3D8E2` | 10.8:1 |
 | `onepiece` | One Piece | dark | `#D0545C` | `#000` | 0.68 | `#431B1D` | `#E8B84A` | `#EFD9D6` | 11.0:1 |
-| `bunny` | Bunny Senpai | light | `#A1A0A5` | `#FFF` | 0.55 | `#D5D4D6` | `#B85C79` | `#191A1D` | 11.8:1 |
+| `bunny` | Bunny Senpai | light | `#A1A0A5` | `#FFF` | 0.55 | `#D5D4D7` | `#B85C79` | `#191A1D` | 11.8:1 |
 
 Notes per theme:
 
