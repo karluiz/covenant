@@ -812,8 +812,7 @@ than in-flow because body is a flex container."
 - Produces:
   - `ThemeMode` union gains `"special"` (both declarations).
   - `resolveTheme(mode: ThemeMode, specialId?: string | null): ResolvedTheme`
-  - `applyTheme(mode, tabs, specialId?, scrim?)` in `main.ts`
-  - Module-level `activeSpecialTheme: SpecialTheme | null` exported from `main.ts` as `getActiveSpecialTheme()` for Task 5.
+  - `applyTheme(mode, tabs, specialId?, scrim?)` in `main.ts`, holding a function-local `const special` that Task 5 reads. No module-level mirror and no accessor — Task 5 pushes the palette out via a setter instead.
 
 - [ ] **Step 1: Write the failing test**
 
