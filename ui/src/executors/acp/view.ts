@@ -78,6 +78,20 @@ export function isJunkResumeTitle(title: string | null | undefined): boolean {
   return t.length === 0 || /^\/[\w-]+$/.test(t);
 }
 
+/// A paste is "bulky" once it stops reading as a phrase — either many
+/// lines or a wall of characters. Below this it stays inline.
+export function isBulkyPaste(text: string): boolean {
+  return text.length >= 600 || text.split("\n").length >= 8;
+}
+
+function pasteLines(text: string): number {
+  return text.split("\n").length;
+}
+
+export function pasteToken(p: { id: number; text: string }): string {
+  return `[Pasted text #${p.id} +${pasteLines(p.text)} lines]`;
+}
+
 /// Quick-view lightbox for a pasted image. One at a time — opening
 /// replaces any existing overlay. Dismiss: click anywhere or Escape.
 function openImagePreview(dataUrl: string): void {
@@ -630,6 +644,11 @@ export class AcpChatView {
   /// Images pasted into the composer, sent as ACP `image` blocks with
   /// the next prompt and cleared. Rendered as removable chips.
   private pendingImages: AcpImageAttachment[] = [];
+  /// Bulky text pastes, held out of the textarea behind a `[Pasted text …]`
+  /// token and re-inlined on send. Deleting the token drops the paste,
+  /// same contract as @mentions.
+  private pendingPastes: { id: number; text: string }[] = [];
+  private pasteSeq = 0;
   private imageStripEl!: HTMLElement;
 
   private statusEl!: HTMLElement;
@@ -908,7 +927,8 @@ export class AcpChatView {
     });
     // Paste-to-attach: image/* clipboard items become ACP `image` blocks
     // on the next send (both copilot and pi-acp advertise
-    // promptCapabilities.image). Text pastes flow through untouched.
+    // promptCapabilities.image). Bulky text pastes collapse to a token +
+    // chip; short ones flow through untouched.
     this.inputEl.addEventListener("paste", (e) => {
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -916,7 +936,22 @@ export class AcpChatView {
         .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
         .map((it) => it.getAsFile())
         .filter((f): f is File => f !== null);
-      if (files.length === 0) return;
+      if (files.length === 0) {
+        const t = e.clipboardData?.getData("text/plain") ?? "";
+        if (!isBulkyPaste(t)) return;
+        e.preventDefault();
+        const entry = { id: ++this.pasteSeq, text: t };
+        this.pendingPastes.push(entry);
+        this.inputEl.setRangeText(
+          pasteToken(entry),
+          this.inputEl.selectionStart ?? 0,
+          this.inputEl.selectionEnd ?? 0,
+          "end",
+        );
+        this.renderImageStrip();
+        this.syncComposer();
+        return;
+      }
       e.preventDefault();
       for (const f of files) {
         const reader = new FileReader();
@@ -1910,12 +1945,12 @@ export class AcpChatView {
   // -------------------------------------------------------------------------
 
   private async handleSend(): Promise<void> {
-    const text = this.inputEl.value.trim();
+    const raw = this.inputEl.value.trim();
     const images = this.pendingImages;
-    if ((text.length === 0 && images.length === 0) || this.state.inFlight) return;
+    if ((raw.length === 0 && images.length === 0) || this.state.inFlight) return;
     // /rename is a Covenant tab command — rename the tab, never send it to the
     // agent (which just replies "no output" to unknown slash text).
-    const rename = /^\/rename(?:\s+(.*))?$/.exec(text);
+    const rename = /^\/rename(?:\s+(.*))?$/.exec(raw);
     if (rename) {
       const name = (rename[1] ?? "").trim();
       this.hideSlashMenu();
@@ -1931,8 +1966,14 @@ export class AcpChatView {
     }
     this.hideSlashMenu();
     this.hideMentionMenu();
+    // Held-out pastes go back inline; ones whose token was deleted vanish.
+    const text = this.pendingPastes.reduce(
+      (acc, p) => acc.split(pasteToken(p)).join(p.text),
+      raw,
+    );
+    this.pendingPastes = [];
     // Only mentions whose @token survived editing become attachments.
-    const attachments = [...this.mentions].filter((p) => text.includes(`@${p}`));
+    const attachments = [...this.mentions].filter((p) => raw.includes(`@${p}`));
     this.mentions.clear();
     this.lastSentText = text;
     this.inputEl.value = "";
@@ -1971,9 +2012,26 @@ export class AcpChatView {
   /// Removable chips for pasted images, above the textarea. Chip body
   /// (thumbnail + label) opens a quick-view overlay; only the ✕ removes.
   private renderImageStrip(): void {
-    this.imageStripEl.hidden = this.pendingImages.length === 0;
+    this.imageStripEl.hidden =
+      this.pendingImages.length === 0 && this.pendingPastes.length === 0;
     this.imageStripEl.textContent = "";
     this.syncComposer();
+    for (const p of this.pendingPastes) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "acp-image-chip";
+      chip.innerHTML =
+        `<span class="acp-image-chip-icon">${Icons.clipboard({ size: 12 })}</span>` +
+        `<span>Pasted text #${p.id} · ${pasteLines(p.text)} lines</span>` +
+        `<span class="acp-image-chip-x">${Icons.x({ size: 12 })}</span>`;
+      attachTooltip(chip, "Remove this paste");
+      chip.addEventListener("click", () => {
+        this.inputEl.value = this.inputEl.value.split(pasteToken(p)).join("");
+        this.pendingPastes = this.pendingPastes.filter((q) => q !== p);
+        this.renderImageStrip();
+      });
+      this.imageStripEl.appendChild(chip);
+    }
     this.pendingImages.forEach((img, i) => {
       const dataUrl = `data:${img.mimeType};base64,${img.data}`;
       const chip = document.createElement("button");
