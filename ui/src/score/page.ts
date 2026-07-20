@@ -318,11 +318,15 @@ function renderStats(host: HTMLElement, summary: Summary, cells: DailyCell[]): v
 
 // ── Heatmap ───────────────────────────────────────────────────────────────────
 
-function intensityClass(prompts: number): string {
-  if (prompts === 0) return "";
-  if (prompts <= 5) return "l1";
-  if (prompts <= 15) return "l2";
-  if (prompts <= 40) return "l3";
+/// Colour by total activity — prompts AND commits. Prompt-only left the
+/// grid grey for anyone whose work happens in a PTY executor session,
+/// where no prompt is observable (see the notch-driven recorder in
+/// `crates/app/src/notch.rs`); a day with commits is not "no activity".
+function intensityClass(activity: number): string {
+  if (activity === 0) return "";
+  if (activity <= 5) return "l1";
+  if (activity <= 15) return "l2";
+  if (activity <= 40) return "l3";
   return "l4";
 }
 
@@ -332,8 +336,8 @@ function renderHeatmap(
   onClick: (day: string) => void,
 ): void {
   host.innerHTML = "";
-  const byDay = new Map<string, number>();
-  for (const c of cells) byDay.set(c.day, c.prompts);
+  const byDay = new Map<string, { prompts: number; commits: number }>();
+  for (const c of cells) byDay.set(c.day, { prompts: c.prompts, commits: c.commits });
 
   const today = new Date();
   const start = new Date(today);
@@ -344,9 +348,9 @@ function renderHeatmap(
       const d = new Date(start);
       d.setDate(start.getDate() + week * 7 + day);
       const key = d.toISOString().slice(0, 10);
-      const count = byDay.get(key) ?? 0;
+      const { prompts, commits } = byDay.get(key) ?? { prompts: 0, commits: 0 };
       const cell = document.createElement("div");
-      const cls = intensityClass(count);
+      const cls = intensityClass(prompts + commits);
       cell.className = `cov-cell${cls ? " " + cls : ""}`;
       attachTooltip(cell, {
         title: d.toLocaleDateString(undefined, {
@@ -356,7 +360,15 @@ function renderHeatmap(
           year: "numeric",
         }),
         subtitle: key,
-        meta: count === 0 ? "No activity" : `${count} prompt${count === 1 ? "" : "s"}`,
+        meta:
+          prompts + commits === 0
+            ? "No activity"
+            : [
+                prompts > 0 ? `${prompts} prompt${prompts === 1 ? "" : "s"}` : null,
+                commits > 0 ? `${commits} commit${commits === 1 ? "" : "s"}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · "),
       });
       cell.dataset.day = key;
       cell.addEventListener("click", () => onClick(key));

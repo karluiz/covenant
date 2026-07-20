@@ -53,6 +53,26 @@ fn streak_increments_for_consecutive_days_and_breaks_on_gap() {
 }
 
 #[test]
+fn streak_counts_commit_only_days_as_active() {
+    // A PTY executor session produces no observable prompt, so a day of
+    // real work can be commits-only. It must still hold the streak — the
+    // heatmap colours those days, and the two must agree.
+    let dir = tempdir().unwrap();
+    let store = ScoreStore::open(dir.path()).unwrap();
+    let now = chrono::Local::now();
+    let one_day = chrono::Duration::days(1);
+    for offset in [2i64, 1, 0] {
+        let ts = (now - one_day * offset as i32).timestamp_millis();
+        store
+            .append(ts, EventKind::Commit, &format!("repo:sha{offset}"))
+            .unwrap();
+    }
+    let s = store.summary().unwrap();
+    assert_eq!(s.total_prompts, 0, "no prompts recorded in this scenario");
+    assert_eq!(s.current_streak, 3, "commit-only days must hold the streak");
+}
+
+#[test]
 fn migration_adds_context_columns_on_existing_db() {
     let dir = tempfile::tempdir().unwrap();
     // Pre-create a v1 DB without context columns
