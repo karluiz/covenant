@@ -184,15 +184,16 @@ pub async fn canon_compile_findings(
                 .collect()
         };
         if !g.memory.is_empty() {
-            report.memory = strvec(write_memory_entry(&root, &g.memory).map_err(|e| e.to_string())?);
+            report.memory =
+                strvec(write_memory_entry(&root, &g.memory, overwrite).map_err(|e| e.to_string())?);
         }
         if !g.commands.is_empty() {
             report.commands =
-                strvec(write_command_entry(&root, &g.commands).map_err(|e| e.to_string())?);
+                strvec(write_command_entry(&root, &g.commands, overwrite).map_err(|e| e.to_string())?);
         }
         if !g.agents.is_empty() {
             report.agents =
-                strvec(write_subagent_entry(&root, &g.agents).map_err(|e| e.to_string())?);
+                strvec(write_subagent_entry(&root, &g.agents, overwrite).map_err(|e| e.to_string())?);
         }
         Ok::<_, String>(report)
     })
