@@ -738,6 +738,16 @@ impl Storage {
             "ALTER TABLE operator_decisions ADD COLUMN trigger_class TEXT",
             [],
         );
+        // Reclassify historical API failures: they were persisted as
+        // `escalate`, which counted them as verdicts the operator never
+        // reached — inflating escalate_count and leaving tabs stuck
+        // Blocked in convergence. Matched on the `api error: ` prefix
+        // that path has always written. Idempotent: reruns match nothing.
+        let _ = conn.execute(
+            "UPDATE operator_decisions SET action = 'error' \
+             WHERE action = 'escalate' AND escalation LIKE 'api error: %'",
+            [],
+        );
         // Operator identity: voice tone for outbound messages.
         // Existing rows get 'Terse' (the VoiceTone default).
         let _ = conn.execute(

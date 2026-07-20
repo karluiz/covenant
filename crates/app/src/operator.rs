@@ -696,6 +696,21 @@ struct Attached {
     /// Set when `consecutive_parse_failures` crosses the threshold
     /// (default 3) within a 60s window.
     parse_quarantined_until: Option<Instant>,
+    /// Consecutive API failures of the decision call. Resets on any
+    /// successful call. Drives `api_retry_after` below.
+    consecutive_api_failures: u32,
+    /// Set when `api_retry_after` lapses, consumed by the byte-dedup
+    /// gate in the main loop as a one-shot escape hatch. Sticky because
+    /// the timer is cleared in the candidate-collection pass, which runs
+    /// under a different lock than the gate that needs to know.
+    pending_api_retry: bool,
+    /// When the next retry after an API failure becomes due. While set
+    /// and in the future the tick is skipped; once it passes, the idle
+    /// window is re-opened so the operator gets another attempt at the
+    /// SAME unanswered question. Without this a single transient 5xx
+    /// consumed the whole window and left the executor waiting on a
+    /// prompt nobody would ever answer.
+    api_retry_after: Option<Instant>,
     /// Per-session bumped thinking budget after a `max_tokens` stop.
     /// Resets on app restart (in-memory only). Cap 4000.
     thinking_budget_override: Option<u32>,
@@ -893,6 +908,9 @@ impl OperatorWatcher {
                 last_mission_mtime: None,
                 consecutive_parse_failures: 0,
                 parse_quarantined_until: None,
+                consecutive_api_failures: 0,
+                api_retry_after: None,
+                pending_api_retry: false,
                 thinking_budget_override: None,
             },
         );
@@ -2000,6 +2018,19 @@ async fn run_tick(
                 }
                 att.parse_quarantined_until = None;
             }
+            // API-failure backoff. While pending we skip the tick; once
+            // it lapses we clear it AND roll back the byte-dedup marker
+            // below, so the retry sees the same unanswered prompt as a
+            // fresh decision point instead of a screen it already
+            // "handled". Clearing only the timer would let the dedup
+            // gate swallow every retry.
+            if let Some(until) = att.api_retry_after {
+                if now < until {
+                    continue;
+                }
+                att.api_retry_after = None;
+                att.pending_api_retry = true;
+            }
             while let Some(t) = att.decisions_in_window.front() {
                 if now.duration_since(*t) > RATE_WINDOW {
                     att.decisions_in_window.pop_front();
@@ -2169,7 +2200,20 @@ async fn run_tick(
             since_last_decision,
             AOM_IDLE_REPOLL_INTERVAL,
         );
-        if !new_bytes && !aom_repoll {
+        // Third escape hatch: a lapsed API-failure backoff. The previous
+        // attempt never produced a verdict, so the "one decision per idle
+        // window" budget was spent on nothing — hand it back rather than
+        // strand the executor on a prompt that was never answered. The
+        // backoff timer itself provides the anti-runaway property this
+        // gate's default posture was protecting.
+        let api_retry_due = {
+            let mut i = inner.lock().await;
+            i.sessions
+                .get_mut(&session_id)
+                .map(|a| std::mem::take(&mut a.pending_api_retry))
+                .unwrap_or(false)
+        };
+        if !new_bytes && !aom_repoll && !api_retry_due {
             continue;
         }
         let effective_threshold = if is_decision {
@@ -2700,7 +2744,11 @@ async fn run_tick(
                 // Persist the full error so it survives past the toast —
                 // truncated UI cards lose the Anthropic body which is
                 // exactly what we need to diagnose 400s. Stored as an
-                // `escalate` row with the error in `rationale`.
+                // `error` row, NOT `escalate`: the operator never reached
+                // a verdict here, the call failed. Counting it as an
+                // escalation inflated escalate_count (storage.rs), and made
+                // `classify_status` report the tab Blocked / "needs your
+                // input" (convergence.rs) when nothing was actually asked.
                 let escalation_msg = format!("api error: {e}");
                 let persisted_id = match storage
                     .save_operator_decision(
@@ -2708,7 +2756,7 @@ async fn run_tick(
                         now_unix_ms(),
                         Some(cmd.clone()),
                         String::new(),
-                        "escalate".to_string(),
+                        "error".to_string(),
                         None,
                         Some(truncate(&escalation_msg, 4000)),
                         false,
@@ -2718,9 +2766,9 @@ async fn run_tick(
                         Some(op.id.to_string()),
                         Some(op.name.clone()),
                         None,
-                        // This row is persisted as an `escalate` — surface the
-                        // API error body as its escalation text so the activity
-                        // feed can show the full diagnostic.
+                        // Carried in `escalation` purely as the detail-text
+                        // channel the activity feed already renders; the row's
+                        // action is `error`, so it is not an escalation.
                         Some(escalation_msg.clone()),
                     )
                     .await
@@ -2739,7 +2787,7 @@ async fn run_tick(
                     serde_json::json!({
                         "id": persisted_id,
                         "session_id": session_id.to_string(),
-                        "action": "escalate",
+                        "action": "error",
                         "reply_text": null,
                         "rationale": "operator API call failed",
                         "escalation": escalation_msg,
@@ -2748,9 +2796,29 @@ async fn run_tick(
                         "timestamp_unix_ms": now_unix_ms(),
                     }),
                 );
+                // Schedule a retry instead of burning the idle window on a
+                // call that never landed. The executor is still parked on
+                // whatever it asked; without this the question goes
+                // unanswered until new bytes arrive (which, for a blocked
+                // executor waiting on input, never happens).
+                if let Some(att) = inner.lock().await.sessions.get_mut(&session_id) {
+                    let until = schedule_api_retry(att, Instant::now());
+                    tracing::warn!(
+                        session = %session_id,
+                        failures = att.consecutive_api_failures,
+                        retry_in_secs = until.duration_since(Instant::now()).as_secs(),
+                        "operator ask failed; scheduling retry"
+                    );
+                }
                 continue;
             }
         };
+        // The call landed — clear any backoff so the next failure starts
+        // the schedule over from the top.
+        if let Some(att) = inner.lock().await.sessions.get_mut(&session_id) {
+            att.consecutive_api_failures = 0;
+            att.api_retry_after = None;
+        }
         // Spec 3.20 §7.2: thinking-budget truncation bump.
         if mind_v2_on && ask_response.stop_reason.as_deref() == Some("max_tokens") {
             let mut inner_lock = inner.lock().await;
@@ -5216,6 +5284,23 @@ fn detect_executor(command: &str) -> Option<String> {
     Some(name.to_string())
 }
 
+/// Backoff schedule for retrying a failed decision call, in seconds.
+/// Capped and short on purpose: an executor is sitting on an unanswered
+/// prompt while we wait, so the tail matters more than politeness. The
+/// last entry repeats for every further failure.
+const API_RETRY_BACKOFF_SECS: [u64; 4] = [2, 8, 30, 60];
+
+/// Pure backoff logic for a failed decision call. Bumps the counter and
+/// returns when the next attempt is due. Kept side-effect-free beyond
+/// the counter so the schedule is testable without a live provider.
+fn schedule_api_retry(att: &mut Attached, now: Instant) -> Instant {
+    att.consecutive_api_failures = att.consecutive_api_failures.saturating_add(1);
+    let idx = (att.consecutive_api_failures as usize - 1).min(API_RETRY_BACKOFF_SECS.len() - 1);
+    let until = now + Duration::from_secs(API_RETRY_BACKOFF_SECS[idx]);
+    att.api_retry_after = Some(until);
+    until
+}
+
 /// Task 9: outcome of a single parse-failure increment. Pure data —
 /// the caller decides whether to emit a UI notice or skip the tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5672,8 +5757,25 @@ error[E0382]: borrow of moved value\n";
             last_mission_mtime: None,
             consecutive_parse_failures: 0,
             parse_quarantined_until: None,
+            consecutive_api_failures: 0,
+            api_retry_after: None,
+            pending_api_retry: false,
             thinking_budget_override: None,
         }
+    }
+
+    #[test]
+    fn api_retry_backoff_escalates_then_caps() {
+        let mut att = test_attached();
+        let n = Instant::now();
+        // The schedule walks 2 → 8 → 30 → 60, then holds at 60 so a
+        // long provider outage doesn't drift into never retrying.
+        for expected in [2u64, 8, 30, 60, 60, 60] {
+            let until = schedule_api_retry(&mut att, n);
+            assert_eq!(until.duration_since(n).as_secs(), expected);
+            assert_eq!(att.api_retry_after, Some(until));
+        }
+        assert_eq!(att.consecutive_api_failures, 6);
     }
 
     #[test]

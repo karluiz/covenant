@@ -152,7 +152,16 @@ pub fn classify_status(inp: &StatusInputs) -> TileStatus {
     let bytes_since_last_decision = inp
         .bytes_total
         .saturating_sub(inp.last_decision_at_bytes_total);
-    if inp.last_decision_action == Some("escalate") && bytes_since_last_decision == 0 {
+    // `error` (a failed model call) blocks too, and deliberately so: the
+    // executor is still waiting on whatever it asked, and the operator is
+    // in no position to answer it. It is not an escalation for counting
+    // purposes, but it absolutely needs a human — going Idle here would
+    // hide a dead operator behind a quiet tab.
+    // ponytail: shares Blocked with escalate; split into its own
+    // OperatorDown tile state if the two need different affordances.
+    if matches!(inp.last_decision_action, Some("escalate") | Some("error"))
+        && bytes_since_last_decision == 0
+    {
         return TileStatus::Blocked;
     }
     if bytes_since_last_decision > 0 && idle > Duration::from_millis(1500) {
@@ -488,6 +497,18 @@ mod tests {
         assert_eq!(
             classify_status(&si(n, 10_000, 100, 100, None)),
             TileStatus::Idle
+        );
+    }
+
+    #[test]
+    fn api_error_still_blocks_the_tile() {
+        // A failed model call must NOT read as a quiet, healthy tab.
+        // The executor is still waiting on its question and the operator
+        // cannot answer — the one state that must stay visible.
+        let n = Instant::now();
+        assert_eq!(
+            classify_status(&si(n, 5_000, 200, 200, Some("error"))),
+            TileStatus::Blocked
         );
     }
 
