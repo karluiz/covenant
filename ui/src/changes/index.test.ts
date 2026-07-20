@@ -29,6 +29,7 @@ vi.mock("../api", () => ({
   })),
   gitCommit: vi.fn(async () => ({ staged: [], unstaged: [] })),
   generateCommitMessage: vi.fn(async () => "feat: subject\n\nbody line"),
+  explainChanges: vi.fn(async () => "Adds `foo` to the parser."),
   gitRepoSummary: vi.fn(async () => ({
     repo_name: "repo", repo_root: "/repo", current_branch: "main",
     detached_head: null, dirty_count: 1,
@@ -119,6 +120,22 @@ describe("ChangesSurface", () => {
     await tick();
     expect(host.querySelector<HTMLInputElement>(".cd-subj")!.value).toBe("feat: subject");
     expect(host.querySelector<HTMLTextAreaElement>(".cd-commit-body")!.value).toBe("body line");
+  });
+
+  it("Explain changes renders the markdown, and staging clears it", async () => {
+    const s = new ChangesSurface(host);
+    await s.open("/repo");
+
+    host.querySelector<HTMLButtonElement>(".cd-exp-btn")!.click();
+    await tick();
+    const doc = host.querySelector<HTMLElement>(".cd-exp-doc")!;
+    expect(doc.textContent).toContain("Adds foo to the parser.");
+    expect(doc.querySelector("code")!.textContent).toBe("foo");
+
+    // The explanation describes a diff that no longer exists once you stage.
+    host.querySelector<HTMLButtonElement>(".cd-stage-btn")!.click();
+    await tick();
+    expect(host.querySelector(".cd-exp-doc")).toBeNull();
   });
 
   it("Stage hunk calls gitStageHunk with the hunk index and follows the file", async () => {

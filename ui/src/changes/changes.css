@@ -467,6 +467,44 @@ body.changes-fullscreen .cd-frame {
   white-space: nowrap;
 }
 .cd-ov-spark { display: flex; height: 3px; background: rgb(var(--ink-rgb) / 0.06); }
+/* AI explanation of the change set — sits under the file list. */
+.cd-exp-eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 30px 0 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, var(--muted));
+}
+.cd-exp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: rgb(var(--ink-rgb) / 0.04);
+  color: var(--muted);
+  cursor: pointer;
+}
+.cd-exp-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cd-exp-btn:disabled { opacity: 0.5; cursor: default; }
+.cd-exp-btn:disabled .cd-exp-icon { animation: cd-spin 0.8s linear infinite; }
+.cd-exp-icon { flex: 0 0 auto; }
+.cd-exp-doc { font-size: 13px; max-width: 66ch; }
+.cd-exp-error { font-size: 12px; color: var(--fail); }
+@media (prefers-reduced-motion: reduce) {
+  .cd-exp-btn:disabled .cd-exp-icon { animation: none; }
+}
+
 .cd-ov-hints {
   margin-top: 26px;
   font-size: 11px;
