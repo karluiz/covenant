@@ -222,14 +222,21 @@ export function startBoardAutoPush(storage: TaskStorage): () => void {
   window.addEventListener(TASKER_SAVED_EVENT, onSaved);
 
   // Reconcile whatever changed while the app was closed.
-  void boardApi.listShares().then((ids) => {
-    for (const id of ids) {
-      sharedProjects.add(id);
-      const project = storage.getProject(id);
-      if (project) void push(project);
-    }
-    if (ids.length > 0) notifySharesChanged();
-  });
+  void boardApi
+    .listShares()
+    .then((ids) => {
+      for (const id of ids) {
+        sharedProjects.add(id);
+        const project = storage.getProject(id);
+        if (project) void push(project);
+      }
+      if (ids.length > 0) notifySharesChanged();
+    })
+    .catch((err) => {
+      // Transient failure (e.g. server unreachable at startup) — the next
+      // TASKER_SAVED_EVENT or app restart retries via listShares() again.
+      console.error("board share reconcile failed", err);
+    });
 
   return () => {
     window.removeEventListener(TASKER_SAVED_EVENT, onSaved);

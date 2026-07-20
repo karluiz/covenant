@@ -7,6 +7,17 @@ import { BoardView } from "./board";
 import { MarkdownEditor } from "../ui/markdown-editor";
 import { attachTooltip } from "../tooltip/tooltip";
 import { zoom } from "../zoom";
+import { pushInfoToast } from "../notifications/toast";
+import {
+  BOARD_SHARES_EVENT,
+  copyBoardLink,
+  ensureBoardSharesLoaded,
+  getPushState,
+  isBoardShared,
+  revokeBoardShare,
+  shareProjectBoard,
+  startBoardAutoPush,
+} from "./share";
 
 const EXPANDED_PROJECTS_KEY = "covenant.tasker.expanded-projects";
 const VIEW_KEY = "covenant.tasker.view";
@@ -125,6 +136,12 @@ export class TaskerPanel {
       const first = this.storage.getProjects()[0];
       if (first) this.expandedProjects.add(first.id);
     }
+
+    // ponytail: no teardown — TaskerPanel has no dispose and lives for the
+    // app's lifetime. Add one here if the panel ever becomes disposable.
+    ensureBoardSharesLoaded();
+    startBoardAutoPush(this.storage);
+    window.addEventListener(BOARD_SHARES_EVENT, () => this.render());
   }
 
   private loadExpandedProjects(): void {
@@ -343,6 +360,7 @@ export class TaskerPanel {
             <span class="rail-gname tasker-project-name">${escapeHtml(project.name)}</span>
             <span class="rail-gcount tasker-project-count">${tasks.length}</span>
           </button>
+          ${this.renderShareButton(project)}
           ${project.name === "Inbox" ? "" : `<button class="tasker-project-delete" type="button" data-project-id="${project.id}" aria-label="Delete project">${Icons.trash({ size: 13 })}</button>`}`}
         </div>
         ${isExpanded ? `
@@ -355,6 +373,15 @@ export class TaskerPanel {
         ` : ""}
       </div>
     `;
+  }
+
+  private renderShareButton(project: Project): string {
+    const shared = isBoardShared(project.id);
+    const state = shared ? getPushState(project.id) : "synced";
+    const label = shared ? "Board shared — click for options" : "Share board";
+    return `<button class="tasker-project-share${shared ? " shared" : ""}" type="button"
+      data-project-id="${project.id}" data-push-state="${state}" aria-label="${escapeAttr(shared ? "Board shared" : "Share board")}"
+      data-tip="${escapeAttr(label)}">${Icons.share({ size: 13 })}${shared ? `<span class="tasker-share-dot" aria-hidden="true"></span>` : ""}</button>`;
   }
 
   private renderComposer(projectId: string): string {
@@ -713,6 +740,33 @@ export class TaskerPanel {
         this.expandedProjects.delete(projectId);
         this.saveExpandedProjects();
         this.render();
+      });
+    });
+
+    this.host.querySelectorAll<HTMLButtonElement>(".tasker-project-share").forEach((btn) => {
+      attachTooltip(btn, btn.dataset.tip ?? "Share board");
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const projectId = btn.dataset.projectId;
+        if (!projectId) return;
+        const project = this.storage.getProject(projectId);
+        if (!project) return;
+        if (!isBoardShared(projectId)) {
+          shareProjectBoard(project).catch(() => {
+            pushInfoToast({ message: "Couldn't share the board — try again." });
+          });
+          return;
+        }
+        // Shared already: plain click copies, alt-click stops sharing.
+        if (ev.altKey) {
+          revokeBoardShare(projectId).catch(() => {
+            pushInfoToast({ message: "Couldn't stop sharing the board — try again." });
+          });
+        } else {
+          copyBoardLink(projectId).catch(() => {
+            pushInfoToast({ message: "Couldn't copy the board link — try again." });
+          });
+        }
       });
     });
 

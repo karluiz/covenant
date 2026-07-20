@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TaskerPanel } from "./panel";
 
+vi.mock("@tauri-apps/api/core", () => ({ invoke: () => Promise.reject(new Error("no tauri")) }));
+
 function mount(): { panel: TaskerPanel; host: HTMLElement } {
   document.body.innerHTML = `<div id="tasker-panel"></div>`;
   const host = document.getElementById("tasker-panel")!;
@@ -314,5 +316,19 @@ describe("TaskerPanel new-list composer", () => {
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(host.querySelector(".tasker-newlist-input")).toBeNull();
     expect(storageOf(panel).getProjects().length).toBe(before);
+  });
+});
+
+describe("board share control", () => {
+  it("renders a share button per project, unmarked when not shared", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+
+    const btn = host.querySelector<HTMLButtonElement>(
+      `.tasker-project-share[data-project-id="${pid}"]`,
+    );
+    expect(btn).not.toBeNull();
+    expect(btn!.classList.contains("shared")).toBe(false);
+    expect(btn!.getAttribute("aria-label")).toBe("Share board");
   });
 });
