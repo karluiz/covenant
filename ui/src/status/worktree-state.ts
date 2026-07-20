@@ -43,7 +43,13 @@ export function worktreeDefaultAction(
   if (wt.state === "orphan") return "prune";
   if (wt.state === "spent") return "reclaim";
   if (wt.off_convention) {
-    return hasOccupiedTab(wt.path, occupiedCwds) ? "none" : "relocate";
+    // Two holders to respect, and neither is dirtiness — git moves a dirty
+    // worktree fine, and one being worked in is dirty BECAUSE it is being
+    // worked in. What actually blocks a move is a live claim: a tab of ours
+    // standing inside it, or a `git worktree lock` from any session — including
+    // agents Covenant never launched, which tab occupancy cannot see.
+    const held = wt.locked !== null || hasOccupiedTab(wt.path, occupiedCwds);
+    return held ? "none" : "relocate";
   }
   if (wt.state === "stale") return "decide";
   return "open";

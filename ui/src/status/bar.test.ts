@@ -249,6 +249,7 @@ describe("git worktree popover — destructive click wiring", () => {
     last_commit_unix: 1000,
     off_convention: false,
     is_main: false,
+    locked: null,
     ...overrides,
   });
 

@@ -14,6 +14,7 @@ const wt = (over: Partial<Parameters<typeof worktreeDefaultAction>[0]> = {}) => 
   last_commit_unix: 0,
   off_convention: false,
   is_main: false,
+  locked: null,
   ...over,
 });
 
@@ -103,5 +104,36 @@ describe("worktree state presentation", () => {
     expect(
       worktreeDefaultAction(wt({ state: "active", merged: false, off_convention: true }), new Set()),
     ).toBe("relocate");
+  });
+});
+
+describe("relocate is withheld only by a real claim", () => {
+  type Wt = Parameters<typeof worktreeDefaultAction>[0];
+  const stray = (over: Partial<Wt> = {}): Wt => ({
+    ...wt({ state: "active", merged: false, off_convention: true }),
+    ...over,
+  });
+
+  it("offers relocate for a dirty worktree — git moves those fine", () => {
+    // The bug: dirtiness was used as a proxy for "in use", so the button was
+    // withheld (and the backend refused) for exactly the worktrees worth moving.
+    expect(worktreeDefaultAction(stray({ dirty_count: 5 }))).toBe("relocate");
+  });
+
+  it("withholds relocate when a session holds the git lock", () => {
+    expect(
+      worktreeDefaultAction(stray({ locked: "claude session explain-changes (pid 79525)" })),
+    ).toBe("none");
+  });
+
+  it("withholds relocate when one of our own tabs stands inside it", () => {
+    const w = stray({ path: "/repo/stray" });
+    expect(worktreeDefaultAction(w, new Set(["/repo/stray/crates/app"]))).toBe("none");
+  });
+
+  it("a lock withholds it even with no reason and no tab of ours inside", () => {
+    // `git worktree lock` allows an empty reason, and it still means claimed.
+    // This is the case tab occupancy cannot see: an agent Covenant never launched.
+    expect(worktreeDefaultAction(stray({ locked: "" }), new Set())).toBe("none");
   });
 });

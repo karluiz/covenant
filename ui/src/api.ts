@@ -1377,6 +1377,11 @@ export interface GitWorktreeSummary {
    * `current` ("matches the calling cwd") — a linked worktree calling in
    * sees `current: true` on itself and `is_main: true` on a *different* row. */
   is_main: boolean;
+  /** `git worktree lock` reason when the worktree is claimed by a session.
+   * Survives across processes and is set by agents Covenant never launched
+   * (EnterWorktree locks with `claude session <name> (pid N)`), so it catches
+   * holders that tab occupancy cannot see. */
+  locked: string | null;
 }
 
 export async function worktreeSizes(paths: string[]): Promise<Array<[string, number]>> {

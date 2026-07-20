@@ -57,6 +57,14 @@ pub struct GitWorktreeSummary {
     /// came from", e.g. to withhold Reclaim on the main worktree when the
     /// popover is opened from a linked one.
     pub is_main: bool,
+    /// `git worktree lock` reason, when the worktree is locked.
+    ///
+    /// This is the honest "somebody is using this" signal, and it beats every
+    /// proxy we tried: it survives across processes, and it is set by agents
+    /// Covenant never launched (Claude's EnterWorktree locks its worktrees
+    /// with `claude session <name> (pid N)`). Tab occupancy only sees tabs
+    /// Covenant owns; dirtiness sees neither.
+    pub locked: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -469,7 +477,7 @@ fn preferred_base(cwd: &Path) -> String {
 /// Moves a worktree under `CANONICAL_WORKTREE_DIR`. Returns the new path.
 ///
 /// Refuses everything this layer can actually see: the calling worktree, the
-/// repo's main worktree, and anything with an uncommitted change. That is
+/// repo's main worktree, and anything a session has locked. That is
 /// NOT the full idle guard the design spec describes ("no attached tab, no
 /// running executor process with that cwd, and a clean tree — all three") —
 /// `git_tools` is a pure git/filesystem layer with no visibility into open
@@ -510,11 +518,19 @@ pub fn relocate_worktree(cwd: &Path, path: &str) -> Result<String, String> {
     if is_main_worktree {
         return Err("cannot relocate the main worktree".into());
     }
-    if wt.dirty_count > 0 {
-        return Err(format!(
-            "worktree has {} uncommitted change(s); commit or discard first",
-            wt.dirty_count
-        ));
+    // Dirtiness is NOT a reason to refuse. `git worktree move` relocates a
+    // dirty worktree perfectly well and the uncommitted changes travel with
+    // the directory — verified empirically. The old guard here used dirtiness
+    // as a proxy for "somebody is working in this", which is exactly backwards:
+    // a worktree you are working in is dirty BECAUSE you are working in it, so
+    // the guard refused precisely the worktrees worth relocating.
+    //
+    // The real hazard is a live shell standing in the directory, and git
+    // already tracks that better than we can: a locked worktree is claimed by
+    // a session, and the lock reason names it.
+    if let Some(reason) = wt.locked.as_deref() {
+        let who = if reason.is_empty() { "another session" } else { reason };
+        return Err(format!("worktree is locked by {who}; close it first"));
     }
     if !wt.off_convention {
         return Ok(wt.path.clone());
@@ -862,6 +878,7 @@ fn parse_worktree_list(text: &str) -> Vec<GitWorktreeSummary> {
                 last_commit_unix: None,
                 off_convention: false,
                 is_main: false,
+                locked: None,
             });
             continue;
         }
@@ -878,6 +895,10 @@ fn parse_worktree_list(text: &str) -> Vec<GitWorktreeSummary> {
                     .unwrap_or(branch)
                     .to_string(),
             );
+        } else if let Some(reason) = line.strip_prefix("locked") {
+            // `locked` alone, or `locked <reason>`. Either way the worktree is
+            // claimed; an empty reason still means locked, so keep a String.
+            wt.locked = Some(reason.trim().to_string());
         } else if line == "detached" {
             wt.detached = true;
         } else if line == "bare" {
@@ -2264,17 +2285,61 @@ index e69de29..0cfbf08 100644
     }
 
     #[test]
-    fn relocate_refuses_a_dirty_worktree() {
+    fn relocate_moves_a_dirty_worktree_and_keeps_the_changes() {
+        // The bug this replaces: dirtiness was used as a proxy for "in use",
+        // so Relocate refused exactly the worktrees worth relocating — the
+        // ones being worked in. git moves them fine and the uncommitted work
+        // travels with the directory.
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
         init_repo(root);
         let stray = root.join("stray-dirty");
-        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "busy"]);
-        std::fs::write(stray.join("tracked.txt"), "uncommitted\n").unwrap();
+        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "feat/busy"]);
+        std::fs::write(stray.join("tracked.txt"), "uncommitted work\n").unwrap();
+
+        let moved = relocate_worktree(root, stray.to_str().unwrap()).unwrap();
+        assert!(moved.ends_with("/.covenant/worktrees/busy"), "got {moved}");
+        assert!(!stray.exists());
+        // The whole point: the work came along.
+        assert_eq!(
+            std::fs::read_to_string(Path::new(&moved).join("tracked.txt")).unwrap(),
+            "uncommitted work\n",
+        );
+        assert_eq!(status_count(Path::new(&moved)).unwrap(), 1);
+    }
+
+    #[test]
+    fn relocate_refuses_a_locked_worktree_and_names_the_holder() {
+        // A lock is the honest "somebody is using this" signal — it survives
+        // across processes and is set by agents Covenant never launched.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let stray = root.join("stray-locked");
+        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "feat/claimed"]);
+        git_run(root, &["worktree", "lock", "--reason", "claude session probe (pid 123)", stray.to_str().unwrap()]);
 
         let err = relocate_worktree(root, stray.to_str().unwrap()).unwrap_err();
-        assert!(err.contains("uncommitted"), "got {err}");
+        assert!(err.contains("locked"), "got {err}");
+        assert!(err.contains("claude session probe"), "must name the holder: {err}");
         assert!(stray.exists());
+    }
+
+    #[test]
+    fn repo_summary_reports_the_lock_reason() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        let wt = root.join(CANONICAL_WORKTREE_DIR).join("claimed");
+        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "claimed"]);
+        git_run(root, &["worktree", "lock", "--reason", "claude session x (pid 9)", wt.to_str().unwrap()]);
+
+        let summary = repo_summary(root).unwrap();
+        let row = summary.worktrees.iter().find(|w| w.branch.as_deref() == Some("claimed")).unwrap();
+        assert_eq!(row.locked.as_deref(), Some("claude session x (pid 9)"));
+        // An unlocked sibling stays None.
+        let main = summary.worktrees.iter().find(|w| w.is_main).unwrap();
+        assert_eq!(main.locked, None);
     }
 
     #[test]
