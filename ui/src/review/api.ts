@@ -10,8 +10,10 @@ export interface ReviewActivity { latestVersion: number; comments: ReviewComment
 
 export const reviewApi = {
   getShare: (path: string) => invoke<ShareState | null>("review_get_share", { path }),
-  publish: (path: string, title: string) => invoke<ShareState>("review_publish_spec", { path, title }),
-  republish: (path: string) => invoke<ShareState>("review_republish_spec", { path }),
+  publish: (path: string, title: string, specScore?: unknown) =>
+    invoke<ShareState>("review_publish_spec", { path, title, specScore }),
+  republish: (path: string, specScore?: unknown) =>
+    invoke<ShareState>("review_republish_spec", { path, specScore }),
   revoke: (path: string) => invoke<void>("review_revoke_spec", { path }),
   activity: (path: string) => invoke<ReviewActivity>("review_activity", { path }),
   resolveComment: (path: string, commentId: number) => invoke<void>("review_resolve_comment", { path, commentId }),

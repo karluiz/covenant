@@ -1986,7 +1986,7 @@ async function publishMissionForReview(path: string, content: string): Promise<S
     return null;
   }
   const title = deriveShareTitle(content, path);
-  const share = await reviewApi.publish(path, title);
+  const share = await reviewApi.publish(path, title, scoreSpec(content));
   void navigator.clipboard.writeText(share.url);
   pushInfoToast({ message: "Review link copied — shared as v1" });
   return share;
@@ -2432,7 +2432,7 @@ class MissionViewerModal {
 
   private async republishForReview(path: string): Promise<void> {
     try {
-      const share = await reviewApi.republish(path);
+      const share = await reviewApi.republish(path, scoreSpec(this.content));
       if (this.mission?.path !== path) return;
       this.share = share;
       pushInfoToast({ message: `Republished as v${share.version}` });
