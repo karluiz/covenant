@@ -1,7 +1,12 @@
-// Canon Context Miner — immersive full-screen view. Setup bar → live mining
-// run → 3-zone curation (activity / cards / live preview) → write accepted
-// findings to a compiled skill package. The reducer in `./state` owns all
-// the logic; this module is DOM plumbing on top of it.
+// Canon Context Crawler — immersive full-screen view. Setup gate → live
+// repo survey → 3-zone curation (activity / inventory / live preview) →
+// write the selected units into `.covenant/canon/`. The reducer in
+// `./state` owns all the logic; this module is DOM plumbing on top of it.
+//
+// The inventory is the point: one row per candidate context unit, each
+// carrying the state Canon already holds it in (new / in canon / changed /
+// detected). Only `new` rows arrive pre-selected — a `changed` row is an
+// overwrite the user has to opt into.
 //
 // Opaque full-screen overlay by design — see miner.css header comment for
 // the vibrancy-bleed gotcha this avoids.
@@ -11,24 +16,35 @@ import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { startSky } from "../../spec-chat/entrance";
 import { pushInfoToast } from "../../notifications/toast";
+import { iconButton } from "../panel";
 import {
+  canonAdopt,
   canonCompileUnits,
+  canonInventoryStates,
   canonMineStart,
   canonMineStop,
   subscribeMinerEvents,
+  type CanonPkgKind,
   type MinerEvent,
 } from "../../api";
 import {
+  applyStates,
   compilePreview,
   createMinerState,
   editFindingBody,
   KIND_LABELS,
   KIND_ORDER,
+  pendingUnits,
   reduceMinerEvent,
   selectedUnits,
-  setFindingKind,
   setFindingStatus,
+  setUnitKind,
+  setUnitSelected,
+  STATE_LABELS,
+  unitTarget,
+  type FindingCard,
   type MinerState,
+  type UnitRow,
 } from "./state";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -37,22 +53,17 @@ export interface ContextMinerOpts {
   groupName: string | null;
 }
 
-// Mirrors `CATEGORIES` in crates/agent/src/context_miner.rs and the private
-// ordering `compilePreview` (state.ts) uses — duplicated here (small) so
-// card groups render in the same order the compiled output will.
-const CATEGORY_ORDER: string[] = ["convention", "pattern", "gotcha", "domain_rule", "glossary", "workflow"];
-const CATEGORY_LABELS: Record<string, string> = {
-  convention: "Conventions",
-  pattern: "Patterns",
-  gotcha: "Gotchas",
-  domain_rule: "Domain rules",
-  glossary: "Glossary",
-  workflow: "Workflows",
+/** Crawler kind → the `CanonPkgKind` `canon_adopt` speaks. The crawler and
+ *  Canon disagree on one word only (`subagent` vs `agent`); everything else
+ *  is identity. Kinds absent here (memory) are not adoptable — nothing
+ *  detects them, since no executor dir holds memory. */
+const ADOPT_KIND: Record<string, CanonPkgKind> = {
+  subagent: "agent",
+  skill: "skill",
+  command: "command",
+  mcp: "mcp",
+  context: "context",
 };
-
-function toKebab(raw: string): string {
-  return raw.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-{2,}/g, "-");
-}
 
 function shortArg(arg: string): string {
   const trimmed = arg.trim();
@@ -68,19 +79,18 @@ export class ContextMinerView {
   private runId: string | null = null;
   private unlisten: UnlistenFn | null = null;
 
-  private skillName = "";
   private focus = "";
   private thorough = false;
 
-  // Mining-view zone refs — set by showMining(), cleared by restart().
+  /** Unit ids whose findings are expanded. Survives re-renders. */
+  private expanded = new Set<string>();
+
+  // Crawl-view zone refs — set by showMining(), cleared by restart().
   private activityEl: HTMLElement | null = null;
   private activityListEl: HTMLElement | null = null;
   private cardsEl: HTMLElement | null = null;
-  private cardsEmptyEl: HTMLElement | null = null;
   private previewPre: HTMLPreElement | null = null;
   private footerEl: HTMLElement | null = null;
-  private cardEls = new Map<string, HTMLElement>();
-  private categoryEls = new Map<string, HTMLElement>();
   /** Teardown for the setup-phase constellation sky (see startSky). */
   private skyTeardown: (() => void) | null = null;
 
@@ -148,30 +158,31 @@ export class ContextMinerView {
     else if (key === "d") this.discardNewestPending();
   }
 
-  // ponytail: Task 6 only keeps this compiling against the new nested
-  // unit->findings shape; Task 7 redesigns this view around UnitRow directly.
-  private allFindings() {
+  private allFindings(): FindingCard[] {
     return this.state.units.flatMap((u) => u.findings);
   }
 
-  private acceptNewestPending(): void {
-    const pending = this.allFindings().filter((f) => f.status === "pending");
+  /** `a` / `d` act on the newest pending finding, wherever it sits — the
+   *  owning unit is auto-expanded so the keystroke's effect is visible. */
+  private resolveNewestPending(status: "accepted" | "discarded"): void {
+    const owner = [...this.state.units]
+      .reverse()
+      .find((u) => u.findings.some((f) => f.status === "pending"));
+    if (!owner) return;
+    const pending = owner.findings.filter((f) => f.status === "pending");
     const target = pending[pending.length - 1];
     if (!target) return;
-    setFindingStatus(this.state, target.id, "accepted");
-    this.renderCard(target.id);
-    this.renderFooter();
-    this.renderPreview();
+    setFindingStatus(this.state, target.id, status);
+    this.expanded.add(owner.id);
+    this.renderInventory();
+  }
+
+  private acceptNewestPending(): void {
+    this.resolveNewestPending("accepted");
   }
 
   private discardNewestPending(): void {
-    const pending = this.allFindings().filter((f) => f.status === "pending");
-    const target = pending[pending.length - 1];
-    if (!target) return;
-    setFindingStatus(this.state, target.id, "discarded");
-    this.renderCard(target.id);
-    this.renderFooter();
-    this.renderPreview();
+    this.resolveNewestPending("discarded");
   }
 
   // ── Header ───────────────────────────────────────────────────────────
@@ -181,17 +192,22 @@ export class ContextMinerView {
 
     const brand = document.createElement("div");
     brand.className = "canon-miner-brand";
-    brand.textContent = "Context Miner";
+    brand.textContent = "Context Crawler";
     this.headEl.appendChild(brand);
 
     if (this.runId) {
       const dot = document.createElement("span");
       dot.className = "canon-miner-dot";
       if (this.state.done) dot.classList.add(this.state.stopped ? "is-stopped" : "is-done");
-      const name = document.createElement("span");
-      name.className = "canon-miner-name";
-      name.textContent = this.skillName;
-      this.headEl.append(dot, name);
+      this.headEl.appendChild(dot);
+      // Second line is the focus when the user narrowed the survey; a
+      // whole-repo crawl has nothing to say here, so it says nothing.
+      if (this.focus) {
+        const name = document.createElement("span");
+        name.className = "canon-miner-name";
+        name.textContent = this.focus;
+        this.headEl.appendChild(name);
+      }
     }
 
     const spacer = document.createElement("div");
@@ -242,7 +258,7 @@ export class ContextMinerView {
 
     const title = document.createElement("div");
     title.className = "canon-miner-setup-title";
-    title.textContent = "Mine context";
+    title.textContent = "Crawl this repository";
 
     const sub = document.createElement("div");
     sub.className = "canon-miner-setup-sub";
@@ -252,26 +268,13 @@ export class ContextMinerView {
 
     const note = document.createElement("p");
     note.className = "canon-miner-note";
-    note.textContent = "Findings route to skills, memory, commands or subagents during curation.";
-
-    const { wrap: nameWrap, input: nameInput } = this.field(
-      "Package name",
-      "e.g. testing-conventions",
-      this.skillName,
-    );
-    const commitKebab = () => {
-      nameInput.value = toKebab(nameInput.value);
-      this.skillName = nameInput.value;
-    };
-    nameInput.addEventListener("input", commitKebab);
-    nameInput.addEventListener("blur", () => {
-      nameInput.value = nameInput.value.replace(/^-+|-+$/g, "");
-      this.skillName = nameInput.value;
-    });
+    note.textContent = this.opts.groupName
+      ? `Survey ${this.opts.groupName} for context Canon can hold. Everything found lands in an inventory you curate before anything is written.`
+      : "Survey the repository for context Canon can hold. Everything found lands in an inventory you curate before anything is written.";
 
     const { wrap: focusWrap, input: focusInput } = this.field(
-      "Focus",
-      "what to capture: testing conventions, KYC domain rules…",
+      "Focus (optional)",
+      "leave empty to survey everything, or narrow it: 'the PTY layer'",
       this.focus,
     );
     focusInput.addEventListener("input", () => { this.focus = focusInput.value; });
@@ -289,22 +292,18 @@ export class ContextMinerView {
 
     const startBtn = document.createElement("button");
     startBtn.className = "canon-miner-btn is-primary canon-miner-start-btn";
-    startBtn.innerHTML = `${Icons.play({ size: 13 })}<span>Start mining</span>`;
+    startBtn.innerHTML = `${Icons.play({ size: 13 })}<span>Start crawl</span>`;
     startBtn.addEventListener("click", () => {
       errorEl.textContent = "";
-      if (!this.skillName) {
-        errorEl.textContent = "Enter a package name.";
-        return;
-      }
       void this.start(errorEl, startBtn);
     });
 
     // Staged rise choreography for the card contents (entrance).
-    [title, sub, note, nameWrap, focusWrap, thoroughRow, startBtn].forEach((el, i) => {
+    [title, sub, note, focusWrap, thoroughRow, startBtn].forEach((el, i) => {
       el.classList.add("canon-miner-rise");
       (el as HTMLElement).style.setProperty("--rise-delay", `${90 + i * 65}ms`);
     });
-    card.append(title, sub, note, nameWrap, focusWrap, thoroughRow, errorEl, startBtn);
+    card.append(title, sub, note, focusWrap, thoroughRow, errorEl, startBtn);
 
     // Constellation sky behind the card — the same particle field as the
     // Spec Creator's immersive entrance (reused via startSky).
@@ -316,7 +315,7 @@ export class ContextMinerView {
     requestAnimationFrame(() => {
       this.skyTeardown = startSky(sky);
       setup.classList.add("open");
-      nameInput.focus();
+      focusInput.focus();
     });
   }
 
@@ -353,8 +352,6 @@ export class ContextMinerView {
 
   private showMining(): void {
     this.clearBody();
-    this.cardEls.clear();
-    this.categoryEls.clear();
 
     const grid = document.createElement("div");
     grid.className = "canon-miner-grid";
@@ -369,10 +366,6 @@ export class ContextMinerView {
 
     this.cardsEl = document.createElement("div");
     this.cardsEl.className = "canon-miner-cards";
-    this.cardsEmptyEl = document.createElement("div");
-    this.cardsEmptyEl.className = "canon-miner-cards-empty";
-    this.cardsEmptyEl.textContent = "Findings will appear here as the miner works…";
-    this.cardsEl.appendChild(this.cardsEmptyEl);
 
     this.previewPre = document.createElement("pre");
     const previewEl = document.createElement("div");
@@ -389,8 +382,7 @@ export class ContextMinerView {
 
     this.bodyEl.append(grid, this.footerEl);
 
-    this.renderFooter();
-    this.renderPreview();
+    this.renderInventory();
   }
 
   private applyEvent(ev: MinerEvent): void {
@@ -401,34 +393,63 @@ export class ContextMinerView {
       case "tool_result":
         this.updateActivityRow(ev.id, ev.summary, ev.ok);
         break;
+      case "unit_proposed":
       case "finding":
-        this.appendFindingCard(ev.id);
-        this.renderFooter();
+        // ponytail: the inventory re-renders whole on every unit/finding
+        // event rather than patching the one row that changed. Rows are
+        // tens, not thousands, and a full render keeps group ordering and
+        // the state badges honest for free. If a crawl ever streams enough
+        // units to make this visibly janky, key rows by `u.id` and patch.
+        this.renderInventory();
         break;
       case "run_done":
-        this.handleRunDone();
+        void this.handleRunDone();
         break;
       case "error":
         this.appendErrorNote(ev.message);
         break;
       case "text_delta":
         // Narration text isn't surfaced in this view — activity rows and
-        // finding cards already carry the visible signal of progress.
+        // inventory rows already carry the visible signal of progress.
         break;
     }
   }
 
-  private handleRunDone(): void {
+  private async handleRunDone(): Promise<void> {
     if (this.unlisten) {
       this.unlisten();
       this.unlisten = null;
     }
     this.refreshHead();
-    if (this.allFindings().length === 0) {
-      this.showEmptyDone();
-    } else {
-      this.renderFooter();
+    // Resolve every unit against what Canon already holds, and fold in the
+    // foreign items detected in the executor dirs. This is what stops a
+    // second crawl of the same repo from proposing a duplicate set.
+    await this.resolveStates(false);
+    if (this.state.units.length === 0) this.showEmptyDone();
+  }
+
+  /** Re-run the inventory check and re-apply it to the rows.
+   *  `preserveSelection` keeps the user's checkboxes for rows that already
+   *  existed — used after a kind re-route, where only the re-routed row
+   *  should fall back to `applyStates`' honest default. */
+  private async resolveStates(preserveSelection: boolean): Promise<void> {
+    const before = new Map(this.state.units.map((u) => [u.id, u.selected]));
+    try {
+      const report = await canonInventoryStates(this.opts.repoRoot, pendingUnits(this.state));
+      applyStates(this.state, report);
+      if (preserveSelection) {
+        for (const u of this.state.units) {
+          // A re-routed row was re-keyed by setUnitKind, so its new id is
+          // absent here and it keeps whatever applyStates just decided.
+          const prev = before.get(u.id);
+          if (prev !== undefined && u.state !== "detected") u.selected = prev;
+        }
+      }
+    } catch (e) {
+      this.state.error = String(e);
+      this.appendErrorNote(String(e));
     }
+    this.renderInventory();
   }
 
   // ── Activity zone ────────────────────────────────────────────────────
@@ -474,69 +495,230 @@ export class ContextMinerView {
     this.activityEl.scrollTop = this.activityEl.scrollHeight;
   }
 
-  // ── Cards zone ───────────────────────────────────────────────────────
+  // ── Inventory zone ───────────────────────────────────────────────────
 
-  private categoryContainer(category: string): HTMLElement {
-    let el = this.categoryEls.get(category);
-    if (el) return el;
-    el = document.createElement("div");
-    el.className = "canon-miner-category";
-    const head = document.createElement("div");
-    head.className = "canon-miner-category-head";
-    head.textContent = CATEGORY_LABELS[category] ?? category;
-    el.appendChild(head);
-    this.categoryEls.set(category, el);
+  /** Kind groups in KIND_ORDER, then anything else the backend surfaced
+   *  (detected `mcp` rows are the live case — they are outside KIND_ORDER
+   *  because the crawler never proposes one, but detection finds them). */
+  private inventoryKinds(): string[] {
+    const extra = this.state.units
+      .map((u) => u.kind)
+      .filter((k, i, all) => !KIND_ORDER.includes(k as (typeof KIND_ORDER)[number]) && all.indexOf(k) === i);
+    return [...KIND_ORDER, ...extra];
+  }
 
-    // Insert in fixed category order regardless of arrival order.
-    const myIdx = CATEGORY_ORDER.indexOf(category);
-    let before: HTMLElement | null = null;
-    if (this.cardsEl) {
-      for (const child of Array.from(this.cardsEl.children)) {
-        if (!(child instanceof HTMLElement) || !child.classList.contains("canon-miner-category")) continue;
-        const otherCat = [...this.categoryEls.entries()].find(([, v]) => v === child)?.[0];
-        if (otherCat && (myIdx < 0 || CATEGORY_ORDER.indexOf(otherCat) > myIdx)) {
-          before = child;
-          break;
-        }
-      }
-      this.cardsEl.insertBefore(el, before);
+  private renderInventory(): void {
+    if (!this.cardsEl) return;
+    this.cardsEl.innerHTML = "";
+
+    for (const kind of this.inventoryKinds()) {
+      const rows = this.state.units.filter((u) => u.kind === kind);
+      if (rows.length === 0) continue;
+      const group = document.createElement("div");
+      group.className = "canon-miner-category";
+      const head = document.createElement("div");
+      head.className = "canon-miner-category-head";
+      head.textContent = KIND_LABELS[kind] ?? kind;
+      group.appendChild(head);
+      for (const u of rows) group.appendChild(this.unitRow(u));
+      this.cardsEl.appendChild(group);
     }
-    return el;
+
+    if (this.state.units.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "rail-empty";
+      const title = document.createElement("div");
+      title.className = "rail-empty-title";
+      title.textContent = this.state.done ? "Nothing to inventory" : "Crawling…";
+      const hint = document.createElement("div");
+      hint.className = "rail-empty-hint";
+      hint.textContent = this.state.done
+        ? "The crawl finished without proposing a unit. Try a narrower focus."
+        : "Units appear here as the crawler surveys the repository.";
+      empty.append(title, hint);
+      this.cardsEl.appendChild(empty);
+    }
+
+    this.renderPreview();
+    this.renderFooter();
   }
 
-  private appendFindingCard(id: string): void {
-    const card = this.allFindings().find((f) => f.id === id);
-    if (!card || !this.cardsEl) return;
-    if (this.cardsEmptyEl?.isConnected) this.cardsEmptyEl.remove();
-    const container = this.categoryContainer(card.finding.category);
+  private unitRow(u: UnitRow): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "rail-row canon-miner-unit";
+    row.dataset.state = u.state;
+    row.tabIndex = 0;
+
+    const line = document.createElement("div");
+    line.className = "rail-row-line";
+
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "canon-miner-unit-check";
+    check.checked = u.selected;
+    // A detected row is not ours to write — Adopt is its only verb.
+    check.disabled = u.state === "detected";
+    check.setAttribute(
+      "aria-label",
+      u.state === "changed" ? `Overwrite ${u.name}` : `Write ${u.name}`,
+    );
+    check.addEventListener("click", (e) => e.stopPropagation());
+    check.addEventListener("change", () => {
+      setUnitSelected(this.state, u.id, check.checked);
+      this.renderPreview();
+      this.renderFooter();
+    });
+    line.appendChild(check);
+
+    const name = document.createElement("span");
+    name.className = "rail-name canon-miner-unit-name";
+    name.textContent = u.name;
+    line.appendChild(name);
+
+    const badge = document.createElement("span");
+    badge.className = `canon-miner-state-badge is-${u.state}`;
+    badge.textContent = u.state === "detected" && u.detectedIn
+      ? `detected · ${u.detectedIn}`
+      : STATE_LABELS[u.state];
+    attachTooltip(badge, this.stateHint(u));
+    line.appendChild(badge);
+
+    if (u.state !== "detected") {
+      const count = document.createElement("span");
+      count.className = "rail-num canon-miner-unit-count";
+      count.textContent = String(u.findings.length);
+      attachTooltip(count, `${u.findings.length} finding${u.findings.length === 1 ? "" : "s"}`);
+      line.appendChild(count);
+    }
+
+    row.appendChild(line);
+
+    const meta = document.createElement("div");
+    meta.className = "canon-miner-unit-summary";
+    meta.textContent = u.summary || unitTarget(u.kind, u.slug);
+    row.appendChild(meta);
+
+    // The dock is only emitted when it holds something: `.rail-row` reserves
+    // 82px of right padding for any row that *has* a `.rail-row-actions`,
+    // and an always-present empty dock would steal that space from every row.
+    const actions = document.createElement("div");
+    actions.className = "rail-row-actions";
+    const adoptKind = ADOPT_KIND[u.kind];
+    if (u.state === "detected" && adoptKind) {
+      const adopt = iconButton(Icons.download({ size: 12 }), `Adopt ${u.name} into Canon`, () => {
+        void this.adopt(u, adoptKind);
+      });
+      adopt.classList.add("rail-row-action", "is-neutral");
+      actions.appendChild(adopt);
+      row.appendChild(actions);
+    }
+
+    row.addEventListener("click", (e) => {
+      const target = e.target;
+      if (target instanceof Node && (target === check || actions.contains(target))) return;
+      if (this.expanded.has(u.id)) this.expanded.delete(u.id);
+      else this.expanded.add(u.id);
+      this.renderInventory();
+    });
+
+    if (this.expanded.has(u.id)) {
+      const wrap = document.createElement("div");
+      wrap.className = "canon-miner-unit-body";
+      wrap.addEventListener("click", (e) => e.stopPropagation());
+
+      const target = document.createElement("div");
+      target.className = "canon-miner-unit-target";
+      target.textContent = unitTarget(u.kind, u.slug);
+      wrap.appendChild(target);
+
+      if (u.state === "detected") {
+        const note = document.createElement("div");
+        note.className = "canon-miner-unit-note";
+        note.textContent = "Found in an executor directory, with no Canon source behind it. Adopt to bring it under Canon.";
+        wrap.appendChild(note);
+      } else {
+        // Kind lives on the unit, not the finding — `unitFindings` in
+        // state.ts stamps every finding with its unit's kind on the way out,
+        // so a per-finding kind chip would be a lie.
+        wrap.appendChild(this.kindRow(u));
+        for (const c of u.findings) wrap.appendChild(this.findingCard(c, u));
+      }
+      row.appendChild(wrap);
+    }
+    return row;
+  }
+
+  /** Why this row is in the state it is — the badge's tooltip. */
+  private stateHint(u: UnitRow): string {
+    switch (u.state) {
+      case "new":
+        return `Not in Canon yet — will be created at ${unitTarget(u.kind, u.slug)}`;
+      case "exists":
+        return `Already in Canon, unchanged — check it to rewrite ${unitTarget(u.kind, u.slug)}`;
+      case "changed":
+        return `Already in Canon with different content — checking this OVERWRITES ${unitTarget(u.kind, u.slug)}`;
+      case "detected":
+        return u.detectedIn
+          ? `Foreign item in ${u.detectedIn}, no Canon source`
+          : "Foreign item, no Canon source";
+    }
+  }
+
+  private async adopt(u: UnitRow, kind: CanonPkgKind): Promise<void> {
+    try {
+      await canonAdopt(this.opts.repoRoot, kind, u.name);
+      u.state = "exists";
+      u.selected = false;
+      pushInfoToast({ message: `Adopted ${u.name} into Canon.` });
+    } catch (e) {
+      pushInfoToast({ message: `Adopt failed: ${String(e)}` });
+    }
+    this.renderInventory();
+  }
+
+  /** Re-route the whole unit to another kind, then re-resolve — the row's
+   *  state was computed against the OLD kind's path on disk and is stale the
+   *  instant the kind changes (setUnitKind deselects for exactly this
+   *  reason; the re-check is what lets the row be re-armed honestly). */
+  private kindRow(u: UnitRow): HTMLElement {
+    const kindRow = document.createElement("div");
+    kindRow.className = "canon-miner-kindrow";
+    for (const k of KIND_ORDER) {
+      const chip = document.createElement("button");
+      chip.className = u.kind === k ? "canon-miner-kindchip is-active" : "canon-miner-kindchip";
+      chip.textContent = KIND_LABELS[k];
+      attachTooltip(chip, `Route this unit to ${unitTarget(k, u.slug)}`);
+      chip.addEventListener("click", () => {
+        if (u.kind === k) return;
+        const wasExpanded = this.expanded.delete(u.id);
+        setUnitKind(this.state, u.id, k);
+        if (wasExpanded) this.expanded.add(u.id); // id was re-keyed by the kind change
+        this.renderInventory();
+        void this.resolveStates(true);
+      });
+      kindRow.appendChild(chip);
+    }
+    return kindRow;
+  }
+
+  private findingCard(card: FindingCard, u: UnitRow): HTMLElement {
     const wrapper = document.createElement("div");
-    container.appendChild(wrapper);
-    this.cardEls.set(id, wrapper);
-    this.renderCard(id);
-  }
-
-  private renderCard(id: string): void {
-    const card = this.allFindings().find((f) => f.id === id);
-    const wrapper = this.cardEls.get(id);
-    if (!card || !wrapper) return;
-    wrapper.innerHTML = "";
-    wrapper.onclick = null;
 
     if (card.status === "discarded") {
       wrapper.className = "canon-miner-discarded";
       wrapper.textContent = card.finding.title;
-      wrapper.onclick = () => {
-        // No "restore to pending" in the Task 4 reducer API — mutate the
-        // card directly, it's a plain object, not an encapsulated class.
+      wrapper.addEventListener("click", () => {
+        // No "restore to pending" in the reducer API — the card is a plain
+        // object, not an encapsulated class.
         card.status = "pending";
-        this.renderCard(id);
-        this.renderFooter();
-        this.renderPreview();
-      };
-      return;
+        this.renderInventory();
+      });
+      return wrapper;
     }
 
     wrapper.className = card.status === "accepted" ? "canon-miner-card is-accepted" : "canon-miner-card";
+    // The unit owns the kind; the card only records where it will land.
+    wrapper.dataset.kind = u.kind;
 
     const top = document.createElement("div");
     top.className = "canon-miner-card-top";
@@ -564,7 +746,7 @@ export class ContextMinerView {
     });
     body.addEventListener("blur", () => {
       body.removeAttribute("contenteditable");
-      editFindingBody(this.state, id, body.textContent ?? "");
+      editFindingBody(this.state, card.id, body.textContent ?? "");
       this.renderPreview();
     });
 
@@ -584,37 +766,20 @@ export class ContextMinerView {
     acceptBtn.innerHTML = `${Icons.check({ size: 12 })}<span>Accept</span>`;
     acceptBtn.disabled = card.status === "accepted";
     acceptBtn.addEventListener("click", () => {
-      setFindingStatus(this.state, id, "accepted");
-      this.renderCard(id);
-      this.renderFooter();
-      this.renderPreview();
+      setFindingStatus(this.state, card.id, "accepted");
+      this.renderInventory();
     });
     const discardBtn = document.createElement("button");
     discardBtn.className = "canon-miner-btn is-danger";
     discardBtn.innerHTML = `${Icons.trash({ size: 12 })}<span>Discard</span>`;
     discardBtn.addEventListener("click", () => {
-      setFindingStatus(this.state, id, "discarded");
-      this.renderCard(id);
-      this.renderFooter();
-      this.renderPreview();
+      setFindingStatus(this.state, card.id, "discarded");
+      this.renderInventory();
     });
     actions.append(acceptBtn, discardBtn);
 
-    const kindRow = document.createElement("div");
-    kindRow.className = "canon-miner-kindrow";
-    for (const k of KIND_ORDER) {
-      const chip = document.createElement("button");
-      chip.className = card.finding.kind === k ? "canon-miner-kindchip is-active" : "canon-miner-kindchip";
-      chip.textContent = KIND_LABELS[k];
-      chip.addEventListener("click", () => {
-        setFindingKind(this.state, id, k);
-        this.renderCard(id);
-        this.renderPreview();
-      });
-      kindRow.appendChild(chip);
-    }
-
-    wrapper.append(top, body, evidence, kindRow, actions);
+    wrapper.append(top, body, evidence, actions);
+    return wrapper;
   }
 
   // ── Preview zone ─────────────────────────────────────────────────────
@@ -630,10 +795,25 @@ export class ContextMinerView {
     if (!this.footerEl) return;
     this.footerEl.innerHTML = "";
 
-    const accepted = this.allFindings().filter((f) => f.status === "accepted").length;
-    const pending = this.allFindings().filter((f) => f.status === "pending").length;
+    const writable = this.state.units.filter((u) => u.state !== "detected");
+    const ready = selectedUnits(this.state);
+    const findings = this.allFindings().length;
     const countEl = document.createElement("span");
-    countEl.textContent = `${accepted} accepted · ${pending} pending`;
+    countEl.textContent =
+      `${writable.length} unit${writable.length === 1 ? "" : "s"} · ` +
+      `${findings} finding${findings === 1 ? "" : "s"} · ${ready.length} to write`;
+
+    // Writing is create-or-update with no confirm step, so the count of rows
+    // that already exist in Canon is the only warning the user gets.
+    const readyNames = new Set(ready.map((u) => u.name));
+    const overwrites = writable.filter((u) => u.selected && u.state !== "new" && readyNames.has(u.name));
+    let warnEl: HTMLElement | null = null;
+    if (overwrites.length > 0) {
+      warnEl = document.createElement("span");
+      warnEl.className = "canon-miner-overwrite-warn";
+      warnEl.textContent = `${overwrites.length} will be overwritten`;
+      attachTooltip(warnEl, overwrites.map((u) => unitTarget(u.kind, u.slug)).join("\n"));
+    }
 
     const spacer = document.createElement("div");
     spacer.className = "canon-miner-footer-spacer";
@@ -641,17 +821,24 @@ export class ContextMinerView {
     const writeBtn = document.createElement("button");
     writeBtn.className = "canon-miner-btn is-primary";
     writeBtn.innerHTML = `${Icons.download({ size: 12 })}<span>Write to repo</span>`;
-    const canWrite = selectedUnits(this.state).length > 0 && (this.state.done || this.state.stopped);
+    const canWrite = ready.length > 0 && (this.state.done || this.state.stopped);
     writeBtn.disabled = !canWrite;
+    attachTooltip(
+      writeBtn,
+      canWrite
+        ? `Create or update ${ready.length} unit${ready.length === 1 ? "" : "s"} under .covenant/canon/`
+        : "Accept at least one finding on a checked unit first",
+    );
     writeBtn.addEventListener("click", () => void this.writeToRepo(writeBtn));
 
-    this.footerEl.append(countEl, spacer, writeBtn);
+    this.footerEl.append(countEl);
+    if (warnEl) this.footerEl.appendChild(warnEl);
+    this.footerEl.append(spacer, writeBtn);
   }
 
-  // ponytail: Task 6 keeps this on the new no-overwrite-flag canon_compile_units
-  // signature (the backend always creates-or-updates now — state resolution
-  // already gated that upstream); Task 7 redesigns the write flow around
-  // per-unit state.
+  /** `canon_compile_units` always creates-or-updates: there is no overwrite
+   *  flag and no confirm dialog. The per-row state model is what replaced
+   *  them — only `new` rows arrive checked, `changed` rows are an opt-in. */
   private async writeToRepo(writeBtn: HTMLButtonElement): Promise<void> {
     writeBtn.disabled = true;
     try {
@@ -677,7 +864,7 @@ export class ContextMinerView {
     const wrap = document.createElement("div");
     wrap.className = "canon-miner-empty-state";
     const note = document.createElement("div");
-    note.textContent = "Nothing mined — try a broader focus.";
+    note.textContent = "Nothing to inventory — try a different focus.";
     const restartBtn = document.createElement("button");
     restartBtn.className = "canon-miner-btn is-primary";
     restartBtn.innerHTML = `${Icons.refresh({ size: 13 })}<span>Restart</span>`;
@@ -689,12 +876,10 @@ export class ContextMinerView {
   private restart(): void {
     this.runId = null;
     this.state = createMinerState();
-    this.cardEls.clear();
-    this.categoryEls.clear();
+    this.expanded.clear();
     this.activityEl = null;
     this.activityListEl = null;
     this.cardsEl = null;
-    this.cardsEmptyEl = null;
     this.previewPre = null;
     this.footerEl = null;
     this.refreshHead();

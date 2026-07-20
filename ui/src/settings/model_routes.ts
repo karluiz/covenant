@@ -30,7 +30,9 @@ const ROLE_LABEL: Record<Role, string> = {
   operator:     "Operator",
   triage:       "Triage",
   spec_creator: "Spec Creator",
-  context_miner: "Context Miner",
+  // The route key stays `context_miner` (backend contract); the label is the
+  // surface's user-visible name.
+  context_miner: "Context Crawler",
 };
 
 /** A ⌘K-style key hint shown as a chip next to the role name, when it has one. */
@@ -46,7 +48,7 @@ function roleTaglines(): Record<Role, string> {
   operator:     "Autonomous agent that runs tools across your sessions",
   triage:       "Cheap gate before an expensive operator call",
   spec_creator: "The immersive Spec Creator's research agent",
-  context_miner: "The Canon Context Miner's repo-scanning agent",
+  context_miner: "The Canon Context Crawler's repo-surveying agent",
   };
 }
 

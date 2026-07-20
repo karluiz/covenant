@@ -445,10 +445,99 @@
 }
 .canon-miner-discarded:hover { background: rgb(var(--ink-rgb) / 0.04); }
 
-.canon-miner-cards-empty {
+/* ── Inventory rows ─────────────────────────────────────────────────────
+   One row per candidate context unit, on the shared `.rail-*` chrome so the
+   crawler reads like every other cockpit panel. Everything here layers on
+   top of `.rail-row` — no re-invented row skin. */
+
+/* Only detected rows emit a `.rail-row-actions` dock (see unitRow), so the
+   shared 82px right-padding reservation lands only where it is earned. */
+.canon-miner-unit-check {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: rgb(var(--ink-rgb) / 0.04);
+  cursor: pointer;
+  position: relative;
+}
+.canon-miner-unit-check:checked {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+.canon-miner-unit-check:checked::after {
+  content: "";
+  position: absolute;
+  left: 3.5px;
+  top: 0.5px;
+  width: 3px;
+  height: 7px;
+  border: solid var(--fg);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(42deg);
+}
+.canon-miner-unit-check:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.canon-miner-unit-name { flex: 0 1 auto; }
+.canon-miner-unit-count { flex: none; margin-left: auto; }
+
+.canon-miner-unit-summary {
+  font-size: var(--fs-meta, 11px);
   color: var(--fg-dim);
-  font-size: var(--fs-body, 12px);
-  padding: 20px 4px;
+  padding-left: 21px;
+  line-height: 1.4;
+}
+
+.canon-miner-state-badge {
+  flex: none;
+  font-size: var(--fs-micro, 10px);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+/* Semantic states only (DESIGN.md hard rule 9): `new` is the live/accent
+   case, `changed` is the one that overwrites, so it borrows --running the
+   way every other rail row signals "in flight, look at me". */
+.canon-miner-state-badge.is-new {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+.canon-miner-state-badge.is-changed {
+  border-color: color-mix(in srgb, var(--running) 55%, transparent);
+  color: var(--running);
+}
+.canon-miner-state-badge.is-exists,
+.canon-miner-state-badge.is-detected { opacity: 0.7; }
+
+.canon-miner-unit-body {
+  margin-top: 8px;
+  padding-left: 21px;
+  cursor: default;
+}
+.canon-miner-unit-target {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro, 10px);
+  color: var(--fg-dim);
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+.canon-miner-unit-note {
+  font-size: var(--fs-meta, 11px);
+  color: var(--fg-dim);
+  line-height: 1.45;
+}
+
+.canon-miner-overwrite-warn {
+  color: var(--running);
+  white-space: nowrap;
 }
 
 /* Preview */
@@ -490,12 +579,6 @@
   font-size: var(--fs-body, 12px);
 }
 
-/* ── Inline confirm (overwrite-on-collision) ───────────────────────── */
-
-.canon-miner-confirm {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--fs-meta, 11px);
-  color: var(--danger);
-}
+/* The inline overwrite confirm that used to live here is gone: writing is
+   create-or-update with no flag, and the per-row state model (only `new`
+   pre-selected, `changed` an opt-in) is what replaced the dialog. */

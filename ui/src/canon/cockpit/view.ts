@@ -800,7 +800,7 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.bot({ size: 28 }),
             title: "No subagents yet",
-            hint: "Install a subagent, or mine context — Canon detects and adopts what's already in the repo.",
+            hint: "Install a subagent, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
           }));
           return;
         }
@@ -853,7 +853,7 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.terminalSquare({ size: 28 }),
             title: "No commands yet",
-            hint: "Install a command, or mine context — Canon detects and adopts what's already in the repo.",
+            hint: "Install a command, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
           }));
           return;
         }
@@ -906,7 +906,7 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.radioTower({ size: 28 }),
             title: "No MCP servers yet",
-            hint: "Install an MCP server, or mine context — Canon detects and adopts what's already in the repo.",
+            hint: "Install an MCP server, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
           }));
           return;
         }
@@ -1110,7 +1110,7 @@ export class CanonCockpitView {
             list.appendChild(this.emptyState({
               icon: Icons.packageBox({ size: 28 }),
               title: "No skills installed",
-              hint: "Install from your organization's registry, or mine context — Canon detects and adopts what's already in the repo.",
+              hint: "Install from your organization's registry, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
               action: { label: "Browse registry", onClick: () => this.showSection("registry") },
             }));
             return;

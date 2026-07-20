@@ -1732,8 +1732,9 @@ async function boot(): Promise<void> {
   }
 
   // Shared by the rail panel (historically) and the cockpit's Context
-  // section — launches the repo-mining Context Miner for a group, or toasts
-  // if the group has no project folder linked yet.
+  // section — launches the Context Crawler over a group's repo, or toasts
+  // if the group has no project folder linked yet. (The module/class keep
+  // the `miner` name deliberately; only the surface was renamed.)
   function launchContextMiner(groupId: string, groupLabel: string): void {
     const root = manager.groupRootDirFor(groupId);
     if (!root) {
