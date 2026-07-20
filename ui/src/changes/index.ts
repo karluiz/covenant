@@ -350,8 +350,17 @@ export class ChangesSurface {
         `fill="currentColor" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1ZM7 ` +
         `4.75a1 1 0 1 1 2 0v3.5a1 1 0 1 1-2 0V4.75Zm1 7.75a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>`;
       const dismiss = `<button type="button" class="cd-status-dismiss" aria-label="Dismiss">&times;</button>`;
-      this.statusEl.innerHTML = `${icon}<span class="cd-status-text">${escHtml(text)}</span>${dismiss}`;
+      // Same deal as the Explanation surface: an unconfigured route is an empty
+      // state, not a failure — drop the red and offer the door instead.
+      const noKey = text.includes("Settings → Providers");
+      this.statusEl.classList.toggle("cd-commit-status--err", !noKey);
+      const cta = noKey
+        ? `<button type="button" class="cd-exp-fix cd-status-fix">Open Providers</button>`
+        : "";
+      this.statusEl.innerHTML = `${noKey ? "" : icon}<span class="cd-status-text">${escHtml(text)}</span>${cta}${dismiss}`;
       this.statusEl.querySelector(".cd-status-dismiss")?.addEventListener("click", () => this.setStatus(""));
+      this.statusEl.querySelector(".cd-status-fix")?.addEventListener("click", () =>
+        document.dispatchEvent(new CustomEvent("covenant:open-providers")));
     } else if (fade) {
       // Success: checkmark + message.
       const icon = `<svg class="cd-status-icon" viewBox="0 0 16 16" width="13" height="13" ` +
@@ -533,9 +542,23 @@ export class ChangesSurface {
       doc.innerHTML = renderMarkdown(this.explain.text);
       wrap.appendChild(doc);
     } else if (this.explain.state === "error") {
+      // An unconfigured route is not a failure — it's an empty state with a
+      // door. `route_err` in lib.rs is what puts this sentence in the message.
+      const noKey = this.explain.text.includes("Settings → Providers");
       const err = document.createElement("div");
-      err.className = "cd-exp-error";
-      err.textContent = this.explain.text;
+      err.className = noKey ? "cd-exp-empty" : "cd-exp-error";
+      if (noKey) {
+        const line = document.createElement("p");
+        line.textContent = "The Chat route has no API key, so there is nothing to explain with.";
+        const fix = document.createElement("button");
+        fix.className = "cd-exp-fix";
+        fix.textContent = "Open Providers";
+        fix.addEventListener("click", () =>
+          document.dispatchEvent(new CustomEvent("covenant:open-providers")));
+        err.append(line, fix);
+      } else {
+        err.textContent = this.explain.text;
+      }
       wrap.appendChild(err);
     }
     return wrap;

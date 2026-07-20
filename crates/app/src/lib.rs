@@ -3095,6 +3095,17 @@ async fn git_commit(
         .map_err(|e| format!("git_commit join: {e}"))?
 }
 
+/// A bare "api key is empty" leaves the user staring at a red string with no
+/// idea which route failed or where the key lives. Name the role and the door.
+fn route_err(role: &str, e: karl_agent::AgentError) -> String {
+    match e {
+        karl_agent::AgentError::MissingKey => {
+            format!("The {role} route has no API key. Set it in Settings → Providers.")
+        }
+        other => other.to_string(),
+    }
+}
+
 /// AI-assisted commit message from the staged diff. One-shot, non-streaming.
 #[tauri::command]
 async fn generate_commit_message(
@@ -3131,7 +3142,7 @@ async fn generate_commit_message(
     };
     let text = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| route_err("Chat", e))?
         .text;
     Ok(text.trim().to_string())
 }
@@ -3175,7 +3186,7 @@ async fn explain_changes(state: State<'_, AppState>, cwd: String) -> Result<Stri
     };
     let text = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| route_err("Chat", e))?
         .text;
 
     let mut out = text.trim().to_string();
@@ -4493,6 +4504,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())

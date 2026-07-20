@@ -1931,6 +1931,10 @@ async function boot(): Promise<void> {
   // re-opens the panel. The handlers close over `rail`, `aomBanner`,
   // and `chip` lazily — they're evaluated at click time, after the
   // surrounding boot() has finished and all those refs are bound.
+  // Any surface that hits a missing-key error can send the user to Providers
+  // without threading a callback down to it.
+  document.addEventListener("covenant:open-providers", () => void settings.open("providers"));
+
   const onboarding = new OnboardingPanel(document.body, {
     openSettingsProviders: () => settings.open("providers"),
     openShortcuts: () => shortcutsPanel.open(),

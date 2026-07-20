@@ -122,6 +122,30 @@ describe("ChangesSurface", () => {
     expect(host.querySelector<HTMLTextAreaElement>(".cd-commit-body")!.value).toBe("body line");
   });
 
+  it("a missing API key renders an empty state that opens Providers, on both surfaces", async () => {
+    const noKey = new Error("The Chat route has no API key. Set it in Settings → Providers.");
+    vi.mocked(api.generateCommitMessage).mockRejectedValueOnce(noKey);
+    vi.mocked(api.explainChanges).mockRejectedValueOnce(noKey);
+    const opened = vi.fn();
+    document.addEventListener("covenant:open-providers", opened);
+
+    const s = new ChangesSurface(host);
+    await s.open("/repo");
+
+    host.querySelector<HTMLButtonElement>(".cd-summarize")!.click();
+    await tick();
+    expect(host.querySelector(".cd-commit-status--err")).toBeNull();
+    host.querySelector<HTMLButtonElement>(".cd-status-fix")!.click();
+
+    host.querySelector<HTMLButtonElement>(".cd-exp-btn")!.click();
+    await tick();
+    expect(host.querySelector(".cd-exp-error")).toBeNull();
+    host.querySelector<HTMLButtonElement>(".cd-exp-empty .cd-exp-fix")!.click();
+
+    expect(opened).toHaveBeenCalledTimes(2);
+    document.removeEventListener("covenant:open-providers", opened);
+  });
+
   it("Explain changes renders the markdown, and staging clears it", async () => {
     const s = new ChangesSurface(host);
     await s.open("/repo");

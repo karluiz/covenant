@@ -42,7 +42,7 @@ function roleKbd(role: Role): string | undefined {
 function roleTaglines(): Record<Role, string> {
   return {
   summary:      "Rolling world-model summaries, per session",
-  chat:         `Answers when you ${formatChord(["mod", "K"])} the agent`,
+  chat:         `${formatChord(["mod", "K"])} agent · commit messages · Changes explanations`,
   operator:     "Autonomous agent that runs tools across your sessions",
   triage:       "Cheap gate before an expensive operator call",
   spec_creator: "The immersive Spec Creator's research agent",
@@ -56,7 +56,7 @@ function roleHints(): Record<Role, string> {
   summary:
     "Runs after every command to keep a short rolling summary of each session. Fires often, so favour a cheap, fast model.",
   chat:
-    `Powers the ${formatChord(["mod", "K"])} agent panel — one-shot questions about what's going on. Mid-tier model is plenty.`,
+    `Every one-shot ask in the app: the ${formatChord(["mod", "K"])} agent panel, the generated commit message, and the AI explanation in Changes (${formatChord(["mod", "shift", "C"])}). Mid-tier model is plenty.`,
   operator:
     "Drives the autonomous operator that observes sessions and runs commands. Requires a tool-use-capable provider (Anthropic, Azure gpt-4o, …).",
   triage:
