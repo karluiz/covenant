@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.43 — Softer separator under the horizontal tab bar
+
+### Changed
+
+- **The horizontal tab strip no longer draws a hard black rule.** `#tabbar-host`
+  carried a `1px solid var(--border)` bottom border *and* a
+  `box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5)` stacked directly on top of it, so the
+  seam between the tab bar and the terminal read as a heavy, near-black line —
+  most obviously against light themes and pale group colours. The shadow is
+  gone; the border token alone separates the strip, matching every other panel
+  edge in the app. `ui/src/styles.css` (`#tabbar-host`).
+
 ## v0.9.42 — Start agent takes the tab you are already in
 
 ### Fixed
