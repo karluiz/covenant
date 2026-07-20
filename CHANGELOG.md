@@ -6,6 +6,47 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.42 — Start agent takes the tab you are already in
+
+### Fixed
+
+- **"Start agent" reuses an idle tab instead of opening a new one.** Launching
+  the default executor always opened a fresh tab, because worktree isolation
+  had no way to set a cwd on the PTY path. Now, when the session in front of
+  you has no executor running (`pane.executor`, from real foreground-process
+  detection), Covenant `cd`s into the new worktree and launches there. A busy
+  session still gets its own tab. `ui/src/main.ts` (`runSpawn`).
+
+- **Agent tabs stay in their group.** A tab opened by the titlebar chip landed
+  loose in the tabbar, losing the group's root dir and colour — `createTab` now
+  inherits `groupId`/`color` from the active tab's group.
+
+- **The group menu's "Start new agent" runs the same path.** It used to build
+  the command line by hand, with no worktree and no reuse. It now routes
+  through `runSpawn` scoped to that group (`runDefaultAgentInGroup`): the
+  group's root dir as base cwd, reuse of an idle member
+  (`idleSessionInGroup`, preferring the active tab), and any new tab placed
+  inside the group.
+
+- **Settings responds to its own width, not the window's.** It sits beside the
+  sidebar, so window width said nothing about the room it had. `#settings-page`
+  is now an inline-size container: the nav folds into a horizontal strip under
+  760px and the providers rail stacks under 900px. Grid tracks became
+  `minmax(0, 1fr)` so wide detail panes stop growing their track and
+  overflowing the page. `ui/src/styles.css`.
+
+- **Copy-to-clipboard fallback works again.** `execCommand("copy")` copies the
+  *selection*, so the temporary textarea has to be focused and selectable —
+  ancestors with `user-select: none` were winning and the copy silently did
+  nothing. Focus returns to the previous element afterwards.
+  `ui/src/ui/clipboard.ts`.
+
+### Changed
+
+- **Sharp corners in the spawns popover.** The chip, items, kbd hints and add
+  row drop their `border-radius`, matching DESIGN.md's sharp-corner rule.
+  `ui/src/spawns/styles.css`.
+
 ## v0.9.41 — Agent branches name themselves
 
 ### Added
