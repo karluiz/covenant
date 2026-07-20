@@ -126,7 +126,24 @@ pub async fn board_publish(
         url: format!("{}/b/{}", auth::backend_url(), token),
     };
     shares.insert(project_id, share.clone());
-    save_shares(&file, &shares)?;
+    if let Err(save_err) = save_shares(&file, &shares) {
+        // The board now lives on the forge with a working public URL, but we
+        // failed to record it locally — board_get_share/board_list_shares/
+        // board_revoke all read from that local file, so without this the
+        // board would be unrevokable and unlisted forever (a privacy leak
+        // with no path back). Best-effort take it back down before erroring.
+        return match post_revoke(share.board_id).await {
+            Ok(()) => Err(format!(
+                "failed to save share record ({save_err}); board was revoked"
+            )),
+            Err(revoke_err) => Err(format!(
+                "failed to save share record ({save_err}); \
+                 also failed to revoke the now-orphaned board ({revoke_err}); \
+                 it is still live at {} — revoke it manually",
+                share.url
+            )),
+        };
+    }
     Ok(share)
 }
 
