@@ -90,3 +90,14 @@
   font-size: 10px;
   color: var(--fg-dim);
 }
+.spec-score-deep-error {
+  font-size: 10.5px;
+  color: var(--danger, #e85a5a);
+  padding-left: 8px;
+  border-left: 2px solid var(--danger, #e85a5a);
+}
+/* Breathing room below the panel wherever it's injected above content
+ * (mission preview title, creator section cards). */
+.spec-score-breakdown {
+  margin-bottom: 14px;
+}

@@ -41,12 +41,37 @@ describe('spec-score UI', () => {
 
   it('breakdown shows deep button when handler given, note when deep applied', () => {
     let called = 0;
-    const el = renderBreakdown(s, { onDeep: () => called++ });
+    const el = renderBreakdown(s, { onDeep: async () => void called++ });
     const btn = el.querySelector<HTMLButtonElement>('.spec-score-deep-btn')!;
     btn.click();
     expect(called).toBe(1);
-    const deepEl = renderBreakdown({ ...s, deep: true }, { onDeep: () => {} });
+    const deepEl = renderBreakdown({ ...s, deep: true }, { onDeep: async () => {} });
     expect(deepEl.querySelector('.spec-score-deep-btn')).toBeNull();
     expect(deepEl.querySelector('.spec-score-deep-note')).not.toBeNull();
+  });
+
+  it('deep button shows pending state while onDeep runs', async () => {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => (resolve = r));
+    const el = renderBreakdown(s, { onDeep: () => gate });
+    const btn = el.querySelector<HTMLButtonElement>('.spec-score-deep-btn')!;
+    btn.click();
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toBe('Scoring…');
+    resolve();
+    await gate;
+  });
+
+  it('deep button surfaces onDeep failure inline and re-enables', async () => {
+    const el = renderBreakdown(s, {
+      onDeep: () => Promise.reject(new Error('No summary model configured')),
+    });
+    const btn = el.querySelector<HTMLButtonElement>('.spec-score-deep-btn')!;
+    btn.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(btn.disabled).toBe(false);
+    expect(btn.textContent).toBe('Deep score');
+    const err = el.querySelector('.spec-score-deep-error');
+    expect(err?.textContent).toContain('No summary model configured');
   });
 });

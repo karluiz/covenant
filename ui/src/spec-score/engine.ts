@@ -150,11 +150,14 @@ export function scoreSpec(md: string | null): SpecScore {
     dim('loose_ends', 'No loose ends', 10, earned, findings);
   }
 
-  // Precision (10)
+  // Precision (10) — density-based: an absolute per-match penalty nuked long
+  // specs (5 "should"s in 2k words is fine; 5 in 100 words is not).
   {
     const findings: string[] = [];
     const matches = doc.match(VAGUE_RE) ?? [];
-    const earned = 10 - 2 * matches.length;
+    const words = doc.split(/\s+/).filter(Boolean).length;
+    const per100 = words > 0 ? (matches.length * 100) / words : 0;
+    const earned = 10 - Math.round(per100 * 4);
     if (matches.length > 0) {
       const unique = [...new Set(matches.map((m) => m.toLowerCase()))];
       findings.push(`Vague wording: ${unique.slice(0, 5).join(', ')}.`);

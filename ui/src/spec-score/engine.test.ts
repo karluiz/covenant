@@ -93,6 +93,13 @@ describe('scoreSpec', () => {
     expect(loose.earned).toBeLessThan(loose.weight);
   });
 
+  it('scales the vague-word penalty by document length', () => {
+    const filler = 'word '.repeat(1000);
+    const md = GOLDEN + `\n## Complexity\n\n${filler} should ${filler} should ${filler} should\n`;
+    const p = scoreSpec(md).dimensions.find((d) => d.key === 'precision')!;
+    expect(p.earned).toBeGreaterThanOrEqual(8);
+  });
+
   it('penalizes vague wording', () => {
     const md = GOLDEN.replace(
       'Ship a scoring engine for specs.',

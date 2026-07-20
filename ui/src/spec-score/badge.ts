@@ -44,7 +44,7 @@ export function makeSpecScoreBadge(s: SpecScore): HTMLSpanElement {
   return b;
 }
 
-export function renderBreakdown(s: SpecScore, opts?: { onDeep?: () => void }): HTMLElement {
+export function renderBreakdown(s: SpecScore, opts?: { onDeep?: () => Promise<void> }): HTMLElement {
   const root = document.createElement('div');
   root.className = 'spec-score-breakdown';
   for (const d of s.dimensions) {
@@ -81,11 +81,30 @@ export function renderBreakdown(s: SpecScore, opts?: { onDeep?: () => void }): H
     note.textContent = 'Deep score applied';
     root.append(note);
   } else if (opts?.onDeep) {
+    const onDeep = opts.onDeep;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'spec-score-deep-btn';
     btn.textContent = 'Deep score';
-    btn.addEventListener('click', opts.onDeep);
+    btn.addEventListener('click', () => {
+      root.querySelector('.spec-score-deep-error')?.remove();
+      btn.disabled = true;
+      btn.textContent = 'Scoring…';
+      void onDeep()
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          const line = document.createElement('div');
+          line.className = 'spec-score-deep-error';
+          line.textContent = msg;
+          btn.after(line);
+        })
+        .finally(() => {
+          // On success the caller re-renders the breakdown (deep:true → note),
+          // so this button only survives — and needs re-enabling — on failure.
+          btn.disabled = false;
+          btn.textContent = 'Deep score';
+        });
+    });
     root.append(btn);
   }
   return root;

@@ -41,20 +41,22 @@ function hash(s: string): string {
 
 const cache = new Map<string, DeepAdjustments>();
 
-/** Deep-score `md` via the LLM judge. Returns `base` untouched on any failure
- *  (no route configured, bad JSON, network). Cached by content hash. */
+/** Deep-score `md` via the LLM judge. Cached by content hash. Throws with a
+ *  user-readable reason on failure — the breakdown button surfaces it inline;
+ *  swallowing it here read as a dead button. */
 export async function deepScore(md: string, base: SpecScore): Promise<SpecScore> {
   const key = hash(md);
   const cached = cache.get(key);
   if (cached) return applyDeep(base, cached);
+  let raw: string | null;
   try {
-    const raw = await specDeepScore(md);
-    if (!raw) return base;
-    const parsed = parseDeepResponse(raw);
-    if (!parsed) return base;
-    cache.set(key, parsed);
-    return applyDeep(base, parsed);
-  } catch {
-    return base;
+    raw = await specDeepScore(md);
+  } catch (err) {
+    throw new Error(`Deep score failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+  if (!raw) throw new Error('No summary model configured — add one in Settings → Inference');
+  const parsed = parseDeepResponse(raw);
+  if (!parsed) throw new Error('Judge returned unparseable output — try again');
+  cache.set(key, parsed);
+  return applyDeep(base, parsed);
 }
