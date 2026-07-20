@@ -516,6 +516,25 @@
 }
 .canon-miner-state-badge.is-exists,
 .canon-miner-state-badge.is-detected { opacity: 0.7; }
+/* `unknown` is the absence of a signal, not a signal of its own: no colour,
+   just the muted chrome plus a dashed edge to read as "not settled". */
+.canon-miner-state-badge.is-unknown {
+  opacity: 0.7;
+  border-style: dashed;
+  color: var(--fg-dim);
+}
+
+/* Rows are inert until the crawl finishes — curation is a post-crawl act
+   (see `canCurate` in view.ts for why a live crawl cannot host an edit). */
+.canon-miner-unit.is-inert { cursor: default; }
+.canon-miner-unit.is-inert:hover { background: transparent; }
+
+.canon-miner-curate-hint {
+  font-size: var(--fs-meta, 11px);
+  color: var(--fg-dim);
+  padding: 8px 2px 2px;
+  line-height: 1.4;
+}
 
 .canon-miner-unit-body {
   margin-top: 8px;

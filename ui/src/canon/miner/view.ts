@@ -32,8 +32,10 @@ import {
   compilePreview,
   createMinerState,
   editFindingBody,
+  isSelectable,
   KIND_LABELS,
   KIND_ORDER,
+  markUnitsUnknown,
   pendingUnits,
   reduceMinerEvent,
   selectedUnits,
@@ -70,6 +72,52 @@ function shortArg(arg: string): string {
   return trimmed.length > 48 ? `${trimmed.slice(0, 45)}…` : trimmed;
 }
 
+/** Kind groups in KIND_ORDER, then anything else the backend surfaced
+ *  (detected `mcp` rows are the live case — they are outside KIND_ORDER
+ *  because the crawler never proposes one, but detection finds them). */
+export function inventoryKinds(units: UnitRow[]): string[] {
+  const extra = units
+    .map((u) => u.kind)
+    .filter((k, i, all) => !KIND_ORDER.includes(k as (typeof KIND_ORDER)[number]) && all.indexOf(k) === i);
+  return [...KIND_ORDER, ...extra];
+}
+
+/** Why this row is in the state it is — the badge's tooltip. */
+export function stateHint(u: UnitRow): string {
+  switch (u.state) {
+    case "new":
+      return `Not in Canon yet — will be created at ${unitTarget(u.kind, u.slug)}`;
+    case "exists":
+      return `Already in Canon, unchanged — check it to rewrite ${unitTarget(u.kind, u.slug)}`;
+    case "changed":
+      return `Already in Canon with different content — checking this OVERWRITES ${unitTarget(u.kind, u.slug)}`;
+    case "detected":
+      return u.detectedIn
+        ? `Foreign item in ${u.detectedIn}, no Canon source`
+        : "Foreign item, no Canon source";
+    case "unknown":
+      return "Canon could not be checked for this unit — its destination was never verified, so it cannot be written. Re-route it or restart the crawl.";
+  }
+}
+
+/** Rows a write would clobber: checked, already present in Canon, and
+ *  actually reaching the write payload.
+ *
+ *  The intersection is by `u.name` across kinds, and that is safe ONLY
+ *  because the backend rejects a same-name-different-kind unit outright —
+ *  note the asymmetry it rides on: `reduceMinerEvent`'s dedupe keys on slug
+ *  ALONE (a finding addresses its unit by name, so the frontend index must
+ *  match the backend's), while `applyStates` keys on kind + slug (because
+ *  `memory/x.md` and `skills/x/` are genuinely different files). Both are
+ *  correct. If a same-name pair across kinds ever becomes supported, this
+ *  name-only match silently mis-attributes and must become id-keyed. */
+export function overwriteTargets(state: MinerState): UnitRow[] {
+  const readyNames = new Set(selectedUnits(state).map((u) => u.name));
+  return state.units.filter(
+    (u) => isSelectable(u) && u.selected && u.state !== "new" && readyNames.has(u.name),
+  );
+}
+
 export class ContextMinerView {
   private root: HTMLElement;
   private headEl: HTMLElement;
@@ -81,6 +129,22 @@ export class ContextMinerView {
 
   private focus = "";
   private thorough = false;
+
+  /** True while `canonCompileUnits` is in flight. `renderFooter` rebuilds the
+   *  footer from scratch on every `renderInventory()`, so disabling the button
+   *  imperatively is not enough — an in-flight `resolveStates` resolving
+   *  mid-write would hand back a fresh, ENABLED button and buy a second write
+   *  over a selection `applyStates` may have just mutated. */
+  private writing = false;
+
+  /** Set by `destroy()`. `start()` checks it after every `await`: a teardown
+   *  landing inside those windows must not leave a listener attached to a
+   *  detached view, nor a backend crawl running with nothing able to stop it. */
+  private destroyed = false;
+
+  /** Monotonic token for `resolveStates`. Rows are re-resolvable while the
+   *  crawl runs, so two checks can be in flight; only the newest may land. */
+  private resolveToken = 0;
 
   /** Unit ids whose findings are expanded. Survives re-renders. */
   private expanded = new Set<string>();
@@ -128,6 +192,7 @@ export class ContextMinerView {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.stopSky();
     document.removeEventListener("keydown", this.onKeyDown);
     if (this.unlisten) {
@@ -165,6 +230,7 @@ export class ContextMinerView {
   /** `a` / `d` act on the newest pending finding, wherever it sits — the
    *  owning unit is auto-expanded so the keystroke's effect is visible. */
   private resolveNewestPending(status: "accepted" | "discarded"): void {
+    if (!this.canCurate()) return; // same rule as the rows: curate after the crawl
     const owner = [...this.state.units]
       .reverse()
       .find((u) => u.findings.some((f) => f.status === "pending"));
@@ -323,13 +389,28 @@ export class ContextMinerView {
     startBtn.disabled = true;
     try {
       const runId = await canonMineStart(this.opts.repoRoot, this.focus, this.thorough);
+      // Escape between the call and its resolution means `destroy()` ran with
+      // `this.runId` still null — its `canonMineStop` guard skipped and the
+      // crawl would otherwise run on unreachable. Stop it here instead.
+      if (this.destroyed) {
+        void canonMineStop(runId).catch(() => { /* best-effort on teardown */ });
+        return;
+      }
       this.runId = runId;
       this.showMining();
       this.refreshHead();
-      this.unlisten = await subscribeMinerEvents(runId, (ev: MinerEvent) => {
+      const unlisten = await subscribeMinerEvents(runId, (ev: MinerEvent) => {
         reduceMinerEvent(this.state, ev);
         this.applyEvent(ev);
       });
+      // Same window, one await later: the subscribe resolved onto a view that
+      // is already gone, so the listener would never be removed.
+      if (this.destroyed) {
+        unlisten();
+        void canonMineStop(runId).catch(() => { /* best-effort on teardown */ });
+        return;
+      }
+      this.unlisten = unlisten;
     } catch (e) {
       errorEl.textContent = String(e);
       startBtn.disabled = false;
@@ -395,11 +476,17 @@ export class ContextMinerView {
         break;
       case "unit_proposed":
       case "finding":
-        // ponytail: the inventory re-renders whole on every unit/finding
-        // event rather than patching the one row that changed. Rows are
-        // tens, not thousands, and a full render keeps group ordering and
-        // the state badges honest for free. If a crawl ever streams enough
-        // units to make this visibly janky, key rows by `u.id` and patch.
+        // ponytail: the inventory re-renders WHOLE on every unit/finding
+        // event rather than patching the one row that changed — every row
+        // node is destroyed and rebuilt tens of times over a crawl. That is
+        // affordable only because rows are inert until `done` (see
+        // `canCurate`): nothing can hold focus, an open contenteditable, or a
+        // text selection across a re-render, so there is no state to lose.
+        // Scroll position is the one thing that does survive, restored
+        // explicitly in `renderInventory`. Ceiling: this forecloses ever
+        // making rows interactive mid-crawl, and gets janky in the hundreds
+        // of units. Upgrade path: key rows by `u.id` and patch in place —
+        // then the inertness gate can be lifted independently.
         this.renderInventory();
         break;
       case "run_done":
@@ -431,21 +518,42 @@ export class ContextMinerView {
   /** Re-run the inventory check and re-apply it to the rows.
    *  `preserveSelection` keeps the user's checkboxes for rows that already
    *  existed — used after a kind re-route, where only the re-routed row
-   *  should fall back to `applyStates`' honest default. */
-  private async resolveStates(preserveSelection: boolean): Promise<void> {
+   *  should fall back to `applyStates`' honest default. `affected` names the
+   *  rows whose badge this call is responsible for; on failure they drop to
+   *  `unknown` rather than keep displaying a state nobody verified.
+   *
+   *  Concurrency: rows are re-resolvable while the crawl is live, so a chip
+   *  clicked early can resolve AFTER `handleRunDone`'s full-run resolution and
+   *  overwrite it with a result computed over a partial unit set. The token
+   *  makes that impossible — only the newest request may land. */
+  private async resolveStates(preserveSelection: boolean, affected?: string[]): Promise<void> {
+    // A re-route resolve is meaningless mid-crawl: the unit set is still
+    // growing, so the report would be partial. (Rows are non-interactive until
+    // `done` anyway — this guard does not lean on that.)
+    if (preserveSelection && !this.state.done) return;
+
+    const token = ++this.resolveToken;
+    const ids = affected
+      ?? this.state.units.filter((u) => u.state !== "detected").map((u) => u.id);
     const before = new Map(this.state.units.map((u) => [u.id, u.selected]));
     try {
       const report = await canonInventoryStates(this.opts.repoRoot, pendingUnits(this.state));
+      if (token !== this.resolveToken || this.destroyed) return;
       applyStates(this.state, report);
       if (preserveSelection) {
         for (const u of this.state.units) {
           // A re-routed row was re-keyed by setUnitKind, so its new id is
           // absent here and it keeps whatever applyStates just decided.
           const prev = before.get(u.id);
-          if (prev !== undefined && u.state !== "detected") u.selected = prev;
+          if (prev !== undefined && isSelectable(u)) u.selected = prev;
         }
       }
     } catch (e) {
+      if (token !== this.resolveToken || this.destroyed) return;
+      // The badge would otherwise still read against the OLD kind's path —
+      // "in canon" beside a target that was never checked. Say "unchecked"
+      // and take the row out of the write path entirely.
+      markUnitsUnknown(this.state, ids);
       this.state.error = String(e);
       this.appendErrorNote(String(e));
     }
@@ -497,21 +605,23 @@ export class ContextMinerView {
 
   // ── Inventory zone ───────────────────────────────────────────────────
 
-  /** Kind groups in KIND_ORDER, then anything else the backend surfaced
-   *  (detected `mcp` rows are the live case — they are outside KIND_ORDER
-   *  because the crawler never proposes one, but detection finds them). */
-  private inventoryKinds(): string[] {
-    const extra = this.state.units
-      .map((u) => u.kind)
-      .filter((k, i, all) => !KIND_ORDER.includes(k as (typeof KIND_ORDER)[number]) && all.indexOf(k) === i);
-    return [...KIND_ORDER, ...extra];
+  /** Curation is a post-crawl activity: while the crawl runs the inventory is
+   *  for watching, not editing. Every unit/finding event re-renders the list
+   *  whole, and node removal does NOT fire `blur` in WebKit — so an open
+   *  contenteditable finding body would be detached mid-edit and the typed
+   *  text lost with no signal at all. Rows stay inert until `done`. */
+  private canCurate(): boolean {
+    return this.state.done;
   }
 
   private renderInventory(): void {
     if (!this.cardsEl) return;
+    // A full re-render resets scrollTop to 0, which makes the list unbrowsable
+    // during a crawl streaming a finding event every few seconds.
+    const scroll = this.cardsEl.scrollTop;
     this.cardsEl.innerHTML = "";
 
-    for (const kind of this.inventoryKinds()) {
+    for (const kind of inventoryKinds(this.state.units)) {
       const rows = this.state.units.filter((u) => u.kind === kind);
       if (rows.length === 0) continue;
       const group = document.createElement("div");
@@ -537,17 +647,24 @@ export class ContextMinerView {
         : "Units appear here as the crawler surveys the repository.";
       empty.append(title, hint);
       this.cardsEl.appendChild(empty);
+    } else if (!this.canCurate()) {
+      const hint = document.createElement("div");
+      hint.className = "canon-miner-curate-hint";
+      hint.textContent = "Crawling — findings can be curated once the crawl finishes.";
+      this.cardsEl.appendChild(hint);
     }
 
+    this.cardsEl.scrollTop = scroll;
     this.renderPreview();
     this.renderFooter();
   }
 
   private unitRow(u: UnitRow): HTMLElement {
+    const curate = this.canCurate();
     const row = document.createElement("div");
-    row.className = "rail-row canon-miner-unit";
+    row.className = curate ? "rail-row canon-miner-unit" : "rail-row canon-miner-unit is-inert";
     row.dataset.state = u.state;
-    row.tabIndex = 0;
+    if (curate) row.tabIndex = 0;
 
     const line = document.createElement("div");
     line.className = "rail-row-line";
@@ -556,8 +673,10 @@ export class ContextMinerView {
     check.type = "checkbox";
     check.className = "canon-miner-unit-check";
     check.checked = u.selected;
-    // A detected row is not ours to write — Adopt is its only verb.
-    check.disabled = u.state === "detected";
+    // A detected row is not ours to write (Adopt is its only verb); an
+    // `unknown` row's destination was never verified, so it may not be armed
+    // either. Curation as a whole waits for the crawl to finish.
+    check.disabled = !curate || !isSelectable(u);
     check.setAttribute(
       "aria-label",
       u.state === "changed" ? `Overwrite ${u.name}` : `Write ${u.name}`,
@@ -580,7 +699,7 @@ export class ContextMinerView {
     badge.textContent = u.state === "detected" && u.detectedIn
       ? `detected · ${u.detectedIn}`
       : STATE_LABELS[u.state];
-    attachTooltip(badge, this.stateHint(u));
+    attachTooltip(badge, stateHint(u));
     line.appendChild(badge);
 
     if (u.state !== "detected") {
@@ -595,7 +714,9 @@ export class ContextMinerView {
 
     const meta = document.createElement("div");
     meta.className = "canon-miner-unit-summary";
-    meta.textContent = u.summary || unitTarget(u.kind, u.slug);
+    // `unitTarget` returns "" for a kind with no Canon destination, so the
+    // fallback chain ends in prose rather than a fabricated path.
+    meta.textContent = u.summary || unitTarget(u.kind, u.slug) || "No Canon destination for this kind.";
     row.appendChild(meta);
 
     // The dock is only emitted when it holds something: `.rail-row` reserves
@@ -604,7 +725,7 @@ export class ContextMinerView {
     const actions = document.createElement("div");
     actions.className = "rail-row-actions";
     const adoptKind = ADOPT_KIND[u.kind];
-    if (u.state === "detected" && adoptKind) {
+    if (curate && u.state === "detected" && adoptKind) {
       const adopt = iconButton(Icons.download({ size: 12 }), `Adopt ${u.name} into Canon`, () => {
         void this.adopt(u, adoptKind);
       });
@@ -613,23 +734,28 @@ export class ContextMinerView {
       row.appendChild(actions);
     }
 
-    row.addEventListener("click", (e) => {
-      const target = e.target;
-      if (target instanceof Node && (target === check || actions.contains(target))) return;
-      if (this.expanded.has(u.id)) this.expanded.delete(u.id);
-      else this.expanded.add(u.id);
-      this.renderInventory();
-    });
+    if (curate) {
+      row.addEventListener("click", (e) => {
+        const target = e.target;
+        if (target instanceof Node && (target === check || actions.contains(target))) return;
+        if (this.expanded.has(u.id)) this.expanded.delete(u.id);
+        else this.expanded.add(u.id);
+        this.renderInventory();
+      });
+    }
 
-    if (this.expanded.has(u.id)) {
+    if (curate && this.expanded.has(u.id)) {
       const wrap = document.createElement("div");
       wrap.className = "canon-miner-unit-body";
       wrap.addEventListener("click", (e) => e.stopPropagation());
 
-      const target = document.createElement("div");
-      target.className = "canon-miner-unit-target";
-      target.textContent = unitTarget(u.kind, u.slug);
-      wrap.appendChild(target);
+      const path = unitTarget(u.kind, u.slug);
+      if (path) {
+        const target = document.createElement("div");
+        target.className = "canon-miner-unit-target";
+        target.textContent = path;
+        wrap.appendChild(target);
+      }
 
       if (u.state === "detected") {
         const note = document.createElement("div");
@@ -646,22 +772,6 @@ export class ContextMinerView {
       row.appendChild(wrap);
     }
     return row;
-  }
-
-  /** Why this row is in the state it is — the badge's tooltip. */
-  private stateHint(u: UnitRow): string {
-    switch (u.state) {
-      case "new":
-        return `Not in Canon yet — will be created at ${unitTarget(u.kind, u.slug)}`;
-      case "exists":
-        return `Already in Canon, unchanged — check it to rewrite ${unitTarget(u.kind, u.slug)}`;
-      case "changed":
-        return `Already in Canon with different content — checking this OVERWRITES ${unitTarget(u.kind, u.slug)}`;
-      case "detected":
-        return u.detectedIn
-          ? `Foreign item in ${u.detectedIn}, no Canon source`
-          : "Foreign item, no Canon source";
-    }
   }
 
   private async adopt(u: UnitRow, kind: CanonPkgKind): Promise<void> {
@@ -694,7 +804,9 @@ export class ContextMinerView {
         setUnitKind(this.state, u.id, k);
         if (wasExpanded) this.expanded.add(u.id); // id was re-keyed by the kind change
         this.renderInventory();
-        void this.resolveStates(true);
+        // Only this row's badge is this call's responsibility; the rest were
+        // resolved honestly by handleRunDone and stay that way.
+        void this.resolveStates(true, [u.id]);
       });
       kindRow.appendChild(chip);
     }
@@ -805,8 +917,7 @@ export class ContextMinerView {
 
     // Writing is create-or-update with no confirm step, so the count of rows
     // that already exist in Canon is the only warning the user gets.
-    const readyNames = new Set(ready.map((u) => u.name));
-    const overwrites = writable.filter((u) => u.selected && u.state !== "new" && readyNames.has(u.name));
+    const overwrites = overwriteTargets(this.state);
     let warnEl: HTMLElement | null = null;
     if (overwrites.length > 0) {
       warnEl = document.createElement("span");
@@ -821,13 +932,18 @@ export class ContextMinerView {
     const writeBtn = document.createElement("button");
     writeBtn.className = "canon-miner-btn is-primary";
     writeBtn.innerHTML = `${Icons.download({ size: 12 })}<span>Write to repo</span>`;
-    const canWrite = ready.length > 0 && (this.state.done || this.state.stopped);
+    // `this.writing` is load-bearing: this footer is rebuilt from scratch on
+    // every renderInventory(), so without it a resolveStates landing mid-write
+    // would hand back an enabled button and buy a second canonCompileUnits.
+    const canWrite = !this.writing && ready.length > 0 && (this.state.done || this.state.stopped);
     writeBtn.disabled = !canWrite;
     attachTooltip(
       writeBtn,
-      canWrite
-        ? `Create or update ${ready.length} unit${ready.length === 1 ? "" : "s"} under .covenant/canon/`
-        : "Accept at least one finding on a checked unit first",
+      this.writing
+        ? "Writing to the repository…"
+        : canWrite
+          ? `Create or update ${ready.length} unit${ready.length === 1 ? "" : "s"} under .covenant/canon/`
+          : "Accept at least one finding on a checked unit first",
     );
     writeBtn.addEventListener("click", () => void this.writeToRepo(writeBtn));
 
@@ -840,6 +956,8 @@ export class ContextMinerView {
    *  flag and no confirm dialog. The per-row state model is what replaced
    *  them — only `new` rows arrive checked, `changed` rows are an opt-in. */
   private async writeToRepo(writeBtn: HTMLButtonElement): Promise<void> {
+    if (this.writing) return;
+    this.writing = true;
     writeBtn.disabled = true;
     try {
       const units = selectedUnits(this.state);
@@ -853,7 +971,10 @@ export class ContextMinerView {
       this.destroy();
     } catch (e) {
       pushInfoToast({ message: `Write failed: ${String(e)}` });
-      writeBtn.disabled = false;
+      this.writing = false;
+      // Re-render rather than just re-enabling the button: `renderFooter` is
+      // the single place that decides whether writing is armed.
+      this.renderFooter();
     }
   }
 
@@ -875,6 +996,8 @@ export class ContextMinerView {
 
   private restart(): void {
     this.runId = null;
+    this.writing = false;
+    this.resolveToken++; // orphan any check still in flight from the last run
     this.state = createMinerState();
     this.expanded.clear();
     this.activityEl = null;

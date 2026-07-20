@@ -1,6 +1,11 @@
 import type { MinerEvent, MinerFinding, MinerUnit, InventoryReport } from "../../api";
 
-export type UnitState = "new" | "exists" | "changed" | "detected";
+/** `"unknown"` is FRONTEND-ONLY — the backend never sends it. It is what a
+ *  row falls back to when its inventory resolution FAILED, so the badge can't
+ *  keep claiming a state that was computed against a path we no longer target
+ *  (see `setUnitKind`). An unknown row is not selectable: nothing may arm a
+ *  write against a destination that was never verified. */
+export type UnitState = "new" | "exists" | "changed" | "detected" | "unknown";
 
 export interface FindingCard {
   id: string;
@@ -125,7 +130,27 @@ export function applyStates(state: MinerState, report: InventoryReport): void {
 
 export function setUnitSelected(state: MinerState, id: string, selected: boolean): void {
   const u = state.units.find((r) => r.id === id);
-  if (u) u.selected = selected;
+  if (!u) return;
+  // An unknown row's destination was never verified — refuse to arm it here
+  // as well as in the UI, so no caller can route around the disabled box.
+  if (selected && !isSelectable(u)) return;
+  u.selected = selected;
+}
+
+/** A row the user may arm for writing. `detected` is adopt-only; `unknown`
+ *  failed its inventory check and has no trustworthy destination. */
+export function isSelectable(u: UnitRow): boolean {
+  return u.state !== "detected" && u.state !== "unknown";
+}
+
+/** Drop the given rows to `unknown` after a failed inventory resolution. */
+export function markUnitsUnknown(state: MinerState, ids: Iterable<string>): void {
+  const want = new Set(ids);
+  for (const u of state.units) {
+    if (!want.has(u.id) || u.state === "detected") continue;
+    u.state = "unknown";
+    u.selected = false;
+  }
 }
 
 export function setUnitKind(state: MinerState, id: string, kind: string): void {
@@ -134,11 +159,12 @@ export function setUnitKind(state: MinerState, id: string, kind: string): void {
   u.kind = kind;
   u.id = unitId(kind, u.slug);
   for (const f of u.findings) f.finding = { ...f.finding, kind };
-  // ponytail: `state` still reflects the inventory check against the OLD
-  // kind's path — a re-route doesn't know whether `<kind>/<slug>` exists on
-  // disk, so the badge is stale until re-resolved. Deselect so a stale
-  // `new` + `selected: true` can't silently clobber an unchecked path; the
-  // next task's job is to re-run canonInventoryStates after a re-route.
+  // `state` still reflects the inventory check against the OLD kind's path,
+  // so it is stale the instant the kind changes. Deselect: the invariant is
+  // that a row is only ever armed against a destination that was actually
+  // checked. The caller re-runs canonInventoryStates after this, which either
+  // re-resolves the row honestly (re-arming it via applyStates) or, if that
+  // check fails, drops it to `unknown` — which is not selectable at all.
   u.selected = false;
 }
 
@@ -153,11 +179,6 @@ function findCard(state: MinerState, id: string): FindingCard | undefined {
 export function setFindingStatus(state: MinerState, id: string, status: "accepted" | "discarded"): void {
   const c = findCard(state, id);
   if (c) c.status = status;
-}
-
-export function setFindingKind(state: MinerState, id: string, kind: string): void {
-  const c = findCard(state, id);
-  if (c) c.finding = { ...c.finding, kind };
 }
 
 export function editFindingBody(state: MinerState, id: string, body: string): void {
@@ -176,7 +197,7 @@ function unitFindings(u: UnitRow): MinerFinding[] {
 
 export function selectedUnits(state: MinerState): CompiledUnit[] {
   return state.units
-    .filter((u) => u.selected && u.state !== "detected")
+    .filter((u) => u.selected && isSelectable(u))
     .map((u) => ({ kind: u.kind, name: u.name, findings: unitFindings(u) }))
     .filter((u) => u.findings.length > 0);
 }
@@ -198,16 +219,30 @@ export const KIND_LABELS: Record<string, string> = {
 };
 export const STATE_LABELS: Record<UnitState, string> = {
   new: "new", exists: "in canon", changed: "changed", detected: "detected",
+  unknown: "unchecked",
 };
 
+/** Where a unit of this kind lands under `.covenant/canon/`. Total over every
+ *  kind that can actually reach here: the four KIND_ORDER kinds the crawler
+ *  proposes, plus `mcp`, which only DETECTION surfaces (Canon's own MCP source
+ *  is `.covenant/canon/mcp/<slug>.json` — see crates/canon/src/kind.rs `dir()`).
+ *  An unrecognised kind returns "" rather than a plausible-looking wrong path:
+ *  callers render the empty string as "no known destination", and a fabricated
+ *  `memory/<slug>.md` for something that will never live there is worse than
+ *  nothing (it used to be what an `mcp` row displayed as its whole summary). */
 export function unitTarget(kind: string, slug: string): string {
-  if (kind === "skill") return `.covenant/canon/skills/${slug}/`;
-  const dir = kind === "subagent" ? "agents" : kind === "command" ? "commands" : "memory";
-  return `.covenant/canon/${dir}/${slug}.md`;
+  switch (kind) {
+    case "skill": return `.covenant/canon/skills/${slug}/`;
+    case "subagent": return `.covenant/canon/agents/${slug}.md`;
+    case "command": return `.covenant/canon/commands/${slug}.md`;
+    case "memory": return `.covenant/canon/memory/${slug}.md`;
+    case "mcp": return `.covenant/canon/mcp/${slug}.json`;
+    default: return "";
+  }
 }
 
 export function compilePreview(state: MinerState): string {
-  const units = state.units.filter((u) => u.selected && u.state !== "detected");
+  const units = state.units.filter((u) => u.selected && isSelectable(u));
   let md = "";
   for (const kind of KIND_ORDER) {
     for (const u of units.filter((x) => x.kind === kind)) {
