@@ -1,84 +1,87 @@
-import { describe, expect, it } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
-  acceptedFindings,
-  compilePreview,
-  createMinerState,
-  editFindingBody,
-  reduceMinerEvent,
-  setFindingKind,
-  setFindingStatus,
+  createMinerState, reduceMinerEvent, setUnitSelected, setFindingStatus,
+  selectedUnits, applyStates, compilePreview, slugify,
 } from "./state";
-import type { MinerEvent } from "../../api";
 
-const finding = (id: string, title: string, category = "convention", kind = "skill"): MinerEvent => ({
-  kind: "finding",
-  id,
-  finding: { category, title, bodyMd: `Do ${title}.`, evidence: ["src/a.rs:1"], confidence: "high", kind },
-});
+const unitEv = (id: string, kind: string, name: string) =>
+  ({ kind: "unit_proposed", id, unit: { kind, name, summary: "A summary." } }) as never;
+const findingEv = (id: string, unit: string, title: string) =>
+  ({
+    kind: "finding", id,
+    finding: { unit, category: "convention", title, bodyMd: "Do it.", evidence: ["a.ts:1"], confidence: "high", kind: unitKindOf(unit) },
+  }) as never;
+const unitKindOf = (unit: string) => (unit === "Retry budget" ? "memory" : "skill");
 
-describe("reduceMinerEvent", () => {
-  it("appends tool activity and pairs results by id", () => {
-    const s = createMinerState();
-    reduceMinerEvent(s, { kind: "tool_start", id: "t1", tool: "grep", arg: "{\"needle\":\"unwrap\"}" });
-    reduceMinerEvent(s, { kind: "tool_result", id: "t1", summary: "12 hits", ok: true });
-    expect(s.activity).toHaveLength(1);
-    expect(s.activity[0].summary).toBe("12 hits");
+describe("crawler inventory state", () => {
+  it("slugify matches the Rust rule", () => {
+    expect(slugify("PTY Conventions")).toBe("pty-conventions");
+    expect(slugify("Foo/Bar baz")).toBe("foo-bar-baz");
+    expect(slugify("  edge  ")).toBe("edge");
   });
 
-  it("collects findings as pending cards and flags done", () => {
+  it("groups findings under their proposed unit", () => {
     const s = createMinerState();
-    reduceMinerEvent(s, finding("f1", "snake case"));
-    reduceMinerEvent(s, { kind: "run_done", findingsTotal: 1, stopped: false });
-    expect(s.findings[0].status).toBe("pending");
-    expect(s.done).toBe(true);
-    expect(s.stopped).toBe(false);
+    reduceMinerEvent(s, unitEv("u1", "skill", "PTY Conventions"));
+    reduceMinerEvent(s, findingEv("f1", "PTY Conventions", "one"));
+    reduceMinerEvent(s, findingEv("f2", "PTY Conventions", "two"));
+    expect(s.units).toHaveLength(1);
+    expect(s.units[0].slug).toBe("pty-conventions");
+    expect(s.units[0].findings).toHaveLength(2);
   });
 
-  it("accept/edit/discard drive acceptedFindings with edits applied", () => {
+  it("drops a finding whose unit was never proposed", () => {
     const s = createMinerState();
-    reduceMinerEvent(s, finding("f1", "one"));
-    reduceMinerEvent(s, finding("f2", "two"));
+    reduceMinerEvent(s, findingEv("f1", "Ghost", "one"));
+    expect(s.units).toHaveLength(0);
+  });
+
+  it("new units are selected, exists/detected are not", () => {
+    const s = createMinerState();
+    reduceMinerEvent(s, unitEv("u1", "skill", "A"));
+    reduceMinerEvent(s, unitEv("u2", "skill", "B"));
+    reduceMinerEvent(s, findingEv("f1", "A", "one"));
+    reduceMinerEvent(s, findingEv("f2", "B", "two"));
+    applyStates(s, {
+      states: [
+        { kind: "skill", slug: "a", state: "new" },
+        { kind: "skill", slug: "b", state: "exists" },
+      ],
+      detected: [],
+    });
+    expect(s.units.find((u) => u.slug === "a")!.selected).toBe(true);
+    expect(s.units.find((u) => u.slug === "b")!.selected).toBe(false);
+  });
+
+  it("selectedUnits only returns selected units with accepted findings", () => {
+    const s = createMinerState();
+    reduceMinerEvent(s, unitEv("u1", "skill", "A"));
+    reduceMinerEvent(s, findingEv("f1", "A", "one"));
+    reduceMinerEvent(s, findingEv("f2", "A", "two"));
+    setUnitSelected(s, "skill:a", true);
     setFindingStatus(s, "f1", "accepted");
-    editFindingBody(s, "f1", "Edited body.");
     setFindingStatus(s, "f2", "discarded");
-    const out = acceptedFindings(s);
+    const out = selectedUnits(s);
     expect(out).toHaveLength(1);
-    expect(out[0].bodyMd).toBe("Edited body.");
+    expect(out[0].findings).toHaveLength(1);
+    expect(out[0].findings[0].title).toBe("one");
   });
 
-  it("compilePreview groups accepted findings by destination kind", () => {
+  it("an unselected unit contributes nothing", () => {
     const s = createMinerState();
-    reduceMinerEvent(s, finding("f1", "trap", "gotcha", "memory"));
-    reduceMinerEvent(s, finding("f2", "style", "convention", "skill"));
+    reduceMinerEvent(s, unitEv("u1", "skill", "A"));
+    reduceMinerEvent(s, findingEv("f1", "A", "one"));
     setFindingStatus(s, "f1", "accepted");
-    setFindingStatus(s, "f2", "accepted");
-    const md = compilePreview("my-skill", s);
-    expect(md.indexOf("Skill package")).toBeGreaterThan(-1);
-    expect(md.indexOf("Skill package")).toBeLessThan(md.indexOf("Memory"));
-    expect(md).toContain("`src/a.rs:1`");
+    setUnitSelected(s, "skill:a", false);
+    expect(selectedUnits(s)).toHaveLength(0);
   });
-});
 
-function seed() {
-  const s = createMinerState();
-  const ev: MinerEvent = { kind: "finding", id: "a", finding: { category: "domain_rule", title: "PEP", bodyMd: "x", evidence: [], confidence: "high", kind: "memory" } };
-  reduceMinerEvent(s, ev);
-  return s;
-}
-
-describe("miner kind routing", () => {
-  it("carries kind from the finding event", () => {
-    const s = seed();
-    expect(s.findings[0].kind).toBe("memory");
-  });
-  it("re-routes a finding kind", () => {
-    const s = seed();
-    setFindingKind(s, "a", "subagent");
-    expect(s.findings[0].kind).toBe("subagent");
-  });
-  it("accepted findings expose their kind", () => {
-    const s = seed();
-    setFindingStatus(s, "a", "accepted");
-    expect(acceptedFindings(s)[0].kind).toBe("memory");
+  it("preview groups by destination path", () => {
+    const s = createMinerState();
+    reduceMinerEvent(s, unitEv("u1", "skill", "A"));
+    reduceMinerEvent(s, findingEv("f1", "A", "one"));
+    setUnitSelected(s, "skill:a", true);
+    setFindingStatus(s, "f1", "accepted");
+    expect(compilePreview(s)).toContain(".covenant/canon/skills/a/");
   });
 });

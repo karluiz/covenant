@@ -3181,7 +3181,14 @@ export async function subscribeAcpEvents(
 
 // ── Canon Context Miner ───────────────────────────────────────────────
 
+export interface MinerUnit {
+  kind: string;
+  name: string;
+  summary: string;
+}
+
 export interface MinerFinding {
+  unit: string;
   category: string;
   title: string;
   bodyMd: string;
@@ -3189,28 +3196,60 @@ export interface MinerFinding {
   confidence: string;
   kind: string;
 }
+
+/** A curated unit as sent to `canon_compile_units` / `canon_inventory_states`.
+ * Duplicated (not imported) from `./canon/miner/state` — that module already
+ * imports its event/report types from here, and this three-field shape is
+ * small enough that mirroring it beats a circular import. */
+export interface CompiledUnit {
+  kind: string;
+  name: string;
+  findings: MinerFinding[];
+}
+
 export interface CompileReport {
-  skills: string | null;
+  skills: string[];
   memory: string[];
   commands: string[];
   agents: string[];
 }
+
+export interface UnitStateRow {
+  kind: string;
+  slug: string;
+  state: "new" | "exists" | "changed" | "detected";
+}
+export interface DetectedRow {
+  kind: string;
+  name: string;
+  summary: string | null;
+  detectedIn: string | null;
+}
+export interface InventoryReport {
+  states: UnitStateRow[];
+  detected: DetectedRow[];
+}
+
 export type MinerEvent =
   | { kind: "text_delta"; text: string }
   | { kind: "tool_start"; id: string; tool: string; arg: string }
   | { kind: "tool_result"; id: string; summary: string; ok: boolean }
+  | { kind: "unit_proposed"; id: string; unit: MinerUnit }
   | { kind: "finding"; id: string; finding: MinerFinding }
   | { kind: "run_done"; findingsTotal: number; stopped: boolean }
   | { kind: "error"; message: string };
 
-export async function canonMineStart(repoRoot: string, skillName: string, focus: string, thorough: boolean): Promise<string> {
-  return invoke<string>("canon_mine_start", { repoRoot, skillName, focus, thorough });
+export async function canonMineStart(repoRoot: string, focus: string, thorough: boolean): Promise<string> {
+  return invoke<string>("canon_mine_start", { repoRoot, focus, thorough });
 }
 export async function canonMineStop(runId: string): Promise<void> {
   return invoke<void>("canon_mine_stop", { runId });
 }
-export async function canonCompileFindings(repoRoot: string, skillName: string, findings: MinerFinding[], overwrite: boolean): Promise<CompileReport> {
-  return invoke<CompileReport>("canon_compile_findings", { repoRoot, skillName, findings, overwrite });
+export async function canonCompileUnits(repoRoot: string, units: CompiledUnit[]): Promise<CompileReport> {
+  return invoke<CompileReport>("canon_compile_units", { repoRoot, units });
+}
+export async function canonInventoryStates(repoRoot: string, units: CompiledUnit[]): Promise<InventoryReport> {
+  return invoke<InventoryReport>("canon_inventory_states", { repoRoot, units });
 }
 export async function subscribeMinerEvents(runId: string, cb: (ev: MinerEvent) => void): Promise<UnlistenFn> {
   return listen<MinerEvent>(`canon://miner/${runId}`, (e) => cb(e.payload));

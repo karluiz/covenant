@@ -12,20 +12,20 @@ import { attachTooltip } from "../../tooltip/tooltip";
 import { startSky } from "../../spec-chat/entrance";
 import { pushInfoToast } from "../../notifications/toast";
 import {
-  canonCompileFindings,
+  canonCompileUnits,
   canonMineStart,
   canonMineStop,
   subscribeMinerEvents,
   type MinerEvent,
 } from "../../api";
 import {
-  acceptedFindings,
   compilePreview,
   createMinerState,
   editFindingBody,
   KIND_LABELS,
   KIND_ORDER,
   reduceMinerEvent,
+  selectedUnits,
   setFindingKind,
   setFindingStatus,
   type MinerState,
@@ -148,8 +148,14 @@ export class ContextMinerView {
     else if (key === "d") this.discardNewestPending();
   }
 
+  // ponytail: Task 6 only keeps this compiling against the new nested
+  // unit->findings shape; Task 7 redesigns this view around UnitRow directly.
+  private allFindings() {
+    return this.state.units.flatMap((u) => u.findings);
+  }
+
   private acceptNewestPending(): void {
-    const pending = this.state.findings.filter((f) => f.status === "pending");
+    const pending = this.allFindings().filter((f) => f.status === "pending");
     const target = pending[pending.length - 1];
     if (!target) return;
     setFindingStatus(this.state, target.id, "accepted");
@@ -159,7 +165,7 @@ export class ContextMinerView {
   }
 
   private discardNewestPending(): void {
-    const pending = this.state.findings.filter((f) => f.status === "pending");
+    const pending = this.allFindings().filter((f) => f.status === "pending");
     const target = pending[pending.length - 1];
     if (!target) return;
     setFindingStatus(this.state, target.id, "discarded");
@@ -317,7 +323,7 @@ export class ContextMinerView {
   private async start(errorEl: HTMLElement, startBtn: HTMLButtonElement): Promise<void> {
     startBtn.disabled = true;
     try {
-      const runId = await canonMineStart(this.opts.repoRoot, this.skillName, this.focus, this.thorough);
+      const runId = await canonMineStart(this.opts.repoRoot, this.focus, this.thorough);
       this.runId = runId;
       this.showMining();
       this.refreshHead();
@@ -418,7 +424,7 @@ export class ContextMinerView {
       this.unlisten = null;
     }
     this.refreshHead();
-    if (this.state.findings.length === 0) {
+    if (this.allFindings().length === 0) {
       this.showEmptyDone();
     } else {
       this.renderFooter();
@@ -499,7 +505,7 @@ export class ContextMinerView {
   }
 
   private appendFindingCard(id: string): void {
-    const card = this.state.findings.find((f) => f.id === id);
+    const card = this.allFindings().find((f) => f.id === id);
     if (!card || !this.cardsEl) return;
     if (this.cardsEmptyEl?.isConnected) this.cardsEmptyEl.remove();
     const container = this.categoryContainer(card.finding.category);
@@ -510,7 +516,7 @@ export class ContextMinerView {
   }
 
   private renderCard(id: string): void {
-    const card = this.state.findings.find((f) => f.id === id);
+    const card = this.allFindings().find((f) => f.id === id);
     const wrapper = this.cardEls.get(id);
     if (!card || !wrapper) return;
     wrapper.innerHTML = "";
@@ -598,7 +604,7 @@ export class ContextMinerView {
     kindRow.className = "canon-miner-kindrow";
     for (const k of KIND_ORDER) {
       const chip = document.createElement("button");
-      chip.className = card.kind === k ? "canon-miner-kindchip is-active" : "canon-miner-kindchip";
+      chip.className = card.finding.kind === k ? "canon-miner-kindchip is-active" : "canon-miner-kindchip";
       chip.textContent = KIND_LABELS[k];
       chip.addEventListener("click", () => {
         setFindingKind(this.state, id, k);
@@ -615,7 +621,7 @@ export class ContextMinerView {
 
   private renderPreview(): void {
     if (!this.previewPre) return;
-    this.previewPre.textContent = compilePreview(this.skillName, this.state);
+    this.previewPre.textContent = compilePreview(this.state);
   }
 
   // ── Footer ───────────────────────────────────────────────────────────
@@ -624,8 +630,8 @@ export class ContextMinerView {
     if (!this.footerEl) return;
     this.footerEl.innerHTML = "";
 
-    const accepted = this.state.findings.filter((f) => f.status === "accepted").length;
-    const pending = this.state.findings.filter((f) => f.status === "pending").length;
+    const accepted = this.allFindings().filter((f) => f.status === "accepted").length;
+    const pending = this.allFindings().filter((f) => f.status === "pending").length;
     const countEl = document.createElement("span");
     countEl.textContent = `${accepted} accepted · ${pending} pending`;
 
@@ -635,57 +641,33 @@ export class ContextMinerView {
     const writeBtn = document.createElement("button");
     writeBtn.className = "canon-miner-btn is-primary";
     writeBtn.innerHTML = `${Icons.download({ size: 12 })}<span>Write to repo</span>`;
-    const canWrite = acceptedFindings(this.state).length > 0 && (this.state.done || this.state.stopped);
+    const canWrite = selectedUnits(this.state).length > 0 && (this.state.done || this.state.stopped);
     writeBtn.disabled = !canWrite;
-    writeBtn.addEventListener("click", () => void this.writeToRepo(writeBtn, false));
+    writeBtn.addEventListener("click", () => void this.writeToRepo(writeBtn));
 
     this.footerEl.append(countEl, spacer, writeBtn);
   }
 
-  // ponytail: only skills collision-guard; other kinds dedupe by slug
-  private async writeToRepo(writeBtn: HTMLButtonElement, overwrite: boolean): Promise<void> {
+  // ponytail: Task 6 keeps this on the new no-overwrite-flag canon_compile_units
+  // signature (the backend always creates-or-updates now — state resolution
+  // already gated that upstream); Task 7 redesigns the write flow around
+  // per-unit state.
+  private async writeToRepo(writeBtn: HTMLButtonElement): Promise<void> {
     writeBtn.disabled = true;
     try {
-      const findings = acceptedFindings(this.state);
-      const report = await canonCompileFindings(this.opts.repoRoot, this.skillName, findings, overwrite);
+      const units = selectedUnits(this.state);
+      const report = await canonCompileUnits(this.opts.repoRoot, units);
       const parts: string[] = [];
-      if (report.skills) parts.push("1 skill");
+      if (report.skills.length) parts.push(`${report.skills.length} skill`);
       if (report.memory.length) parts.push(`${report.memory.length} memory`);
       if (report.commands.length) parts.push(`${report.commands.length} command`);
       if (report.agents.length) parts.push(`${report.agents.length} subagent`);
       pushInfoToast({ message: `Written: ${parts.join(", ") || "nothing"}` });
       this.destroy();
     } catch (e) {
-      const msg = String(e);
-      if (!overwrite && msg.includes("already exists")) {
-        this.showOverwriteConfirm(writeBtn);
-      } else {
-        pushInfoToast({ message: `Write failed: ${msg}` });
-        writeBtn.disabled = false;
-      }
+      pushInfoToast({ message: `Write failed: ${String(e)}` });
+      writeBtn.disabled = false;
     }
-  }
-
-  private showOverwriteConfirm(writeBtn: HTMLButtonElement): void {
-    if (!this.footerEl) return;
-    const note = document.createElement("span");
-    note.className = "canon-miner-confirm";
-    note.textContent = "Skill already exists —";
-
-    const overwriteBtn = document.createElement("button");
-    overwriteBtn.className = "canon-miner-btn is-danger";
-    overwriteBtn.textContent = "Overwrite";
-    const cancelBtn = document.createElement("button");
-    cancelBtn.className = "canon-miner-btn";
-    cancelBtn.textContent = "Cancel";
-
-    const cleanup = () => { note.remove(); overwriteBtn.remove(); cancelBtn.remove(); };
-    overwriteBtn.addEventListener("click", () => { cleanup(); void this.writeToRepo(writeBtn, true); });
-    cancelBtn.addEventListener("click", () => { cleanup(); writeBtn.disabled = false; });
-
-    this.footerEl.insertBefore(note, writeBtn);
-    this.footerEl.insertBefore(overwriteBtn, writeBtn);
-    this.footerEl.insertBefore(cancelBtn, writeBtn);
   }
 
   // ── Empty-done state ─────────────────────────────────────────────────
