@@ -120,22 +120,31 @@ pub enum MinerDepth {
 }
 
 pub struct MinerOpts {
-    pub skill_name: String,
+    /// Optional narrowing hint. Empty = survey the whole repository.
     pub focus: String,
     pub depth: MinerDepth,
+    pub max_units: usize,
     pub max_findings: usize,
     pub max_tool_calls: usize,
 }
 impl MinerOpts {
-    pub fn default_for(skill_name: &str, focus: &str) -> Self {
+    pub fn default_for(focus: &str) -> Self {
         Self {
-            skill_name: skill_name.into(),
             focus: focus.into(),
             depth: MinerDepth::Quick,
+            max_units: 12,
             max_findings: 40,
             max_tool_calls: 120,
         }
     }
+}
+
+/// A proposed unit plus the findings that landed in it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CrawlUnit {
+    pub unit: MinerUnit,
+    pub findings: Vec<MinerFinding>,
 }
 
 pub(crate) fn parse_finding(v: &Value) -> Option<MinerFinding> {
@@ -213,25 +222,36 @@ fn system_prompt(opts: &MinerOpts) -> String {
         MinerDepth::Quick => "Scan the highest-signal files (manifests, top-level modules, tests, CI config); do not exhaustively read the tree.",
         MinerDepth::Thorough => "Be thorough: walk the main source directories and sample every major module.",
     };
+    let focus = if opts.focus.trim().is_empty() {
+        "Survey the whole repository — do not narrow to one topic.".to_string()
+    } else {
+        format!("Narrow your survey to: {}.", opts.focus.trim())
+    };
     format!(
-        "You are a context miner. You read a repository with the provided \
-         read-only tools and extract DURABLE operational knowledge for a \
-         skill named '{name}', focused on: {focus}.\n\n\
-         Report each discovery with the emit_finding tool the moment you \
-         have evidence (file:line). Findings must be instructions a coding \
-         agent can follow, not observations. Never invent evidence. \
-         {depth}\n\nCategories: convention (how code is written here), \
-         pattern (recurring designs), gotcha (traps that bit or will bite), \
-         domain_rule (business/regulatory rules encoded in the code), \
-         glossary (project-specific terms), workflow (a repeatable dev \
-         command sequence: build, test, deploy, migrate).\n\n\
-         Set suggested_kind to route the finding: skill for \
-         convention/pattern/gotcha, memory for durable domain_rule/glossary \
-         facts, command for a workflow. Omit it to accept the default for the \
-         category. You never create personas.\n\nWhen you have covered the \
-         focus, reply with a short closing summary WITHOUT tool calls.",
-        name = opts.skill_name,
-        focus = opts.focus,
+        "You are a context crawler. You read a repository with the provided \
+         read-only tools and produce an INVENTORY of the durable context units \
+         it can yield. {focus}\n\n\
+         Work in two moves, repeatedly:\n\
+         1. propose_unit — declare a unit the moment you can name it. kind is \
+         skill (a package of conventions/patterns/gotchas about one area), \
+         memory (ONE durable domain fact or glossary term), or command (ONE \
+         repeatable workflow: build, test, deploy, migrate). The summary must \
+         let a reader decide without opening the unit.\n\
+         2. emit_finding — fill a unit you already proposed, passing its exact \
+         name as `unit`. A finding for an unproposed unit is discarded.\n\n\
+         A skill unit holds many findings. A memory or command unit is a SINGLE \
+         entry — propose one unit per fact, do not stuff several into one.\n\n\
+         Findings must be instructions a coding agent can follow, not \
+         observations, and must cite evidence (file:line). Never invent \
+         evidence. Aim for at most {max_units} units. {depth}\n\n\
+         Categories: convention (how code is written here), pattern (recurring \
+         designs), gotcha (traps that bit or will bite), domain_rule \
+         (business/regulatory rules encoded in the code), glossary \
+         (project-specific terms), workflow (a repeatable dev command \
+         sequence).\n\nYou never create personas. When the survey is complete, \
+         reply with a short closing summary WITHOUT tool calls.",
+        focus = focus,
+        max_units = opts.max_units,
         depth = depth,
     )
 }
@@ -255,58 +275,79 @@ impl StreamSink for ForwardSink<'_> {
     }
 }
 
+/// Unit identity. MUST match `canon::compile::slugify` — same rule, duplicated
+/// because `agent` does not depend on `canon`.
+/// ponytail: two implementations of six lines beats a crate dependency; the
+/// shared test in Task 5 pins them together.
+pub fn unit_slug(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
 pub async fn run_miner(
     dispatcher: &dyn StreamingDispatcher,
     repo_root: &Path,
     opts: &MinerOpts,
     cancel: &AtomicBool,
     sink: &dyn MinerSink,
-) -> Result<Vec<MinerFinding>, String> {
+) -> Result<Vec<CrawlUnit>, String> {
     let system = system_prompt(opts);
     let mut messages = vec![DraftMessage {
         role: MessageRole::User,
-        content: "Mine this repository now. Use read_file, grep, and list_dir to explore, and \
-                   call emit_finding for each finding you can back with file:line evidence."
+        content: "Survey this repository now. Use read_file, grep and list_dir to \
+                   explore, propose_unit for each context unit you can name, and \
+                   emit_finding to fill it with evidence-backed findings."
             .to_string(),
         images: Vec::new(),
     }];
-    let mut findings: Vec<MinerFinding> = Vec::new();
+    // Insertion-ordered: slug → index into `units`.
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut units: Vec<CrawlUnit> = Vec::new();
+    let mut findings_total = 0usize;
     let mut tool_budget = opts.max_tool_calls;
     let forward = ForwardSink(sink);
 
     // Hard ceiling so a model that ignores the wrap-up hints — or spams
-    // emit_finding calls that fail validation (they consume neither the
-    // finding cap nor the tool budget) — still terminates. Generous headroom
-    // above the legitimate work (one turn per read-tool + one per finding + grace).
-    let max_turns = opts.max_tool_calls + opts.max_findings + 8;
+    // propose_unit/emit_finding calls that fail validation (they consume
+    // neither the unit cap, the finding cap, nor the tool budget) — still
+    // terminates. Generous headroom above the legitimate work (one turn per
+    // read-tool + one per unit + one per finding + grace).
+    let max_turns = opts.max_tool_calls + opts.max_findings + opts.max_units + 8;
     let mut turns = 0usize;
 
     loop {
         if cancel.load(Ordering::SeqCst) {
             sink.emit(MinerEvent::RunDone {
-                findings_total: findings.len(),
+                findings_total,
                 stopped: true,
             });
-            return Ok(findings);
+            return Ok(units);
         }
         turns += 1;
         if turns > max_turns {
-            tracing::warn!("miner: hit hard turn ceiling ({max_turns}); stopping");
+            tracing::warn!("crawler: hit hard turn ceiling ({max_turns}); stopping");
             sink.emit(MinerEvent::RunDone {
-                findings_total: findings.len(),
+                findings_total,
                 stopped: true,
             });
-            return Ok(findings);
+            return Ok(units);
         }
         let turn = match dispatcher.stream_turn(&system, &messages, &forward).await {
             Ok(t) => t,
             Err(e) => {
                 sink.emit(MinerEvent::Error { message: e.clone() });
                 sink.emit(MinerEvent::RunDone {
-                    findings_total: findings.len(),
+                    findings_total,
                     stopped: true,
                 });
-                return Ok(findings);
+                return Ok(units);
             }
         };
         if !turn.text.is_empty() {
@@ -318,31 +359,94 @@ pub async fn run_miner(
         }
         if turn.tool_calls.is_empty() {
             sink.emit(MinerEvent::RunDone {
-                findings_total: findings.len(),
+                findings_total,
                 stopped: false,
             });
-            return Ok(findings);
+            return Ok(units);
         }
         let mut feedback = String::new();
         for call in turn.tool_calls {
-            if call.name == "emit_finding" {
-                match parse_finding(&call.input) {
-                    Some(f) if findings.len() < opts.max_findings => {
-                        sink.emit(MinerEvent::Finding {
-                            id: call.id.clone(),
-                            finding: f.clone(),
-                        });
-                        findings.push(f);
-                        feedback.push_str(&format!("[tool emit_finding → {}] recorded\n", call.id));
+            if call.name == "propose_unit" {
+                match parse_unit(&call.input) {
+                    Some(u) if units.len() < opts.max_units => {
+                        let slug = unit_slug(&u.name);
+                        if slug.is_empty() {
+                            tracing::warn!(
+                                "crawler: propose_unit name slugifies to empty, dropped"
+                            );
+                            feedback.push_str(
+                                "[tool propose_unit] invalid payload — name must contain at least one letter or digit.\n",
+                            );
+                        } else if index.contains_key(&slug) {
+                            feedback.push_str(&format!(
+                                "[tool propose_unit → {}] already proposed — reusing it.\n",
+                                call.id
+                            ));
+                        } else {
+                            index.insert(slug, units.len());
+                            sink.emit(MinerEvent::UnitProposed {
+                                id: call.id.clone(),
+                                unit: u.clone(),
+                            });
+                            units.push(CrawlUnit { unit: u, findings: Vec::new() });
+                            feedback.push_str(&format!(
+                                "[tool propose_unit → {}] recorded\n",
+                                call.id
+                            ));
+                        }
                     }
-                    Some(_) => {
+                    Some(_) => feedback.push_str(
+                        "[tool propose_unit] unit cap reached — fill the units you have, then wrap up.\n",
+                    ),
+                    None => {
+                        tracing::warn!("crawler: invalid propose_unit payload dropped");
                         feedback.push_str(
-                            "[tool emit_finding] finding cap reached — wrap up with a closing summary.\n",
+                            "[tool propose_unit] invalid payload — kind must be skill|memory|command and name/summary non-empty.\n",
                         );
                     }
+                }
+                continue;
+            }
+            if call.name == "emit_finding" {
+                match parse_finding(&call.input) {
+                    Some(mut f) if findings_total < opts.max_findings => {
+                        match index.get(&unit_slug(&f.unit)).copied() {
+                            None => {
+                                feedback.push_str(&format!(
+                                    "[tool emit_finding → {}] unknown unit '{}' — call propose_unit first. Dropped.\n",
+                                    call.id, f.unit
+                                ));
+                            }
+                            Some(i) => {
+                                // A memory/command unit IS one entry.
+                                if units[i].unit.kind != "skill" && !units[i].findings.is_empty() {
+                                    feedback.push_str(&format!(
+                                        "[tool emit_finding → {}] '{}' is a single-entry unit and is already filled — propose a separate unit. Dropped.\n",
+                                        call.id, f.unit
+                                    ));
+                                } else {
+                                    f.kind = units[i].unit.kind.clone();
+                                    sink.emit(MinerEvent::Finding {
+                                        id: call.id.clone(),
+                                        finding: f.clone(),
+                                    });
+                                    units[i].findings.push(f);
+                                    findings_total += 1;
+                                    feedback.push_str(&format!(
+                                        "[tool emit_finding → {}] recorded\n",
+                                        call.id
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    Some(_) => feedback.push_str(
+                        "[tool emit_finding] finding cap reached — wrap up with a closing summary.\n",
+                    ),
                     None => {
-                        tracing::warn!("miner: invalid emit_finding payload dropped");
-                        feedback.push_str("[tool emit_finding] invalid payload (schema) — dropped.\n");
+                        tracing::warn!("crawler: invalid emit_finding payload dropped");
+                        feedback
+                            .push_str("[tool emit_finding] invalid payload (schema) — dropped.\n");
                     }
                 }
                 continue;
@@ -412,12 +516,22 @@ mod tests {
         }
     }
 
-    fn finding_call(id: &str, title: &str) -> ToolCall {
+    fn unit_call(id: &str, kind: &str, name: &str) -> ToolCall {
+        ToolCall {
+            id: id.into(),
+            name: "propose_unit".into(),
+            input: serde_json::json!({
+                "kind": kind, "name": name, "summary": "A summary sentence."
+            }),
+        }
+    }
+
+    fn finding_for(id: &str, unit: &str, title: &str) -> ToolCall {
         ToolCall {
             id: id.into(),
             name: "emit_finding".into(),
             input: serde_json::json!({
-                "unit": "test-unit",
+                "unit": unit,
                 "category": "convention",
                 "title": title,
                 "body_md": "Do the thing.",
@@ -425,6 +539,123 @@ mod tests {
                 "confidence": "high"
             }),
         }
+    }
+
+    async fn run(turns: Vec<ModelTurn>) -> (Vec<CrawlUnit>, Vec<MinerEvent>) {
+        let d = Scripted { turns: Mutex::new(turns), calls: AtomicUsize::new(0) };
+        let sink = Collect(Mutex::new(vec![]));
+        let cancel = AtomicBool::new(false);
+        let out = run_miner(
+            &d,
+            std::env::temp_dir().as_path(),
+            &MinerOpts::default_for(""),
+            &cancel,
+            &sink,
+        )
+        .await
+        .unwrap();
+        let evs = sink.0.lock().unwrap().clone();
+        (out, evs)
+    }
+
+    #[tokio::test]
+    async fn finding_lands_in_its_proposed_unit() {
+        let (units, evs) = run(vec![
+            ModelTurn {
+                tool_calls: vec![
+                    unit_call("u1", "skill", "PTY conventions"),
+                    finding_for("f1", "PTY conventions", "one"),
+                ],
+                text: String::new(),
+                emitted_spec: None,
+            },
+            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+        ])
+        .await;
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].unit.kind, "skill");
+        assert_eq!(units[0].findings.len(), 1);
+        assert_eq!(units[0].findings[0].kind, "skill", "finding inherits unit kind");
+        assert!(evs.iter().any(|e| matches!(e, MinerEvent::UnitProposed { .. })));
+    }
+
+    #[tokio::test]
+    async fn orphan_finding_is_dropped() {
+        let (units, _) = run(vec![
+            ModelTurn {
+                tool_calls: vec![finding_for("f1", "never-proposed", "one")],
+                text: String::new(),
+                emitted_spec: None,
+            },
+            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+        ])
+        .await;
+        assert!(units.is_empty());
+    }
+
+    #[tokio::test]
+    async fn units_slugifying_equal_merge_first_summary_wins() {
+        let (units, _) = run(vec![
+            ModelTurn {
+                tool_calls: vec![
+                    unit_call("u1", "skill", "PTY Conventions"),
+                    ToolCall {
+                        id: "u2".into(),
+                        name: "propose_unit".into(),
+                        input: serde_json::json!({
+                            "kind": "skill", "name": "pty conventions", "summary": "Second summary."
+                        }),
+                    },
+                    finding_for("f1", "pty conventions", "one"),
+                ],
+                text: String::new(),
+                emitted_spec: None,
+            },
+            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+        ])
+        .await;
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].unit.summary, "A summary sentence.");
+        assert_eq!(units[0].findings.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn memory_unit_keeps_only_one_finding() {
+        let (units, _) = run(vec![
+            ModelTurn {
+                tool_calls: vec![
+                    unit_call("u1", "memory", "Retry budget"),
+                    finding_for("f1", "Retry budget", "first"),
+                    finding_for("f2", "Retry budget", "second"),
+                    finding_for("f3", "Retry budget", "third"),
+                ],
+                text: String::new(),
+                emitted_spec: None,
+            },
+            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+        ])
+        .await;
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].findings.len(), 1);
+        assert_eq!(units[0].findings[0].title, "first");
+    }
+
+    /// A defect from Task 3: a name that is entirely punctuation (e.g. "!!!")
+    /// slugifies to the empty string, which would key the unit index on ""
+    /// and later write a file literally named ".md". Must be rejected in
+    /// run_miner, not just silently merged with any other empty-slug unit.
+    #[tokio::test]
+    async fn punctuation_only_name_is_rejected() {
+        let (units, _) = run(vec![
+            ModelTurn {
+                tool_calls: vec![unit_call("u1", "skill", "!!!")],
+                text: String::new(),
+                emitted_spec: None,
+            },
+            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+        ])
+        .await;
+        assert!(units.is_empty());
     }
 
     #[test]
@@ -465,27 +696,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn collects_findings_and_finishes_on_plain_turn() {
-        let d = Scripted {
-            turns: Mutex::new(vec![
-                ModelTurn { tool_calls: vec![finding_call("f1", "one")], text: String::new(), emitted_spec: None },
-                ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
-            ]),
-            calls: AtomicUsize::new(0),
-        };
-        let sink = Collect(Mutex::new(vec![]));
-        let cancel = AtomicBool::new(false);
-        let out = run_miner(&d, std::env::temp_dir().as_path(), &MinerOpts::default_for("s", "testing"), &cancel, &sink)
-            .await
-            .unwrap();
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].title, "one");
-        let evs = sink.0.lock().unwrap();
-        assert!(evs.iter().any(|e| matches!(e, MinerEvent::Finding { .. })));
-        assert!(matches!(evs.last().unwrap(), MinerEvent::RunDone { findings_total: 1, stopped: false }));
-    }
-
-    #[tokio::test]
     async fn invalid_finding_is_dropped_not_fatal() {
         let bad = ToolCall {
             id: "b".into(),
@@ -500,7 +710,7 @@ mod tests {
             calls: AtomicUsize::new(0),
         };
         let sink = Collect(Mutex::new(vec![]));
-        let out = run_miner(&d, std::env::temp_dir().as_path(), &MinerOpts::default_for("s", "t"), &AtomicBool::new(false), &sink)
+        let out = run_miner(&d, std::env::temp_dir().as_path(), &MinerOpts::default_for("t"), &AtomicBool::new(false), &sink)
             .await
             .unwrap();
         assert!(out.is_empty());
@@ -511,7 +721,7 @@ mod tests {
     async fn cancel_stops_between_turns_and_reports_stopped() {
         let d = Scripted {
             turns: Mutex::new(vec![ModelTurn {
-                tool_calls: vec![finding_call("f1", "one")],
+                tool_calls: vec![finding_for("f1", "test-unit", "one")],
                 text: String::new(),
                 emitted_spec: None,
             }]),
@@ -522,7 +732,7 @@ mod tests {
         // Flip cancel via the sink: after the first Finding event, cancel.
         // (Simplest deterministic hook: pre-set cancel and assert zero turns.)
         cancel.store(true, Ordering::SeqCst);
-        let out = run_miner(&d, std::env::temp_dir().as_path(), &MinerOpts::default_for("s", "t"), &cancel, &sink)
+        let out = run_miner(&d, std::env::temp_dir().as_path(), &MinerOpts::default_for("t"), &cancel, &sink)
             .await
             .unwrap();
         assert!(out.is_empty());
@@ -556,7 +766,7 @@ mod tests {
 
     #[tokio::test]
     async fn hard_turn_ceiling_terminates_a_model_that_never_stops() {
-        let mut opts = MinerOpts::default_for("s", "t");
+        let mut opts = MinerOpts::default_for("t");
         opts.max_findings = 2;
         opts.max_tool_calls = 2;
         let sink = Collect(Mutex::new(vec![]));
@@ -578,7 +788,7 @@ mod tests {
 
     #[test]
     fn finding_cap_is_enforced() {
-        let mut opts = MinerOpts::default_for("s", "t");
+        let mut opts = MinerOpts::default_for("t");
         opts.max_findings = 1;
         // validate_finding + cap logic are pure — test via parse_finding.
         let ok = parse_finding(&serde_json::json!({
@@ -670,11 +880,14 @@ mod tests {
             fn emit(&self, e: MinerEvent) { eprintln!("{e:?}"); }
         }
         let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf();
-        let mut opts = MinerOpts::default_for("covenant-conventions", "rust error-handling conventions");
+        let mut opts = MinerOpts::default_for("rust error-handling conventions");
         opts.max_findings = 5;
         opts.max_tool_calls = 20;
         let out = run_miner(&dispatcher, &repo, &opts, &AtomicBool::new(false), &Print).await.unwrap();
-        assert!(!out.is_empty(), "expected at least one finding");
-        assert!(out.iter().all(|f| !f.evidence.is_empty()), "findings must cite evidence");
+        assert!(!out.is_empty(), "expected at least one unit");
+        assert!(
+            out.iter().all(|u| u.findings.iter().all(|f| !f.evidence.is_empty())),
+            "findings must cite evidence"
+        );
     }
 }

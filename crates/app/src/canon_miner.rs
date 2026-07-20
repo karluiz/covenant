@@ -103,7 +103,7 @@ pub async fn canon_mine_start(
         build_miner_dispatcher(&settings)?
     };
 
-    let mut opts = MinerOpts::default_for(&skill_name, &focus);
+    let mut opts = MinerOpts::default_for(&focus);
     if thorough {
         opts.depth = MinerDepth::Thorough;
         opts.max_tool_calls = 240;
