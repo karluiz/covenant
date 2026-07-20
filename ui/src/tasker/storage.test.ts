@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { TaskStorage, TASKER_SAVED_EVENT } from "./storage";
 
 describe("TASKER_SAVED_EVENT", () => {
