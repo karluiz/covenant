@@ -74,15 +74,15 @@ type SharedTask = {
   id: string
   title: string
   priority: "low" | "normal" | "high" | "urgent"
-  dueDate?: string
-  dueTime?: string
+  dueDate?: number              // epoch ms, as stored — the page formats it
+  dueTime?: string              // "HH:mm"
   tags?: string[]
-  subtasks?: { title: string, done: boolean }[]
+  subtasks?: { title: string, completed: boolean }[]
   estimatedMinutes?: number
   spentMinutes?: number
-  createdAt: string
-  updatedAt: string
-  completedAt?: string
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
 }
 ```
 
