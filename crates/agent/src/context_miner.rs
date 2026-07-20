@@ -29,6 +29,10 @@ pub struct MinerFinding {
     pub confidence: String,
     #[serde(default, alias = "suggested_kind")]
     pub kind: String,
+    /// Name of the `propose_unit` this finding belongs to. Findings naming an
+    /// unproposed unit are dropped by the run loop.
+    #[serde(default)]
+    pub unit: String,
 }
 fn default_confidence() -> String {
     "medium".into()
@@ -43,6 +47,32 @@ pub fn default_kind(category: &str) -> &'static str {
         "workflow" => "command",
         _ => "skill",
     }
+}
+
+/// A destination the crawler proposes before filling it with findings.
+/// Identity is `(kind, slugify(name))`; the run loop merges collisions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MinerUnit {
+    pub kind: String,
+    pub name: String,
+    pub summary: String,
+}
+
+/// Only skill|memory|command survive. `subagent` is deliberately unreachable
+/// from the model — it is a manual re-route in curation.
+pub(crate) fn parse_unit(v: &Value) -> Option<MinerUnit> {
+    let u: MinerUnit = serde_json::from_value(v.clone()).ok()?;
+    if !matches!(u.kind.as_str(), "skill" | "memory" | "command") {
+        return None;
+    }
+    if u.name.trim().is_empty() || u.name.len() > 80 {
+        return None;
+    }
+    if u.summary.trim().is_empty() || u.summary.len() > 400 {
+        return None;
+    }
+    Some(u)
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -60,6 +90,10 @@ pub enum MinerEvent {
         id: String,
         summary: String,
         ok: bool,
+    },
+    UnitProposed {
+        id: String,
+        unit: MinerUnit,
     },
     Finding {
         id: String,
@@ -115,32 +149,52 @@ pub(crate) fn parse_finding(v: &Value) -> Option<MinerFinding> {
     if f.body_md.trim().is_empty() {
         return None;
     }
-    // Fill/repair kind. Trust only skill|memory|command from the model
-    // (`suggested_kind` deserialized into `f.kind` via serde alias); anything
-    // else — including "subagent" — falls back to the category default.
+    if f.unit.trim().is_empty() {
+        return None;
+    }
+    // Kind is inherited from the unit by the run loop; category default is
+    // only a fallback for a finding whose unit lookup somehow left it blank.
+    // "subagent" stays excluded here (not just in parse_unit): the tool
+    // schema no longer advertises `suggested_kind`, but nothing stops a
+    // non-compliant model from sending it anyway, and the global invariant
+    // is that the model can never produce a subagent-kind anything.
     if !matches!(f.kind.as_str(), "skill" | "memory" | "command") {
         f.kind = default_kind(&f.category).to_string();
     }
     Some(f)
 }
 
-/// The extra tool the model uses to report a finding. `pub` — Task 3
+/// The extra tools the model uses to report a finding. `pub` — Task 4
 /// wires this into the dispatcher's `tools` field.
 pub fn miner_tool_specs() -> Value {
     let mut specs = tools::tool_specs();
-    specs.as_array_mut().expect("tool_specs is an array").push(json!({
-        "name": "emit_finding",
-        "description": "Report ONE mined context finding. Call this every time you have solid evidence for a convention, pattern, gotcha, domain rule, or glossary term. body_md is written as an instruction for a coding agent.",
+    let arr = specs.as_array_mut().expect("tool_specs is an array");
+    arr.push(json!({
+        "name": "propose_unit",
+        "description": "Declare a context unit this repository can yield, BEFORE emitting any finding for it. Call this once per unit. A skill unit collects many findings; a memory or command unit is a single entry.",
         "input_schema": {
             "type": "object",
-            "required": ["category", "title", "body_md"],
+            "required": ["kind", "name", "summary"],
             "properties": {
+                "kind": { "type": "string", "enum": ["skill", "memory", "command"], "description": "skill = a package of conventions/patterns/gotchas; memory = one durable fact; command = one repeatable workflow." },
+                "name": { "type": "string", "description": "Short human name, e.g. 'PTY conventions'." },
+                "summary": { "type": "string", "description": "One sentence a reader can decide on without opening the unit." }
+            }
+        }
+    }));
+    arr.push(json!({
+        "name": "emit_finding",
+        "description": "Report ONE mined context finding into a unit you already proposed. body_md is written as an instruction for a coding agent.",
+        "input_schema": {
+            "type": "object",
+            "required": ["unit", "category", "title", "body_md"],
+            "properties": {
+                "unit": { "type": "string", "description": "The name of the unit this belongs to, exactly as passed to propose_unit." },
                 "category": { "type": "string", "enum": CATEGORIES },
                 "title": { "type": "string" },
                 "body_md": { "type": "string" },
                 "evidence": { "type": "array", "items": { "type": "string" }, "description": "path:line references backing the finding" },
-                "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
-                "suggested_kind": { "type": "string", "enum": ["skill", "memory", "command"], "description": "Where this finding belongs: skill (conventions/patterns/gotchas), memory (durable domain facts/glossary), or command (a repeatable workflow). Omit to let the category decide." }
+                "confidence": { "type": "string", "enum": ["high", "medium", "low"] }
             }
         }
     }));
@@ -363,6 +417,7 @@ mod tests {
             id: id.into(),
             name: "emit_finding".into(),
             input: serde_json::json!({
+                "unit": "test-unit",
                 "category": "convention",
                 "title": title,
                 "body_md": "Do the thing.",
@@ -370,6 +425,43 @@ mod tests {
                 "confidence": "high"
             }),
         }
+    }
+
+    #[test]
+    fn parse_unit_accepts_valid() {
+        let u = parse_unit(&serde_json::json!({
+            "kind": "memory", "name": "PTY Conventions", "summary": "How PTY IO is written here."
+        }))
+        .unwrap();
+        assert_eq!(u.kind, "memory");
+        assert_eq!(u.name, "PTY Conventions");
+    }
+
+    #[test]
+    fn parse_unit_rejects_subagent_and_junk() {
+        for kind in ["subagent", "mcp", "spec", ""] {
+            let v = serde_json::json!({ "kind": kind, "name": "x", "summary": "y" });
+            assert!(parse_unit(&v).is_none(), "kind {kind} must be rejected");
+        }
+    }
+
+    #[test]
+    fn parse_unit_rejects_empty_name_or_summary() {
+        assert!(parse_unit(&serde_json::json!({ "kind": "skill", "name": "  ", "summary": "y" })).is_none());
+        assert!(parse_unit(&serde_json::json!({ "kind": "skill", "name": "x", "summary": " " })).is_none());
+    }
+
+    #[test]
+    fn propose_unit_is_in_the_tool_roster() {
+        let specs = miner_tool_specs();
+        let names: Vec<&str> = specs
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+            .collect();
+        assert!(names.contains(&"propose_unit"));
+        assert!(names.contains(&"emit_finding"));
     }
 
     #[tokio::test]
@@ -490,7 +582,7 @@ mod tests {
         opts.max_findings = 1;
         // validate_finding + cap logic are pure — test via parse_finding.
         let ok = parse_finding(&serde_json::json!({
-            "category": "gotcha", "title": "t", "body_md": "b",
+            "unit": "test-unit", "category": "gotcha", "title": "t", "body_md": "b",
             "evidence": [], "confidence": "low"
         }));
         assert!(ok.is_some());
@@ -510,24 +602,30 @@ mod tests {
 
     #[test]
     fn parse_finding_fills_kind_from_category_when_absent() {
-        let v = json!({ "category": "domain_rule", "title": "PEP check", "body_md": "Do X." });
+        let v = json!({ "unit": "test-unit", "category": "domain_rule", "title": "PEP check", "body_md": "Do X." });
         let f = parse_finding(&v).expect("valid finding");
         assert_eq!(f.kind, "memory");
     }
 
     #[test]
     fn parse_finding_honors_suggested_kind_but_never_subagent() {
-        let v = json!({ "category": "pattern", "title": "T", "body_md": "B", "suggested_kind": "memory" });
+        let v = json!({ "unit": "test-unit", "category": "pattern", "title": "T", "body_md": "B", "suggested_kind": "memory" });
         assert_eq!(parse_finding(&v).unwrap().kind, "memory");
-        let sub = json!({ "category": "pattern", "title": "T", "body_md": "B", "suggested_kind": "subagent" });
+        let sub = json!({ "unit": "test-unit", "category": "pattern", "title": "T", "body_md": "B", "suggested_kind": "subagent" });
         // agent may never route to subagent; falls back to category default
         assert_eq!(parse_finding(&sub).unwrap().kind, "skill");
     }
 
     #[test]
     fn workflow_is_a_valid_category() {
-        let v = json!({ "category": "workflow", "title": "Run tests", "body_md": "npm test from root." });
+        let v = json!({ "unit": "test-unit", "category": "workflow", "title": "Run tests", "body_md": "npm test from root." });
         assert!(parse_finding(&v).is_some());
+    }
+
+    #[test]
+    fn parse_finding_rejects_missing_unit() {
+        let v = json!({ "category": "workflow", "title": "Run tests", "body_md": "npm test from root." });
+        assert!(parse_finding(&v).is_none());
     }
 
     #[test]
@@ -540,7 +638,15 @@ mod tests {
             .expect("emit_finding present in openai format");
         assert_eq!(ef["type"], "function");
         // Anthropic input_schema maps to OpenAI function.parameters.
-        assert_eq!(ef["function"]["parameters"]["required"][0], "category");
+        // `unit` now leads `required` (emit_finding names the unit it
+        // belongs to before naming its category).
+        assert_eq!(ef["function"]["parameters"]["required"][0], "unit");
+
+        let pu = arr
+            .iter()
+            .find(|t| t["function"]["name"] == "propose_unit")
+            .expect("propose_unit present in openai format");
+        assert_eq!(pu["type"], "function");
     }
 
     /// Real mining run against this repository. Requires ANTHROPIC_API_KEY
