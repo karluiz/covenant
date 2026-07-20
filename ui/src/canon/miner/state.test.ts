@@ -1,16 +1,17 @@
 import { describe, it, expect } from "vitest";
+import type { MinerEvent } from "../../api";
 import {
-  createMinerState, reduceMinerEvent, setUnitSelected, setFindingStatus,
+  createMinerState, reduceMinerEvent, setUnitSelected, setUnitKind, setFindingStatus,
   selectedUnits, applyStates, compilePreview, slugify,
 } from "./state";
 
 const unitEv = (id: string, kind: string, name: string) =>
-  ({ kind: "unit_proposed", id, unit: { kind, name, summary: "A summary." } }) as never;
+  ({ kind: "unit_proposed", id, unit: { kind, name, summary: "A summary." } }) as MinerEvent;
 const findingEv = (id: string, unit: string, title: string) =>
   ({
     kind: "finding", id,
     finding: { unit, category: "convention", title, bodyMd: "Do it.", evidence: ["a.ts:1"], confidence: "high", kind: unitKindOf(unit) },
-  }) as never;
+  }) as MinerEvent;
 const unitKindOf = (unit: string) => (unit === "Retry budget" ? "memory" : "skill");
 
 describe("crawler inventory state", () => {
@@ -74,6 +75,19 @@ describe("crawler inventory state", () => {
     setFindingStatus(s, "f1", "accepted");
     setUnitSelected(s, "skill:a", false);
     expect(selectedUnits(s)).toHaveLength(0);
+  });
+
+  it("a re-routed unit's stale resolved state is deselected", () => {
+    const s = createMinerState();
+    reduceMinerEvent(s, unitEv("u1", "skill", "A"));
+    reduceMinerEvent(s, findingEv("f1", "A", "one"));
+    applyStates(s, { states: [{ kind: "skill", slug: "a", state: "new" }], detected: [] });
+    expect(s.units.find((u) => u.slug === "a")!.selected).toBe(true);
+
+    setUnitKind(s, "skill:a", "memory");
+    const row = s.units.find((u) => u.slug === "a")!;
+    expect(row.selected).toBe(false);
+    expect(selectedUnits(s).find((u) => u.name === "A")).toBeUndefined();
   });
 
   it("preview groups by destination path", () => {

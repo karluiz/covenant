@@ -134,6 +134,12 @@ export function setUnitKind(state: MinerState, id: string, kind: string): void {
   u.kind = kind;
   u.id = unitId(kind, u.slug);
   for (const f of u.findings) f.finding = { ...f.finding, kind };
+  // ponytail: `state` still reflects the inventory check against the OLD
+  // kind's path — a re-route doesn't know whether `<kind>/<slug>` exists on
+  // disk, so the badge is stale until re-resolved. Deselect so a stale
+  // `new` + `selected: true` can't silently clobber an unchecked path; the
+  // next task's job is to re-run canonInventoryStates after a re-route.
+  u.selected = false;
 }
 
 function findCard(state: MinerState, id: string): FindingCard | undefined {
