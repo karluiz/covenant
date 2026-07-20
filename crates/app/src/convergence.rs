@@ -406,7 +406,7 @@ pub async fn build_convergence_snapshot(
             last_command: last.and_then(|d| d.in_flight_command.clone()),
             last_output_line: last_non_empty_line(&tail_bytes, 160),
             last_decision_action: last.map(|d| d.action.clone()),
-            last_decision_rationale: last.and_then(|d| d.rationale.clone()),
+            last_decision_rationale: last.and_then(decision_question),
             mission_name: mission_name_from_path(last.and_then(|d| d.mission_path.as_deref())),
             cost_usd,
             budget_usd: if enrolled { Some(aom_budget) } else { None },
@@ -443,6 +443,20 @@ fn sum_cost_for_short(rows: &[OperatorDecisionRow], short: &str, since_ms: u64) 
         .filter(|r| r.session_id_short == short && r.timestamp_unix_ms >= since_ms)
         .map(|r| r.cost_usd)
         .sum()
+}
+
+/// The operator's open question for a decision row, for Convergence's
+/// escalation list. Prefers `escalation`, falls back to `rationale`.
+///
+/// Under mind_v2 the turn schema carries no separate rationale for an
+/// escalation — the mapping in `operator.rs` stores `String::new()` — so
+/// the question lives in `escalation` alone. Reading `rationale` first
+/// left the "open question" blank on every v2 escalation (95 of 95 in a
+/// real profile's most recent month). Empty/whitespace in either column
+/// is treated as absent rather than rendered as a blank question.
+fn decision_question(d: &OperatorDecisionRow) -> Option<String> {
+    let pick = |s: &Option<String>| s.clone().filter(|v| !v.trim().is_empty());
+    pick(&d.escalation).or_else(|| pick(&d.rationale))
 }
 
 fn index_decisions_by_short_id(
@@ -704,6 +718,41 @@ mod tests {
         ]);
         assert_eq!(snap.escalations.len(), 1);
         assert_eq!(snap.escalations[0].session_id, "s2");
+    }
+
+    #[test]
+    fn decision_question_prefers_escalation_over_empty_rationale() {
+        let mk = |esc: Option<&str>, rat: Option<&str>| OperatorDecisionRow {
+            id: 1,
+            session_id_short: "s1".into(),
+            timestamp_unix_ms: 0,
+            in_flight_command: None,
+            output_excerpt: String::new(),
+            action: "escalate".into(),
+            reply_text: None,
+            rationale: rat.map(str::to_string),
+            executed: false,
+            mission_path: None,
+            executor_name: None,
+            operator_id: None,
+            operator_name: None,
+            cost_usd: 0.0,
+            applied_memory_id: None,
+            escalation: esc.map(str::to_string),
+        };
+        // The v2 shape: rationale hardcoded empty, question in escalation.
+        assert_eq!(
+            decision_question(&mk(Some("needs your call on the migration"), Some(""))),
+            Some("needs your call on the migration".into())
+        );
+        // Pre-v2 rows kept the text in rationale only.
+        assert_eq!(
+            decision_question(&mk(None, Some("legacy rationale"))),
+            Some("legacy rationale".into())
+        );
+        // Both blank → absent, never a blank question in the UI.
+        assert_eq!(decision_question(&mk(Some("  "), Some(""))), None);
+        assert_eq!(decision_question(&mk(None, None)), None);
     }
 
     #[test]
