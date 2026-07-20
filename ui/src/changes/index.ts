@@ -1,11 +1,12 @@
 import {
   gitChanges, gitFileDiff, gitStage, gitUnstage, gitStageHunk, gitUnstageHunk,
-  gitCommit, generateCommitMessage, gitRepoSummary,
+  gitCommit, generateCommitMessage, explainChanges, gitRepoSummary,
   type Changes, type FileChange, type GitRepoSummary,
 } from "../api";
 import { renderRail, splitPath, countsLabel, type RailHandlers } from "./rail";
 import { renderDiffBody } from "./diff-view";
 import { formatChord } from "../platform";
+import { renderMarkdown } from "../ui/markdown";
 
 const SUBJECT_SOFT_LIMIT = 50;
 
@@ -29,6 +30,10 @@ export class ChangesSurface {
   private headSumEl: HTMLElement | null = null;
   private pushTargetEl: HTMLElement | null = null;
   private selectedPath: string | null = null;
+  // Explanation of the current change set. Cleared on every refresh so an
+  // explanation never outlives the diff it describes.
+  private explain: { state: "idle" | "loading" | "done" | "error"; text: string } =
+    { state: "idle", text: "" };
   // Capture phase: the terminal behind the fullscreen overlay keeps focus and
   // xterm calls stopPropagation() on Escape, so a bubble-phase listener never
   // fires. Mirrors the spec entrance's Esc handling.
@@ -398,7 +403,7 @@ export class ChangesSurface {
     const verb = push ? `Committing & pushing to ${this.pushTarget()}` : "Committing";
     this.setStatus(`${verb}…`);
     try {
-      this.changes = await gitCommit(this.repoRoot, message, push);
+      this.setChanges(await gitCommit(this.repoRoot, message, push));
       if (this.subjEl) this.subjEl.value = "";
       if (this.bodyEl) this.bodyEl.value = "";
       this.selectedPath = null;
@@ -470,6 +475,7 @@ export class ChangesSurface {
         list.appendChild(rowBtn);
       }
       ov.appendChild(list);
+      ov.appendChild(this.buildExplain());
     }
 
     const hints = document.createElement("div");
@@ -486,15 +492,80 @@ export class ChangesSurface {
     this.renderHeadSum();
   }
 
-  private async refresh(): Promise<void> {
-    this.changes = await gitChanges(this.repoRoot);
-    this.renderRailInto();
+  /// Every mutation of the change set goes through here: staging alone moves
+  /// the explained scope (staged_diff prefers the index), so any explanation of
+  /// the previous state is stale the moment this is called.
+  private setChanges(next: Changes): void {
+    this.changes = next;
+    this.explain = { state: "idle", text: "" };
+  }
+
+  /// Explanation block for the overview: eyebrow + action, plus the rendered
+  /// markdown once there is one.
+  private buildExplain(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cd-exp";
+
+    const eyebrow = document.createElement("div");
+    eyebrow.className = "cd-exp-eyebrow";
+    eyebrow.innerHTML = `<span>Explanation</span>`;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cd-exp-btn";
+    btn.disabled = this.explain.state === "loading";
+    btn.innerHTML =
+      `<svg class="cd-exp-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" ` +
+      `stroke="currentColor" stroke-width="2" aria-hidden="true">` +
+      `<path d="M3 12h4l3-8 4 16 3-8h4"/></svg>`;
+    btn.appendChild(document.createTextNode(
+      this.explain.state === "loading" ? "Explaining…"
+        : this.explain.state === "idle" ? "Explain changes"
+        : "Regenerate",
+    ));
+    btn.addEventListener("click", () => void this.runExplain());
+    eyebrow.appendChild(btn);
+    wrap.appendChild(eyebrow);
+
+    if (this.explain.state === "done") {
+      const doc = document.createElement("div");
+      doc.className = "cd-exp-doc markdown-doc";
+      doc.innerHTML = renderMarkdown(this.explain.text);
+      wrap.appendChild(doc);
+    } else if (this.explain.state === "error") {
+      const err = document.createElement("div");
+      err.className = "cd-exp-error";
+      err.textContent = this.explain.text;
+      wrap.appendChild(err);
+    }
+    return wrap;
+  }
+
+  private async runExplain(): Promise<void> {
+    this.explain = { state: "loading", text: "" };
+    this.renderOverview();
+    try {
+      const text = await explainChanges(this.repoRoot);
+      this.explain = { state: "done", text };
+    } catch (e) {
+      this.explain = { state: "error", text: String(e) };
+    }
+    // A file may have been selected while the call was in flight; only repaint
+    // the overview if it is still the visible surface.
     if (this.selectedPath === null) this.renderOverview();
+  }
+
+  private async refresh(): Promise<void> {
+    this.setChanges(await gitChanges(this.repoRoot));
+    this.renderRailInto();
   }
 
   private renderRailInto(): void {
     this.syncCommitBar();
     this.renderHeadSum();
+    // The overview is a view of the same change set the rail shows — staging
+    // from the rail used to leave it stale behind the diff pane.
+    if (this.selectedPath === null) this.renderOverview();
     if (!this.railEl) return;
     if (this.changes.staged.length === 0 && this.changes.unstaged.length === 0) {
       const clean = document.createElement("div");
@@ -567,9 +638,9 @@ export class ChangesSurface {
   /// still has changes there; otherwise the other side; otherwise the overview.
   private async applyHunk(path: string, staged: boolean, index: number): Promise<void> {
     try {
-      this.changes = staged
+      this.setChanges(staged
         ? await gitUnstageHunk(this.repoRoot, path, index)
-        : await gitStageHunk(this.repoRoot, path, index);
+        : await gitStageHunk(this.repoRoot, path, index));
     } catch (e) {
       this.setStatus(String(e), true);
       return;
@@ -590,7 +661,7 @@ export class ChangesSurface {
   }
 
   private async stage(path: string): Promise<void> {
-    this.changes = await gitStage(this.repoRoot, path);
+    this.setChanges(await gitStage(this.repoRoot, path));
     this.renderRailInto();
     if (path === this.selectedPath) {
       await this.showDiff(path, true);
@@ -598,7 +669,7 @@ export class ChangesSurface {
   }
 
   private async unstage(path: string): Promise<void> {
-    this.changes = await gitUnstage(this.repoRoot, path);
+    this.setChanges(await gitUnstage(this.repoRoot, path));
     this.renderRailInto();
     if (path === this.selectedPath) {
       await this.showDiff(path, false);
@@ -609,9 +680,9 @@ export class ChangesSurface {
   /// change set on every call and the lists are short.
   private async stageAll(paths: string[], stage: boolean): Promise<void> {
     for (const p of paths) {
-      this.changes = stage
+      this.setChanges(stage
         ? await gitStage(this.repoRoot, p)
-        : await gitUnstage(this.repoRoot, p);
+        : await gitUnstage(this.repoRoot, p));
     }
     this.renderRailInto();
     if (this.selectedPath !== null && paths.includes(this.selectedPath)) {
