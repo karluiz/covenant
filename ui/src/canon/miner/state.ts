@@ -110,12 +110,32 @@ export function reduceMinerEvent(state: MinerState, ev: MinerEvent): void {
  * `memory/x.md` and `skills/x/` are genuinely different files on disk, so
  * a state row only applies to the unit that shares both kind and slug. */
 export function applyStates(state: MinerState, report: InventoryReport): void {
+  const resolved = new Set<string>();
   for (const s of report.states) {
     const row = state.units.find((r) => r.kind === s.kind && r.slug === s.slug);
     if (!row) continue;
     row.state = s.state;
     // Only `new` is pre-checked. `changed` offers Update but the user opts in.
     row.selected = s.state === "new";
+    resolved.add(row.id);
+  }
+  // The reverse of the `!row` skip above: a unit we SENT that came back with no
+  // state row was never verified against disk. Left alone it keeps its
+  // `unit_proposed` defaults — `new` and `selected` — i.e. pre-armed for an
+  // unconditional write, which is the most dangerous possible reading of "we
+  // do not know". `unknown` is the safe default: neutral badge, unselectable
+  // (see `isSelectable`), out of the write payload entirely.
+  //
+  // Unreachable today because `slugify` here and `canon::compile::slugify` in
+  // Rust agree (pinned by `slug_rules_agree_across_crates` and by the shared
+  // corpus in state.test.ts). One character of drift in either is what this
+  // guard exists for. It also covers a unit carrying no writable findings at
+  // all, which `pendingUnits` does not send: honest, and it cannot be written
+  // in that shape anyway.
+  for (const u of state.units) {
+    if (u.state === "detected" || resolved.has(u.id)) continue;
+    u.state = "unknown";
+    u.selected = false;
   }
   for (const d of report.detected) {
     const kind = d.kind === "agent" ? "subagent" : d.kind;
@@ -202,14 +222,22 @@ export function selectedUnits(state: MinerState): CompiledUnit[] {
     .filter((u) => u.findings.length > 0);
 }
 
-/** Units awaiting all findings' state resolution, for the pre-write check. */
+/** Units to resolve inventory state for.
+ *
+ *  The findings sent are the ones `unitFindings` would write — accepted only,
+ *  edits applied, non-skill kinds sliced to one — so the bytes the badge is
+ *  computed over ARE the bytes a write puts on disk. Anything looser and the
+ *  badge describes a body that never reaches the file (discard `findings[0]`,
+ *  accept `findings[1]`, and the backend's `render_unit` resolves the wrong
+ *  one). Callers must re-resolve whenever curation changes these bytes.
+ *
+ *  A unit with nothing accepted yet is dropped: `selectedUnits` refuses to
+ *  write it, so there is no destination to warn about, and `applyStates` will
+ *  fold it to `unknown` — honest, since nobody checked it. */
 export function pendingUnits(state: MinerState): CompiledUnit[] {
   return state.units
     .filter((u) => u.state !== "detected")
-    .map((u) => ({
-      kind: u.kind, name: u.name,
-      findings: u.findings.map((c) => ({ ...c.finding, kind: u.kind, bodyMd: c.editedBody ?? c.finding.bodyMd })),
-    }))
+    .map((u) => ({ kind: u.kind, name: u.name, findings: unitFindings(u) }))
     .filter((u) => u.findings.length > 0);
 }
 

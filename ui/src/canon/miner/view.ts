@@ -96,7 +96,10 @@ export function stateHint(u: UnitRow): string {
         ? `Foreign item in ${u.detectedIn}, no Canon source`
         : "Foreign item, no Canon source";
     case "unknown":
-      return "Canon could not be checked for this unit — its destination was never verified, so it cannot be written. Re-route it or restart the crawl.";
+      // Two paths land here: a unit with nothing accepted yet (never sent for
+      // resolution) and a resolution that failed outright. Both mean the same
+      // thing to the user, so the hint covers both.
+      return "This unit's destination was never verified against Canon, so it cannot be written. Accept a finding to resolve it — or restart the crawl if the check itself failed.";
   }
 }
 
@@ -149,6 +152,10 @@ export class ContextMinerView {
   /** Unit ids whose findings are expanded. Survives re-renders. */
   private expanded = new Set<string>();
 
+  /** Pending `scheduleResolve` timer. Lives in the view, not in `state.ts` —
+   *  the reducer stays free of timers. */
+  private curationTimer: number | null = null;
+
   // Crawl-view zone refs — set by showMining(), cleared by restart().
   private activityEl: HTMLElement | null = null;
   private activityListEl: HTMLElement | null = null;
@@ -194,6 +201,7 @@ export class ContextMinerView {
   destroy(): void {
     this.destroyed = true;
     this.stopSky();
+    this.cancelScheduledResolve();
     document.removeEventListener("keydown", this.onKeyDown);
     if (this.unlisten) {
       this.unlisten();
@@ -241,6 +249,7 @@ export class ContextMinerView {
     setFindingStatus(this.state, target.id, status);
     this.expanded.add(owner.id);
     this.renderInventory();
+    this.scheduleResolve();
   }
 
   private acceptNewestPending(): void {
@@ -513,6 +522,36 @@ export class ContextMinerView {
     // second crawl of the same repo from proposing a duplicate set.
     await this.resolveStates(false);
     if (this.state.units.length === 0) this.showEmptyDone();
+  }
+
+  private cancelScheduledResolve(): void {
+    if (this.curationTimer === null) return;
+    window.clearTimeout(this.curationTimer);
+    this.curationTimer = null;
+  }
+
+  /** Curation changes the bytes a unit would be written as — accepting a
+   *  finding, discarding one, restoring one, editing a body. `pendingUnits`
+   *  now sends exactly those bytes, so the badge every row carries is stale
+   *  the instant any of that happens, and a stale badge is the whole safety
+   *  model of this screen (writes are unconditional create-or-update with no
+   *  confirm step).
+   *
+   *  Debounced because a curation pass is a burst — accept, accept, discard,
+   *  edit — and each step would otherwise buy a round-trip. `resolveStates`
+   *  owns the ordering (`resolveToken`); this only decides when to ask.
+   *  `preserveSelection` keeps the user's checkboxes: re-resolving must not
+   *  silently re-arm or disarm a row the user set by hand. */
+  private scheduleResolve(): void {
+    if (this.destroyed || this.writing || !this.state.done) return;
+    this.cancelScheduledResolve();
+    this.curationTimer = window.setTimeout(() => {
+      this.curationTimer = null;
+      // Re-check: the write button may have been pressed during the wait, and
+      // a resolve landing mid-write would mutate the selection under it.
+      if (this.destroyed || this.writing || !this.state.done) return;
+      void this.resolveStates(true);
+    }, 350);
   }
 
   /** Re-run the inventory check and re-apply it to the rows.
@@ -824,6 +863,7 @@ export class ContextMinerView {
         // object, not an encapsulated class.
         card.status = "pending";
         this.renderInventory();
+        this.scheduleResolve();
       });
       return wrapper;
     }
@@ -860,6 +900,7 @@ export class ContextMinerView {
       body.removeAttribute("contenteditable");
       editFindingBody(this.state, card.id, body.textContent ?? "");
       this.renderPreview();
+      this.scheduleResolve();
     });
 
     const evidence = document.createElement("div");
@@ -880,6 +921,7 @@ export class ContextMinerView {
     acceptBtn.addEventListener("click", () => {
       setFindingStatus(this.state, card.id, "accepted");
       this.renderInventory();
+      this.scheduleResolve();
     });
     const discardBtn = document.createElement("button");
     discardBtn.className = "canon-miner-btn is-danger";
@@ -887,6 +929,7 @@ export class ContextMinerView {
     discardBtn.addEventListener("click", () => {
       setFindingStatus(this.state, card.id, "discarded");
       this.renderInventory();
+      this.scheduleResolve();
     });
     actions.append(acceptBtn, discardBtn);
 
@@ -958,6 +1001,11 @@ export class ContextMinerView {
   private async writeToRepo(writeBtn: HTMLButtonElement): Promise<void> {
     if (this.writing) return;
     this.writing = true;
+    // A curation resolve queued moments ago must not land on top of the
+    // selection this write is about to consume. (`scheduleResolve`'s own
+    // `writing` re-check covers the timer that already fired; this drops the
+    // one still waiting.)
+    this.cancelScheduledResolve();
     writeBtn.disabled = true;
     try {
       const units = selectedUnits(this.state);
@@ -997,6 +1045,7 @@ export class ContextMinerView {
   private restart(): void {
     this.runId = null;
     this.writing = false;
+    this.cancelScheduledResolve();
     this.resolveToken++; // orphan any check still in flight from the last run
     this.state = createMinerState();
     this.expanded.clear();

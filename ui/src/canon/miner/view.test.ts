@@ -139,9 +139,13 @@ describe("overwriteTargets", () => {
   it("never counts a detected row — Adopt is its only verb", () => {
     const s = armedState("exists");
     applyStates(s, {
-      states: [],
+      // "A" is re-sent with its row: an omitted unit is now folded to
+      // `unknown` rather than left on its `new` default, so a states-less
+      // report would take A out of the write path and out of this assertion.
+      states: [{ kind: "skill", slug: "a", state: "exists" }],
       detected: [{ kind: "skill", name: "Foreign", summary: null, detectedIn: ".claude/skills" }],
     });
+    setUnitSelected(s, "skill:a", true);
     const detected = s.units.find((u) => u.name === "Foreign");
     expect(detected?.state).toBe("detected");
     expect(overwriteTargets(s).map((u) => u.name)).toEqual(["A"]);

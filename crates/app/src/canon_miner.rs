@@ -270,14 +270,48 @@ mod tests {
         runs.stop("missing");
     }
 
+    /// The slug rule is implemented three times: `canon::compile::slugify`,
+    /// `agent::context_miner::unit_slug` (the `agent` crate deliberately does
+    /// not depend on `canon`), and `slugify` in `ui/src/canon/miner/state.ts`.
+    /// Drift between any two means the path a unit's state is RESOLVED against
+    /// stops being the path it is WRITTEN to — badge lies, write clobbers.
+    ///
+    /// This list is duplicated verbatim as `SLUG_CORPUS` in
+    /// `ui/src/canon/miner/state.test.ts`. Keep the two in sync: they are one
+    /// corpus expressed in two languages, and every case below is a place the
+    /// three implementations could plausibly diverge (the naive rules differ in
+    /// whether they trim first, whether a leading separator emits a dash, and
+    /// what counts as alphanumeric).
+    const SLUG_CORPUS: &[(&str, &str)] = &[
+        ("PTY Conventions", "pty-conventions"),
+        ("retry budget", "retry-budget"),
+        ("Foo/Bar baz", "foo-bar-baz"),
+        ("  edge  ", "edge"),
+        // Consecutive punctuation must collapse to a single dash.
+        ("a!!!b", "a-b"),
+        ("Rate limit -- per session", "rate-limit-per-session"),
+        // Underscores are separators, not word characters.
+        ("foo_bar_baz", "foo-bar-baz"),
+        // Leading digits are legal in a slug.
+        ("133 OSC markers", "133-osc-markers"),
+        // Non-ASCII is dropped, and drops a separator in its place.
+        ("café", "caf"),
+        ("Ünïcödé", "n-c-d"),
+        // Slugifies to empty — the case `write_md_entry` now rejects outright.
+        ("!!!", ""),
+        ("…", ""),
+        // Leading / trailing separators are trimmed off the result.
+        (" -foo- ", "foo"),
+        ("--a--", "a"),
+    ];
+
     #[test]
     fn slug_rules_agree_across_crates() {
-        for name in ["PTY Conventions", "retry budget", "Foo/Bar baz", "  edge  "] {
-            assert_eq!(
-                karl_agent::context_miner::unit_slug(name),
-                karl_canon::compile::slugify(name),
-                "slug mismatch for {name}"
-            );
+        for (name, want) in SLUG_CORPUS {
+            let canon = karl_canon::compile::slugify(name);
+            let agent = karl_agent::context_miner::unit_slug(name);
+            assert_eq!(canon, agent, "slug mismatch across crates for {name:?}");
+            assert_eq!(canon, *want, "slug rule changed for {name:?}");
         }
     }
 

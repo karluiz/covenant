@@ -125,9 +125,22 @@ pub fn render_md_entry(f: &CompiledFinding) -> String {
 /// looked. Always overwrites: the unit was resolved against Canon before the
 /// caller decided to write, so a write at this slug is an intentional
 /// create-or-update, never an accidental collision.
+///
+/// An empty slug is rejected rather than renamed. The old `entry` fallback made
+/// this the one writer whose path did not match `inventory::unit_path`, which
+/// checks `memory/.md` and has no fallback of its own — "path checked ≠ path
+/// written" is exactly the class of bug that was Critical earlier in this
+/// branch. Inventing a name for a unit nobody named is not worth reopening it,
+/// and the guard belongs in the layer that does the writing: `run_miner`
+/// rejects empty-slug names, but `canon_compile_units` is a Tauri command in
+/// another crate with no name validation of its own.
 fn write_md_entry(dir: &Path, slug: &str, f: &CompiledFinding) -> Result<PathBuf, CanonError> {
+    if slug.is_empty() {
+        return Err(CanonError::InvalidPackage(
+            "empty slug: the unit name must contain at least one letter or digit".into(),
+        ));
+    }
     std::fs::create_dir_all(dir)?;
-    let slug = if slug.is_empty() { "entry" } else { slug };
     let path = dir.join(format!("{slug}.md"));
     std::fs::write(&path, render_md_entry(f))?;
     Ok(path)
@@ -288,13 +301,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// `inventory::unit_path` checks `memory/.md` for an empty slug and has no
+    /// fallback, so a writer that renamed it to `entry.md` wrote somewhere
+    /// state resolution never looked. Reject instead of inventing a name.
     #[test]
-    fn empty_slug_falls_back_to_entry() {
-        let tmp = std::env::temp_dir().join(format!("canon-es-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
+    fn empty_slug_is_rejected_not_renamed() {
+        let tmp = tempfile::tempdir().unwrap();
         let f = finding("convention", "Use tabs");
-        let path = write_memory_entry(&tmp, "", &f).unwrap();
-        assert!(path.ends_with("entry.md"), "path: {}", path.display());
-        let _ = std::fs::remove_dir_all(&tmp);
+        for w in [write_memory_entry, write_command_entry, write_subagent_entry] {
+            assert!(w(tmp.path(), "", &f).is_err(), "empty slug must not write");
+        }
+        // Nothing was created on the way to the error.
+        assert!(!tmp.path().join(".covenant/canon/memory/entry.md").exists());
+        assert!(!tmp.path().join(".covenant/canon/memory/.md").exists());
+    }
+
+    /// The skill writer's equivalent hole: `valid_pkg_name` already rejects an
+    /// empty name, so `write_skill_package` never creates `skills//SKILL.md`.
+    /// Pinned so a future relaxation of `valid_pkg_name` fails here.
+    #[test]
+    fn empty_skill_name_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(write_skill_package(tmp.path(), "", None, &[finding("pattern", "x")], true).is_err());
     }
 }

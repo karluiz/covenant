@@ -18,6 +18,12 @@ pub enum UnitState {
     /// Canon holds this unit but the crawler rendered different bytes.
     Changed,
     /// A foreign item on disk with no Canon source — adoptable, not writable.
+    ///
+    /// Never constructed in Rust: `detected_rows` returns the units themselves
+    /// and the frontend stamps this state on them while merging the two lists
+    /// (see `applyStates` in `ui/src/canon/miner/state.ts`). It lives here so
+    /// the wire enum names every state a row can carry, not just the emitted
+    /// ones.
     Detected,
 }
 
