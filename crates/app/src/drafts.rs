@@ -175,6 +175,8 @@ pub struct DraftSummary {
     pub slug: String,
     pub title: String,
     pub updated_at: String,
+    /// Branch of the sibling worktree this draft lives in; `None` = current.
+    pub worktree_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -337,7 +339,7 @@ fn git_output(cwd: &Path, args: &[&str]) -> Option<String> {
 
 /// Every non-bare worktree of the repo containing `cwd`, as
 /// `(root, branch_label, is_current)`. Empty when `cwd` isn't in a git repo.
-fn git_worktrees(cwd: &Path) -> Vec<(PathBuf, Option<String>, bool)> {
+pub(crate) fn git_worktrees(cwd: &Path) -> Vec<(PathBuf, Option<String>, bool)> {
     let Some(text) = git_output(cwd, &["worktree", "list", "--porcelain"]) else {
         return Vec::new();
     };
@@ -440,7 +442,38 @@ pub fn list_drafts_sync(repo_root: &Path) -> Result<Vec<DraftSummary>, DraftErro
             slug: doc.frontmatter.slug,
             title: doc.frontmatter.title,
             updated_at: doc.frontmatter.updated_at,
+            worktree_label: None,
         });
+    }
+    out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(out)
+}
+
+/// Drafts across ALL worktrees of the repo `cwd` sits in — same reasoning as
+/// [`list_published_specs_all_sync`]: a draft authored on a feature worktree
+/// must be pickable without merging first. Dedupes by slug, current wins.
+pub fn list_drafts_all_sync(cwd: &Path) -> Result<Vec<DraftSummary>, DraftError> {
+    let worktrees = git_worktrees(cwd);
+    if worktrees.is_empty() {
+        return list_drafts_sync(cwd);
+    }
+    let mut lists: Vec<_> = worktrees
+        .into_iter()
+        .map(|(root, label, is_current)| {
+            (list_drafts_sync(&root).unwrap_or_default(), label, is_current)
+        })
+        .collect();
+    lists.sort_by_key(|(_, _, is_current)| !*is_current);
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (drafts, label, is_current) in lists {
+        for mut d in drafts {
+            if !seen.insert(d.slug.clone()) {
+                continue;
+            }
+            d.worktree_label = if is_current { None } else { label.clone() };
+            out.push(d);
+        }
     }
     out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(out)
@@ -630,6 +663,41 @@ mod tests {
             updated_at: String::new(),
             worktree_label: None,
         }
+    }
+
+    /// End-to-end over a real git repo + linked worktree: a draft authored on
+    /// a feature worktree must show up, labelled, without merging first.
+    #[test]
+    fn drafts_span_worktrees() {
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("repo");
+        std::fs::create_dir_all(&main).unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&main)
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {args:?} failed");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "t@t"]);
+        git(&["config", "user.name", "t"]);
+        save_draft_sync(&main, "here", "Here", "x").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "init"]);
+        let feat = tmp.path().join("wt-feat");
+        git(&["worktree", "add", "-q", "-b", "feat-x", feat.to_str().unwrap()]);
+        save_draft_sync(&feat, "there", "There", "y").unwrap();
+
+        let out = list_drafts_all_sync(&main).unwrap();
+        let there = out.iter().find(|d| d.slug == "there").expect("cross-worktree draft listed");
+        assert_eq!(there.worktree_label.as_deref(), Some("feat-x"));
+        let here = out.iter().find(|d| d.slug == "here").unwrap();
+        assert_eq!(here.worktree_label, None, "current worktree drafts stay unlabelled");
     }
 
     #[test]
@@ -1012,7 +1080,7 @@ pub async fn list_published_specs(repo_root: String) -> Result<Vec<PublishedSpec
 #[tauri::command]
 pub async fn list_drafts(repo_root: String) -> Result<Vec<DraftSummary>, String> {
     let path = PathBuf::from(repo_root);
-    tokio::task::spawn_blocking(move || list_drafts_sync(&path))
+    tokio::task::spawn_blocking(move || list_drafts_all_sync(&path))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())

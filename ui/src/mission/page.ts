@@ -470,6 +470,7 @@ export class MissionPage {
             <span class="mission-page-spec-title">${escapeHtml(title)}</span>
             <span class="mission-page-spec-goal">${goal ? escapeHtml(goal) : "&nbsp;"}</span>
           </span>
+          ${e.worktree_label ? `<span class="mission-page-badge mission-page-badge-wt">${escapeHtml(e.worktree_label)}</span>` : ""}
           ${statusBadge}
         </button>
       `;
@@ -483,7 +484,11 @@ export class MissionPage {
     const items = s.drafts.map((d) => `
       <div class="mission-page-draft" data-slug="${escapeAttr(d.slug)}">
         <span class="mission-page-spec-title">${escapeHtml(d.title)}</span>
-        <button type="button" class="mission-page-publish" data-slug="${escapeAttr(d.slug)}">Publish to use</button>
+        ${d.worktree_label
+          // Publishing resolves the slug against the CURRENT worktree, so it
+          // can only act on drafts that live here. Elsewhere: label, no button.
+          ? `<span class="mission-page-badge mission-page-badge-wt">${escapeHtml(d.worktree_label)}</span>`
+          : `<button type="button" class="mission-page-publish" data-slug="${escapeAttr(d.slug)}">Publish to use</button>`}
       </div>
     `).join("");
     return this.section("drafts", "Drafts", `${s.drafts.length}`, items);

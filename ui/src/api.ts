@@ -792,6 +792,8 @@ export interface SuperpowersMissionEntry {
   spec_filename: string;
   plan_path: string | null;
   goal_preview: string;
+  /** Branch of the sibling worktree this mission lives in; absent = current worktree. */
+  worktree_label?: string | null;
 }
 
 /// Result of `set_session_mission_content`. Discriminated union: the
