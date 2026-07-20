@@ -6,6 +6,66 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.47 — Tasker board share to forge + honest Score metrics
+
+### Added
+
+- **Share a Tasker board read-only via the forge.** A project redacts into a
+  `BoardSnapshot` (`ui/src/tasker/snapshot.ts`) — stripped of anything not safe
+  to publish — and is published behind a secret `/b/:token` link via authed
+  publish/revoke on the backend (`crates/app/src/covenant_board.rs`). A
+  share-board control sits on the project row (`ui/src/tasker/panel.ts`,
+  `ui/src/tasker/share.ts`); shared boards debounce-auto-push their updates to
+  the forge, and a revoked board can't be resurrected by a pending push. Gated
+  behind `experimental.board_share` (`crates/app/src/settings.rs`).
+
+- **Pasted text collapses into a chip in the ACP composer.** A bulky paste no
+  longer floods the input — it folds into a "Pasted text" chip you can expand
+  or remove, keeping the composer legible (`ui/src/executors/acp/view.ts`,
+  mockup in `ui/mockups/acp-paste-chip.html`).
+
+- **The Covenant Score counts terminal executor turns.** A user prompting
+  `claude`/`codex`/`opencode`/… in a PTY tab now registers as activity. Inline
+  agents are detected from the byte-stream phase detector in
+  `crates/app/src/notch.rs`; alt-screen TUIs (opencode/gemini/aider), whose
+  full-screen redraws fragment the byte stream, are detected off the rendered
+  vt100 screen in the session pump (`crates/session/src/lib.rs`) via a
+  harness-agnostic interrupt-hint matcher (`crates/blocks/src/executor_phase.rs`).
+  The two paths are disjoint, so no turn is double-counted.
+
+### Fixed
+
+- **The Score counted the app talking to itself.** `record_prompt` lived inside
+  `collect_oneshot` (`crates/agent/src/provider/mod.rs`), so every internal
+  one-shot LLM call — operator polling, the summarizer, triage — logged a
+  "prompt"; the heatmap read ~1900/day of machine noise. Recording moved to the
+  genuine user-submit sites (⌘K ask panel, spec creator, ACP composer, teammate
+  chat); token spend still accrues from `collect_oneshot`, on purpose.
+
+- **The activity heatmap read blank or saturated.** It graphed only prompts and
+  discarded commits, and its fixed 5/15/40 thresholds were tuned for the old
+  ~1900/day prompt regime. It now plots prompts + commits on a relative scale —
+  quartiles of the 90th percentile of active days — so it stays legible across
+  both regimes (`ui/src/score/page.ts`); the streak counts commit-only days too
+  (`crates/score/src/store.rs`).
+
+- **Context menus and tooltips painted behind the Pulse dashboard.** `.ctx-menu`
+  sat at `z-index: 1200`, below `.pulse-frame` (9000), so opening Pulse covered
+  an open tab/tree menu. Both are body-portaled, so they moved into the
+  established portal tier (`ui/src/styles.css`). The Pulse full-screen frame is
+  now opaque so wallpaper no longer bleeds through (`ui/src/pulse/styles.css`).
+
+- **Operator API failures read as escalations.** A provider 5xx was persisted as
+  `action = "escalate"`, inflating `escalate_count`, filling the activity feed's
+  "escalated" chip, and leaving the tab Blocked. API errors are now retried with
+  backoff, not escalated (`crates/app/src/operator.rs`,
+  `crates/app/src/storage.rs`); the repeat-reply loop guard also requires an
+  unchanged screen before firing, and the escalation question reads from
+  `escalation` rather than `rationale` (`crates/app/src/convergence.rs`).
+
+- **Operator avatar frame + level badge polish.** The avatar frame is rounded and
+  the level badge quieted on the tab (`ui/src/styles.css`).
+
 ## v0.9.46 — Settings ⌘S listener leak fix
 
 ### Fixed
