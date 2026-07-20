@@ -247,6 +247,43 @@ super-term/
 
 ---
 
+<!-- covenant:worktrees:start -->
+## Worktrees — one location, whichever tool you are
+
+Isolate your work in a git worktree, and put it where every other agent puts
+theirs. Follow these in order.
+
+**1. Check whether you are already isolated, before creating anything.**
+
+```
+[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]
+```
+
+True means you are already in a linked worktree — do **not** create another.
+This is the normal case: Covenant creates the worktree and launches you inside
+it, so the question is usually already answered. (The same test is true inside a
+git submodule; `git rev-parse --show-superproject-working-tree` disambiguates.)
+
+**2. If you must create one and your tool lets you choose where**, put it at
+`.covenant/worktrees/<slug>` relative to the **main** worktree's root — never
+relative to your own current directory, which is often a linked worktree
+already. Add `.covenant/` to `.gitignore` if it is not there.
+
+**3. If your tool hardcodes its own location, use it and move on.** Claude
+Code's `EnterWorktree` writes to `.claude/worktrees/` and cannot be pointed
+elsewhere; fighting it wastes more than the inconsistency costs. Covenant
+reconciles afterwards — a worktree in the wrong place still works, and the git
+popover offers to relocate it once no session holds it.
+
+**Why this exists:** every tool picked its own convention and nothing retired
+any of them, so repositories accumulate worktrees in five different places until
+someone notices tens of gigabytes are gone. The specific path matters less than
+there being exactly one, owned by no single tool.
+
+Never commit a worktree's contents. Never nest a worktree inside another.
+
+<!-- covenant:worktrees:end -->
+
 ## Critical Pitfalls — DO NOT
 
 1. **Do not write a VT/ANSI parser from scratch.** Use `vt100` for headless state and let xterm.js render. Reimplementing this is a 6-month project on its own.
