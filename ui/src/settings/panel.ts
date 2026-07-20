@@ -306,7 +306,20 @@ export class SettingsPanel {
   constructor(
     private readonly pageHost: HTMLElement,
     private readonly workspace: HTMLElement,
-  ) {}
+  ) {
+    // ⌘S submits the settings form. Bound once on the persistent host —
+    // `render()` rebuilds the form on every tab switch, so binding there
+    // would stack one listener per switch, each holding a dead form.
+    // The live form is resolved at event time instead.
+    this.pageHost.addEventListener("keydown", (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() !== "s") return;
+      const form = this.pageHost.querySelector("form.settings-form");
+      if (!(form instanceof HTMLFormElement)) return;
+      e.preventDefault();
+      form.requestSubmit();
+    });
+  }
 
   isOpen(): boolean {
     return this.isOpenState;
@@ -2276,13 +2289,6 @@ export class SettingsPanel {
     if (tab === "covenant") this.mountCovenantOnce();
     if (tab === "operators") this.mountAchievementsOnce();
     if (tab === "cloud") this.mountCloudSyncOnce();
-
-    this.pageHost.addEventListener("keydown", (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        form.requestSubmit();
-      }
-    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
