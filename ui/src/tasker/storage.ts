@@ -3,6 +3,9 @@
 import type { Task, Project, TaskStore, TaskFilterOptions } from "./types";
 
 const STORAGE_KEY = "covenant.tasker.store";
+/// Fired after every write so board sharing can auto-push. Not scoped to the
+/// mutated project — the whole store is one blob, and listeners filter.
+export const TASKER_SAVED_EVENT = "covenant:tasker-saved";
 const CURRENT_VERSION = 1;
 
 function generateId(): string {
@@ -43,7 +46,13 @@ export class TaskStorage {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.store));
     } catch {
       console.error("Failed to save task store");
+      return;
     }
+    window.dispatchEvent(
+      new CustomEvent(TASKER_SAVED_EVENT, {
+        detail: { projectIds: this.getProjects().map((p) => p.id) },
+      }),
+    );
   }
 
   // Project operations

@@ -2,10 +2,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TaskerPanel } from "./panel";
 
-function mount(): { panel: TaskerPanel; host: HTMLElement } {
+// vi.fn() (not a bare arrow fn) so the shared-state test below can override
+// a single call with mockResolvedValueOnce; every other test keeps the
+// default "no tauri" rejection.
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.reject(new Error("no tauri"))) }));
+
+import { invoke } from "@tauri-apps/api/core";
+import { getPushState, isBoardShared, resetBoardShareStateForTests, shareProjectBoard } from "./share";
+
+function mount(opts?: { boardShareEnabled?: boolean }): { panel: TaskerPanel; host: HTMLElement } {
   document.body.innerHTML = `<div id="tasker-panel"></div>`;
   const host = document.getElementById("tasker-panel")!;
-  const panel = new TaskerPanel(host);
+  const panel = new TaskerPanel(host, opts);
   panel.render();
   return { panel, host };
 }
@@ -26,6 +34,11 @@ function addTask(panel: TaskerPanel, projectId: string, title: string): string {
 beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = "";
+  // Finding 4: sharedProjects/pushState/the auto-push subscription are
+  // module singletons that outlive any one test — without this, an id (or a
+  // listener bound to a prior test's storage) leaks across tests in this
+  // file.
+  resetBoardShareStateForTests();
 });
 
 describe("TaskerPanel status lifecycle", () => {
@@ -314,5 +327,80 @@ describe("TaskerPanel new-list composer", () => {
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(host.querySelector(".tasker-newlist-input")).toBeNull();
     expect(storageOf(panel).getProjects().length).toBe(before);
+  });
+});
+
+describe("board share control", () => {
+  // F1 — the forge has no /boards routes yet, so the whole feature is gated
+  // behind experimental.board_share. Off by default, mount() with no opts
+  // must render no share button at all (not merely a hidden one).
+  it("renders no share button when experimental.board_share is off", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+
+    expect(
+      host.querySelector(`.tasker-project-share[data-project-id="${pid}"]`),
+    ).toBeNull();
+  });
+
+  it("renders a share button per project, unmarked when not shared", () => {
+    const { panel, host } = mount({ boardShareEnabled: true });
+    const pid = inbox(panel);
+
+    const btn = host.querySelector<HTMLButtonElement>(
+      `.tasker-project-share[data-project-id="${pid}"]`,
+    );
+    expect(btn).not.toBeNull();
+    expect(btn!.classList.contains("shared")).toBe(false);
+    expect(btn!.getAttribute("aria-label")).toBe("Share board");
+  });
+
+  it("renders the shared state: shared class + matching push-state attribute", async () => {
+    const { panel, host } = mount({ boardShareEnabled: true });
+    const pid = inbox(panel);
+    const project = storageOf(panel).getProject(pid);
+
+    vi.mocked(invoke).mockResolvedValueOnce({ boardId: 1, token: "tok", url: "https://forge.test/g/tok" });
+    await shareProjectBoard(project);
+    panel.render();
+
+    const btn = host.querySelector<HTMLButtonElement>(
+      `.tasker-project-share[data-project-id="${pid}"]`,
+    );
+    expect(btn).not.toBeNull();
+    expect(btn!.classList.contains("shared")).toBe(true);
+    expect(btn!.getAttribute("data-push-state")).toBe(getPushState(pid));
+  });
+
+  // F4 — the Alt-click revoke gesture is gone. A shared board's button now
+  // opens a Copy link / Stop sharing menu, cloned from the panel's existing
+  // project-switcher menu chrome.
+  it("clicking a shared board's button opens a Copy link / Stop sharing menu, and Stop sharing revokes", async () => {
+    const { panel, host } = mount({ boardShareEnabled: true });
+    const pid = inbox(panel);
+    const project = storageOf(panel).getProject(pid);
+
+    vi.mocked(invoke).mockResolvedValueOnce({ boardId: 1, token: "tok", url: "https://forge.test/g/tok" });
+    await shareProjectBoard(project);
+    panel.render();
+    expect(isBoardShared(pid)).toBe(true);
+
+    const btn = host.querySelector<HTMLButtonElement>(
+      `.tasker-project-share[data-project-id="${pid}"]`,
+    )!;
+    btn.click();
+
+    const menu = document.querySelector<HTMLElement>(".tasker-share-menu");
+    expect(menu).not.toBeNull();
+    const copyItem = menu!.querySelector<HTMLButtonElement>('[data-action="copy"]');
+    const stopItem = menu!.querySelector<HTMLButtonElement>('[data-action="stop"]');
+    expect(copyItem?.textContent).toContain("Copy link");
+    expect(stopItem?.textContent).toContain("Stop sharing");
+
+    vi.mocked(invoke).mockResolvedValueOnce(undefined); // board_revoke
+    stopItem!.click();
+
+    await vi.waitFor(() => expect(isBoardShared(pid)).toBe(false));
+    expect(document.querySelector(".tasker-share-menu")).toBeNull();
   });
 });

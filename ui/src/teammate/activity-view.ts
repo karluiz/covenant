@@ -47,7 +47,7 @@ interface StartupActionEvent {
 
 /* ── normalized event ────────────────────────────────────────────── */
 
-type Kind = "typed" | "dry-run" | "escalated" | "waited" | "startup" | "other";
+type Kind = "typed" | "dry-run" | "escalated" | "waited" | "startup" | "error" | "other";
 
 interface ActEvent {
   ts: number;
@@ -118,6 +118,9 @@ function classifyKind(action: string, executed: boolean): Kind {
     case "reply": return executed ? "typed" : "dry-run";
     case "escalate": return "escalated";
     case "wait": return "waited";
+    // A failed model call, not a verdict — kept out of the escalated
+    // count so provider flakiness doesn't read as the operator punting.
+    case "error": return "error";
     default: return "other";
   }
 }
@@ -135,6 +138,7 @@ function bodyForDecision(
       return t.length === 0 ? "(empty)" : t;
     }
     case "escalated":
+    case "error":
       return (escalation ?? rationale ?? "(no detail)").replace(/\n/g, " ").trim();
     case "waited":
       return (rationale ?? "(pending)").replace(/\n/g, " ").trim();
@@ -890,6 +894,8 @@ function iconFor(kind: Kind): string {
       return "⏸";
     case "startup":
       return "▶";
+    case "error":
+      return "✕";
     default:
       return "·";
   }
@@ -902,6 +908,7 @@ function labelFor(kind: Kind): string {
     case "escalated": return "escalated";
     case "waited": return "waited";
     case "startup": return "startup";
+    case "error": return "api error";
     default: return "action";
   }
 }

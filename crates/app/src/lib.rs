@@ -25,6 +25,7 @@ mod context;
 pub mod convergence;
 mod cost;
 mod covenant_gist;
+mod covenant_board;
 mod covenant_review;
 mod cross_session;
 mod discord_presence;
@@ -5789,6 +5790,10 @@ pub fn run() {
             covenant_gist::gist_list_shares,
             covenant_gist::gist_publish,
             covenant_gist::gist_revoke,
+            covenant_board::board_get_share,
+            covenant_board::board_list_shares,
+            covenant_board::board_publish,
+            covenant_board::board_revoke,
             score_commands::score_set_current_session,
             score_commands::score_summary_filtered,
             score_commands::score_heatmap_filtered,

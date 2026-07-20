@@ -577,3 +577,58 @@ describe("AcpChatView trust chip", () => {
     expect(view.host.querySelector(".acp-trust-chip--yolo")).toBeTruthy();
   });
 });
+
+describe("bulky paste → chip", () => {
+  const BULK = Array.from({ length: 42 }, (_, i) => `line ${i}`).join("\n");
+
+  function paste(el: HTMLTextAreaElement, text: string): void {
+    const e = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "clipboardData", {
+      value: { items: [], getData: (t: string) => (t === "text/plain" ? text : "") },
+    });
+    el.dispatchEvent(e);
+  }
+
+  it("holds bulky text out of the textarea behind a token + chip", async () => {
+    const view = await mountView();
+    const input = view.host.querySelector<HTMLTextAreaElement>(".acp-chat-textarea")!;
+    input.value = "fix this ";
+    input.selectionStart = input.selectionEnd = input.value.length;
+    paste(input, BULK);
+    expect(input.value).toBe("fix this [Pasted text #1 +42 lines]");
+    const chip = view.host.querySelector(".acp-image-strip .acp-image-chip");
+    expect(chip?.textContent).toContain("Pasted text #1 · 42 lines");
+  });
+
+  it("leaves short pastes inline (no chip)", async () => {
+    const view = await mountView();
+    const input = view.host.querySelector<HTMLTextAreaElement>(".acp-chat-textarea")!;
+    paste(input, "short one");
+    expect(view.host.querySelector(".acp-image-chip")).toBeNull();
+  });
+
+  it("re-inlines the paste on send", async () => {
+    vi.mocked(acpSendPrompt).mockClear();
+    const view = await mountView();
+    const input = view.host.querySelector<HTMLTextAreaElement>(".acp-chat-textarea")!;
+    input.value = "fix this ";
+    input.selectionStart = input.selectionEnd = input.value.length;
+    paste(input, BULK);
+    view.host
+      .querySelector("form")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await flush();
+    expect(acpSendPrompt).toHaveBeenCalledWith("s1", `fix this ${BULK}`, undefined, undefined);
+  });
+
+  it("clicking the chip drops both chip and token", async () => {
+    const view = await mountView();
+    const input = view.host.querySelector<HTMLTextAreaElement>(".acp-chat-textarea")!;
+    input.value = "fix this ";
+    input.selectionStart = input.selectionEnd = input.value.length;
+    paste(input, BULK);
+    view.host.querySelector<HTMLButtonElement>(".acp-image-chip")!.click();
+    expect(input.value).toBe("fix this ");
+    expect(view.host.querySelector(".acp-image-chip")).toBeNull();
+  });
+});
