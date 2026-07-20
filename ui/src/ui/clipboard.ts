@@ -1,12 +1,21 @@
+import { writeText as nativeWriteText } from "@tauri-apps/plugin-clipboard-manager";
+
 /** Copy `text`, surviving the loss of user activation.
  *
- * WKWebView rejects `navigator.clipboard.writeText` with NotAllowedError when
- * the call happens after an await (network round-trip), because transient
- * activation is gone by then. The textarea + execCommand path has no such
- * requirement. ponytail: no Rust command needed — execCommand is deprecated
- * but still works everywhere we ship; revisit if a webview drops it.
+ * The native plugin writes to NSPasteboard from Rust, so it has no user
+ * activation requirement at all — WKWebView rejects
+ * `navigator.clipboard.writeText` with NotAllowedError when the call happens
+ * after an await (network round-trip), because transient activation is gone
+ * by then. The web paths stay as fallbacks for `npm run dev` in a plain
+ * browser, where the plugin has no backend to call.
  */
 export async function copyText(text: string): Promise<void> {
+  try {
+    await nativeWriteText(text);
+    return;
+  } catch {
+    // fall through
+  }
   try {
     await navigator.clipboard.writeText(text);
     return;
