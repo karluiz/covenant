@@ -3434,6 +3434,9 @@ async fn ask_agent(
     ));
     let acc_for_cb = acc.clone();
 
+    // A real user prompt: ⌘K panel, past the rate limiter, about to dispatch.
+    karl_score::record_prompt_with_agent("anthropic", Some("ask_panel"));
+
     karl_agent::ask_streaming(req, move |event| match event {
         karl_agent::AgentEvent::Delta(text) => {
             let _ = on_explanation.send(text);
@@ -3875,6 +3878,7 @@ async fn spec_author_step(
             .clone()
             .ok_or("no api key configured — open Settings (⌘,)")?
     };
+    karl_score::record_prompt_with_agent("anthropic", Some("spec_author"));
 
     let base_dir = karl_agent::spec_author::home_covenant_dir().map_err(|e| e.to_string())?;
 
@@ -4069,6 +4073,7 @@ async fn spec_author_stream_step(
     images: Option<Vec<AttachedImageDto>>,
 ) -> Result<String, String> {
     use karl_agent::spec_author as sa;
+    karl_score::record_prompt_with_agent("anthropic", Some("spec_author"));
     let base_dir = sa::home_covenant_dir().map_err(|e| e.to_string())?;
 
     let mut draft = match draft_id {

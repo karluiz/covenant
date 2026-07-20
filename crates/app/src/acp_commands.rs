@@ -214,6 +214,10 @@ struct AcpTabSession {
     commands: std::sync::Mutex<Vec<AvailableCommand>>,
     /// Session working directory — the jail root for prompt attachments.
     cwd: PathBuf,
+    /// Harness driving this tab (`claude` / `codex` / `copilot` / `pi` /
+    /// `gemini`) — the same string handed to `register_external`. Used as
+    /// the Covenant Score executor label when the user sends a prompt.
+    executor: String,
     /// Model roster + current selection from `session/new`, kept in sync
     /// by `acp_set_model`. Same pull-based pattern as `commands`.
     models: std::sync::Mutex<AcpModels>,
@@ -825,6 +829,7 @@ pub async fn spawn_acp_session(
         in_flight: AtomicBool::new(false),
         commands: std::sync::Mutex::new(Vec::new()),
         cwd: cwd.clone(),
+        executor: executor.clone(),
         models: std::sync::Mutex::new(models),
         ready_tx,
         perception_consecutive: AtomicU32::new(0),
@@ -1207,6 +1212,11 @@ pub async fn acp_send_prompt(
     if tab.in_flight.swap(true, Ordering::AcqRel) {
         return Err("acp: prompt already in flight".to_string());
     }
+
+    // A real user prompt: the composer, past the in-flight guard (so a
+    // double-send can't double-count). Labelled with the tab's executor,
+    // the same string `register_external` uses.
+    karl_score::record_prompt_with_agent(&tab.executor, Some(&tab.executor));
 
     // Feed the tab's world model (operator context). `text` was moved
     // into the first prompt block above.

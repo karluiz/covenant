@@ -77,21 +77,24 @@ async fn collect_oneshot_records_llm_call_with_correct_usage() {
     assert_eq!(row.input_tokens, 42, "input_tokens mismatch");
     assert_eq!(row.output_tokens, 7, "output_tokens mismatch");
 
-    // Verify the event was labeled with agent = 'internal'.
+    // `collect_oneshot` must NOT record a prompt event. It is transport,
+    // and most of its callers are background work (operator polling,
+    // summarizer, triage) — counting them turned the Covenant Score into
+    // a graph of the app talking to itself. Prompts are recorded at the
+    // user-submit commands instead; token usage still lands above.
     let conn = store.connection();
-    let agent_value: Option<String> = conn
+    let prompt_rows: i64 = conn
         .lock()
         .unwrap()
         .query_row(
-            "SELECT agent FROM score_events ORDER BY timestamp_ms DESC LIMIT 1",
+            "SELECT COUNT(*) FROM score_events WHERE kind = 'prompt'",
             [],
             |r| r.get(0),
         )
         .unwrap();
     assert_eq!(
-        agent_value.as_deref(),
-        Some("internal"),
-        "expected agent='internal' on the recorded prompt event"
+        prompt_rows, 0,
+        "collect_oneshot must not record prompt events"
     );
 
     karl_score::clear_recorder_for_test();
