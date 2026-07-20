@@ -33,18 +33,29 @@ let sharesLoaded = false;
 // TASKER_SAVED_EVENT for the same deleted project must not fire another
 // concurrent `boardApi.revoke` before the first one resolves. See onSaved.
 const revokingProjects = new Set<string>();
+// Finding 4: startBoardAutoPush registers a `window.addEventListener` with
+// no teardown call site (the panel deliberately drops the unsubscribe — it
+// lives for the app's lifetime). Production constructs exactly one
+// TaskerPanel, so that's one listener. Tests construct many TaskerPanels in
+// one process, so without this lock each construction piled up another
+// listener closing over an orphaned test's storage. Track the live
+// subscription's teardown here so a second call while one is already
+// running is a no-op that just hands back the same teardown.
+let autoPushTeardown: (() => void) | null = null;
 
 /// Test-support only — NOT part of the public share API. Module-level state
-/// above (sharedProjects/pushState/sharesLoaded/revokingProjects) persists
-/// across test files, so a leftover id from one test's shared project can
-/// leak into the next test's retraction pass and fire a spurious revoke
-/// against unrelated storage. Call this from `beforeEach` so every test
-/// starts from a clean slate.
+/// above (sharedProjects/pushState/sharesLoaded/revokingProjects/
+/// autoPushTeardown) persists across test files, so a leftover id from one
+/// test's shared project — or a leftover live subscription bound to a dead
+/// test's storage — can leak into the next test. Call this from `beforeEach`
+/// so every test starts from a clean slate.
 export function resetBoardShareStateForTests(): void {
   sharedProjects.clear();
   pushState.clear();
   revokingProjects.clear();
   sharesLoaded = false;
+  autoPushTeardown?.();
+  autoPushTeardown = null;
 }
 
 function notifySharesChanged(): void {
@@ -144,8 +155,13 @@ export async function revokeBoardShare(projectId: string): Promise<void> {
 }
 
 /// Subscribe to store writes and re-publish every shared board, debounced.
-/// Returns an unsubscribe function.
+/// Returns an unsubscribe function. Idempotent at module level — a second
+/// call while a subscription is already live does not add another listener;
+/// it just returns the existing teardown so callers can still invoke it
+/// safely (see Finding 4).
 export function startBoardAutoPush(storage: TaskStorage): () => void {
+  if (autoPushTeardown) return autoPushTeardown;
+
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const schedule = (projectId: string): void => {
@@ -238,9 +254,12 @@ export function startBoardAutoPush(storage: TaskStorage): () => void {
       console.error("board share reconcile failed", err);
     });
 
-  return () => {
+  const teardown = (): void => {
     window.removeEventListener(TASKER_SAVED_EVENT, onSaved);
     for (const t of timers.values()) clearTimeout(t);
     timers.clear();
+    autoPushTeardown = null;
   };
+  autoPushTeardown = teardown;
+  return teardown;
 }

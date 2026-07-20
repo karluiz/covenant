@@ -141,7 +141,25 @@ export class TaskerPanel {
     // app's lifetime. Add one here if the panel ever becomes disposable.
     ensureBoardSharesLoaded();
     startBoardAutoPush(this.storage);
-    window.addEventListener(BOARD_SHARES_EVENT, () => this.render());
+    window.addEventListener(BOARD_SHARES_EVENT, () => {
+      // Finding 3: auto-push fires this event twice (pushing → synced)
+      // ~2s after any edit to a shared project — a moment that has nothing
+      // to do with what the user is doing right now. render() rebuilds the
+      // whole panel via innerHTML, which would silently discard an
+      // in-progress edit (project rename, new-task/new-list composer, task
+      // title, notes editor) if it fired mid-keystroke. Skip the rebuild
+      // while the user is actively typing inside the panel — the share
+      // button's dot/pulse just catches up on the next render the user's
+      // own action triggers.
+      if (this.isTypingInPanel()) return;
+      this.render();
+    });
+  }
+
+  private isTypingInPanel(): boolean {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || !this.host.contains(active)) return false;
+    return active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active.isContentEditable;
   }
 
   private loadExpandedProjects(): void {
@@ -378,9 +396,15 @@ export class TaskerPanel {
   private renderShareButton(project: Project): string {
     const shared = isBoardShared(project.id);
     const state = shared ? getPushState(project.id) : "synced";
-    const label = shared ? "Board shared — click for options" : "Share board";
+    // Say exactly what the two gestures do — a plain click silently copies
+    // the link and Alt/Option-click silently revokes, so the tooltip (and,
+    // for screen readers, the aria-label — kept identical rather than a
+    // bare "Board shared") is the only place either is discoverable.
+    const label = shared
+      ? "Board shared — click to copy the link, Alt/Option-click to stop sharing"
+      : "Share board";
     return `<button class="tasker-project-share${shared ? " shared" : ""}" type="button"
-      data-project-id="${project.id}" data-push-state="${state}" aria-label="${escapeAttr(shared ? "Board shared" : "Share board")}"
+      data-project-id="${project.id}" data-push-state="${state}" aria-label="${escapeAttr(label)}"
       data-tip="${escapeAttr(label)}">${Icons.share({ size: 13 })}${shared ? `<span class="tasker-share-dot" aria-hidden="true"></span>` : ""}</button>`;
   }
 

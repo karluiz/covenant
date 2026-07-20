@@ -103,7 +103,11 @@ body.sidebar-view-tasker #tasker-panel {
 .tasker-project-headrow:hover .tasker-project-delete {
   opacity: 1;
 }
-.tasker-project-headrow:hover .tasker-project-count {
+/* The count badge shares this same right-edge slot with both hover actions
+   (delete always, share whenever it's visible) — fade it whenever either
+   one is showing so neither overlaps the digits. */
+.tasker-project-headrow:hover .tasker-project-count,
+.tasker-project-headrow:has(.tasker-project-share.shared) .tasker-project-count {
   opacity: 0;
 }
 .tasker-project-count {
@@ -629,18 +633,30 @@ body.theme-true-dark .tasker-edit-note .md-editor {
 .tasker-prio-dot.tasker-priority-normal { background: #eab308; color: #eab308; }
 .tasker-prio-dot.tasker-priority-low { background: #22c55e; color: #22c55e; }
 
-/* Board share toggle — hover-revealed like the delete action beside it. */
+/* Board share toggle — hover-revealed like the delete action beside it, but
+   in its own absolutely-positioned slot (same idiom as .tasker-project-delete
+   above) so the two never land on top of each other. Delete sits at right:
+   6px / 22px wide; share sits one slot further out, with a 2px gap between
+   them, regardless of whether delete is even rendered for this project
+   (Inbox has no delete button). */
 .tasker-project-share {
-  display: flex;
+  position: absolute;
+  right: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 2px 4px;
+  height: 22px;
+  padding: 0 4px;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--text-dim);
   opacity: 0;
   cursor: pointer;
+  transition: opacity 120ms, color 120ms;
 }
 .tasker-project-headrow:hover .tasker-project-share,
 .tasker-project-share.shared,

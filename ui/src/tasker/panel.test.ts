@@ -2,7 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TaskerPanel } from "./panel";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: () => Promise.reject(new Error("no tauri")) }));
+// vi.fn() (not a bare arrow fn) so the shared-state test below can override
+// a single call with mockResolvedValueOnce; every other test keeps the
+// default "no tauri" rejection.
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.reject(new Error("no tauri"))) }));
+
+import { invoke } from "@tauri-apps/api/core";
+import { getPushState, resetBoardShareStateForTests, shareProjectBoard } from "./share";
 
 function mount(): { panel: TaskerPanel; host: HTMLElement } {
   document.body.innerHTML = `<div id="tasker-panel"></div>`;
@@ -28,6 +34,11 @@ function addTask(panel: TaskerPanel, projectId: string, title: string): string {
 beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = "";
+  // Finding 4: sharedProjects/pushState/the auto-push subscription are
+  // module singletons that outlive any one test — without this, an id (or a
+  // listener bound to a prior test's storage) leaks across tests in this
+  // file.
+  resetBoardShareStateForTests();
 });
 
 describe("TaskerPanel status lifecycle", () => {
@@ -330,5 +341,22 @@ describe("board share control", () => {
     expect(btn).not.toBeNull();
     expect(btn!.classList.contains("shared")).toBe(false);
     expect(btn!.getAttribute("aria-label")).toBe("Share board");
+  });
+
+  it("renders the shared state: shared class + matching push-state attribute", async () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const project = storageOf(panel).getProject(pid);
+
+    vi.mocked(invoke).mockResolvedValueOnce({ boardId: 1, token: "tok", url: "https://forge.test/g/tok" });
+    await shareProjectBoard(project);
+    panel.render();
+
+    const btn = host.querySelector<HTMLButtonElement>(
+      `.tasker-project-share[data-project-id="${pid}"]`,
+    );
+    expect(btn).not.toBeNull();
+    expect(btn!.classList.contains("shared")).toBe(true);
+    expect(btn!.getAttribute("data-push-state")).toBe(getPushState(pid));
   });
 });
