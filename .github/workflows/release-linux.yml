@@ -89,14 +89,18 @@ jobs:
           # Prerelease until the manifest job promotes it — see release-macos.yml,
           # which also explains why this creates unconditionally instead of
           # checking `gh release view` first (view can't tell 404 from 503).
-          gh release create "$TAG" --title "$TAG" --prerelease \
+          RETRY=scripts/ci/gh-retry.sh
+          $RETRY gh release create "$TAG" --title "$TAG" --prerelease \
             --notes "Automated release. See CHANGELOG for details." || true
-          gh release upload "$TAG" \
-            "${{ steps.art.outputs.deb }}" \
-            "${{ steps.art.outputs.rpm }}" \
-            "${{ steps.art.outputs.appimage }}" \
-            "${{ steps.art.outputs.sig }}" \
-            --clobber
+          # One upload per file: a batched `gh release upload a b c` restarts
+          # the whole set on retry, so a 5xx on the last artifact re-pushes the
+          # ones that already landed.
+          for f in "${{ steps.art.outputs.deb }}" \
+                   "${{ steps.art.outputs.rpm }}" \
+                   "${{ steps.art.outputs.appimage }}" \
+                   "${{ steps.art.outputs.sig }}"; do
+            $RETRY gh release upload "$TAG" "$f" --clobber
+          done
 
       - name: Upload bundles as workflow artifact
         if: github.event_name == 'workflow_dispatch'

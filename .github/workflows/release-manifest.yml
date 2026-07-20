@@ -29,6 +29,10 @@ jobs:
       contents: write
 
     steps:
+      # Only needed for scripts/ci/gh-retry.sh — every gh call below still passes
+      # --repo explicitly rather than relying on the checkout to infer it.
+      - uses: actions/checkout@v4
+
       - name: Assemble + publish latest.json (gated on all platforms)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -116,13 +120,12 @@ jobs:
 
           echo "All platforms present — publishing latest.json:"
           cat latest.json
-          # --repo is required: this job has no actions/checkout, so without it
-          # gh tries to infer the repo from a (nonexistent) local git checkout
-          # and dies with "not a git repository".
-          gh release upload "$TAG" latest.json --clobber --repo "$REPO"
+          # --repo is passed explicitly everywhere so these calls never depend on
+          # gh inferring the repo from the checkout.
+          scripts/ci/gh-retry.sh gh release upload "$TAG" latest.json --clobber --repo "$REPO"
 
           # Now that latest.json (and every platform asset) is attached, flip the
           # release from prerelease → latest. Until this point GitHub's "latest"
           # pointer skipped it, so the in-app updater kept resolving the previous
           # COMPLETE release instead of 404ing on a half-published one.
-          gh release edit "$TAG" --repo "$REPO" --prerelease=false --latest
+          scripts/ci/gh-retry.sh gh release edit "$TAG" --repo "$REPO" --prerelease=false --latest

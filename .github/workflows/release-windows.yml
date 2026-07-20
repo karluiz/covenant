@@ -93,6 +93,21 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
+
+          # Hand-rolled twin of scripts/ci/gh-retry.sh — this step is pwsh and
+          # cannot exec the bash version. Keep the backoff in sync with it.
+          function Invoke-GhWithRetry {
+            param([Parameter(ValueFromRemainingArguments)] $GhArgs)
+            for ($n = 1; $n -le 5; $n++) {
+              gh @GhArgs
+              if ($LASTEXITCODE -eq 0) { return }
+              if ($n -eq 5) { throw "gh $GhArgs still failing after 5 attempts" }
+              $delay = $n * $n * 10
+              Write-Host "gh-retry: attempt $n/5 failed, sleeping ${delay}s"
+              Start-Sleep -Seconds $delay
+            }
+          }
+
           # Prerelease until the manifest job promotes it — see release-macos.yml,
           # which also explains why this creates unconditionally instead of
           # checking `gh release view` first (view can't tell 404 from 503).
@@ -100,8 +115,8 @@ jobs:
           # "already exists" is the expected path when another platform job won
           # the race — clear it so the step is judged on the uploads below.
           $global:LASTEXITCODE = 0
-          gh release upload $tag "${{ steps.msi.outputs.path }}" --clobber
-          gh release upload $tag "${{ steps.updater.outputs.sig_path }}" --clobber
+          Invoke-GhWithRetry release upload $tag "${{ steps.msi.outputs.path }}" --clobber
+          Invoke-GhWithRetry release upload $tag "${{ steps.updater.outputs.sig_path }}" --clobber
 
       - name: Upload MSI as workflow artifact
         if: github.event_name == 'workflow_dispatch'
