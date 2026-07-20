@@ -3136,6 +3136,57 @@ async fn generate_commit_message(
     Ok(text.trim().to_string())
 }
 
+/// AI explanation of the whole change set, as markdown. Same provider path and
+/// same "staged if you staged, else working tree" scope as the commit message.
+#[tauri::command]
+async fn explain_changes(state: State<'_, AppState>, cwd: String) -> Result<String, String> {
+    let resolved = {
+        let s = state.settings.lock().await;
+        provider_resolve::resolve_route(&s, settings::Role::Chat)
+            .map_err(|_| "provider unavailable".to_string())?
+    };
+
+    let path = std::path::PathBuf::from(cwd);
+    let diff = tokio::task::spawn_blocking(move || git_tools::staged_diff(&path))
+        .await
+        .map_err(|e| format!("staged_diff join: {e}"))??;
+    if diff.trim().is_empty() {
+        return Err("no changes to explain".into());
+    }
+    // ponytail: same 24k cap as the commit message; raise it per-model if the
+    // truncation notice starts showing up on ordinary change sets.
+    const DIFF_CAP: usize = 24_000;
+    let truncated = diff.chars().count() > DIFF_CAP;
+    let diff: String = diff.chars().take(DIFF_CAP).collect();
+
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: "You explain a git change set to the engineer who wrote it. Reply with \
+            ONLY markdown prose — no heading, no preamble, no bullet-point summary of the \
+            file list. Three short paragraphs at most: what this change does, how it is put \
+            together, and anything worth a second look before committing. Name files and \
+            symbols with inline code. Be specific and skip praise."
+            .to_string(),
+        user_message: format!("Diff:\n\n{diff}"),
+        max_tokens: 700,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let text = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?
+        .text;
+
+    let mut out = text.trim().to_string();
+    // Without this the explanation describes a prefix but reads as complete.
+    if truncated {
+        out.push_str("\n\nThis diff was truncated before the model saw it — the explanation \
+            covers only the first part of the change set.");
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
     Ok(state.settings.lock().await.clone())
@@ -5482,6 +5533,7 @@ pub fn run() {
             git_unstage_hunk,
             git_commit,
             generate_commit_message,
+            explain_changes,
             resolve_existing_path,
             structure_list_dir,
             structure_create_path,

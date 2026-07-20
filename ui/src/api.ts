@@ -1935,6 +1935,10 @@ export async function gitCommit(cwd: string, message: string, push = false): Pro
 export async function generateCommitMessage(cwd: string): Promise<string> {
   return invoke<string>("generate_commit_message", { cwd });
 }
+/// Markdown explanation of the whole change set.
+export async function explainChanges(cwd: string): Promise<string> {
+  return invoke<string>("explain_changes", { cwd });
+}
 
 export async function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
