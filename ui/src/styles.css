@@ -523,7 +523,6 @@ body.theme-special::after {
     align-items: flex-end;
     background: var(--sidebar-bg);
     border-bottom: 1px solid var(--border);
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
     padding: 0 8px;
     gap: 4px;
     user-select: none;
