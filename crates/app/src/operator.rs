@@ -631,7 +631,11 @@ struct Attached {
     /// gets caught even when accumulated input lines shift the screen
     /// signature. Cleared whenever a non-REPLY action arrives or the
     /// reply text changes.
-    recent_reply_hashes: VecDeque<u64>,
+    /// (reply text hash, progress signature) per recent REPLY. The
+    /// signature pairs each reply with the screen it was answering, so
+    /// "same answer to a screen that has since moved on" no longer reads
+    /// as a loop — see `reply_loop_stuck`.
+    recent_reply_hashes: VecDeque<(u64, u64)>,
     /// When set, `run_tick` skips this tab entirely until `now ≥ this`.
     /// Set after a loop is detected — gives the user time to intervene
     /// without paying for more identical decisions.
@@ -3061,10 +3065,11 @@ async fn run_tick(
         // Two loop detectors run side-by-side:
         //  1. General loop: same action + rationale + screen-tail hash
         //     LOOP_THRESHOLD times in a row (catches stuck-WAIT etc).
-        //  2. Repeat-REPLY: same normalized REPLY text twice in a row,
-        //     screen-independent (catches the executor not accepting
-        //     our submit — accumulated input lines fool the screen
-        //     hash, but the model writing the same answer doesn't).
+        //  2. Repeat-REPLY: same normalized REPLY text twice in a row
+        //     AND against the same unchanged screen (catches the
+        //     executor not accepting our submit, without firing on an
+        //     operator answering successive approval gates `yes`).
+        //     See `reply_loop_stuck` for why the screen gate is there.
         // Either fires → forced ESCALATE + tab cooldown.
         let decision_hash = compute_loop_hash(&parsed_action, &tail);
         let reply_hash = match &parsed_action {
@@ -3091,12 +3096,11 @@ async fn run_tick(
                 // doesn't re-trip on the second REPLY.
                 let reply_stuck = match reply_hash {
                     Some(h) => {
-                        att.recent_reply_hashes.push_back(h);
+                        att.recent_reply_hashes.push_back((h, visible_sig));
                         while att.recent_reply_hashes.len() > REPLY_REPEAT_THRESHOLD {
                             att.recent_reply_hashes.pop_front();
                         }
-                        att.recent_reply_hashes.len() >= REPLY_REPEAT_THRESHOLD
-                            && att.recent_reply_hashes.iter().all(|x| *x == h)
+                        reply_loop_stuck(&att.recent_reply_hashes, REPLY_REPEAT_THRESHOLD)
                     }
                     None => {
                         att.recent_reply_hashes.clear();
@@ -4764,6 +4768,35 @@ fn normalize_executor_chrome(s: &str) -> String {
         .join("\n")
 }
 
+/// True when the recent-REPLY ring shows a genuine stall: the same
+/// reply text answering the same, unchanged screen.
+///
+/// The screen condition is the whole point. The detector used to be
+/// screen-independent, on the theory that an executor refusing our
+/// submit would let typed text accumulate and so churn the screen hash,
+/// hiding the stall. Measured against real history that theory did not
+/// hold: in the 5 genuine stalls both replies had `executed = false` —
+/// nothing was ever injected, so nothing accumulated and the screen sat
+/// frozen. Meanwhile 32 of 48 escalations had both replies injected AND
+/// a changed screen: the executor took the input and moved on, and the
+/// operator was simply answering successive approval gates with the
+/// same word (`yes` 21×, `1` 14×, `y` 7×). Those were false alarms
+/// telling the user their executor was broken when it was not.
+///
+/// Requiring an unchanged signature keeps every genuine stall and drops
+/// the false ones. It also bounds the ring in practice: two identical
+/// replies half an hour apart (the worst observed) cannot share a
+/// signature unless the executor truly never moved.
+fn reply_loop_stuck(ring: &VecDeque<(u64, u64)>, threshold: usize) -> bool {
+    if ring.len() < threshold {
+        return false;
+    }
+    let Some(&(text, sig)) = ring.back() else {
+        return false;
+    };
+    ring.iter().all(|&(t, s)| t == text && s == sig)
+}
+
 /// Hash a REPLY text alone — no rationale, no screen state. Used by
 /// the repeat-REPLY loop detector. Strips trailing CR/LF the auto-
 /// submit code would have added/stripped anyway, so "x", "x\n",
@@ -5430,6 +5463,34 @@ mod tests {
         assert!(!loop_should_escalate(Some("general")));
         assert!(!loop_should_escalate(Some("idle-wait")));
         assert!(!loop_should_escalate(None));
+    }
+
+    #[test]
+    fn repeat_reply_requires_an_unchanged_screen() {
+        let yes = compute_reply_text_hash("yes");
+        let ring = |v: &[(u64, u64)]| VecDeque::from(v.to_vec());
+
+        // The false positive that produced 32 of 48 real escalations:
+        // same word `yes`, but the executor moved on between gates.
+        assert!(
+            !reply_loop_stuck(&ring(&[(yes, 100), (yes, 200)]), REPLY_REPEAT_THRESHOLD),
+            "same reply to a screen that advanced is not a loop"
+        );
+
+        // The genuine stall: reply never landed, screen frozen.
+        assert!(
+            reply_loop_stuck(&ring(&[(yes, 100), (yes, 100)]), REPLY_REPEAT_THRESHOLD),
+            "same reply to an unchanged screen IS a loop"
+        );
+
+        // Different replies on one frozen screen: the operator is still
+        // trying new things, not stuck.
+        let one = compute_reply_text_hash("1");
+        assert!(!reply_loop_stuck(&ring(&[(yes, 100), (one, 100)]), REPLY_REPEAT_THRESHOLD));
+
+        // Under threshold never fires, even when everything matches.
+        assert!(!reply_loop_stuck(&ring(&[(yes, 100)]), REPLY_REPEAT_THRESHOLD));
+        assert!(!reply_loop_stuck(&ring(&[]), REPLY_REPEAT_THRESHOLD));
     }
 
     #[test]
