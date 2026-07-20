@@ -2,6 +2,7 @@
 
 pub mod compile;
 pub mod detect;
+pub mod inventory;
 pub mod install;
 pub mod manifest;
 pub mod project;
@@ -19,6 +20,7 @@ pub use types::{CanonManifest, InstalledRef, SkillManifest};
 pub use eval::{pass_rate, read_evals, read_results, write_result, Eval, EvalResult};
 pub use kind::{list_context, ContextKind, ContextUnit};
 pub use detect::scan_detected;
+pub use inventory::{detected_rows, resolve_state, UnitState};
 pub use mcp::{McpServer, blank_mcp_secrets};
 
 use thiserror::Error;
