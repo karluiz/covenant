@@ -50,7 +50,11 @@ pub fn default_kind(category: &str) -> &'static str {
 }
 
 /// A destination the crawler proposes before filling it with findings.
-/// Identity is `(kind, slugify(name))`; the run loop merges collisions.
+/// Identity is `slugify(name)` alone, unique across ALL kinds — not
+/// `(kind, slug)`. `emit_finding` addresses a unit by name only, so the run
+/// loop's index cannot key on kind; the model must therefore pick unique
+/// names across the whole crawl. The run loop merges same-kind collisions
+/// and rejects cross-kind name collisions outright.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MinerUnit {
@@ -332,7 +336,7 @@ pub async fn run_miner(
         }
         turns += 1;
         if turns > max_turns {
-            tracing::warn!("crawler: hit hard turn ceiling ({max_turns}); stopping");
+            tracing::warn!(max_turns, "crawler: hit hard turn ceiling");
             sink.emit(MinerEvent::RunDone {
                 findings_total,
                 stopped: true,
@@ -377,11 +381,18 @@ pub async fn run_miner(
                             feedback.push_str(
                                 "[tool propose_unit] invalid payload — name must contain at least one letter or digit.\n",
                             );
-                        } else if index.contains_key(&slug) {
-                            feedback.push_str(&format!(
-                                "[tool propose_unit → {}] already proposed — reusing it.\n",
-                                call.id
-                            ));
+                        } else if let Some(&i) = index.get(&slug) {
+                            if units[i].unit.kind == u.kind {
+                                feedback.push_str(&format!(
+                                    "[tool propose_unit → {}] already proposed — reusing it.\n",
+                                    call.id
+                                ));
+                            } else {
+                                feedback.push_str(&format!(
+                                    "[tool propose_unit → {}] name '{}' is already taken by a {} unit — choose a distinct name for this {} unit.\n",
+                                    call.id, u.name, units[i].unit.kind, u.kind
+                                ));
+                            }
                         } else {
                             index.insert(slug, units.len());
                             sink.emit(MinerEvent::UnitProposed {
@@ -619,6 +630,32 @@ mod tests {
         assert_eq!(units[0].findings.len(), 1);
     }
 
+    /// Cross-kind name collision: `emit_finding` addresses units by name
+    /// alone, so slug identity must be unique across ALL kinds, not scoped
+    /// per-kind. The second propose_unit must be rejected (not silently
+    /// merged into the first, differently-kinded unit), and the finding must
+    /// land in the original memory unit with its inherited kind.
+    #[tokio::test]
+    async fn cross_kind_name_collision_is_rejected_not_swallowed() {
+        let (units, _) = run(vec![
+            ModelTurn {
+                tool_calls: vec![
+                    unit_call("u1", "memory", "Retry budget"),
+                    unit_call("u2", "skill", "Retry budget"),
+                    finding_for("f1", "Retry budget", "one"),
+                ],
+                text: String::new(),
+                emitted_spec: None,
+            },
+            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+        ])
+        .await;
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].unit.kind, "memory");
+        assert_eq!(units[0].findings.len(), 1);
+        assert_eq!(units[0].findings[0].kind, "memory");
+    }
+
     #[tokio::test]
     async fn memory_unit_keeps_only_one_finding() {
         let (units, _) = run(vec![
@@ -638,6 +675,7 @@ mod tests {
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].findings.len(), 1);
         assert_eq!(units[0].findings[0].title, "first");
+        assert_eq!(units[0].findings[0].kind, "memory", "finding inherits unit kind, not category default");
     }
 
     /// A defect from Task 3: a name that is entirely punctuation (e.g. "!!!")
