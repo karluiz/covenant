@@ -104,10 +104,12 @@ body.sidebar-view-tasker #tasker-panel {
   opacity: 1;
 }
 /* The count badge shares this same right-edge slot with both hover actions
-   (delete always, share whenever it's visible) — fade it whenever either
-   one is showing so neither overlaps the digits. */
-.tasker-project-headrow:hover .tasker-project-count,
-.tasker-project-headrow:has(.tasker-project-share.shared) .tasker-project-count {
+   (delete always, share whenever it's visible) — fade it whenever the row is
+   hovered so neither overlaps the digits. F5: this used to also fade the
+   count unconditionally for any shared project (`:has(.tasker-project-share
+   .shared)` with no `:hover`), which hid the task count forever once a
+   project was shared instead of only while its hover actions are showing. */
+.tasker-project-headrow:hover .tasker-project-count {
   opacity: 0;
 }
 .tasker-project-count {

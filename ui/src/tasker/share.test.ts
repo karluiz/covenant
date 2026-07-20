@@ -13,12 +13,16 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("../notifications/toast", () => ({ pushInfoToast: vi.fn() }));
 vi.mock("../ui/clipboard", () => ({ copyText: vi.fn().mockResolvedValue(undefined) }));
 
+import { pushInfoToast } from "../notifications/toast";
 import { TaskStorage, TASKER_SAVED_EVENT } from "./storage";
 import {
   startBoardAutoPush,
   shareProjectBoard,
   revokeBoardShare,
   isBoardShared,
+  getPushState,
+  getPushError,
+  copyBoardLink,
   resetBoardShareStateForTests,
   PUSH_DEBOUNCE_MS,
 } from "./share";
@@ -181,5 +185,46 @@ describe("board auto-push", () => {
     resolveRevoke?.();
     await vi.advanceTimersByTimeAsync(0);
     stop();
+  });
+
+  // F3: the stale dot is the only signal auto-push is failing — it needs the
+  // actual error alongside it so the tooltip can say why, not just that.
+  it("records the push error on failure and clears it once a later push succeeds", async () => {
+    const storage = new TaskStorage();
+    const p = storage.createProject("Flaky");
+    await shareProjectBoard(p);
+
+    const stop = startBoardAutoPush(storage);
+    publish.mockRejectedValueOnce(new Error("network down"));
+    storage.createTask(p.id, "a");
+    await vi.advanceTimersByTimeAsync(PUSH_DEBOUNCE_MS + 10);
+
+    expect(getPushState(p.id)).toBe("stale");
+    expect(getPushError(p.id)).toBe("network down");
+
+    // publish.mockResolvedValue from beforeEach is still the default —
+    // the next push succeeds and the recorded error clears with it.
+    storage.createTask(p.id, "b");
+    await vi.advanceTimersByTimeAsync(PUSH_DEBOUNCE_MS + 10);
+
+    expect(getPushState(p.id)).toBe("synced");
+    expect(getPushError(p.id)).toBeNull();
+    stop();
+  });
+});
+
+// F10: copyBoardLink silently returned when the backend had no record of the
+// share, so the click that triggered it did nothing visible at all.
+describe("copyBoardLink", () => {
+  beforeEach(() => {
+    resetBoardShareStateForTests();
+    vi.mocked(pushInfoToast).mockClear();
+  });
+
+  it("tells the user when the board has no share record to copy", async () => {
+    await copyBoardLink("some-project-with-no-share");
+    expect(pushInfoToast).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("re-sharing") }),
+    );
   });
 });

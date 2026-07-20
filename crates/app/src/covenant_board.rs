@@ -136,6 +136,15 @@ pub async fn board_publish(
             Ok(()) => Err(format!(
                 "failed to save share record ({save_err}); board was revoked"
             )),
+            // Deliberate exception to "never surface share.url in an error":
+            // the revoke ALSO failed here, so the board is now orphaned —
+            // live on the forge with no local record and no automated way to
+            // take it back down. The URL (with its token, the board's only
+            // access control) is the one thing that lets the user revoke it
+            // by hand, so it must reach them. No other error path in this
+            // file embeds the URL — the frontend (share.ts's push()) mirrors
+            // this by logging the project id on failure, never the raw
+            // error, precisely so this token doesn't end up in a console.
             Err(revoke_err) => Err(format!(
                 "failed to save share record ({save_err}); \
                  also failed to revoke the now-orphaned board ({revoke_err}); \

@@ -28,7 +28,12 @@ export type PushState = "synced" | "pushing" | "stale";
 
 const sharedProjects = new Set<string>();
 const pushState = new Map<string, PushState>();
-let sharesLoaded = false;
+// The stale dot is the only signal auto-push is failing, and a dimmed dot
+// alone doesn't say why — this backs the tooltip that carries the last error
+// message for a project whose push() rejected. Cleared whenever a push
+// succeeds or the share is torn down (re-shared or revoked) so a stale
+// tooltip never survives past the state it describes.
+const lastPushError = new Map<string, string>();
 // Guards Finding 3: while a revoke for `id` is in flight, a second
 // TASKER_SAVED_EVENT for the same deleted project must not fire another
 // concurrent `boardApi.revoke` before the first one resolves. See onSaved.
@@ -44,7 +49,7 @@ const revokingProjects = new Set<string>();
 let autoPushTeardown: (() => void) | null = null;
 
 /// Test-support only — NOT part of the public share API. Module-level state
-/// above (sharedProjects/pushState/sharesLoaded/revokingProjects/
+/// above (sharedProjects/pushState/lastPushError/revokingProjects/
 /// autoPushTeardown) persists across test files, so a leftover id from one
 /// test's shared project — or a leftover live subscription bound to a dead
 /// test's storage — can leak into the next test. Call this from `beforeEach`
@@ -52,8 +57,8 @@ let autoPushTeardown: (() => void) | null = null;
 export function resetBoardShareStateForTests(): void {
   sharedProjects.clear();
   pushState.clear();
+  lastPushError.clear();
   revokingProjects.clear();
-  sharesLoaded = false;
   autoPushTeardown?.();
   autoPushTeardown = null;
 }
@@ -70,19 +75,12 @@ export function getPushState(projectId: string): PushState {
   return pushState.get(projectId) ?? "synced";
 }
 
-/// Idempotent — first caller triggers the fetch, later calls no-op.
-export function ensureBoardSharesLoaded(): void {
-  if (sharesLoaded) return;
-  sharesLoaded = true;
-  void boardApi
-    .listShares()
-    .then((ids) => {
-      for (const id of ids) sharedProjects.add(id);
-      if (ids.length > 0) notifySharesChanged();
-    })
-    .catch(() => {
-      sharesLoaded = false; // transient failure — retry on next call
-    });
+/// The message from the most recent failed push for `projectId`, or `null`
+/// if the last push succeeded (or none has happened yet). Paired with
+/// `getPushState` — the panel shows this in the share button's tooltip only
+/// while state is `"stale"`.
+export function getPushError(projectId: string): string | null {
+  return lastPushError.get(projectId) ?? null;
 }
 
 /// Copy, and if the webview refuses (transient activation is gone after the
@@ -108,11 +106,21 @@ async function push(project: Project): Promise<void> {
   try {
     await boardApi.publish(project.id, project.name, toSnapshot(project));
     pushState.set(project.id, "synced");
+    lastPushError.delete(project.id);
   } catch (err) {
     // ponytail: no retry timer — the next mutation retries. Each PUT carries
     // the whole snapshot, so a viewer only ever sees an older coherent board.
     pushState.set(project.id, "stale");
-    console.error("board push failed", err);
+    const message = err instanceof Error ? err.message : String(err);
+    lastPushError.set(project.id, message);
+    // Review finding F9: `err` can carry the board's share URL (Rust's
+    // orphan-revoke error path deliberately keeps it — see covenant_board.rs
+    // — so the user has something to revoke manually). That URL's token is
+    // the board's only access control, so never hand it to the console: log
+    // the project id, not the error. The message itself still reaches the
+    // user via the stale-dot tooltip (getPushError), which is a UI surface
+    // the user already controls, not a log sink.
+    console.error("board push failed", project.id);
   }
   notifySharesChanged();
 }
@@ -121,13 +129,19 @@ export async function shareProjectBoard(project: Project): Promise<void> {
   const share = await boardApi.publish(project.id, project.name, toSnapshot(project));
   sharedProjects.add(project.id);
   pushState.set(project.id, "synced");
+  lastPushError.delete(project.id);
   notifySharesChanged();
   await copyOrOffer(share.url);
 }
 
 export async function copyBoardLink(projectId: string): Promise<void> {
   const share = await boardApi.getShare(projectId);
-  if (!share) return;
+  if (!share) {
+    // Review finding F10: silently returning here means the click that
+    // triggered this does nothing visible at all — tell the user instead.
+    pushInfoToast({ message: "Couldn't find the board's share link — try re-sharing." });
+    return;
+  }
   await copyOrOffer(share.url);
 }
 
@@ -150,6 +164,7 @@ export async function revokeBoardShare(projectId: string): Promise<void> {
   } finally {
     sharedProjects.delete(projectId);
     pushState.delete(projectId);
+    lastPushError.delete(projectId);
     notifySharesChanged();
   }
 }
