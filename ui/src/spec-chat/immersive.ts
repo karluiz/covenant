@@ -1,6 +1,8 @@
 import './immersive.css';
 import type { SpecEventSource, OutgoingImage } from './events';
-import { createStreamState } from './stream-state';
+import { composePartialMarkdown, createStreamState } from './stream-state';
+import { makeSpecScoreChip, renderBreakdown } from '../spec-score/badge';
+import { scoreSpec, type SpecScore } from '../spec-score/engine';
 import { MarkdownEditor } from '../ui/markdown-editor';
 import { mountActivityStream } from './activity-stream';
 import { mountLiveSpec } from './live-spec';
@@ -94,6 +96,39 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
   const spec = tmp.querySelector('.spec');
   if (spine) (root.querySelector('.spine-host') as HTMLElement).appendChild(spine);
   if (spec) (root.querySelector('.spec-host') as HTMLElement).appendChild(spec);
+
+  // SpecScore — live quality chip on the Specification column; click toggles
+  // the per-dimension breakdown above the section cards.
+  const specHost = root.querySelector('.spec-host') as HTMLElement;
+  const scoreChip = makeSpecScoreChip();
+  (root.querySelector('.right .col-head') as HTMLElement).appendChild(scoreChip.el);
+  let lastScore: SpecScore | null = null;
+  let breakdownEl: HTMLElement | null = null;
+  const renderScoreBreakdown = () => {
+    if (!breakdownEl || !lastScore) return;
+    const next = renderBreakdown(lastScore);
+    breakdownEl.replaceWith(next);
+    breakdownEl = next;
+  };
+  scoreChip.setOnClick(() => {
+    if (breakdownEl) {
+      breakdownEl.remove();
+      breakdownEl = null;
+    } else if (lastScore) {
+      breakdownEl = document.createElement('div');
+      specHost.prepend(breakdownEl);
+      renderScoreBreakdown();
+    }
+  });
+  let scoreTimer: ReturnType<typeof setTimeout> | undefined;
+  state.onChange(() => {
+    clearTimeout(scoreTimer);
+    scoreTimer = setTimeout(() => {
+      lastScore = scoreSpec(composePartialMarkdown(state));
+      scoreChip.update(lastScore.score > 0 ? lastScore : null);
+      renderScoreBreakdown();
+    }, 300);
+  });
 
   const off = opts.source.subscribe((e) => state.apply(e));
 
