@@ -6,6 +6,29 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.44 — Beacon names GitHub's outage instead of blaming you
+
+### Added
+
+- **A failed Beacon load now says when GitHub is the one that's down.** A 503
+  from `api.github.com` rendered as a bare `HTTP 503` plus whatever prose the
+  edge returned ("No server is currently available to service your request"),
+  which reads like a bad token or a missing repo permission. On any 5xx,
+  Covenant now asks `githubstatus.com/api/v2/status.json` and, if an incident
+  is active, uses its description as the error hint — "GitHub reports: Minor
+  Service Outage". The check is best-effort: a failure there is silence, never
+  a second error stacked on the first, and an all-green `indicator: "none"`
+  stays quiet rather than reassuring you about a request that just failed.
+  Only 5xx triggers it — a 401/403/404 really is about your token or repo.
+  `crates/app/src/beacon.rs` (`status_note`, `github_incident`, `gh_get`).
+
+### Changed
+
+- **The failing GitHub URL is logged.** `gh_get` had the URL in hand and
+  dropped it on every error branch, so a Beacon failure left nothing to
+  diagnose from after the fact. It now emits `tracing::warn!(url, status)`
+  before shaping the message. `crates/app/src/beacon.rs`.
+
 ## v0.9.43 — Softer separator under the horizontal tab bar
 
 ### Changed
