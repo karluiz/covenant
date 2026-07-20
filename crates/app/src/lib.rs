@@ -752,15 +752,25 @@ async fn spawn_session(
         let mut rx = session.subscribe();
         tauri::async_runtime::spawn(async move {
             while let Ok(ev) = rx.recv().await {
-                if let karl_session::SessionEvent::ForegroundChanged { session, name } = ev {
-                    let agent = name.and_then(|n| {
-                        if karl_session::idle::KNOWN_AGENTS.contains(&n.as_str()) {
-                            Some(n)
-                        } else {
-                            None
-                        }
-                    });
-                    hub.set_foreground_agent(session, agent).await;
+                match ev {
+                    karl_session::SessionEvent::ForegroundChanged { session, name } => {
+                        let agent = name.and_then(|n| {
+                            if karl_session::idle::KNOWN_AGENTS.contains(&n.as_str()) {
+                                Some(n)
+                            } else {
+                                None
+                            }
+                        });
+                        hub.set_foreground_agent(session, agent).await;
+                    }
+                    // Alt-screen executor turn, detected off the rendered screen
+                    // (opencode/gemini/…). The inline byte-detector path records
+                    // in `notch::ingest`; these two are disjoint by construction
+                    // (alt-screen vs inline), so no double count.
+                    karl_session::SessionEvent::AgentTurnStarted { agent, .. } => {
+                        karl_score::record_prompt_with_agent(&agent, Some("pty_turn"));
+                    }
+                    _ => {}
                 }
             }
         });
