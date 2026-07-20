@@ -383,11 +383,11 @@ Covenant distributes via **GitHub Releases** with Apple Developer ID signing + n
 Use the `horizon` skill — it bumps version in `package.json`, `crates/app/Cargo.toml`, and `crates/app/tauri.conf.json`; writes the `CHANGELOG.md` entry; commits; tags; pushes.
 
 The tag push triggers `.github/workflows/release-macos.yml`, which:
-1. Compiles for `aarch64-apple-darwin`
+1. Compiles both macOS targets as a matrix — `aarch64-apple-darwin` (default features) and `x86_64-apple-darwin`. **Intel builds with `-- --no-default-features`**: `ort` has no x86_64-darwin prebuilt, so embeddings are dropped from the graph on that arch. The args go after a *second* `--` — the tauri CLI forwards them to cargo; passed directly it errors `unexpected argument`.
 2. Signs with Developer ID Application cert (via `APPLE_CERTIFICATE` / `APPLE_SIGNING_IDENTITY` secrets)
 3. Notarizes with `notarytool` (via `APPLE_API_KEY` / `APPLE_API_ISSUER` / `APPLE_API_KEY_CONTENT` secrets)
-4. Uploads `Covenant_<version>_aarch64.dmg` + `.app.tar.gz` + `.sig` to the GitHub Release
-5. Computes the `.dmg` sha256 and **auto-updates the Homebrew cask** at `karluiz/homebrew-covenant` (requires `HOMEBREW_TAP_TOKEN` secret — see below)
+4. Uploads `Covenant_<version>_{aarch64,x64}.dmg` + `.app.tar.gz` + `.sig` to the GitHub Release
+5. Computes both `.dmg` sha256s and **auto-updates the Homebrew cask** at `karluiz/homebrew-covenant` with `on_arm` / `on_intel` blocks (requires `HOMEBREW_TAP_TOKEN` secret — see below)
 
 The Windows workflow runs in parallel and emits the `.msi`. The aggregate `latest.json` (auto-updater manifest) is built by `release-manifest.yml` once both per-platform jobs finish.
 
@@ -439,7 +439,7 @@ Tap auto-discovers under the `homebrew-` prefix. After first install, upgrades a
 
 ### What this DOES NOT cover yet
 
-- **Intel (x86_64) builds** — release workflow currently only targets `aarch64-apple-darwin`. To add Intel: build a second target and either ship two `.dmg`s with `on_arm`/`on_intel` blocks in the cask, or build a universal binary with `lipo`.
+- **A universal (`lipo`) binary** — Intel ships as a *separate* `.dmg` selected by the cask's `on_arm`/`on_intel` blocks, not as a fat binary. Note the two arches are not feature-identical: Intel has no embeddings (see the `ort` note above), so anything gated on them must degrade gracefully rather than assume they exist.
 - **Submission to the official `homebrew-cask` repo** — requires ~30 days of stable releases and ideally universal binaries. Self-tap is canonical for now.
 - **Sparkle / auto-update through Homebrew** — Covenant's built-in updater (Tauri's) is the canonical update path; Homebrew users get updates via `brew upgrade`.
 
