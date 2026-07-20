@@ -44,6 +44,65 @@ export function makeSpecScoreBadge(s: SpecScore): HTMLSpanElement {
   return b;
 }
 
+/** Badge that reveals the full breakdown in a floating popover on hover —
+ *  for read-only surfaces (doc viewer header) where a click-to-expand panel
+ *  has nowhere to live. A short grace timer keeps the popover open while the
+ *  pointer travels from badge to popover. */
+export function makeSpecScoreHoverBadge(): {
+  el: HTMLSpanElement;
+  update(s: SpecScore | null): void;
+} {
+  const el = document.createElement('span');
+  el.className = 'spec-score-badge spec-score-badge--hover';
+  el.hidden = true;
+  let score: SpecScore | null = null;
+  let pop: HTMLElement | null = null;
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const hide = () => {
+    pop?.remove();
+    pop = null;
+  };
+  const scheduleHide = () => {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hide, 150);
+  };
+  const show = () => {
+    clearTimeout(hideTimer);
+    if (pop || !score) return;
+    pop = document.createElement('div');
+    pop.className = 'spec-score-pop';
+    pop.append(renderBreakdown(score));
+    pop.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+    pop.addEventListener('mouseleave', scheduleHide);
+    document.body.append(pop);
+    const r = el.getBoundingClientRect();
+    const w = pop.offsetWidth;
+    pop.style.top = `${r.bottom + 6}px`;
+    pop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+  };
+  el.addEventListener('mouseenter', show);
+  el.addEventListener('mouseleave', scheduleHide);
+
+  return {
+    el,
+    update(s) {
+      score = s;
+      if (!s) {
+        el.hidden = true;
+        hide();
+        return;
+      }
+      el.hidden = false;
+      el.dataset.grade = s.grade;
+      el.textContent = `${s.score} ${s.grade}`;
+      if (pop) {
+        pop.replaceChildren(renderBreakdown(s));
+      }
+    },
+  };
+}
+
 export function renderBreakdown(s: SpecScore, opts?: { onDeep?: () => Promise<void> }): HTMLElement {
   const root = document.createElement('div');
   root.className = 'spec-score-breakdown';

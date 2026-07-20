@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { scoreSpec } from './engine';
-import { makeSpecScoreBadge, makeSpecScoreChip, renderBreakdown } from './badge';
+import { makeSpecScoreBadge, makeSpecScoreChip, makeSpecScoreHoverBadge, renderBreakdown } from './badge';
 
 describe('spec-score UI', () => {
   const s = scoreSpec('## Goal\n\nDo the thing well and completely.\n');
@@ -31,6 +31,22 @@ describe('spec-score UI', () => {
     // width proportional to earned/weight
     const bar = el.querySelector<HTMLElement>('.ssd-fill')!;
     expect(bar.style.width.endsWith('%')).toBe(true);
+  });
+
+  it('hover badge shows breakdown popover on mouseenter, hides on null update', () => {
+    const b = makeSpecScoreHoverBadge();
+    document.body.append(b.el);
+    b.update(s);
+    expect(b.el.hidden).toBe(false);
+    expect(b.el.textContent).toBe(`${s.score} ${s.grade}`);
+    b.el.dispatchEvent(new MouseEvent('mouseenter'));
+    const pop = document.querySelector('.spec-score-pop');
+    expect(pop).not.toBeNull();
+    expect(pop!.querySelectorAll('.ssd-row')).toHaveLength(7);
+    b.update(null);
+    expect(b.el.hidden).toBe(true);
+    expect(document.querySelector('.spec-score-pop')).toBeNull();
+    b.el.remove();
   });
 
   it('badge is compact text', () => {

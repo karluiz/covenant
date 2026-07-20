@@ -96,6 +96,8 @@ import { lspRangeToCm, pathToUri } from "../lsp/positions";
 import { runtimeSuggestionLine } from "../lsp/runtime-hint";
 import { shareFileAsGist } from "../gist/share";
 import { attachTooltip } from "../tooltip/tooltip";
+import { makeSpecScoreHoverBadge } from "../spec-score/badge";
+import { scoreSpec } from "../spec-score/engine";
 
 export interface EditorCallbacks {
   onSave?: (path: string) => void;
@@ -230,6 +232,10 @@ export class StructureEditor {
   /// shadows the CM6 doc on every change; in preview mode it keeps
   /// the last source value so toggling back doesn't lose edits.
   private liveContent = "";
+  /// SpecScore header badge — hover reveals the breakdown popover. Only
+  /// visible for spec-like markdown (see `isSpecPath` + canonical Goal head).
+  private readonly specScoreBadge = makeSpecScoreHoverBadge();
+  private specScoreTimer: ReturnType<typeof setTimeout> | undefined;
   private dirty = false;
   private visible = false;
 
@@ -313,6 +319,8 @@ export class StructureEditor {
     this.extEl.className = "structure-editor-ext";
     this.extEl.hidden = true;
     this.headerEl.appendChild(this.extEl);
+
+    this.headerEl.appendChild(this.specScoreBadge.el);
 
     this.statusEl = document.createElement("span");
     this.statusEl.className = "structure-editor-status";
@@ -878,6 +886,8 @@ export class StructureEditor {
       this.dirty = next;
       this.renderStatus();
     }
+    clearTimeout(this.specScoreTimer);
+    this.specScoreTimer = setTimeout(() => this.refreshSpecScore(), 300);
     this.lspDoc?.changeIncremental(update);
   }
 
@@ -1500,6 +1510,16 @@ export class StructureEditor {
 
     this.applySpecBtn.hidden =
       !this.callbacks.onApplySpec || !isSpecPath(this.currentPath);
+
+    this.refreshSpecScore();
+  }
+
+  /// Recompute the header SpecScore badge from the live text. Cheap (pure
+  /// string pass) but debounced from the keystroke path via onDocChanged.
+  private refreshSpecScore(): void {
+    const show =
+      isSpecPath(this.currentPath) && /^##\s+Goal\s*$/m.test(this.liveContent);
+    this.specScoreBadge.update(show ? scoreSpec(this.liveContent) : null);
   }
 
   /// Rasterize the open SVG to <basename>.png next to the source.

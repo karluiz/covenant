@@ -82,6 +82,19 @@
   cursor: pointer;
 }
 .spec-score-deep-btn:hover { border-color: var(--accent, #7aa2f7); }
+.spec-score-badge--hover { cursor: default; }
+.spec-score-pop {
+  position: fixed;
+  z-index: 1000;
+  width: 340px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg-overlay, #11141a);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+.spec-score-pop .spec-score-breakdown {
+  margin-bottom: 0;
+}
 .mission-page-preview-score {
   display: flex;
   margin-bottom: 10px;
