@@ -158,7 +158,7 @@ pub(crate) fn render_unit(u: &CompiledUnit) -> String {
     }
 }
 
-#[derive(Serialize, Default)]
+#[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileReport {
     pub skills: Vec<String>,
@@ -175,13 +175,15 @@ pub async fn canon_compile_units(
     let root = PathBuf::from(&repo_root);
     tokio::task::spawn_blocking(move || {
         let mut report = CompileReport::default();
-        let strvec = |v: Vec<std::path::PathBuf>| -> Vec<String> {
-            v.into_iter().map(|p| p.to_string_lossy().into_owned()).collect()
-        };
         for u in &units {
             if u.findings.is_empty() {
                 continue;
             }
+            // The unit's slug is the only name in play: it is what
+            // `canon_inventory_states` resolved state against, so the write
+            // must land at that exact path, not at a path derived from the
+            // finding's own title (a separate free-text string the model
+            // authors in a different tool call).
             let slug = karl_canon::compile::slugify(&u.name);
             // The unit was resolved against Canon before the user pressed
             // Write, so every write is an intentional create-or-update.
@@ -191,15 +193,22 @@ pub async fn canon_compile_units(
                         .map_err(|e| e.to_string())?;
                     report.skills.push(dir.to_string_lossy().into_owned());
                 }
-                "command" => report.commands.extend(strvec(
-                    write_command_entry(&root, &u.findings[..1], true).map_err(|e| e.to_string())?,
-                )),
-                "subagent" => report.agents.extend(strvec(
-                    write_subagent_entry(&root, &u.findings[..1], true).map_err(|e| e.to_string())?,
-                )),
-                _ => report.memory.extend(strvec(
-                    write_memory_entry(&root, &u.findings[..1], true).map_err(|e| e.to_string())?,
-                )),
+                "command" => {
+                    let path = write_command_entry(&root, &slug, &u.findings[0])
+                        .map_err(|e| e.to_string())?;
+                    report.commands.push(path.to_string_lossy().into_owned());
+                }
+                "subagent" => {
+                    let path = write_subagent_entry(&root, &slug, &u.findings[0])
+                        .map_err(|e| e.to_string())?;
+                    report.agents.push(path.to_string_lossy().into_owned());
+                }
+                "memory" => {
+                    let path = write_memory_entry(&root, &slug, &u.findings[0])
+                        .map_err(|e| e.to_string())?;
+                    report.memory.push(path.to_string_lossy().into_owned());
+                }
+                other => return Err(format!("unknown context kind: {other}")),
             }
         }
         Ok::<_, String>(report)
@@ -304,5 +313,75 @@ mod tests {
     fn empty_unit_renders_empty_not_panics() {
         let u = CompiledUnit { kind: "memory".into(), name: "x".into(), findings: vec![] };
         assert_eq!(render_unit(&u), String::new());
+    }
+
+    /// The Critical bug: `canon_inventory_states` resolved state at
+    /// `slugify(&u.name)` while `write_md_entries` (pre-fix) named the file
+    /// from `slugify(&f.title)` — two independent free-text strings the model
+    /// authors in two different tool calls. Reviewer-confirmed real-world
+    /// divergence:
+    ///   written_slug   = screen-all-customers-for-pep-status-before-onboarding
+    ///   inventory_slug = pep-screening-policy
+    /// A unit reporting `New` (pre-selected for writing) could clobber an
+    /// unrelated file at the title-derived path, and a unit already on disk
+    /// reported `New` forever because state was checked at a path nothing
+    /// was ever written to. Write, then re-resolve, must report `Exists`.
+    #[tokio::test]
+    async fn write_then_resolve_reports_exists_not_new() {
+        let tmp = std::env::temp_dir().join(format!("canon-roundtrip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().into_owned();
+
+        let unit = CompiledUnit {
+            kind: "memory".into(),
+            name: "Screen all customers for PEP status before onboarding".into(),
+            findings: vec![CompiledFinding {
+                category: "domain_rule".into(),
+                title: "PEP screening policy".into(),
+                body_md: "Screen every onboarding customer against the PEP list.".into(),
+                evidence: vec![],
+                confidence: "high".into(),
+                kind: "memory".into(),
+            }],
+        };
+
+        canon_compile_units(root.clone(), vec![unit.clone()]).await.unwrap();
+
+        let report = canon_inventory_states(root, vec![unit]).await.unwrap();
+        assert_eq!(report.states.len(), 1);
+        assert_eq!(
+            report.states[0].state,
+            karl_canon::UnitState::Exists,
+            "unit written under its own name-derived slug must resolve as Exists, not New"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[tokio::test]
+    async fn unknown_kind_is_rejected() {
+        let tmp = std::env::temp_dir().join(format!("canon-unkkind-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().into_owned();
+
+        let unit = CompiledUnit {
+            kind: "mcp".into(),
+            name: "Not a real kind".into(),
+            findings: vec![CompiledFinding {
+                category: "convention".into(),
+                title: "x".into(),
+                body_md: "y".into(),
+                evidence: vec![],
+                confidence: "high".into(),
+                kind: "mcp".into(),
+            }],
+        };
+
+        let err = canon_compile_units(root, vec![unit]).await.unwrap_err();
+        assert!(err.contains("unknown context kind"), "error: {err}");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

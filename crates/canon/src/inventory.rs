@@ -97,7 +97,7 @@ mod tests {
         );
 
         let f = finding("Use tabs", "Always use tabs.");
-        write_memory_entry(&tmp, std::slice::from_ref(&f), true).unwrap();
+        write_memory_entry(&tmp, "use-tabs", &f).unwrap();
         let same = crate::compile::render_md_entry(&f);
 
         assert_eq!(

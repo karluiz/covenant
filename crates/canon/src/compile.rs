@@ -102,19 +102,6 @@ pub fn slugify(title: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
-/// Slug not already used on disk or in `taken`; suffixes -2, -3, … on collision.
-fn unique_slug(dir: &Path, base: &str, taken: &mut std::collections::HashSet<String>) -> String {
-    let base = if base.is_empty() { "entry".to_string() } else { base.to_string() };
-    let mut candidate = base.clone();
-    let mut n = 1;
-    while taken.contains(&candidate) || dir.join(format!("{candidate}.md")).exists() {
-        n += 1;
-        candidate = format!("{base}-{n}");
-    }
-    taken.insert(candidate.clone());
-    candidate
-}
-
 /// The exact bytes an md-backed entry (memory / command / subagent) is
 /// written as. Public so state resolution can compare a candidate against
 /// what is already on disk without rewriting it.
@@ -132,51 +119,40 @@ pub fn render_md_entry(f: &CompiledFinding) -> String {
     md
 }
 
-fn write_md_entries(
-    dir: &Path,
-    findings: &[CompiledFinding],
-    overwrite: bool,
-) -> Result<Vec<PathBuf>, CanonError> {
+/// Write a single md-backed entry at `<dir>/<slug>.md`, keyed on the
+/// caller-supplied slug — the same slug `canon_inventory_states` resolves
+/// state against, so a write always lands exactly where state resolution
+/// looked. Always overwrites: the unit was resolved against Canon before the
+/// caller decided to write, so a write at this slug is an intentional
+/// create-or-update, never an accidental collision.
+fn write_md_entry(dir: &Path, slug: &str, f: &CompiledFinding) -> Result<PathBuf, CanonError> {
     std::fs::create_dir_all(dir)?;
-    let mut taken = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    for f in findings {
-        let base = slugify(&f.title);
-        // ponytail: overwrite keys on the slug alone — that IS the unit
-        // identity the inventory resolved against. unique_slug only guards
-        // the `new` path, where a collision means Canon does not know the file.
-        let slug = if overwrite {
-            if base.is_empty() { "entry".to_string() } else { base }
-        } else {
-            unique_slug(dir, &base, &mut taken)
-        };
-        let path = dir.join(format!("{slug}.md"));
-        std::fs::write(&path, render_md_entry(f))?;
-        out.push(path);
-    }
-    Ok(out)
+    let slug = if slug.is_empty() { "entry" } else { slug };
+    let path = dir.join(format!("{slug}.md"));
+    std::fs::write(&path, render_md_entry(f))?;
+    Ok(path)
 }
 
 pub fn write_memory_entry(
     repo_root: &Path,
-    findings: &[CompiledFinding],
-    overwrite: bool,
-) -> Result<Vec<PathBuf>, CanonError> {
-    write_md_entries(&canon_dir(repo_root).join("memory"), findings, overwrite)
+    slug: &str,
+    f: &CompiledFinding,
+) -> Result<PathBuf, CanonError> {
+    write_md_entry(&canon_dir(repo_root).join("memory"), slug, f)
 }
 pub fn write_command_entry(
     repo_root: &Path,
-    findings: &[CompiledFinding],
-    overwrite: bool,
-) -> Result<Vec<PathBuf>, CanonError> {
-    write_md_entries(&canon_dir(repo_root).join("commands"), findings, overwrite)
+    slug: &str,
+    f: &CompiledFinding,
+) -> Result<PathBuf, CanonError> {
+    write_md_entry(&canon_dir(repo_root).join("commands"), slug, f)
 }
 pub fn write_subagent_entry(
     repo_root: &Path,
-    findings: &[CompiledFinding],
-    overwrite: bool,
-) -> Result<Vec<PathBuf>, CanonError> {
-    write_md_entries(&canon_dir(repo_root).join("agents"), findings, overwrite)
+    slug: &str,
+    f: &CompiledFinding,
+) -> Result<PathBuf, CanonError> {
+    write_md_entry(&canon_dir(repo_root).join("agents"), slug, f)
 }
 
 #[cfg(test)]
@@ -213,11 +189,10 @@ mod tests {
     fn memory_writes_one_file_per_finding_with_description() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        let paths = write_memory_entry(root, &[
-            finding_k("domain_rule", "PEP check", "memory"),
-            finding_k("glossary", "KYC term", "memory"),
-        ], false).unwrap();
-        assert_eq!(paths.len(), 2);
+        let p1 = write_memory_entry(root, "pep-check", &finding_k("domain_rule", "PEP check", "memory")).unwrap();
+        let p2 = write_memory_entry(root, "kyc-term", &finding_k("glossary", "KYC term", "memory")).unwrap();
+        assert!(p1.ends_with("pep-check.md"));
+        assert!(p2.ends_with("kyc-term.md"));
         let pep = std::fs::read_to_string(root.join(".covenant/canon/memory/pep-check.md")).unwrap();
         assert!(pep.contains("description: PEP check"), "frontmatter: {pep}");
         assert!(pep.contains("Always do PEP check."));
@@ -225,23 +200,11 @@ mod tests {
     }
 
     #[test]
-    fn memory_dedupes_colliding_slugs() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        let paths = write_memory_entry(root, &[
-            finding_k("domain_rule", "Same Title", "memory"),
-            finding_k("glossary", "Same Title", "memory"),
-        ], false).unwrap();
-        assert!(paths[0].ends_with("same-title.md"));
-        assert!(paths[1].ends_with("same-title-2.md"));
-    }
-
-    #[test]
     fn command_and_subagent_write_to_their_dirs() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        write_command_entry(root, &[finding_k("workflow", "Run tests", "command")], false).unwrap();
-        write_subagent_entry(root, &[finding_k("convention", "Reviewer", "subagent")], false).unwrap();
+        write_command_entry(root, "run-tests", &finding_k("workflow", "Run tests", "command")).unwrap();
+        write_subagent_entry(root, "reviewer", &finding_k("convention", "Reviewer", "subagent")).unwrap();
         assert!(root.join(".covenant/canon/commands/run-tests.md").exists());
         assert!(root.join(".covenant/canon/agents/reviewer.md").exists());
     }
@@ -305,25 +268,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         let f = finding("convention", "Use tabs");
         for _ in 0..3 {
-            write_memory_entry(&tmp, &[f.clone()], true).unwrap();
+            write_memory_entry(&tmp, "use-tabs", &f).unwrap();
         }
         let dir = tmp.join(".covenant/canon/memory");
         let n = std::fs::read_dir(&dir).unwrap().count();
-        assert_eq!(n, 1, "overwrite must not accumulate -2/-3");
+        assert_eq!(n, 1, "writing the same slug repeatedly must not accumulate -2/-3");
         assert!(dir.join("use-tabs.md").exists());
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn no_overwrite_still_suffixes() {
-        let tmp = std::env::temp_dir().join(format!("canon-nw-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        let f = finding("convention", "Use tabs");
-        write_memory_entry(&tmp, &[f.clone()], false).unwrap();
-        write_memory_entry(&tmp, &[f.clone()], false).unwrap();
-        let dir = tmp.join(".covenant/canon/memory");
-        assert!(dir.join("use-tabs.md").exists());
-        assert!(dir.join("use-tabs-2.md").exists());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -332,9 +282,19 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("canon-rd-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let f = finding("convention", "Use tabs");
-        let paths = write_memory_entry(&tmp, &[f.clone()], true).unwrap();
-        let on_disk = std::fs::read_to_string(&paths[0]).unwrap();
+        let path = write_memory_entry(&tmp, "use-tabs", &f).unwrap();
+        let on_disk = std::fs::read_to_string(&path).unwrap();
         assert_eq!(on_disk, render_md_entry(&f));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn empty_slug_falls_back_to_entry() {
+        let tmp = std::env::temp_dir().join(format!("canon-es-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let f = finding("convention", "Use tabs");
+        let path = write_memory_entry(&tmp, "", &f).unwrap();
+        assert!(path.ends_with("entry.md"), "path: {}", path.display());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
