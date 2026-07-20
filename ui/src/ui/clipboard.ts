@@ -13,13 +13,22 @@ export async function copyText(text: string): Promise<void> {
   } catch {
     // fall through
   }
+  const active = document.activeElement as HTMLElement | null;
   const ta = document.createElement("textarea");
   ta.value = text;
   ta.style.position = "fixed";
+  ta.style.top = "0";
+  ta.style.left = "0";
   ta.style.opacity = "0";
+  // execCommand("copy") copies the *selection*, so the node must be both
+  // focused and selectable — ancestors with user-select:none otherwise win.
+  ta.style.userSelect = "text";
+  ta.style.webkitUserSelect = "text";
   document.body.appendChild(ta);
-  ta.select();
+  ta.focus();
+  ta.setSelectionRange(0, text.length);
   const ok = document.execCommand("copy");
   ta.remove();
+  active?.focus?.();
   if (!ok) throw new Error("clipboard write blocked");
 }

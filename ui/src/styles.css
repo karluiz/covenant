@@ -3584,6 +3584,10 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
 #settings-page {
     display: grid;
     grid-template-rows: 56px 1fr;
+    /* Settings sits beside the sidebar, so window width says nothing about how
+       much room it actually has — measure the page itself. */
+    container-type: inline-size;
+    container-name: settings;
     background: var(--bg);
     overflow: hidden;
     animation: settings-fade 0.12s ease-out;
@@ -3740,9 +3744,33 @@ body.tabbar-left.sidebar-view-somnus #layout:has(> #capabilities-page:not([hidde
 
 .settings-body {
     display: grid;
-    grid-template-columns: 220px 1fr;
+    /* minmax(0,…): a plain 1fr track still has min-width:auto, so wide content
+       (the providers detail pane) grows the track and overflows the page. */
+    grid-template-columns: 220px minmax(0, 1fr);
     overflow: hidden;
     min-height: 0;
+}
+
+/* Narrow: nav folds into a horizontal strip above the form. */
+@container settings (max-width: 760px) {
+    .settings-body {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+    .settings-nav {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 10px 12px;
+        overflow-x: auto;
+    }
+    .settings-nav-links {
+        flex-direction: row;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    .settings-nav-links a {
+        white-space: nowrap;
+    }
 }
 
 .settings-nav {
@@ -4070,9 +4098,31 @@ body.tabbar-left.sidebar-view-somnus #layout:has(> #capabilities-page:not([hidde
     border-radius: 0;
     overflow: hidden;
     display: grid;
-    grid-template-columns: 256px 1fr;
+    grid-template-columns: 256px minmax(0, 1fr);
     min-height: 460px;
     position: relative;
+}
+/* Narrow: rail stacks above the detail pane; field labels stack over inputs. */
+@container settings (max-width: 900px) {
+    .providers-md__frame {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+    .providers-md__rail {
+        border-right: none;
+        border-bottom: 1px solid rgb(var(--ink-rgb) / 0.07);
+    }
+    .providers-md__rail-list {
+        max-height: 180px;
+    }
+    .providers-md__pane {
+        padding: 18px 16px;
+    }
+    .providers-md__grid {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+        gap: 6px;
+    }
 }
 /* ponytail: True Dark wants no elevation lift — flatten frame to page black;
    the border + rail/section tokens still carry the internal structure. */
@@ -4345,7 +4395,7 @@ body.theme-true-dark .settings-nav a.active { background: rgb(var(--ink-rgb) / 0
 
 .providers-md__secret {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 6px;
 }
 .providers-md__secret .providers-md__input { letter-spacing: 0.04em; }
