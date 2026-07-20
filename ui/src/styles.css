@@ -3404,7 +3404,11 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
 
 .ctx-menu {
     position: fixed;
-    z-index: 1200;
+    /* Portaled to <body>, so it joins the same tier as .ui-select__popover /
+       .spawns-popover: above full-window takeovers (pulse-frame 9000,
+       op-creator 2147482000), below the notch ceiling (2147483000). At the old
+       1200 the Pulse dashboard painted over an open tab context menu. */
+    z-index: 2147482500;
     min-width: 180px;
     background: var(--bg-overlay);
     border: 1px solid var(--border);
@@ -15503,7 +15507,9 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
    above the target (flips below near the top edge). */
 .ck-tooltip {
     position: fixed;
-    z-index: 9999;
+    /* Above every portaled layer (incl. .ctx-menu / popovers at 2147482500)
+       but below the notch ceiling. Safe: pointer-events: none, never traps input. */
+    z-index: 2147482600;
     display: none;
     pointer-events: none;
     max-width: 340px;
