@@ -742,10 +742,15 @@ impl Storage {
         // `escalate`, which counted them as verdicts the operator never
         // reached — inflating escalate_count and leaving tabs stuck
         // Blocked in convergence. Matched on the `api error: ` prefix
-        // that path has always written. Idempotent: reruns match nothing.
+        // that path has always written. Checks `rationale` as well as
+        // `escalation`: rows predating the `escalation` column (added
+        // just above) carry the text in `rationale` only, and they are
+        // the overwhelming majority — matching `escalation` alone caught
+        // 4 of 192 on a real profile. Idempotent: reruns match nothing.
         let _ = conn.execute(
             "UPDATE operator_decisions SET action = 'error' \
-             WHERE action = 'escalate' AND escalation LIKE 'api error: %'",
+             WHERE action = 'escalate' \
+               AND COALESCE(escalation, rationale) LIKE 'api error: %'",
             [],
         );
         // Operator identity: voice tone for outbound messages.
