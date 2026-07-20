@@ -100,6 +100,14 @@ pub struct ExperimentalConfig {
     #[serde(default)]
     pub internal_browser: bool,
 
+    /// Enable the Tasker board-share control (share a project's board to
+    /// the forge). Off by default: the forge has no `/boards` routes yet
+    /// (that work lives in a separate, unbuilt repo), so every share
+    /// attempt would 404 in production. Flip to `true` in config.json to
+    /// exercise the feature while the forge side is built out.
+    #[serde(default)]
+    pub board_share: bool,
+
     /// Atomic tab-style customization (shape, background, indicator, etc).
     /// When enabled, the monolithic preset radio buttons in Appearance are
     /// hidden and the user gets granular controls instead. When disabled,
@@ -114,6 +122,7 @@ impl Default for ExperimentalConfig {
             split_panes: false,
             statusbar_two_row: false,
             internal_browser: false,
+            board_share: false,
             tab_styles: TabStylesConfig::default(),
         }
     }
@@ -1266,6 +1275,21 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let s2: Settings = serde_json::from_str(&json).unwrap();
         assert!(s2.experimental.internal_browser);
+    }
+
+    #[test]
+    fn experimental_board_share_defaults_false() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!s.experimental.board_share);
+    }
+
+    #[test]
+    fn experimental_board_share_roundtrip() {
+        let mut s = Settings::default();
+        s.experimental.board_share = true;
+        let json = serde_json::to_string(&s).unwrap();
+        let s2: Settings = serde_json::from_str(&json).unwrap();
+        assert!(s2.experimental.board_share);
     }
 
     #[test]
