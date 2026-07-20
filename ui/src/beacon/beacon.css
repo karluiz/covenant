@@ -2,6 +2,13 @@
    system (ui/src/styles.css); this file holds the run-detail taxonomy
    (meta strip, jobs/steps tree) and the titlebar live-indicator states. */
 
+/* A grid item's automatic minimum size is min-content unless it clips, so
+   with jobs expanded the host stretched #layout's 1fr row past the viewport
+   instead of letting .rail-body scroll. Same rule as #tasker/#somnus-panel. */
+#beacon-panel {
+  overflow: hidden;
+}
+
 /* ── Release ledger: runs grouped by ref ─────────────────────────────
    Header = ref + aggregate state + freshest time; a segmented bar (one
    segment per run) shows the group's shape; child rows carry state in

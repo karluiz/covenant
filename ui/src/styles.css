@@ -5205,89 +5205,73 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     will-change: transform;
 }
 
-/* Secondary (Cancel) — quiet ghost button with a faint inner sheen */
+/* Secondary (Cancel) — flat ghost: one hairline, no bevel, no shadow. */
 .settings-cancel,
 .mission-viewer-cancel,
 .mission-page-cancel {
     color: color-mix(in srgb, var(--fg, #e6e8eb) 85%, transparent);
-    background:
-        linear-gradient(180deg,
-            rgb(255 255 255 / 0.025) 0%,
-            rgb(255 255 255 / 0) 100%),
-        rgb(255 255 255 / 0.01);
-    border: 1px solid rgb(255 255 255 / 0.09);
-    box-shadow:
-        inset 0 1px 0 rgb(255 255 255 / 0.04),
-        0 1px 0 rgb(0 0 0 / 0.25);
+    background: transparent;
+    border: 1px solid rgb(255 255 255 / 0.12);
+    box-shadow: none;
 }
 
 .settings-cancel:hover,
 .mission-viewer-cancel:hover,
 .mission-page-cancel:hover {
     color: var(--fg, #fff);
-    background:
-        linear-gradient(180deg,
-            rgb(255 255 255 / 0.05) 0%,
-            rgb(255 255 255 / 0.015) 100%);
-    border-color: rgb(255 255 255 / 0.16);
+    background: rgb(255 255 255 / 0.05);
+    border-color: rgb(255 255 255 / 0.22);
 }
 
 .settings-cancel:active,
 .mission-viewer-cancel:active,
 .mission-page-cancel:active {
-    transform: translateY(0.5px);
     background: rgb(255 255 255 / 0.02);
-    box-shadow:
-        inset 0 1px 2px rgb(0 0 0 / 0.35);
 }
 
-/* Primary (Save / Set mission) — tinted gradient + crisp top highlight,
-   soft accent halo, no flat-paint look */
+/* Rides inside the Save slab — the chord belongs to that button, so it
+   inherits its fill and just dims against it. */
+/* Scoped through the button so `body.theme-light kbd` (0,1,1) can't win
+   and paint the chord dark against the accent fill. */
+.settings-save .settings-save-kbd {
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    margin-left: 8px;
+    color: inherit;
+    opacity: 0.65;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+}
+
+/* Primary (Save / Set mission) — flat accent slab. The weight comes from
+   the fill alone; hover/active shift the fill, nothing moves. */
 .settings-save,
 .mission-viewer-save,
 .mission-page-submit {
     color: #0b0d10;
-    background:
-        linear-gradient(180deg,
-            color-mix(in srgb, var(--accent, #7aa2f7) 100%, white 12%) 0%,
-            var(--accent, #7aa2f7) 55%,
-            color-mix(in srgb, var(--accent, #7aa2f7) 88%, black 10%) 100%);
-    border: 1px solid color-mix(in srgb, var(--accent, #7aa2f7) 65%, black 18%);
-    box-shadow:
-        inset 0 1px 0 rgb(255 255 255 / 0.45),
-        inset 0 -1px 0 rgb(0 0 0 / 0.12),
-        0 1px 1px rgb(0 0 0 / 0.35),
-        0 6px 18px -8px color-mix(in srgb, var(--accent, #7aa2f7) 75%, transparent);
+    background: var(--accent, #7aa2f7);
+    border: 1px solid var(--accent, #7aa2f7);
+    box-shadow: none;
     font-weight: 600;
-    text-shadow: 0 1px 0 rgb(255 255 255 / 0.18);
 }
 
 .settings-save:hover,
 .mission-viewer-save:hover,
 .mission-page-submit:not(:disabled):hover {
-    background:
-        linear-gradient(180deg,
-            color-mix(in srgb, var(--accent, #7aa2f7) 100%, white 20%) 0%,
-            color-mix(in srgb, var(--accent, #7aa2f7) 100%, white 6%) 55%,
-            var(--accent, #7aa2f7) 100%);
-    box-shadow:
-        inset 0 1px 0 rgb(255 255 255 / 0.55),
-        inset 0 -1px 0 rgb(0 0 0 / 0.1),
-        0 1px 1px rgb(0 0 0 / 0.35),
-        0 10px 22px -8px color-mix(in srgb, var(--accent, #7aa2f7) 85%, transparent);
+    background: color-mix(in srgb, var(--accent, #7aa2f7) 100%, white 12%);
+    border-color: color-mix(in srgb, var(--accent, #7aa2f7) 100%, white 12%);
 }
 
 .settings-save:active,
 .mission-viewer-save:active,
 .mission-page-submit:not(:disabled):active {
-    transform: translateY(0.5px);
-    background:
-        linear-gradient(180deg,
-            color-mix(in srgb, var(--accent, #7aa2f7) 92%, black 8%) 0%,
-            color-mix(in srgb, var(--accent, #7aa2f7) 88%, black 14%) 100%);
-    box-shadow:
-        inset 0 1px 2px rgb(0 0 0 / 0.25),
-        0 1px 0 rgb(0 0 0 / 0.3);
+    background: color-mix(in srgb, var(--accent, #7aa2f7) 88%, black 12%);
+    border-color: color-mix(in srgb, var(--accent, #7aa2f7) 88%, black 12%);
 }
 
 .settings-cancel:focus-visible,
@@ -8787,14 +8771,16 @@ body.structure-dragging * {
 /* Solidify nested header + body too — both inherit alpha-tinted
    surfaces from the global theme. */
 .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
-.tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
+.tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-body,
+.tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-lsp-banner {
     background: rgb(17 20 26);
 }
 /* True Dark/OLED: the editor overlay hardcodes rgb(17 20 26) slate to stay
    solid over xterm; on true black that reads as a grey topbar. Pin to #000. */
 body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host,
 body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
-body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
+body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-body,
+body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-lsp-banner {
     background: #000000;
 }
 .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])):has(.blocks-collapsed) > .editor-host {
@@ -16289,6 +16275,18 @@ body.theme-light .structure-preview-xlsx-grid {
     color: var(--text-primary) !important;
 }
 body.theme-light .structure-editor-header { color: var(--muted) !important; }
+/* Overlay mode covers the live terminal — --bg-panel is alpha-tinted
+   (vibrancy) so xterm text bleeds through the header/banner/body.
+   Pin every layer opaque while the editor overlays a tab pane.
+   --bg-elevated instead of #fff: it is opaque in every theme, and under
+   Special Themes it derives from the artwork's ground, so the overlay
+   doesn't read as a white slab punched through the chrome. */
+body.theme-light .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host,
+body.theme-light .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
+body.theme-light .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-body,
+body.theme-light .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-lsp-banner {
+    background: var(--bg-elevated) !important;
+}
 
 /* ── XLSX viewer table: dark borders + dark text on dark = unreadable ── */
 body.theme-light .structure-preview-xlsx-table th,
@@ -16356,7 +16354,6 @@ body.theme-light .cloud-btn-primary:not(:disabled),
 body.theme-light .mission-viewer-save:not(:disabled),
 body.theme-light .mission-page-submit:not(:disabled) {
     color: #ffffff !important;
-    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 body.theme-light .settings-save:disabled,
 body.theme-light .mission-viewer-save:disabled,
@@ -17398,6 +17395,11 @@ body.sidebar-resizing .xterm {
 #right-sidebar-resizer {
   right: var(--right-sidebar-w);
   transform: translateX(4px);
+}
+/* With the horizontal tab bar, row 1 is the tab strip — the right rail
+   starts at row 2, so keep the handle out of the tab/group bar. */
+body:not(.tabbar-left) #right-sidebar-resizer {
+  grid-row: 2 / status-start;
 }
 body:not(.tabbar-left) #left-sidebar-resizer,
 body.tabbar-left-collapsed #left-sidebar-resizer,

@@ -1338,7 +1338,7 @@ export class SettingsPanel {
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
           <button type="button" class="settings-cancel">Cancel</button>
-          <button type="submit" class="settings-save">Save</button>
+          <button type="submit" class="settings-save">Save<kbd class="settings-save-kbd">${formatChord(["mod", "S"])}</kbd></button>
         </div>
     `;
 
@@ -2276,6 +2276,13 @@ export class SettingsPanel {
     if (tab === "covenant") this.mountCovenantOnce();
     if (tab === "operators") this.mountAchievementsOnce();
     if (tab === "cloud") this.mountCloudSyncOnce();
+
+    this.pageHost.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
