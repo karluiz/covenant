@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.46 — Settings ⌘S listener leak fix
+
+### Fixed
+
+- **⌘S in Settings stacked a listener per tab switch.** `render()` rebuilds the
+  settings form every time you change tabs, but the ⌘S handler was attached to
+  the persistent `pageHost` from inside `render()` — so each switch added
+  another listener, and every stale one held a dead form reference it kept
+  calling `requestSubmit()` on. The handler is now bound once in the
+  constructor and resolves the live `form.settings-form` when the chord fires;
+  it also ignores ⌘⇧S and ⌥⌘S instead of swallowing them
+  (`ui/src/settings/panel.ts`, regression test in
+  `ui/src/settings/save-chord.test.ts`).
+
+- **`package-lock.json` claimed the previous version.** v0.9.45's release
+  commit refreshed the npm lockfile but left it unstaged, so the tag shipped a
+  lockfile still reporting `0.9.44`. Corrected here.
+
 ## v0.9.45 — SpecScore spec quality scoring + gist share visibility
 
 ### Added
