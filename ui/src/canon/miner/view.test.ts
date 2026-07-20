@@ -22,12 +22,12 @@ const row = (over: Partial<UnitRow>): UnitRow => ({
   findings: [], state: "new", selected: false, ...over,
 });
 
-/** One proposed unit with one accepted finding, resolved to `state`. */
+/** One proposed unit with one finding, resolved to `state`. Curation is
+ *  opt-out, so the finding counts without being touched. */
 function armedState(state: "new" | "exists" | "changed", name = "A"): MinerState {
   const s = createMinerState();
   reduceMinerEvent(s, unitEv("u1", "skill", name));
   reduceMinerEvent(s, findingEv("f1", name, "one", "skill"));
-  setFindingStatus(s, "f1", "accepted");
   applyStates(s, { states: [{ kind: "skill", slug: name.toLowerCase(), state }], detected: [] });
   setUnitSelected(s, `skill:${name.toLowerCase()}`, true);
   return s;
@@ -83,6 +83,9 @@ describe("stateHint", () => {
     const hint = stateHint(row({ state: "unknown" }));
     expect(hint).toContain("never verified");
     expect(hint).toContain("cannot be written");
+    // Under opt-out the way back is restoring what was discarded, not accepting.
+    expect(hint).toContain("Restore a finding");
+    expect(hint).not.toContain("Accept");
   });
 });
 

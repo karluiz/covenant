@@ -80,25 +80,44 @@ describe("crawler inventory state", () => {
     expect(s.units.find((u) => u.slug === "b")!.selected).toBe(false);
   });
 
-  it("selectedUnits only returns selected units with accepted findings", () => {
+  it("selectedUnits returns every finding of a selected unit that was not discarded", () => {
+    // Curation is opt-out: a finding that arrived counts without the user
+    // touching it. Only discarding takes one out.
     const s = createMinerState();
     reduceMinerEvent(s, unitEv("u1", "skill", "A"));
     reduceMinerEvent(s, findingEv("f1", "A", "one"));
     reduceMinerEvent(s, findingEv("f2", "A", "two"));
     setUnitSelected(s, "skill:a", true);
-    setFindingStatus(s, "f1", "accepted");
+    const untouched = selectedUnits(s);
+    expect(untouched).toHaveLength(1);
+    expect(untouched[0].findings.map((f) => f.title)).toEqual(["one", "two"]);
+  });
+
+  it("a discarded finding drops out, and restoring it brings it back", () => {
+    const s = createMinerState();
+    reduceMinerEvent(s, unitEv("u1", "skill", "A"));
+    reduceMinerEvent(s, findingEv("f1", "A", "one"));
+    reduceMinerEvent(s, findingEv("f2", "A", "two"));
+    setUnitSelected(s, "skill:a", true);
+
     setFindingStatus(s, "f2", "discarded");
-    const out = selectedUnits(s);
-    expect(out).toHaveLength(1);
-    expect(out[0].findings).toHaveLength(1);
-    expect(out[0].findings[0].title).toBe("one");
+    expect(selectedUnits(s)[0].findings.map((f) => f.title)).toEqual(["one"]);
+
+    // Restore is the only path that produces `accepted`, and it counts exactly
+    // like the `pending` it replaced.
+    setFindingStatus(s, "f2", "accepted");
+    expect(selectedUnits(s)[0].findings.map((f) => f.title)).toEqual(["one", "two"]);
+
+    // Discard everything and the unit stops being writable at all.
+    setFindingStatus(s, "f1", "discarded");
+    setFindingStatus(s, "f2", "discarded");
+    expect(selectedUnits(s)).toHaveLength(0);
   });
 
   it("an unselected unit contributes nothing", () => {
     const s = createMinerState();
     reduceMinerEvent(s, unitEv("u1", "skill", "A"));
     reduceMinerEvent(s, findingEv("f1", "A", "one"));
-    setFindingStatus(s, "f1", "accepted");
     setUnitSelected(s, "skill:a", false);
     expect(selectedUnits(s)).toHaveLength(0);
   });
@@ -124,7 +143,6 @@ describe("crawler inventory state", () => {
     const s = createMinerState();
     reduceMinerEvent(s, unitEv("u1", "skill", "A"));
     reduceMinerEvent(s, findingEv("f1", "A", "one"));
-    setFindingStatus(s, "f1", "accepted");
     applyStates(s, { states: [{ kind: "skill", slug: "drifted", state: "new" }], detected: [] });
     const row = s.units.find((u) => u.slug === "a")!;
     expect(row.state).toBe("unknown");
@@ -146,16 +164,34 @@ describe("crawler inventory state", () => {
     expect(s.units[0].state).toBe("detected");
   });
 
+  it("a freshly crawled unit is checked, resolved and counted — all three agree", () => {
+    // The incoherence this encodes the fix for: with opt-in curation a row
+    // arrived `selected: true` but contributed nothing, so the checkbox said
+    // "yes", the footer said "0 to write", and resolving over the written
+    // bytes made the badge say "unchecked".
+    const s = createMinerState();
+    reduceMinerEvent(s, unitEv("u1", "skill", "A"));
+    reduceMinerEvent(s, findingEv("f1", "A", "one"));
+
+    // 1. It is resolvable without any curation…
+    expect(pendingUnits(s).map((u) => u.name)).toEqual(["A"]);
+    applyStates(s, { states: [{ kind: "skill", slug: "a", state: "new" }], detected: [] });
+
+    const rowA = s.units.find((u) => u.slug === "a")!;
+    expect(rowA.selected).toBe(true);   // 2. the checkbox
+    expect(rowA.state).toBe("new");     // 3. a real resolved state, not `unknown`
+    expect(selectedUnits(s)).toHaveLength(1); // 4. and the footer's count
+  });
+
   it("pendingUnits resolves the same bytes selectedUnits writes", () => {
     const s = createMinerState();
     reduceMinerEvent(s, unitEv("u1", "skill", "A"));
     reduceMinerEvent(s, findingEv("f1", "A", "one"));
     reduceMinerEvent(s, findingEv("f2", "A", "two"));
-    // Nothing accepted yet: not writable, so nothing to resolve either.
-    expect(pendingUnits(s)).toHaveLength(0);
+    // Untouched, both findings count — resolution covers the full body.
+    expect(pendingUnits(s)[0].findings.map((f) => f.title)).toEqual(["one", "two"]);
 
     setFindingStatus(s, "f1", "discarded");
-    setFindingStatus(s, "f2", "accepted");
     editFindingBody(s, "f2", "Edited body.");
     applyStates(s, { states: [{ kind: "skill", slug: "a", state: "new" }], detected: [] });
 
@@ -167,13 +203,13 @@ describe("crawler inventory state", () => {
 
   it("pendingUnits slices a non-skill unit to the finding the backend renders", () => {
     // `render_unit` resolves `findings[0]`; `canon_compile_units` writes
-    // `findings[0]`. Discarding the first accepted finding must move BOTH.
+    // `findings[0]`. Discarding the first kept finding must move BOTH.
     const s = createMinerState();
     reduceMinerEvent(s, unitEv("u1", "memory", "Retry budget"));
     reduceMinerEvent(s, findingEv("f1", "Retry budget", "one"));
     reduceMinerEvent(s, findingEv("f2", "Retry budget", "two"));
+    expect(pendingUnits(s)[0].findings[0].title).toBe("one");
     setFindingStatus(s, "f1", "discarded");
-    setFindingStatus(s, "f2", "accepted");
     const sent = pendingUnits(s);
     expect(sent[0].findings).toHaveLength(1);
     expect(sent[0].findings[0].title).toBe("two");

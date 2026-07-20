@@ -206,10 +206,17 @@ export function editFindingBody(state: MinerState, id: string, body: string): vo
   if (c) c.editedBody = body;
 }
 
-/** A unit's findings as they would be written: accepted ones, edits applied. */
+/** A unit's findings as they would be written: everything not discarded, edits
+ *  applied.
+ *
+ *  Curation is OPT-OUT. A finding that arrived is included by default; the
+ *  explicit user action is discarding it. `pending` (arrived, untouched) and
+ *  `accepted` (explicitly kept after a discard was undone) both count — only
+ *  `discarded` is excluded. The opt-in reading of this filter is what made a
+ *  freshly crawled row render checked while contributing nothing. */
 function unitFindings(u: UnitRow): MinerFinding[] {
   const kept = u.findings
-    .filter((c) => c.status === "accepted")
+    .filter((c) => c.status !== "discarded")
     .map((c) => ({ ...c.finding, kind: u.kind, bodyMd: c.editedBody ?? c.finding.bodyMd }));
   // Non-skill kinds are a single entry; the backend slices to [..1] too.
   return u.kind === "skill" ? kept : kept.slice(0, 1);
@@ -224,16 +231,20 @@ export function selectedUnits(state: MinerState): CompiledUnit[] {
 
 /** Units to resolve inventory state for.
  *
- *  The findings sent are the ones `unitFindings` would write — accepted only,
- *  edits applied, non-skill kinds sliced to one — so the bytes the badge is
- *  computed over ARE the bytes a write puts on disk. Anything looser and the
- *  badge describes a body that never reaches the file (discard `findings[0]`,
- *  accept `findings[1]`, and the backend's `render_unit` resolves the wrong
- *  one). Callers must re-resolve whenever curation changes these bytes.
+ *  The findings sent are the ones `unitFindings` would write — everything not
+ *  discarded, edits applied, non-skill kinds sliced to one — so the bytes the
+ *  badge is computed over ARE the bytes a write puts on disk. Anything looser
+ *  and the badge describes a body that never reaches the file (discard
+ *  `findings[0]`, keep `findings[1]`, and the backend's `render_unit` resolves
+ *  the wrong one). Callers must re-resolve whenever curation changes these
+ *  bytes.
  *
- *  A unit with nothing accepted yet is dropped: `selectedUnits` refuses to
- *  write it, so there is no destination to warn about, and `applyStates` will
- *  fold it to `unknown` — honest, since nobody checked it. */
+ *  Under opt-out curation a unit is sent as soon as it carries one finding, so
+ *  the first resolution after a crawl covers every proposed row: the checkbox,
+ *  the badge and the footer all describe the same set from the first frame.
+ *  A unit whose findings were ALL discarded is dropped: `selectedUnits`
+ *  refuses to write it, so there is no destination to warn about, and
+ *  `applyStates` folds it to `unknown` — honest, since nobody checked it. */
 export function pendingUnits(state: MinerState): CompiledUnit[] {
   return state.units
     .filter((u) => u.state !== "detected")

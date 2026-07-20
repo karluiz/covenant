@@ -340,11 +340,6 @@
   border: 1px solid var(--border);
   background: var(--bg-elevated);
 }
-.canon-miner-card.is-accepted {
-  border-left: 3px solid var(--ok);
-  padding-left: 12px;
-}
-
 .canon-miner-card-top {
   display: flex;
   align-items: center;
@@ -425,25 +420,43 @@
   color: var(--fg);
 }
 
-.canon-miner-card-actions {
+/* Curation is opt-out: the only per-finding verb is Discard (Restore on a
+   discarded line), on the shared `.rail-row-action` button chrome.
+   The DOCK is a local class rather than `.rail-row-actions` on purpose — that
+   one carries `.rail-row:has(.rail-row-actions) { padding-right: 82px }`, and
+   every expanded unit row holds finding cards, so borrowing it would gouge
+   82px out of every row's line to pay for a dock nested three levels down.
+   Reveal still comes from the shared `.rail-row:hover .rail-row-action`. */
+.canon-miner-finding-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   display: flex;
-  gap: 6px;
-  justify-content: flex-end;
+  gap: 2px;
+}
+.canon-miner-finding-actions .rail-row-action { position: static; }
+.canon-miner-card:has(.canon-miner-finding-actions) .canon-miner-card-top {
+  padding-right: 26px;
 }
 
 .canon-miner-discarded {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
+  padding: 6px 34px 6px 14px;
   margin-bottom: 6px;
   font-size: var(--fs-meta, 11px);
   color: var(--fg-dim);
-  text-decoration: line-through;
-  cursor: pointer;
   border-radius: 0;
 }
 .canon-miner-discarded:hover { background: rgb(var(--ink-rgb) / 0.04); }
+.canon-miner-discarded-title {
+  flex: 1;
+  min-width: 0;
+  text-decoration: line-through;
+}
+.canon-miner-discarded .canon-miner-finding-actions { top: 4px; right: 6px; }
 
 /* ── Inventory rows ─────────────────────────────────────────────────────
    One row per candidate context unit, on the shared `.rail-*` chrome so the

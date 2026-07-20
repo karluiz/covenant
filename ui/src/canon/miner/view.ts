@@ -96,10 +96,10 @@ export function stateHint(u: UnitRow): string {
         ? `Foreign item in ${u.detectedIn}, no Canon source`
         : "Foreign item, no Canon source";
     case "unknown":
-      // Two paths land here: a unit with nothing accepted yet (never sent for
-      // resolution) and a resolution that failed outright. Both mean the same
-      // thing to the user, so the hint covers both.
-      return "This unit's destination was never verified against Canon, so it cannot be written. Accept a finding to resolve it — or restart the crawl if the check itself failed.";
+      // Two paths land here: a unit whose findings were all discarded (never
+      // sent for resolution) and a resolution that failed outright. Both mean
+      // the same thing to the user, so the hint covers both.
+      return "This unit's destination was never verified against Canon, so it cannot be written. Restore a finding to resolve it — or restart the crawl if the check itself failed.";
   }
 }
 
@@ -227,37 +227,37 @@ export class ContextMinerView {
       return;
     }
     const key = e.key.toLowerCase();
-    if (key === "a") this.acceptNewestPending();
-    else if (key === "d") this.discardNewestPending();
+    // Opt-out curation: `d` prunes, `a` puts back what `d` took. There is no
+    // "accept" keystroke any more — a finding nobody touched already counts.
+    if (key === "d") this.discardNewestKept();
+    else if (key === "a") this.restoreNewestDiscarded();
   }
 
   private allFindings(): FindingCard[] {
     return this.state.units.flatMap((u) => u.findings);
   }
 
-  /** `a` / `d` act on the newest pending finding, wherever it sits — the
-   *  owning unit is auto-expanded so the keystroke's effect is visible. */
-  private resolveNewestPending(status: "accepted" | "discarded"): void {
+  /** Act on the newest finding matching `from`, wherever it sits — the owning
+   *  unit is auto-expanded so the keystroke's effect is visible. */
+  private curateNewest(from: (f: FindingCard) => boolean, to: "accepted" | "discarded"): void {
     if (!this.canCurate()) return; // same rule as the rows: curate after the crawl
-    const owner = [...this.state.units]
-      .reverse()
-      .find((u) => u.findings.some((f) => f.status === "pending"));
+    const owner = [...this.state.units].reverse().find((u) => u.findings.some(from));
     if (!owner) return;
-    const pending = owner.findings.filter((f) => f.status === "pending");
-    const target = pending[pending.length - 1];
+    const matches = owner.findings.filter(from);
+    const target = matches[matches.length - 1];
     if (!target) return;
-    setFindingStatus(this.state, target.id, status);
+    setFindingStatus(this.state, target.id, to);
     this.expanded.add(owner.id);
     this.renderInventory();
     this.scheduleResolve();
   }
 
-  private acceptNewestPending(): void {
-    this.resolveNewestPending("accepted");
+  private discardNewestKept(): void {
+    this.curateNewest((f) => f.status !== "discarded", "discarded");
   }
 
-  private discardNewestPending(): void {
-    this.resolveNewestPending("discarded");
+  private restoreNewestDiscarded(): void {
+    this.curateNewest((f) => f.status === "discarded", "accepted");
   }
 
   // ── Header ───────────────────────────────────────────────────────────
@@ -530,14 +530,14 @@ export class ContextMinerView {
     this.curationTimer = null;
   }
 
-  /** Curation changes the bytes a unit would be written as — accepting a
-   *  finding, discarding one, restoring one, editing a body. `pendingUnits`
+  /** Curation changes the bytes a unit would be written as — discarding a
+   *  finding, restoring one, editing a body. `pendingUnits`
    *  now sends exactly those bytes, so the badge every row carries is stale
    *  the instant any of that happens, and a stale badge is the whole safety
    *  model of this screen (writes are unconditional create-or-update with no
    *  confirm step).
    *
-   *  Debounced because a curation pass is a burst — accept, accept, discard,
+   *  Debounced because a curation pass is a burst — discard, discard, restore,
    *  edit — and each step would otherwise buy a round-trip. `resolveStates`
    *  owns the ordering (`resolveToken`); this only decides when to ask.
    *  `preserveSelection` keeps the user's checkboxes: re-resolving must not
@@ -852,23 +852,37 @@ export class ContextMinerView {
     return kindRow;
   }
 
+  /** Curation is opt-out, so the card offers exactly one verb: Discard, on the
+   *  shared `.rail-row-action` dock the unit rows already use. A discarded
+   *  finding does not disappear — it collapses to a struck-through line that
+   *  keeps its own Restore action, so pruning is always reversible. There is
+   *  no Accept button: a finding that arrived is already in the write. */
   private findingCard(card: FindingCard, u: UnitRow): HTMLElement {
     const wrapper = document.createElement("div");
 
     if (card.status === "discarded") {
       wrapper.className = "canon-miner-discarded";
-      wrapper.textContent = card.finding.title;
-      wrapper.addEventListener("click", () => {
-        // No "restore to pending" in the reducer API — the card is a plain
-        // object, not an encapsulated class.
-        card.status = "pending";
-        this.renderInventory();
-        this.scheduleResolve();
-      });
+      const title = document.createElement("span");
+      title.className = "canon-miner-discarded-title";
+      title.textContent = card.finding.title;
+      const actions = document.createElement("div");
+      actions.className = "canon-miner-finding-actions";
+      const restore = iconButton(
+        Icons.check({ size: 12 }),
+        `Restore “${card.finding.title}” — put it back in the write`,
+        () => {
+          setFindingStatus(this.state, card.id, "accepted");
+          this.renderInventory();
+          this.scheduleResolve();
+        },
+      );
+      restore.classList.add("rail-row-action", "is-neutral");
+      actions.appendChild(restore);
+      wrapper.append(title, actions);
       return wrapper;
     }
 
-    wrapper.className = card.status === "accepted" ? "canon-miner-card is-accepted" : "canon-miner-card";
+    wrapper.className = "canon-miner-card";
     // The unit owns the kind; the card only records where it will land.
     wrapper.dataset.kind = u.kind;
 
@@ -913,25 +927,20 @@ export class ContextMinerView {
     }
 
     const actions = document.createElement("div");
-    actions.className = "canon-miner-card-actions";
-    const acceptBtn = document.createElement("button");
-    acceptBtn.className = "canon-miner-btn is-primary";
-    acceptBtn.innerHTML = `${Icons.check({ size: 12 })}<span>Accept</span>`;
-    acceptBtn.disabled = card.status === "accepted";
-    acceptBtn.addEventListener("click", () => {
-      setFindingStatus(this.state, card.id, "accepted");
-      this.renderInventory();
-      this.scheduleResolve();
-    });
-    const discardBtn = document.createElement("button");
-    discardBtn.className = "canon-miner-btn is-danger";
-    discardBtn.innerHTML = `${Icons.trash({ size: 12 })}<span>Discard</span>`;
-    discardBtn.addEventListener("click", () => {
-      setFindingStatus(this.state, card.id, "discarded");
-      this.renderInventory();
-      this.scheduleResolve();
-    });
-    actions.append(acceptBtn, discardBtn);
+    actions.className = "canon-miner-finding-actions";
+    const discard = iconButton(
+      Icons.trash({ size: 12 }),
+      `Discard “${card.finding.title}” — leave it out of the write`,
+      () => {
+        setFindingStatus(this.state, card.id, "discarded");
+        this.renderInventory();
+        this.scheduleResolve();
+      },
+    );
+    // Base `.rail-row-action` already hovers to --danger; `is-neutral` is the
+    // opt-out from that, which is exactly what Restore wants and Discard does not.
+    discard.classList.add("rail-row-action");
+    actions.appendChild(discard);
 
     wrapper.append(top, body, evidence, actions);
     return wrapper;
@@ -952,11 +961,17 @@ export class ContextMinerView {
 
     const writable = this.state.units.filter((u) => u.state !== "detected");
     const ready = selectedUnits(this.state);
-    const findings = this.allFindings().length;
+    const all = this.allFindings();
+    const discarded = all.filter((f) => f.status === "discarded").length;
     const countEl = document.createElement("span");
+    // Opt-out: the finding count is what will be written, so it nets out what
+    // the user pruned. The discarded tail is only shown once there is one —
+    // otherwise the footer advertises a verb nobody has used yet.
     countEl.textContent =
       `${writable.length} unit${writable.length === 1 ? "" : "s"} · ` +
-      `${findings} finding${findings === 1 ? "" : "s"} · ${ready.length} to write`;
+      `${all.length - discarded} finding${all.length - discarded === 1 ? "" : "s"} · ` +
+      `${ready.length} to write` +
+      (discarded > 0 ? ` · ${discarded} discarded` : "");
 
     // Writing is create-or-update with no confirm step, so the count of rows
     // that already exist in Canon is the only warning the user gets.
@@ -986,7 +1001,7 @@ export class ContextMinerView {
         ? "Writing to the repository…"
         : canWrite
           ? `Create or update ${ready.length} unit${ready.length === 1 ? "" : "s"} under .covenant/canon/`
-          : "Accept at least one finding on a checked unit first",
+          : "Check a unit that still has at least one finding first",
     );
     writeBtn.addEventListener("click", () => void this.writeToRepo(writeBtn));
 
