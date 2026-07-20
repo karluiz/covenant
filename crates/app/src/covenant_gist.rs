@@ -116,6 +116,13 @@ pub async fn gist_get_share(
     Ok(load_shares(&shares_path(&app)?).get(&path).cloned())
 }
 
+/// All locally-known shared paths — lets the UI badge shared rows
+/// without a per-file round-trip.
+#[tauri::command]
+pub async fn gist_list_shares(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    Ok(load_shares(&shares_path(&app)?).into_keys().collect())
+}
+
 #[tauri::command]
 pub async fn gist_publish(app: tauri::AppHandle, path: String) -> Result<GistShare, String> {
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;

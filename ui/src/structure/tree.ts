@@ -10,7 +10,14 @@ import { attachTooltip } from "../tooltip/tooltip";
 import { resolveFileIcon, resolveFolderIcon } from "./file-icons";
 import { ContextMenu, type MenuItem } from "../menu/context-menu";
 import { formatChord } from "../platform";
-import { shareFileAsGist, copyGistLink, revokeGist } from "../gist/share";
+import {
+  shareFileAsGist,
+  copyGistLink,
+  revokeGist,
+  isGistShared,
+  ensureGistSharesLoaded,
+  GIST_SHARES_EVENT,
+} from "../gist/share";
 import { pushInfoToast } from "../notifications/toast";
 import {
   structureClipboardFiles,
@@ -192,6 +199,27 @@ export class StructureTree {
     // focused. tabIndex -1 = programmatic focus only, not in tab order.
     this.root.tabIndex = -1;
     this.root.addEventListener("keydown", (ev) => this.onKeyDown(ev));
+
+    // Badge shared-as-gist rows, and re-badge whenever a share is
+    // published / revoked anywhere (tree menu or editor button).
+    ensureGistSharesLoaded();
+    window.addEventListener(GIST_SHARES_EVENT, () => this.refreshGistBadges());
+  }
+
+  /// Sync every rendered file row's gist badge with the share cache.
+  private refreshGistBadges(): void {
+    const rows = this.listEl.querySelectorAll<HTMLElement>(
+      'li.structure-node[data-kind="file"] > .structure-row',
+    );
+    for (const row of rows) {
+      const path = row.parentElement?.dataset.path ?? "";
+      const badge = row.querySelector(".structure-gist-badge");
+      if (isGistShared(path)) {
+        if (!badge) row.appendChild(makeGistBadge());
+      } else {
+        badge?.remove();
+      }
+    }
   }
 
   /// VS Code-style ⌘C (copy selected node) / ⌘V (paste into the selected
@@ -615,6 +643,10 @@ export class StructureTree {
     }
     row.appendChild(name);
 
+    if (entry.kind === "file" && isGistShared(entry.path)) {
+      row.appendChild(makeGistBadge());
+    }
+
     const node: NodeState = { entry, expanded: false, children: null, depth, el: li };
 
     // Internal drag source (pointer-based — see beginRowDrag). Only the
@@ -699,23 +731,33 @@ export class StructureTree {
     );
 
     if (node.entry.kind === "file" && isShareableAsGist(node.entry.path)) {
-      items.push(
-        { divider: true },
-        {
+      items.push({ divider: true });
+      if (isGistShared(node.entry.path)) {
+        items.push(
+          {
+            label: "Update gist",
+            onClick: () =>
+              void shareFileAsGist(node.entry.path).catch((err) => gistErrorToast("Update", err)),
+          },
+          {
+            label: "Copy gist link",
+            onClick: () =>
+              void copyGistLink(node.entry.path).catch((err) => gistErrorToast("Copy", err)),
+          },
+          {
+            label: "Revoke gist",
+            danger: true,
+            onClick: () =>
+              void revokeGist(node.entry.path).catch((err) => gistErrorToast("Revoke", err)),
+          },
+        );
+      } else {
+        items.push({
           label: "Share as gist",
           onClick: () =>
             void shareFileAsGist(node.entry.path).catch((err) => gistErrorToast("Share", err)),
-        },
-        {
-          label: "Copy gist link",
-          onClick: () => void copyGistLink(node.entry.path).catch((err) => gistErrorToast("Copy", err)),
-        },
-        {
-          label: "Revoke gist",
-          danger: true,
-          onClick: () => void revokeGist(node.entry.path).catch((err) => gistErrorToast("Revoke", err)),
-        },
-      );
+        });
+      }
     }
 
     this.contextMenu.show(x, y, items);
@@ -1161,6 +1203,16 @@ export function isShareableAsGist(path: string): boolean {
   const idx = name.lastIndexOf(".");
   if (idx <= 0) return true; // no extension (or dotfile) — assume text
   return !BINARY_EXTS.has(name.slice(idx + 1).toLowerCase());
+}
+
+/// Trailing row indicator for a file with a live gist share — the visual
+/// answer to "is this shared?" before opening the context menu.
+function makeGistBadge(): HTMLElement {
+  const badge = document.createElement("span");
+  badge.className = "structure-gist-badge";
+  badge.innerHTML = Icons.share({ size: 10 });
+  attachTooltip(badge, "Shared as gist");
+  return badge;
 }
 
 function gistErrorToast(verb: string, err: unknown): void {

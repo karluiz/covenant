@@ -94,7 +94,7 @@ import { applyLspDiagnostics, lspCompletionSource, lspExtensions, type LspHost }
 import { lspManager, lspLanguageId, onCodeIntelChange, type LspDoc, type LspDocStatus } from "../lsp/manager";
 import { lspRangeToCm, pathToUri } from "../lsp/positions";
 import { runtimeSuggestionLine } from "../lsp/runtime-hint";
-import { shareFileAsGist } from "../gist/share";
+import { shareFileAsGist, isGistShared, GIST_SHARES_EVENT } from "../gist/share";
 import { attachTooltip } from "../tooltip/tooltip";
 
 export interface EditorCallbacks {
@@ -401,6 +401,7 @@ export class StructureEditor {
         });
     });
     this.headerEl.appendChild(this.shareGistBtn);
+    window.addEventListener(GIST_SHARES_EVENT, () => this.syncShareGistBtn());
 
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
@@ -989,9 +990,18 @@ export class StructureEditor {
     return this.currentPath;
   }
 
+  /// Accent-tint the share button while the open file has a live gist.
+  private syncShareGistBtn(): void {
+    this.shareGistBtn.classList.toggle(
+      "is-shared",
+      this.currentPath != null && isGistShared(this.currentPath),
+    );
+  }
+
   async open(path: string, opts?: { line?: number }): Promise<void> {
     this.subscribeCodeIntel();
     this.currentPath = path;
+    this.syncShareGistBtn();
     this.pathLabelEl.textContent = shortenPath(path);
     this.pathLabelEl.title = path;
     this.setExt(path);

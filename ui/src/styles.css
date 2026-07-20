@@ -8733,6 +8733,19 @@ body.structure-dragging * {
     color: var(--muted);
     font-size: 10px;
 }
+/* Trailing "this file has a live gist share" indicator. Accent-tinted so
+   it reads as state (outbound link exists), not decoration. */
+.structure-gist-badge {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    margin-left: 4px;
+    color: var(--accent);
+    opacity: 0.75;
+}
+.structure-gist-badge svg {
+    display: block;
+}
 .structure-empty,
 .structure-error {
     padding: 14px 12px;
@@ -9140,6 +9153,10 @@ body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])
 .structure-editor-share-gist-btn:hover {
     color: var(--text-primary);
     background: rgb(var(--ink-rgb) / 0.04);
+}
+/* The open file has a live gist share — same state signal as the tree badge. */
+.structure-editor-share-gist-btn.is-shared {
+    color: var(--accent);
 }
 
 /* Scale dropdown — sits left of the PNG button. */

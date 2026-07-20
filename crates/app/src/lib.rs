@@ -5759,6 +5759,7 @@ pub fn run() {
             covenant_review::review_activity,
             covenant_review::review_resolve_comment,
             covenant_gist::gist_get_share,
+            covenant_gist::gist_list_shares,
             covenant_gist::gist_publish,
             covenant_gist::gist_revoke,
             score_commands::score_set_current_session,
