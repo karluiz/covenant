@@ -109,6 +109,13 @@ pub async fn rename_org(org: &str, name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Owner-only org deletion, keyed by slug (mirrors `rename_org`).
+pub async fn delete_org(org: &str) -> Result<(), String> {
+    let url = format!("{}/orgs/{}", auth::backend_url(), urlencoding(org));
+    send_authed(|j| client().delete(&url).bearer_auth(j)).await?;
+    Ok(())
+}
+
 pub async fn list_members(org: &str) -> Result<Vec<Member>, String> {
     let url = format!("{}/orgs/{}/members", auth::backend_url(), urlencoding(org));
     send_authed(|j| client().get(&url).bearer_auth(j))

@@ -1786,6 +1786,9 @@ export async function canonCreateOrg(slug: string, name: string): Promise<unknow
 export async function canonRenameOrg(org: string, name: string): Promise<void> {
   return invoke("canon_rename_org", { org, name });
 }
+export async function canonDeleteOrg(org: string): Promise<void> {
+  return invoke("canon_delete_org", { org });
+}
 export async function canonOrgMembers(org: string): Promise<Member[]> {
   return invoke<Member[]>("canon_org_members", { org });
 }

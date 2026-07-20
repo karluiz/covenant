@@ -13,6 +13,7 @@ import {
   canonOrgMembers,
   canonAddMember,
   canonRemoveMember,
+  canonDeleteOrg,
   canonMyOrgs,
   canonLocalStatus,
   canonReadLocal,
@@ -96,7 +97,7 @@ function loopSubhead(text: string): HTMLElement {
 }
 
 const SECTIONS: { key: SectionKey; label: string }[] = [
-  { key: "org", label: "Org" },
+  { key: "org", label: "Organization" },
   { key: "members", label: "Members" },
   { key: "operators", label: "Operators" },
   { key: "agents", label: "Subagents" },
@@ -461,7 +462,19 @@ export class CanonCockpitView {
           });
         });
         edit.classList.add("canon-cockpit-idcard-edit");
-        card.appendChild(edit);
+        const del = iconButton(Icons.trash({ size: 14 }), "Delete organization", () => {
+          if (!confirm(`Delete organization "${active.name}"? This removes its registry namespace and cannot be undone.`)) return;
+          void canonDeleteOrg(active.slug)
+            .then(() => {
+              const remaining = this.opts.orgs.filter((o) => o.slug !== active.slug);
+              this.opts.orgs = remaining;
+              this.opts.setActiveOrg(remaining[0]?.slug ?? null);
+              this.showSection("org");
+            })
+            .catch((e) => pushInfoToast({ message: `Couldn't delete organization: ${this.friendlyError(e)}` }));
+        });
+        del.classList.add("canon-cockpit-idcard-edit");
+        card.append(edit, del);
       }
       el.appendChild(card);
     } else {
