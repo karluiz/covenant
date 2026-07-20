@@ -82,6 +82,30 @@ pub fn run_state(status: &str, conclusion: Option<&str>) -> String {
 
 // ── GitHub fetch ────────────────────────────────────────────────────
 
+/// Pull the human-readable incident line out of githubstatus.com's
+/// `status.json`. `indicator: "none"` means all-green — say nothing rather
+/// than reassure the user about a request that just failed anyway.
+fn status_note(v: &serde_json::Value) -> Option<String> {
+    let s = v.get("status")?;
+    if s.get("indicator").and_then(|i| i.as_str())? == "none" {
+        return None;
+    }
+    let desc = s.get("description").and_then(|d| d.as_str())?;
+    Some(format!("GitHub reports: {desc}"))
+}
+
+/// Ask githubstatus.com whether this is GitHub's fault. Best-effort: any
+/// failure here is silence, never a second error stacked on the first.
+async fn github_incident(client: &reqwest::Client) -> Option<String> {
+    let resp = client
+        .get("https://www.githubstatus.com/api/v2/status.json")
+        .header("User-Agent", "covenant-client")
+        .send()
+        .await
+        .ok()?;
+    status_note(&resp.json::<serde_json::Value>().await.ok()?)
+}
+
 async fn gh_get(client: &reqwest::Client, token: &str, url: &str) -> Result<serde_json::Value, String> {
     let resp = client
         .get(url)
@@ -96,9 +120,15 @@ async fn gh_get(client: &reqwest::Client, token: &str, url: &str) -> Result<serd
     if !(200..300).contains(&status) {
         // GitHub packs the real reason (SSO, OAuth-app restriction, rate-limit,
         // …) into the JSON `message`; surface it so a 403 isn't a coin-flip.
-        let detail = serde_json::from_str::<serde_json::Value>(&text)
+        tracing::warn!(url, status, "github request failed");
+        let mut detail = serde_json::from_str::<serde_json::Value>(&text)
             .ok()
             .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_string));
+        // A 5xx is never the user's doing — if GitHub is having an incident,
+        // that beats whatever prose the edge returned.
+        if status >= 500 {
+            detail = github_incident(client).await.or(detail);
+        }
         return Err(match (status, detail) {
             (401, _) => "github: token invalid or expired — reconnect GitHub in Settings".into(),
             (403, Some(m)) => format!("github: {m}"),
@@ -394,6 +424,19 @@ pub fn parse_owner_repo(remote_url: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn status_note_speaks_only_during_an_incident() {
+        let green = serde_json::json!({"status":{"indicator":"none","description":"All Systems Operational"}});
+        assert_eq!(status_note(&green), None);
+
+        let degraded = serde_json::json!({"status":{"indicator":"minor","description":"Minor Service Outage"}});
+        assert_eq!(status_note(&degraded), Some("GitHub reports: Minor Service Outage".into()));
+
+        // Shape drift upstream must not panic — just stay quiet.
+        assert_eq!(status_note(&serde_json::json!({})), None);
+        assert_eq!(status_note(&serde_json::json!({"status":{"indicator":"major"}})), None);
+    }
 
     #[test]
     fn run_state_collapses_status_and_conclusion() {
