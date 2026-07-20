@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { createStreamState } from './stream-state';
+import { composePartialMarkdown, createStreamState } from './stream-state';
+import type { SectionView } from './stream-state';
+import type { SpecSectionKey } from './events';
+
+describe('composePartialMarkdown', () => {
+  it('composes only present sections with canonical headers', () => {
+    const sections = new Map<SpecSectionKey, SectionView>([
+      ['goal', { markdown: 'Do the thing.', status: 'done' }],
+      ['acceptance', { markdown: '- it does the thing', status: 'filling' }],
+    ]);
+    const md = composePartialMarkdown({ section: (k) => sections.get(k) ?? null });
+    expect(md).toContain('## Goal\n\nDo the thing.');
+    expect(md).toContain('## Acceptance criteria');
+    expect(md).not.toContain('## Out of scope');
+  });
+});
 
 describe('createStreamState', () => {
   it('accumulates thinking + tool activity and tracks sections', () => {

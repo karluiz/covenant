@@ -1,0 +1,52 @@
+import { describe, expect, it } from 'vitest';
+import { scoreSpec } from './engine';
+import { makeSpecScoreBadge, makeSpecScoreChip, renderBreakdown } from './badge';
+
+describe('spec-score UI', () => {
+  const s = scoreSpec('## Goal\n\nDo the thing well and completely.\n');
+
+  it('chip renders score+grade and hides on null', () => {
+    const chip = makeSpecScoreChip();
+    chip.update(s);
+    expect(chip.el.hidden).toBe(false);
+    expect(chip.el.textContent).toContain(String(s.score));
+    expect(chip.el.textContent).toContain(s.grade);
+    expect(chip.el.dataset.grade).toBe(s.grade);
+    chip.update(null);
+    expect(chip.el.hidden).toBe(true);
+  });
+
+  it('chip click fires handler', () => {
+    const chip = makeSpecScoreChip();
+    let clicked = 0;
+    chip.setOnClick(() => clicked++);
+    chip.el.click();
+    expect(clicked).toBe(1);
+  });
+
+  it('breakdown renders one row per dimension with findings', () => {
+    const el = renderBreakdown(s);
+    expect(el.querySelectorAll('.ssd-row')).toHaveLength(7);
+    expect(el.textContent).toContain('Verifiability');
+    // width proportional to earned/weight
+    const bar = el.querySelector<HTMLElement>('.ssd-fill')!;
+    expect(bar.style.width.endsWith('%')).toBe(true);
+  });
+
+  it('badge is compact text', () => {
+    const b = makeSpecScoreBadge(s);
+    expect(b.textContent).toBe(`${s.score} ${s.grade}`);
+    expect(b.dataset.grade).toBe(s.grade);
+  });
+
+  it('breakdown shows deep button when handler given, note when deep applied', () => {
+    let called = 0;
+    const el = renderBreakdown(s, { onDeep: () => called++ });
+    const btn = el.querySelector<HTMLButtonElement>('.spec-score-deep-btn')!;
+    btn.click();
+    expect(called).toBe(1);
+    const deepEl = renderBreakdown({ ...s, deep: true }, { onDeep: () => {} });
+    expect(deepEl.querySelector('.spec-score-deep-btn')).toBeNull();
+    expect(deepEl.querySelector('.spec-score-deep-note')).not.toBeNull();
+  });
+});

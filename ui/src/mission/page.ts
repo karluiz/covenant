@@ -5,6 +5,9 @@ import { listSuperpowersMissions, specAuthorListDrafts, type MissionRef } from "
 import type { SuperpowersMissionEntry, SpecDraftSummary } from "../api";
 import { Icons } from "../icons";
 import { renderMarkdown } from "../ui/markdown";
+import { scoreSpec, type SpecScore } from "../spec-score/engine";
+import { makeSpecScoreChip, renderBreakdown } from "../spec-score/badge";
+import { deepScore } from "../spec-score/deep";
 import { formatChord } from "../platform";
 
 export type SelectedRef =
@@ -117,6 +120,8 @@ export class MissionPage {
   // Preview pane state — populated lazily by loadPreview() on selection.
   private previewBody = "";
   private previewPath = "";
+  /** SpecScore per published-spec path; null = unreadable (no badge, no retry). */
+  private scoreCache = new Map<string, SpecScore | null>();
   private previewLoading = false;
   private previewTruncated = false;
   private previewError: string | null = null;
@@ -141,6 +146,7 @@ export class MissionPage {
     this.previewLoading = false;
     this.previewTruncated = false;
     this.previewError = null;
+    this.scoreCache.clear();
     this.workspace.hidden = true;
     this.pageHost.hidden = false;
     this.isOpenState = true;
@@ -255,6 +261,7 @@ export class MissionPage {
     if (!this.isOpenState) return;
     const s = this.state;
     const visible = filterSpecs(s.specs, s.query);
+    void this.fillScores(visible);
 
     // Preserve focus + caret across innerHTML wipe (search/path inputs).
     const active = document.activeElement as HTMLElement | null;
@@ -417,6 +424,7 @@ export class MissionPage {
             <span class="mission-page-spec-goal">${escapeHtml(spec.goal)}</span>
           </span>
           <span class="mission-page-badges">
+            ${this.scoreBadgeHtml(spec.path)}
             ${spec.worktree_label ? `<span class="mission-page-badge mission-page-badge-wt">${escapeHtml(spec.worktree_label)}</span>` : ""}
             ${isCurrent ? `<span class="mission-page-badge">current</span>` : ""}
             ${!isCurrent && isNew ? `<span class="mission-page-badge mission-page-badge-new">new</span>` : ""}
@@ -426,6 +434,32 @@ export class MissionPage {
     }).join("");
     const count = visible.length !== s.specs.length ? `${visible.length}/${s.specs.length}` : `${visible.length}`;
     return this.section("published", "Published", count, cards, specAction);
+  }
+
+  private scoreBadgeHtml(path: string): string {
+    const s = this.scoreCache.get(path);
+    return s ? `<span class="spec-score-badge" data-grade="${s.grade}">${s.score} ${s.grade}</span>` : "";
+  }
+
+  /** Compute SpecScores for visible rows that lack one; re-render once when any
+   *  land. Unreadable specs cache as null so failures don't retry every render. */
+  private async fillScores(visible: PublishedSpec[]): Promise<void> {
+    const missing = visible.filter((s) => !this.scoreCache.has(s.path));
+    if (missing.length === 0) return;
+    const generation = this.openGeneration;
+    let landed = false;
+    await Promise.all(
+      missing.map(async (s) => {
+        try {
+          const { body } = await draftsApi.readSpecBody(s.path, 65536);
+          this.scoreCache.set(s.path, scoreSpec(body));
+          landed = true;
+        } catch {
+          this.scoreCache.set(s.path, null);
+        }
+      }),
+    );
+    if (landed && generation === this.openGeneration && this.isOpenState) this.render();
   }
 
   private renderSuperpowersSection(): string {
@@ -534,6 +568,39 @@ export class MissionPage {
       ? `<div class="mission-page-preview-truncated">⚠ Truncated (file > 200 KB)</div>`
       : "";
     main.innerHTML = `${truncatedNote}<article class="mission-page-preview-body markdown-body markdown-doc">${renderMarkdown(this.previewBody)}</article>`;
+    // SpecScore header — only for docs that are actually specs (canonical Goal
+    // heading); arbitrary markdown previews stay unscored.
+    if (/^##\s+Goal\s*$/m.test(this.previewBody)) {
+      const body = this.previewBody;
+      let score = scoreSpec(body);
+      const bar = document.createElement("div");
+      bar.className = "mission-page-preview-score";
+      const chip = makeSpecScoreChip();
+      chip.update(score);
+      let breakdown: HTMLElement | null = null;
+      const renderBk = () => {
+        const next = renderBreakdown(score, {
+          onDeep: async () => {
+            score = await deepScore(body, score);
+            chip.update(score);
+            if (breakdown) renderBk();
+          },
+        });
+        if (breakdown) breakdown.replaceWith(next);
+        else bar.after(next);
+        breakdown = next;
+      };
+      chip.setOnClick(() => {
+        if (breakdown) {
+          breakdown.remove();
+          breakdown = null;
+        } else {
+          renderBk();
+        }
+      });
+      bar.append(chip.el);
+      main.prepend(bar);
+    }
     return main;
   }
 

@@ -50,6 +50,8 @@ import { highlightMatches, clearMarks } from "./find-highlight";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { draftsApi } from "../drafts/api";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
+import { makeSpecScoreBadge } from "../spec-score/badge";
+import { scoreSpec } from "../spec-score/engine";
 import { attachTooltip } from "../tooltip/tooltip";
 import { VitalsCluster } from "./vitals";
 import { ContextMenu, type MenuItem } from "../menu/context-menu";
@@ -1984,7 +1986,7 @@ async function publishMissionForReview(path: string, content: string): Promise<S
     return null;
   }
   const title = deriveShareTitle(content, path);
-  const share = await reviewApi.publish(path, title);
+  const share = await reviewApi.publish(path, title, scoreSpec(content));
   void navigator.clipboard.writeText(share.url);
   pushInfoToast({ message: "Review link copied — shared as v1" });
   return share;
@@ -2264,6 +2266,14 @@ class MissionViewerModal {
 
   private renderHeader(): void {
     if (!this.overlay || !this.mission) return;
+    // SpecScore badge beside the title — only for canonical specs.
+    const titles = this.overlay.querySelector<HTMLElement>(".mission-viewer-titles");
+    if (titles) {
+      titles.querySelector(".spec-score-badge")?.remove();
+      if (/^##\s+Goal\s*$/m.test(this.content)) {
+        titles.appendChild(makeSpecScoreBadge(scoreSpec(this.content)));
+      }
+    }
     const pathEl = this.overlay.querySelector<HTMLElement>(".mission-viewer-path");
     if (pathEl) {
       // Compact breadcrumb: last few segments, filename emphasized. The
@@ -2422,7 +2432,7 @@ class MissionViewerModal {
 
   private async republishForReview(path: string): Promise<void> {
     try {
-      const share = await reviewApi.republish(path);
+      const share = await reviewApi.republish(path, scoreSpec(this.content));
       if (this.mission?.path !== path) return;
       this.share = share;
       pushInfoToast({ message: `Republished as v${share.version}` });

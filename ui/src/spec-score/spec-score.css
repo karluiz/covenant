@@ -1,0 +1,92 @@
+.spec-score-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.14);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.spec-score-chip-label {
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.spec-score-chip-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.spec-score-badge {
+  display: inline-flex;
+  padding: 1px 5px;
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.14);
+  border-radius: 0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+}
+.spec-score-chip[data-grade='S'] .spec-score-chip-value,
+.spec-score-badge[data-grade='S'] { color: var(--accent, #7aa2f7); }
+.spec-score-chip[data-grade='C'] .spec-score-chip-value,
+.spec-score-badge[data-grade='C'] { color: var(--running, #e0af68); }
+.spec-score-chip[data-grade='D'] .spec-score-chip-value,
+.spec-score-badge[data-grade='D'] { color: var(--danger, #e85a5a); }
+
+.spec-score-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.14);
+}
+.ssd-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+.ssd-pts {
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ssd-bar {
+  height: 3px;
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.12);
+}
+.ssd-fill {
+  height: 100%;
+  background: var(--accent, #7aa2f7);
+}
+.ssd-fill[data-level='low'] { background: var(--danger, #e85a5a); }
+.ssd-fill[data-level='mid'] { background: var(--running, #e0af68); }
+.ssd-finding {
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  margin-top: 3px;
+  padding-left: 8px;
+  border-left: 2px solid rgb(var(--ink-rgb, 255 255 255) / 0.2);
+}
+.spec-score-deep-btn {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.14);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.spec-score-deep-btn:hover { border-color: var(--accent, #7aa2f7); }
+.mission-page-preview-score {
+  display: flex;
+  margin-bottom: 10px;
+}
+.spec-score-deep-note {
+  font-size: 10px;
+  color: var(--fg-dim);
+}

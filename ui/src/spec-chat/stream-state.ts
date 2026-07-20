@@ -39,6 +39,18 @@ export interface StreamState {
   onChange(cb: () => void): () => void;
 }
 
+/** Compose whatever sections currently have content — for live scoring of a
+ *  partial draft. Unlike finalMarkdown() this never returns null. */
+export function composePartialMarkdown(state: Pick<StreamState, 'section'>): string {
+  return SECTIONS.map((s) => {
+    const v = state.section(s.key);
+    const md = v?.markdown.trim();
+    return md ? `## ${s.title}\n\n${md}` : '';
+  })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 export function createStreamState(): StreamState {
   let phase: SpecSectionKey | null = null;
   let thinking = '';

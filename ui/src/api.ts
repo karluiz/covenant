@@ -3125,6 +3125,12 @@ export async function closeAcpSession(sessionId: SessionId): Promise<void> {
   return invoke<void>("close_acp_session", { sessionId });
 }
 
+/// One-shot LLM judge for SpecScore's deep pass — raw model text (JSON per
+/// the judge prompt). Null when no summary route is configured.
+export async function specDeepScore(markdown: string): Promise<string | null> {
+  return invoke<string | null>("spec_deep_score", { markdown });
+}
+
 /// A pasted image riding an ACP prompt: base64 payload (no `data:` URL
 /// prefix) + mime type. Backend turns it into an ACP `image` block.
 export interface AcpImageAttachment {

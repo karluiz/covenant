@@ -102,9 +102,16 @@ async fn send_authed(
         .map_err(|e| e.to_string())
 }
 
-async fn post_spec(title: &str, markdown: &str) -> Result<serde_json::Value, String> {
+async fn post_spec(
+    title: &str,
+    markdown: &str,
+    spec_score: Option<&serde_json::Value>,
+) -> Result<serde_json::Value, String> {
     let url = format!("{}/specs", auth::backend_url());
-    let body = serde_json::json!({ "title": title, "markdown": markdown });
+    let mut body = serde_json::json!({ "title": title, "markdown": markdown });
+    if let Some(score) = spec_score {
+        body["spec_score"] = score.clone();
+    }
     send_authed(|j| client().post(&url).bearer_auth(j).json(&body))
         .await?
         .json()
@@ -112,9 +119,16 @@ async fn post_spec(title: &str, markdown: &str) -> Result<serde_json::Value, Str
         .map_err(|e| e.to_string())
 }
 
-async fn post_version(spec_id: i64, markdown: &str) -> Result<serde_json::Value, String> {
+async fn post_version(
+    spec_id: i64,
+    markdown: &str,
+    spec_score: Option<&serde_json::Value>,
+) -> Result<serde_json::Value, String> {
     let url = format!("{}/specs/{}/versions", auth::backend_url(), spec_id);
-    let body = serde_json::json!({ "markdown": markdown });
+    let mut body = serde_json::json!({ "markdown": markdown });
+    if let Some(score) = spec_score {
+        body["spec_score"] = score.clone();
+    }
     send_authed(|j| client().post(&url).bearer_auth(j).json(&body))
         .await?
         .json()
@@ -162,9 +176,10 @@ pub async fn review_publish_spec(
     app: tauri::AppHandle,
     path: String,
     title: String,
+    spec_score: Option<serde_json::Value>,
 ) -> Result<ShareState, String> {
     let markdown = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let resp = post_spec(&title, &markdown).await?;
+    let resp = post_spec(&title, &markdown, spec_score.as_ref()).await?;
     let spec_id = resp["id"].as_i64().ok_or("missing id in response")?;
     let token = resp["token"]
         .as_str()
@@ -191,12 +206,13 @@ pub async fn review_publish_spec(
 pub async fn review_republish_spec(
     app: tauri::AppHandle,
     path: String,
+    spec_score: Option<serde_json::Value>,
 ) -> Result<ShareState, String> {
     let shares_file = shares_path(&app)?;
     let mut shares = load_shares(&shares_file);
     let mut share = shares.get(&path).cloned().ok_or("not shared")?;
     let markdown = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let resp = post_version(share.spec_id, &markdown).await?;
+    let resp = post_version(share.spec_id, &markdown, spec_score.as_ref()).await?;
     let version = resp["version"]
         .as_i64()
         .ok_or("missing version in response")? as i32;
