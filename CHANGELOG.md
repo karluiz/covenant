@@ -6,6 +6,61 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.45 — SpecScore spec quality scoring + gist share visibility
+
+### Added
+
+- **SpecScore — every spec gets a quality score.** A deterministic 7-dimension
+  engine (`ui/src/spec-score/engine.ts`) rates a spec's structure, and an
+  optional LLM deep-score pass (`ui/src/spec-score/deep.ts`, cached by content
+  hash in `crates/app/src/summarizer.rs`) judges what regex can't. The score
+  surfaces everywhere specs live: a live chip while authoring in the spec
+  creator, badges in the spec picker and list, a breakdown panel in the
+  preview, a hover badge in the doc viewer header, and the score ships inside
+  the publish payload (`crates/app/src/covenant_review.rs`) so the forge can
+  render it. A missing API key routes to the Open Providers door instead of a
+  red error.
+- **Shared gists are now visible as state.** A file with a live gist share
+  shows an accent share glyph trailing its row in the Structure tree and tints
+  the editor's share button; the context menu only offers "Copy gist link" /
+  "Revoke gist" (plus "Update gist") when a share actually exists — unshared
+  files get just "Share as gist". Backed by a new `gist_list_shares` command
+  mirroring the backend share store (`crates/app/src/covenant_gist.rs`,
+  `ui/src/gist/share.ts`, `ui/src/structure/tree.ts`).
+- **Changes viewer explains the working tree with AI.** A new action in the
+  full-screen diff viewer summarizes what the working tree actually changes
+  (`ui/src/changes/index.ts`, `crates/app/src/lib.rs`); with no API key it
+  renders an empty state that opens Providers instead of failing.
+- **⌘S saves Settings.** Settings pages submit on ⌘S and the Save button
+  carries the chord inline; Save/Cancel (and their mission viewer/page twins)
+  drop the gradient bevel for flat slabs (`ui/src/settings/panel.ts`,
+  `ui/src/styles.css`).
+
+### Changed
+
+- **The worktree convention is documented as an injectable managed block** in
+  `AGENTS.md`, so any harness can be pointed at the same single worktree
+  location.
+
+### Fixed
+
+- **Every spec surface is worktree-aware.** Draft and published specs resolve
+  against the repository's main checkout even when the session lives in a
+  linked worktree, so specs no longer vanish or duplicate across worktrees
+  (`crates/app/src/drafts.rs`, `crates/app/src/lib.rs`).
+- **Copy uses the native clipboard plugin.** The webview clipboard API drops
+  writes once transient user activation expires (e.g. after a network
+  round-trip), which made "Copy gist link" flaky; copying now goes through
+  `tauri-plugin-clipboard-manager` with the webview API as fallback
+  (`ui/src/ui/clipboard.ts`).
+- **Worktree relocate stops refusing dirty worktrees.** The git popover's
+  relocate action now carries uncommitted changes along instead of erroring
+  out (`crates/app/src/git_tools.rs`).
+- **Spec-score chip/badge no longer lingers with a stale score** after the
+  surface that owned it was hidden, and the Beacon panel gets the missing
+  `overflow: hidden` so expanded job trees scroll the rail instead of
+  stretching the layout row (`ui/src/beacon/beacon.css`).
+
 ## v0.9.44 — Beacon names GitHub's outage instead of blaming you
 
 ### Added
