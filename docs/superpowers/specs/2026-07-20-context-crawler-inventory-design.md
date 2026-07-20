@@ -83,8 +83,17 @@ to. Contract:
 - `subagent` stays unreachable from the model, exactly as today: it is not in the
   `kind` enum, and the parser coerces anything unexpected. Subagent remains a
   manual re-route in curation.
-- Unit identity is `(kind, slugify(name))`. Two `propose_unit` calls colliding on
-  that key merge into one unit; the first `summary` wins.
+- Unit identity is `slugify(name)`, unique across **all** kinds — not
+  `(kind, slug)`. `emit_finding` addresses its unit by name alone, so a lookup
+  cannot know the kind; two units sharing a name would be unaddressable. Two
+  `propose_unit` calls colliding on the slug with the **same** kind merge into
+  one unit (first `summary` wins); with a **different** kind the second is
+  rejected and the model is told to pick a distinct name.
+
+  Note this is the crawler's in-run identity. State resolution against Canon on
+  disk *is* kind-scoped — `memory/x.md` and `skills/x/` are different artifacts —
+  so `resolve_state` keys on `(kind, slug)`. The two are not in conflict: one
+  addresses units within a run, the other addresses files on disk.
 
 **What a unit means per kind** (this is what materialization writes):
 
