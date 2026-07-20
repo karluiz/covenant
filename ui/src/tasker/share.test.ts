@@ -13,11 +13,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("../notifications/toast", () => ({ pushInfoToast: vi.fn() }));
 vi.mock("../ui/clipboard", () => ({ copyText: vi.fn().mockResolvedValue(undefined) }));
 
-import { TaskStorage } from "./storage";
+import { TaskStorage, TASKER_SAVED_EVENT } from "./storage";
 import {
   startBoardAutoPush,
   shareProjectBoard,
+  revokeBoardShare,
   isBoardShared,
+  resetBoardShareStateForTests,
   PUSH_DEBOUNCE_MS,
 } from "./share";
 
@@ -29,6 +31,11 @@ describe("board auto-push", () => {
     revoke.mockReset();
     revoke.mockResolvedValue(undefined);
     localStorage.clear();
+    // Finding 4: sharedProjects/pushState/sharesLoaded are module singletons
+    // that outlive any one test — without this, a project id left behind by
+    // an earlier test leaks into this test's retraction pass and fires a
+    // spurious revoke against unrelated storage.
+    resetBoardShareStateForTests();
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -112,6 +119,67 @@ describe("board auto-push", () => {
 
     expect(revoke).not.toHaveBeenCalled();
     expect(isBoardShared(p.id)).toBe(true);
+    stop();
+  });
+
+  // Finding 1: revokeBoardShare cannot reach into startBoardAutoPush's
+  // `timers` closure to cancel a pending debounce, so the timer callback is
+  // the only place that can notice a share died mid-window. Without the
+  // `sharedProjects.has(projectId)` guard, this timer fires `boardApi.publish`
+  // for a project the Rust side no longer has a share record for, which
+  // takes the first-publish path and mints a brand new, unrevokable board.
+  it("does not resurrect a revoked board when a pending push timer fires", async () => {
+    const storage = new TaskStorage();
+    const p = storage.createProject("Covenant");
+    await shareProjectBoard(p);
+    expect(publish).toHaveBeenCalledTimes(1); // the initial share
+
+    const stop = startBoardAutoPush(storage);
+    storage.createTask(p.id, "a"); // schedules a push PUSH_DEBOUNCE_MS out
+    expect(publish).toHaveBeenCalledTimes(1); // still debouncing
+
+    await revokeBoardShare(p.id); // revoke lands inside the debounce window
+    expect(isBoardShared(p.id)).toBe(false);
+    expect(revoke).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(PUSH_DEBOUNCE_MS + 10);
+    // The pending timer must bail instead of re-publishing a board for a
+    // project that is no longer shared.
+    expect(publish).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  // Finding 3: `sharedProjects` isn't touched until after `await
+  // boardApi.revoke(...)` resolves inside revokeBoardShare, so a second
+  // TASKER_SAVED_EVENT for the same deleted project — arriving while the
+  // first revoke is still in flight — must not fire a second concurrent
+  // revoke for the same id.
+  it("does not fire a second concurrent revoke for the same deleted project", async () => {
+    const storage = new TaskStorage();
+    const p = storage.createProject("Gone");
+    await shareProjectBoard(p);
+
+    let resolveRevoke: (() => void) | undefined;
+    revoke.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRevoke = resolve;
+        }),
+    );
+
+    const stop = startBoardAutoPush(storage);
+    storage.deleteProject(p.id); // first TASKER_SAVED_EVENT — revoke in flight
+    // Second event referencing the same now-deleted project, before the
+    // first revoke has resolved.
+    window.dispatchEvent(
+      new CustomEvent(TASKER_SAVED_EVENT, { detail: { projectIds: [] } }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(revoke).toHaveBeenCalledTimes(1);
+
+    resolveRevoke?.();
+    await vi.advanceTimersByTimeAsync(0);
     stop();
   });
 });

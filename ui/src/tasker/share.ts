@@ -29,6 +29,23 @@ export type PushState = "synced" | "pushing" | "stale";
 const sharedProjects = new Set<string>();
 const pushState = new Map<string, PushState>();
 let sharesLoaded = false;
+// Guards Finding 3: while a revoke for `id` is in flight, a second
+// TASKER_SAVED_EVENT for the same deleted project must not fire another
+// concurrent `boardApi.revoke` before the first one resolves. See onSaved.
+const revokingProjects = new Set<string>();
+
+/// Test-support only — NOT part of the public share API. Module-level state
+/// above (sharedProjects/pushState/sharesLoaded/revokingProjects) persists
+/// across test files, so a leftover id from one test's shared project can
+/// leak into the next test's retraction pass and fire a spurious revoke
+/// against unrelated storage. Call this from `beforeEach` so every test
+/// starts from a clean slate.
+export function resetBoardShareStateForTests(): void {
+  sharedProjects.clear();
+  pushState.clear();
+  revokingProjects.clear();
+  sharesLoaded = false;
+}
 
 function notifySharesChanged(): void {
   window.dispatchEvent(new CustomEvent(BOARD_SHARES_EVENT));
@@ -103,12 +120,27 @@ export async function copyBoardLink(projectId: string): Promise<void> {
   await copyOrOffer(share.url);
 }
 
+// Serves two very different callers with one shape: a user clicking "revoke"
+// awaits this directly and needs the rejection to reach the UI so it can
+// show an error; the autonomous retraction pass (onSaved, below) fires this
+// for a project that just got deleted and must never let a transient
+// boardApi.revoke failure leave the id parked in sharedProjects — that would
+// make every subsequent store mutation retry the same failing revoke
+// forever, with nothing on screen to explain why. The `finally` cleans up
+// local state unconditionally so retries stop either way, then the error (if
+// any) still propagates: user-initiated calls can catch and surface it,
+// while the autonomous caller explicitly `.catch()`es instead of `void`-ing
+// the call, so a failure is logged once, not thrown as an unhandled
+// rejection.
 export async function revokeBoardShare(projectId: string): Promise<void> {
-  await boardApi.revoke(projectId);
-  sharedProjects.delete(projectId);
-  pushState.delete(projectId);
-  notifySharesChanged();
-  pushInfoToast({ message: "Board share revoked" });
+  try {
+    await boardApi.revoke(projectId);
+    pushInfoToast({ message: "Board share revoked" });
+  } finally {
+    sharedProjects.delete(projectId);
+    pushState.delete(projectId);
+    notifySharesChanged();
+  }
 }
 
 /// Subscribe to store writes and re-publish every shared board, debounced.
@@ -123,6 +155,14 @@ export function startBoardAutoPush(storage: TaskStorage): () => void {
       projectId,
       setTimeout(() => {
         timers.delete(projectId);
+        // Finding 1: a revoke inside the debounce window cannot reach into
+        // this closure to cancel the timer, so this callback is the only
+        // place left to notice the share died. Without this guard, the
+        // timer fires `boardApi.publish` for a project the Rust side no
+        // longer has a share record for, which takes the first-publish path
+        // and mints a brand new board at a token nothing in the app knows
+        // about — a live, unrevokable link.
+        if (!sharedProjects.has(projectId)) return;
         const project = storage.getProject(projectId);
         if (project) void push(project);
       }, PUSH_DEBOUNCE_MS),
@@ -146,10 +186,35 @@ export function startBoardAutoPush(storage: TaskStorage): () => void {
     // Only a genuine deletion (project gone from the store entirely) tears
     // the share down, so the link dies with the project instead of serving
     // a stale board forever.
+    //
+    // Finding 5: this for-of iterates `sharedProjects` while
+    // revokeBoardShare's `finally` mutates that same Set via `.delete()`.
+    // That's safe today only because the delete happens after the `await
+    // boardApi.revoke(...)` inside revokeBoardShare — i.e. strictly after
+    // this synchronous for-of loop has already finished walking the Set. If
+    // this ever becomes optimistic (removing `id` before the network call
+    // resolves), it would mutate the Set mid-iteration and silently skip or
+    // revisit entries — keep the removal post-await.
     for (const id of sharedProjects) {
       if (idSet.has(id)) continue;
+      // Finding 3: a second TASKER_SAVED_EVENT can arrive for the same
+      // deleted project before the first revoke resolves (sharedProjects
+      // isn't touched until after the await). Track in-flight revokes
+      // separately so we don't fire a second concurrent boardApi.revoke.
+      if (revokingProjects.has(id)) continue;
       if (storage.getProject(id) === null) {
-        void revokeBoardShare(id);
+        revokingProjects.add(id);
+        revokeBoardShare(id)
+          .catch((err) => {
+            // Finding 2: autonomous retraction must not spin forever
+            // silently, but it also must not throw an unhandled rejection —
+            // log once and move on. Local state was already cleaned up by
+            // revokeBoardShare's `finally`, so this id won't be retried.
+            console.error("autonomous board revoke failed", err);
+          })
+          .finally(() => {
+            revokingProjects.delete(id);
+          });
       }
     }
   };
