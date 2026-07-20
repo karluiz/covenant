@@ -138,6 +138,14 @@ export class AomActivityFeed {
         title = "wait";
         body = d.rationale ?? "(no detail)";
         break;
+      // Failed model call, not a verdict — never styled "warn" like an
+      // escalation, since nothing is actually waiting on the user.
+      case "error":
+        cls = "muted";
+        icon = Icons.terminal({ size: 13 });
+        title = "api error";
+        body = d.escalation ?? d.rationale ?? "(no detail)";
+        break;
       default:
         cls = "muted";
         icon = Icons.bot({ size: 13 });

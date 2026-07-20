@@ -19122,6 +19122,12 @@ body.theme-light .task-pill--clickable:hover { background: rgb(var(--ink-rgb) / 
 .tp-act-row--startup .tp-act-ico,
 .tp-act-row--startup .tp-act-kind { color: var(--accent, #6f7bff); }
 
+/* A failed model call — amber, deliberately NOT the escalation red:
+   the operator reached no verdict, the provider just fell over. */
+.tp-act-row--error { border-left-color: rgba(224,175,104,0.45); }
+.tp-act-row--error .tp-act-ico,
+.tp-act-row--error .tp-act-kind { color: var(--running, #e0af68); }
+
 /* Run-collapse pill + expand */
 .tp-act-runpill {
   display: inline-block; margin-left: 6px;
