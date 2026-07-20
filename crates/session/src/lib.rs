@@ -168,6 +168,16 @@ pub enum SessionEvent {
     AgentResumed {
         session: SessionId,
     },
+    /// A known executor's turn just started, detected from the RENDERED
+    /// screen (interrupt affordance appeared) rather than the byte stream.
+    /// Emitted for alt-screen TUIs whose full-screen redraws defeat the
+    /// per-chunk phase detector. One edge per turn. Internal-only (drives
+    /// the Covenant Score prompt count); no UI projection.
+    AgentTurnStarted {
+        session: SessionId,
+        /// Foreground executor name (e.g. "opencode", "gemini").
+        agent: String,
+    },
     MissionCompleted {
         session: SessionId,
         summary: String,
@@ -300,7 +310,8 @@ impl SessionEvent {
             | SessionEvent::EscalationRequested { .. }
             | SessionEvent::EscalationResolved { .. }
             | SessionEvent::MissionCompleted { .. }
-            | SessionEvent::MissionFailed { .. } => None,
+            | SessionEvent::MissionFailed { .. }
+            | SessionEvent::AgentTurnStarted { .. } => None,
             SessionEvent::AgentIdleWaiting {
                 session,
                 agent,
@@ -559,6 +570,10 @@ async fn pump(
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     // Track foreground proc across ticks so we only emit on transitions.
     let mut last_fg: Option<String> = None;
+    // Rendered-screen turn tracking for alt-screen executors (opencode/…):
+    // true while the composed screen shows an interrupt affordance. The
+    // false→true edge is a turn start (= a user prompt). See the tick body.
+    let mut agent_working = false;
     // First tick fires immediately; skip it to avoid evaluating before any output.
     tick.tick().await;
 
@@ -672,6 +687,29 @@ async fn pump(
                                 });
                             }
                         }
+                        // Turn-start for alt-screen TUIs, off the RENDERED screen.
+                        // Their full-screen redraws fragment the "esc interrupt"
+                        // footer in the byte stream (the per-chunk phase detector
+                        // never fires), but on the composed screen it is contiguous.
+                        // Inline agents are excluded — the byte detector already
+                        // counts their turns, and double-counting must not happen.
+                        // ponytail: 1s tick can miss a sub-second turn; fine for a
+                        // prompt tally. Screen-state edge, so no output-blink noise.
+                        if is_known && alt && !is_inline {
+                            let working =
+                                karl_blocks::executor_phase::matches_interrupt_hint(&tick_screen);
+                            if working && !agent_working {
+                                let _ = events_tx.send(SessionEvent::AgentTurnStarted {
+                                    session: id,
+                                    agent: name.to_string(),
+                                });
+                            }
+                            agent_working = working;
+                        } else {
+                            agent_working = false;
+                        }
+                    } else {
+                        agent_working = false;
                     }
                 }
             }

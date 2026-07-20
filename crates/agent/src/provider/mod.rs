@@ -59,6 +59,17 @@ pub trait LlmProvider: Send + Sync {
     ) -> Result<(), AgentError>;
 }
 
+/// The Covenant Score executor label for a provider. Lives here because
+/// the score's executor axis is defined by `ProviderKind`; user-prompt
+/// call sites use it when recording.
+pub fn executor_label(provider: &dyn LlmProvider) -> &'static str {
+    match provider.kind() {
+        ProviderKind::Anthropic => "anthropic",
+        ProviderKind::OpenAiCompat => "openai_compat",
+        ProviderKind::AzureFoundry => "azure_foundry",
+    }
+}
+
 use std::sync::{Arc, Mutex};
 
 /// Collect a streamed call into a single String + final usage. Mirrors
@@ -67,12 +78,13 @@ pub async fn collect_oneshot(
     provider: &dyn LlmProvider,
     req: AskRequest,
 ) -> Result<crate::AskResponse, AgentError> {
-    let executor_label = match provider.kind() {
-        ProviderKind::Anthropic => "anthropic",
-        ProviderKind::OpenAiCompat => "openai_compat",
-        ProviderKind::AzureFoundry => "azure_foundry",
-    };
-    karl_score::record_prompt_with_agent(executor_label, Some("internal"));
+    // NOTE: no `record_prompt` here. This is transport — most callers are
+    // background work (operator polling, summarizer, triage), and counting
+    // them made the Covenant Score a graph of the app talking to itself.
+    // Prompts are recorded at the user-submit commands instead. Token usage
+    // still lands via `record_llm_call` below, which is machine-inclusive
+    // on purpose.
+    let label = executor_label(provider);
     let model_name = req.model.clone();
     let buffer = Arc::new(Mutex::new(String::new()));
     let usage = Arc::new(Mutex::new(crate::TokenUsage::default()));
@@ -122,7 +134,7 @@ pub async fn collect_oneshot(
     karl_score::record_llm_call(
         karl_score::ModelSource::Internal,
         None,
-        executor_label,
+        label,
         &model_name,
         karl_score::LlmUsage {
             input: final_usage.input_tokens as u64,

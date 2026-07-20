@@ -25,6 +25,7 @@ mod context;
 pub mod convergence;
 mod cost;
 mod covenant_gist;
+mod covenant_board;
 mod covenant_review;
 mod cross_session;
 mod discord_presence;
@@ -752,15 +753,25 @@ async fn spawn_session(
         let mut rx = session.subscribe();
         tauri::async_runtime::spawn(async move {
             while let Ok(ev) = rx.recv().await {
-                if let karl_session::SessionEvent::ForegroundChanged { session, name } = ev {
-                    let agent = name.and_then(|n| {
-                        if karl_session::idle::KNOWN_AGENTS.contains(&n.as_str()) {
-                            Some(n)
-                        } else {
-                            None
-                        }
-                    });
-                    hub.set_foreground_agent(session, agent).await;
+                match ev {
+                    karl_session::SessionEvent::ForegroundChanged { session, name } => {
+                        let agent = name.and_then(|n| {
+                            if karl_session::idle::KNOWN_AGENTS.contains(&n.as_str()) {
+                                Some(n)
+                            } else {
+                                None
+                            }
+                        });
+                        hub.set_foreground_agent(session, agent).await;
+                    }
+                    // Alt-screen executor turn, detected off the rendered screen
+                    // (opencode/gemini/…). The inline byte-detector path records
+                    // in `notch::ingest`; these two are disjoint by construction
+                    // (alt-screen vs inline), so no double count.
+                    karl_session::SessionEvent::AgentTurnStarted { agent, .. } => {
+                        karl_score::record_prompt_with_agent(&agent, Some("pty_turn"));
+                    }
+                    _ => {}
                 }
             }
         });
@@ -3434,6 +3445,9 @@ async fn ask_agent(
     ));
     let acc_for_cb = acc.clone();
 
+    // A real user prompt: ⌘K panel, past the rate limiter, about to dispatch.
+    karl_score::record_prompt_with_agent("anthropic", Some("ask_panel"));
+
     karl_agent::ask_streaming(req, move |event| match event {
         karl_agent::AgentEvent::Delta(text) => {
             let _ = on_explanation.send(text);
@@ -3875,6 +3889,7 @@ async fn spec_author_step(
             .clone()
             .ok_or("no api key configured — open Settings (⌘,)")?
     };
+    karl_score::record_prompt_with_agent("anthropic", Some("spec_author"));
 
     let base_dir = karl_agent::spec_author::home_covenant_dir().map_err(|e| e.to_string())?;
 
@@ -4069,6 +4084,7 @@ async fn spec_author_stream_step(
     images: Option<Vec<AttachedImageDto>>,
 ) -> Result<String, String> {
     use karl_agent::spec_author as sa;
+    karl_score::record_prompt_with_agent("anthropic", Some("spec_author"));
     let base_dir = sa::home_covenant_dir().map_err(|e| e.to_string())?;
 
     let mut draft = match draft_id {
@@ -5775,6 +5791,10 @@ pub fn run() {
             covenant_gist::gist_list_shares,
             covenant_gist::gist_publish,
             covenant_gist::gist_revoke,
+            covenant_board::board_get_share,
+            covenant_board::board_list_shares,
+            covenant_board::board_publish,
+            covenant_board::board_revoke,
             score_commands::score_set_current_session,
             score_commands::score_summary_filtered,
             score_commands::score_heatmap_filtered,

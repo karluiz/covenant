@@ -1538,7 +1538,10 @@ fn compute_streaks(cells: &[DailyCell], today: &str) -> (u32, u32) {
     let mut prev: Option<NaiveDate> = None;
     let mut last_active: Option<NaiveDate> = None;
     for cell in cells {
-        if cell.prompts == 0 {
+        // A day counts as active on prompts OR commits — same definition
+        // the heatmap colours by. Prompt-only broke the streak for anyone
+        // working in a PTY executor session, where no prompt is observable.
+        if cell.prompts == 0 && cell.commits == 0 {
             continue;
         }
         let d = match parse(&cell.day) {

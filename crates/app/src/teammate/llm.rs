@@ -394,7 +394,7 @@ pub fn build_user_message(
     out
 }
 
-use karl_agent::provider::collect_oneshot;
+use karl_agent::provider::{collect_oneshot, executor_label};
 use karl_agent::AskRequest;
 use thiserror::Error;
 
@@ -441,6 +441,7 @@ pub async fn dispatch_reply(
 ) -> Result<String, TeammateLlmError> {
     let resolved = resolve_route(settings, SettingsRole::Operator)
         .map_err(|e: ResolveError| TeammateLlmError::NoRoute(e.to_string()))?;
+    karl_score::record_prompt_with_agent(executor_label(&*resolved.provider), Some("teammate"));
     let req = AskRequest {
         api_key: String::new(),
         model: operator.model.clone(),
@@ -639,6 +640,9 @@ where
 {
     let resolved = resolve_route(settings, SettingsRole::Operator)
         .map_err(|e: ResolveError| TeammateLlmError::NoRoute(e.to_string()))?;
+    // Once per user message — the tool loop below (and the OpenAI delegate)
+    // may issue many LLM calls for this one prompt.
+    karl_score::record_prompt_with_agent(executor_label(&*resolved.provider), Some("teammate"));
     match resolved.provider.kind() {
         ProviderKind::Anthropic => {}
         ProviderKind::OpenAiCompat | ProviderKind::AzureFoundry => {

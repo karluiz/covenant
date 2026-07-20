@@ -7,6 +7,28 @@ import { BoardView } from "./board";
 import { MarkdownEditor } from "../ui/markdown-editor";
 import { attachTooltip } from "../tooltip/tooltip";
 import { zoom } from "../zoom";
+import { pushInfoToast } from "../notifications/toast";
+import {
+  BOARD_SHARES_EVENT,
+  copyBoardLink,
+  getPushError,
+  getPushState,
+  isBoardShared,
+  revokeBoardShare,
+  shareProjectBoard,
+  startBoardAutoPush,
+} from "./share";
+
+/// Rust's `covenant_board::jwt()` returns this exact string when there is no
+/// stored JWT. Detecting it lets the share flow route the user to sign in
+/// instead of showing a generic failure toast (F2 — the repo's convention,
+/// see `covenant:open-providers`, is a door to fix the state, never a red
+/// error, for a state that isn't really a failure).
+const NOT_SIGNED_IN_MARKER = "not signed in to Covenant";
+
+function isSignedOutError(err: unknown): boolean {
+  return String(err).includes(NOT_SIGNED_IN_MARKER);
+}
 
 const EXPANDED_PROJECTS_KEY = "covenant.tasker.expanded-projects";
 const VIEW_KEY = "covenant.tasker.view";
@@ -96,6 +118,14 @@ export class TaskerPanel {
   private dateOutsideListener: ((ev: MouseEvent) => void) | null = null;
   private projectMenuEl: HTMLElement | null = null;
   private projectMenuOutside: ((ev: MouseEvent) => void) | null = null;
+  private shareMenuEl: HTMLElement | null = null;
+  private shareMenuOutside: ((ev: MouseEvent) => void) | null = null;
+  /// F1 — `experimental.board_share`, resolved once by the caller (main.ts
+  /// has no live-updating route to it the way TabManager caches
+  /// `internal_browser`) and threaded in at construction. No Settings UI
+  /// toggle exists for this flag, so it never changes for the panel's
+  /// lifetime — a constructor-time snapshot is honest, not stale.
+  private readonly boardShareEnabled: boolean;
   private editingTitle: { projectId: string; taskId: string } | null = null;
   private renamingProjectId: string | null = null;
   private composingList = false;
@@ -110,9 +140,10 @@ export class TaskerPanel {
   private noteEditors: Array<{ editor: MarkdownEditor; projectId: string; taskId: string }> = [];
   private noteSaveTimer: number | null = null;
 
-  constructor(host: HTMLElement, opts?: { onClose?: () => void }) {
+  constructor(host: HTMLElement, opts?: { onClose?: () => void; boardShareEnabled?: boolean }) {
     this.host = host;
     this.onClose = opts?.onClose ?? null;
+    this.boardShareEnabled = opts?.boardShareEnabled ?? false;
     this.storage = new TaskStorage();
     this.loadExpandedProjects();
     this.loadViewPrefs();
@@ -125,6 +156,35 @@ export class TaskerPanel {
       const first = this.storage.getProjects()[0];
       if (first) this.expandedProjects.add(first.id);
     }
+
+    // F1 — the forge has no `/boards` routes yet, so every share attempt
+    // 404s in production. Gate ALL board-share background work behind the
+    // flag: with it off, nothing here fires — no listShares round-trip, no
+    // debounced re-publish subscription, no shares-changed listener.
+    if (this.boardShareEnabled) {
+      // ponytail: no teardown — TaskerPanel has no dispose and lives for the
+      // app's lifetime. Add one here if the panel ever becomes disposable.
+      startBoardAutoPush(this.storage);
+      window.addEventListener(BOARD_SHARES_EVENT, () => {
+        // Finding 3: auto-push fires this event twice (pushing → synced)
+        // ~2s after any edit to a shared project — a moment that has nothing
+        // to do with what the user is doing right now. render() rebuilds the
+        // whole panel via innerHTML, which would silently discard an
+        // in-progress edit (project rename, new-task/new-list composer, task
+        // title, notes editor) if it fired mid-keystroke. Skip the rebuild
+        // while the user is actively typing inside the panel — the share
+        // button's dot/pulse just catches up on the next render the user's
+        // own action triggers.
+        if (this.isTypingInPanel()) return;
+        this.render();
+      });
+    }
+  }
+
+  private isTypingInPanel(): boolean {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || !this.host.contains(active)) return false;
+    return active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active.isContentEditable;
   }
 
   private loadExpandedProjects(): void {
@@ -283,6 +343,7 @@ export class TaskerPanel {
     this.flushNoteEditors();
     if (this.dateMenuEl && !this.openMenu) this.closeDatePicker();
     if (this.projectMenuEl) this.closeProjectMenu();
+    if (this.shareMenuEl) this.closeShareMenu();
     this.host.classList.remove("hidden");
     this.isOpen = true;
     document.body.classList.toggle("tasker-board", this.viewMode === "board");
@@ -343,6 +404,7 @@ export class TaskerPanel {
             <span class="rail-gname tasker-project-name">${escapeHtml(project.name)}</span>
             <span class="rail-gcount tasker-project-count">${tasks.length}</span>
           </button>
+          ${this.renderShareButton(project)}
           ${project.name === "Inbox" ? "" : `<button class="tasker-project-delete" type="button" data-project-id="${project.id}" aria-label="Delete project">${Icons.trash({ size: 13 })}</button>`}`}
         </div>
         ${isExpanded ? `
@@ -355,6 +417,26 @@ export class TaskerPanel {
         ` : ""}
       </div>
     `;
+  }
+
+  private renderShareButton(project: Project): string {
+    // F1 — off by default (the forge has no /boards routes yet); no button
+    // at all when disabled, not just a hidden one.
+    if (!this.boardShareEnabled) return "";
+    const shared = isBoardShared(project.id);
+    const state = shared ? getPushState(project.id) : "synced";
+    // F4 — say exactly what a click does now: opens a Copy link / Stop
+    // sharing menu when already shared, shares directly otherwise.
+    let label = shared ? "Board shared — click to manage sharing" : "Share board";
+    // F3 — the dimmed dot is the only signal auto-push is failing; carry the
+    // actual error in the tooltip so it isn't just a mystery dim dot.
+    if (state === "stale") {
+      const err = getPushError(project.id);
+      label = err ? `Board shared — last sync failed: ${err}` : "Board shared — last sync failed";
+    }
+    return `<button class="tasker-project-share${shared ? " shared" : ""}" type="button"
+      data-project-id="${project.id}" data-push-state="${state}" aria-label="${escapeAttr(label)}"
+      data-tip="${escapeAttr(label)}">${Icons.share({ size: 13 })}${shared ? `<span class="tasker-share-dot" aria-hidden="true"></span>` : ""}</button>`;
   }
 
   private renderComposer(projectId: string): string {
@@ -484,6 +566,67 @@ export class TaskerPanel {
       }
     };
     document.addEventListener("mousedown", this.projectMenuOutside, true);
+  }
+
+  // F4 — the shared-board affordance: "Copy link" / "Stop sharing". Clones
+  // openProjectMenu/closeProjectMenu above rather than inventing a new
+  // popover — same outside-click dismissal, same fixed positioning off the
+  // anchor, same reuse of .kb-project-menu/.kb-project-opt chrome.
+  private closeShareMenu(): void {
+    if (this.shareMenuOutside) {
+      document.removeEventListener("mousedown", this.shareMenuOutside, true);
+      this.shareMenuOutside = null;
+    }
+    this.shareMenuEl?.remove();
+    this.shareMenuEl = null;
+  }
+
+  private openShareMenu(anchor: HTMLElement, projectId: string): void {
+    if (this.shareMenuEl) { this.closeShareMenu(); return; }
+
+    const el = document.createElement("div");
+    el.className = "kb-project-menu tasker-share-menu";
+    el.setAttribute("role", "menu");
+    el.innerHTML = `
+      <button class="kb-project-opt" type="button" role="menuitem" data-action="copy">
+        <span class="kb-project-opt-check">${Icons.link2({ size: 13 })}</span>
+        <span class="kb-project-opt-name">Copy link</span>
+      </button>
+      <button class="kb-project-opt" type="button" role="menuitem" data-action="stop">
+        <span class="kb-project-opt-check">${Icons.x({ size: 13 })}</span>
+        <span class="kb-project-opt-name">Stop sharing</span>
+      </button>
+    `;
+    document.body.appendChild(el);
+    this.shareMenuEl = el;
+
+    const r = anchor.getBoundingClientRect();
+    el.style.position = "fixed";
+    el.style.top = `${r.bottom + 4}px`;
+    el.style.left = `${r.left}px`;
+    el.style.minWidth = "160px";
+
+    el.querySelector<HTMLButtonElement>('[data-action="copy"]')?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.closeShareMenu();
+      copyBoardLink(projectId).catch(() => {
+        pushInfoToast({ message: "Couldn't copy the board link — try again." });
+      });
+    });
+    el.querySelector<HTMLButtonElement>('[data-action="stop"]')?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.closeShareMenu();
+      revokeBoardShare(projectId).catch(() => {
+        pushInfoToast({ message: "Couldn't stop sharing the board — try again." });
+      });
+    });
+
+    this.shareMenuOutside = (ev: MouseEvent) => {
+      if (!el.contains(ev.target as Node) && !anchor.contains(ev.target as Node)) {
+        this.closeShareMenu();
+      }
+    };
+    document.addEventListener("mousedown", this.shareMenuOutside, true);
   }
 
   private closeDatePicker(): void {
@@ -620,7 +763,7 @@ export class TaskerPanel {
       if (!document.body.classList.contains("sidebar-view-tasker")) return;
       const ae = document.activeElement as HTMLElement | null;
       if (ae instanceof HTMLInputElement || ae instanceof HTMLTextAreaElement || ae?.isContentEditable) return;
-      if (this.openMenu || this.dateMenuEl || this.projectMenuEl) return;
+      if (this.openMenu || this.dateMenuEl || this.projectMenuEl || this.shareMenuEl) return;
       e.preventDefault();
       this.onClose?.();
     };
@@ -713,6 +856,40 @@ export class TaskerPanel {
         this.expandedProjects.delete(projectId);
         this.saveExpandedProjects();
         this.render();
+      });
+    });
+
+    this.host.querySelectorAll<HTMLButtonElement>(".tasker-project-share").forEach((btn) => {
+      attachTooltip(btn, btn.dataset.tip ?? "Share board");
+      // F4 — a native <button> already fires "click" for Enter/Space when
+      // focused, so no separate keydown handling is needed for keyboard
+      // access to either the share action or the menu it opens.
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const projectId = btn.dataset.projectId;
+        if (!projectId) return;
+        const project = this.storage.getProject(projectId);
+        if (!project) return;
+        if (!isBoardShared(projectId)) {
+          shareProjectBoard(project).catch((err) => {
+            // F2 — signed-out is a state to fix, not a failure: route to
+            // Settings → Covenant instead of a generic error.
+            if (isSignedOutError(err)) {
+              pushInfoToast({
+                message: "Sign in to Covenant to share this board — click to open Settings",
+                onClick: () => {
+                  document.dispatchEvent(new CustomEvent("covenant:open-covenant-settings"));
+                },
+              });
+            } else {
+              pushInfoToast({ message: "Couldn't share the board — try again." });
+            }
+          });
+          return;
+        }
+        // F4 — already shared: open the Copy link / Stop sharing menu
+        // instead of overloading the click gesture (plain vs. Alt-click).
+        this.openShareMenu(btn, projectId);
       });
     });
 

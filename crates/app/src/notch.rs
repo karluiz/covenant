@@ -360,6 +360,34 @@ impl NotchHub {
         let heartbeat = !display_changed
             && entry.last_emit.elapsed() > std::time::Duration::from_secs(3)
             && !matches!(next_display, karl_session::ExecutorPhase::Idle);
+        // A PTY executor session gives us no observable prompt — the user
+        // types into the child CLI and the bytes never cross our command
+        // layer. The turn boundary is the proxy: a session at rest
+        // (Idle/Done) entering a working phase means the human just hit
+        // enter. `bus.is_some()` keeps this to PTY-backed sessions; ACP
+        // tabs are recorded precisely in `acp_send_prompt` and would
+        // otherwise double-count.
+        // ponytail: heuristic. An executor that resumes itself without a
+        // human (auto-continue, a retry loop) inflates this. If that shows
+        // up, gate on a preceding keystroke instead of the phase alone.
+        let turn_started = display_changed
+            && entry.bus.is_some()
+            && matches!(
+                entry.display,
+                karl_session::ExecutorPhase::Idle | karl_session::ExecutorPhase::Done { .. }
+            )
+            && matches!(
+                next_display,
+                karl_session::ExecutorPhase::Thinking
+                    | karl_session::ExecutorPhase::Running { .. }
+                    | karl_session::ExecutorPhase::Reading { .. }
+                    | karl_session::ExecutorPhase::Writing { .. }
+            );
+        if turn_started {
+            if let Some(agent) = entry.agent.as_deref() {
+                karl_score::record_prompt_with_agent(agent, Some("pty_turn"));
+            }
+        }
         if display_changed || heartbeat {
             entry.display = next_display.clone();
             let phase = next_display;
@@ -1000,6 +1028,41 @@ mod tests {
             }
             other => panic!("unexpected: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn pty_turn_records_one_prompt_and_external_records_none() {
+        // The PTY heuristic: a session at rest entering a working phase is
+        // the human hitting enter. It must fire once per turn (not once per
+        // tool call), and must stay off ACP/pi-RPC sessions, which record
+        // precisely in `acp_send_prompt` and would double-count.
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(karl_score::ScoreStore::open(dir.path()).unwrap());
+        karl_score::set_recorder(store.clone());
+
+        let (tx, _rx) = broadcast::channel(64);
+        let hub = NotchHub::new();
+        let pty = SessionId::new();
+        hub.register(pty, tx).await;
+        hub.set_foreground_agent(pty, Some("claude".into())).await;
+
+        // One turn: Idle -> Thinking, then more tool work within the turn.
+        hub.ingest(pty, "✻ Thinking…\n".as_bytes()).await;
+        hub.ingest(pty, "⏺ Read(src/main.rs)\n".as_bytes()).await;
+        hub.ingest(pty, "⏺ Bash(cargo test)\n".as_bytes()).await;
+
+        // An external (ACP/pi-RPC) session must contribute nothing.
+        let ext = SessionId::new();
+        hub.register_external(ext, "copilot".into()).await;
+        hub.set_phase(ext, ExecutorPhase::Thinking).await;
+
+        let prompts = store.summary().unwrap().total_prompts;
+        assert_eq!(
+            prompts, 1,
+            "expected exactly one prompt for the PTY turn and none for the external session"
+        );
+
+        karl_score::clear_recorder_for_test();
     }
 
     #[tokio::test]

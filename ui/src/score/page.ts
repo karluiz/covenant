@@ -318,12 +318,29 @@ function renderStats(host: HTMLElement, summary: Summary, cells: DailyCell[]): v
 
 // ── Heatmap ───────────────────────────────────────────────────────────────────
 
-function intensityClass(prompts: number): string {
-  if (prompts === 0) return "";
-  if (prompts <= 5) return "l1";
-  if (prompts <= 15) return "l2";
-  if (prompts <= 40) return "l3";
-  return "l4";
+/// Ceiling the intensity scale is measured against: the 90th percentile
+/// of active days, not the raw max, so one outlier day (a 500-commit
+/// rebase) doesn't flatten every other day to the lightest shade.
+/// Exported for tests.
+export function intensityCeiling(counts: number[]): number {
+  const active = counts.filter((n) => n > 0).sort((a, b) => a - b);
+  if (active.length === 0) return 0;
+  // Nearest-rank p90: ceil(0.9 * n) - 1. Using floor(0.9 * n) indexes
+  // the max itself at n = 10, which is exactly the outlier we exclude.
+  const idx = Math.min(active.length - 1, Math.max(0, Math.ceil(active.length * 0.9) - 1));
+  return active[idx]!;
+}
+
+/// Relative intensity: quartile of `ceiling` rather than fixed absolute
+/// thresholds. The old 5/15/40 scale was tuned for prompts back when
+/// `collect_oneshot` recorded every internal call (~1900/day). Since
+/// 406822b8 a prompt means a human submission, and the combined
+/// prompt+commit volume it now plots has no stable scale to hardcode —
+/// a relative scale re-tunes itself instead of saturating or going flat.
+export function intensityClass(count: number, ceiling: number): string {
+  if (count === 0 || ceiling === 0) return "";
+  const q = Math.ceil((count / ceiling) * 4);
+  return `l${Math.max(1, Math.min(4, q))}`;
 }
 
 function renderHeatmap(
@@ -332,8 +349,11 @@ function renderHeatmap(
   onClick: (day: string) => void,
 ): void {
   host.innerHTML = "";
-  const byDay = new Map<string, number>();
-  for (const c of cells) byDay.set(c.day, c.prompts);
+  // Plot prompts AND commits. The payload always carried both; graphing
+  // prompts alone left "ACTIVITY" blank on a profile with 33k commits.
+  const byDay = new Map<string, { prompts: number; commits: number }>();
+  for (const c of cells) byDay.set(c.day, { prompts: c.prompts, commits: c.commits });
+  const ceiling = intensityCeiling(cells.map((c) => c.prompts + c.commits));
 
   const today = new Date();
   const start = new Date(today);
@@ -344,9 +364,12 @@ function renderHeatmap(
       const d = new Date(start);
       d.setDate(start.getDate() + week * 7 + day);
       const key = d.toISOString().slice(0, 10);
-      const count = byDay.get(key) ?? 0;
+      const stats = byDay.get(key);
+      const prompts = stats?.prompts ?? 0;
+      const commits = stats?.commits ?? 0;
+      const count = prompts + commits;
       const cell = document.createElement("div");
-      const cls = intensityClass(count);
+      const cls = intensityClass(count, ceiling);
       cell.className = `cov-cell${cls ? " " + cls : ""}`;
       attachTooltip(cell, {
         title: d.toLocaleDateString(undefined, {
@@ -356,7 +379,15 @@ function renderHeatmap(
           year: "numeric",
         }),
         subtitle: key,
-        meta: count === 0 ? "No activity" : `${count} prompt${count === 1 ? "" : "s"}`,
+        meta:
+          count === 0
+            ? "No activity"
+            : [
+                prompts > 0 ? `${prompts} prompt${prompts === 1 ? "" : "s"}` : null,
+                commits > 0 ? `${commits} commit${commits === 1 ? "" : "s"}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · "),
       });
       cell.dataset.day = key;
       cell.addEventListener("click", () => onClick(key));

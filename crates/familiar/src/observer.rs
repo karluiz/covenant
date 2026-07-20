@@ -108,6 +108,7 @@ fn event_kind(ev: &SessionEvent) -> String {
             tracing::trace!("AgentResumed observer forwarding deferred to Task 6");
             "AgentResumed"
         }
+        SessionEvent::AgentTurnStarted { .. } => "AgentTurnStarted",
         SessionEvent::ForegroundChanged { .. } => "ForegroundChanged",
         SessionEvent::ExecutorStateChanged { .. } => "ExecutorStateChanged",
         SessionEvent::TitleSuggested { .. } => "TitleSuggested",
@@ -130,6 +131,7 @@ fn event_session_id(ev: &SessionEvent) -> String {
         | SessionEvent::MissionFailed { session, .. }
         | SessionEvent::AgentIdleWaiting { session, .. }
         | SessionEvent::AgentResumed { session }
+        | SessionEvent::AgentTurnStarted { session, .. }
         | SessionEvent::ForegroundChanged { session, .. }
         | SessionEvent::ExecutorStateChanged { session, .. }
         | SessionEvent::TitleSuggested { session, .. } => session.to_string(),

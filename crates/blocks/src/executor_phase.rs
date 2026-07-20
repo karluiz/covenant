@@ -30,6 +30,7 @@ static RE_HERMES_MULLING: OnceLock<Regex> = OnceLock::new();
 static RE_HERMES_PREPARING: OnceLock<Regex> = OnceLock::new();
 static RE_HERMES_TOOL_DONE: OnceLock<Regex> = OnceLock::new();
 static RE_WAITING: OnceLock<Regex> = OnceLock::new();
+static RE_INTERRUPT_HINT: OnceLock<Regex> = OnceLock::new();
 
 /// Cap on target string length so a missing newline (Claude Code v2.1
 /// redraws with cursor positioning, no `\n`) can't smear an entire screen
@@ -175,6 +176,27 @@ fn re_waiting() -> &'static Regex {
         )
         .unwrap()
     })
+}
+/// Harness-agnostic "I'm working" hint: agentic TUIs show an interrupt
+/// affordance only while a turn is running. Matches `esc interrupt`
+/// (opencode), `esc to interrupt` (claude/others), `ctrl+c to cancel`,
+/// `press esc to stop`, etc. Requires an interrupt VERB near the key so
+/// an idle footer that merely mentions `esc` never trips it.
+fn re_interrupt_hint() -> &'static Regex {
+    RE_INTERRUPT_HINT.get_or_init(|| {
+        Regex::new(r"(?i)\b(?:esc|ctrl[-+ ]?c)\b[^\n]{0,16}\b(?:interrupt|cancel|stop|abort)\b")
+            .unwrap()
+    })
+}
+
+/// True when `text` shows an interrupt affordance — a harness-agnostic
+/// "a turn is running" signal (see [`re_interrupt_hint`]). Exposed for the
+/// session pump, which runs it against the RENDERED vt100 screen for
+/// alt-screen TUIs (opencode/gemini/aider): their full-screen redraws
+/// fragment the footer in the raw byte stream so the per-chunk detector
+/// misses it, but on the composed screen the hint is contiguous.
+pub fn matches_interrupt_hint(text: &str) -> bool {
+    re_interrupt_hint().is_match(text)
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -333,6 +355,19 @@ impl ExecutorPhaseDetector {
             return ExecutorPhase::Thinking;
         }
 
+        // Harness-agnostic working signal, last resort: an interrupt hint
+        // ("esc interrupt", "esc to interrupt", "ctrl+c to cancel/stop")
+        // is shown ONLY while a turn is in flight — never at an idle
+        // prompt — so it means the agent is working. This is what covers
+        // harnesses with no dedicated spinner regex (opencode, gemini,
+        // aider): opencode 1.14.39 renders "esc interrupt" the instant a
+        // turn starts (verified live). Placed AFTER every specific marker
+        // so it never overrides a real phase; unlike raw output-resume it
+        // carries no blink noise, because idle screens don't show it.
+        if re_interrupt_hint().is_match(&raw) {
+            return ExecutorPhase::Thinking;
+        }
+
         // No tool-call, no processing indicator → keep current phase.
         // (Don't fall back to Thinking on plain output any more — that
         // was the source of the "stuck on Thinking forever" bug.)
@@ -424,6 +459,63 @@ mod tests {
         let mut d = ExecutorPhaseDetector::new();
         d.feed("✻ Imagining… (3s)\n* Worked for 10s\n".as_bytes());
         assert!(matches!(d.phase(), ExecutorPhase::Done { .. }));
+    }
+
+    #[test]
+    fn interrupt_hint_detects_working_for_undedicated_harness() {
+        // opencode 1.14.39's real working footer (captured live): it shows
+        // "esc interrupt" only while a turn is in flight. No dedicated
+        // opencode spinner regex exists, so this generic hint is what
+        // classifies its turn as working.
+        let mut d = ExecutorPhaseDetector::new();
+        let changed =
+            d.feed("What is 2 plus 2?  esc interrupt  tab agents  ctrl+p commands\n".as_bytes());
+        assert!(changed);
+        assert!(matches!(d.phase(), ExecutorPhase::Thinking), "got {:?}", d.phase());
+    }
+
+    #[test]
+    fn interrupt_hint_variants_all_match() {
+        for footer in [
+            "esc to interrupt",
+            "ctrl+c to cancel",
+            "press esc to stop",
+            "ctrl-c to abort",
+        ] {
+            let mut d = ExecutorPhaseDetector::new();
+            d.feed(footer.as_bytes());
+            assert!(matches!(d.phase(), ExecutorPhase::Thinking), "footer {footer:?} → {:?}", d.phase());
+        }
+    }
+
+    #[test]
+    fn matches_interrupt_hint_on_rendered_screen() {
+        // A composed vt100 screen (multi-line) with opencode's working
+        // footer — the exact shape the session pump feeds for alt-screen
+        // TUIs. The footer line carries the hint; other lines must not
+        // stop the scan.
+        let screen = "\
+opencode\n\
+> What is 2 plus 2?\n\
+Build · Clever Balanced\n\
+  esc interrupt   tab agents   ctrl+p commands\n";
+        assert!(super::matches_interrupt_hint(screen));
+
+        // Idle screen: names esc for other things, no interrupt verb.
+        let idle = "\
+opencode\n\
+Ask anything...   \"Fix broken tests\"\n\
+tab agents   ctrl+p commands   esc clear\n";
+        assert!(!super::matches_interrupt_hint(idle));
+    }
+
+    #[test]
+    fn idle_footer_mentioning_esc_does_not_trip_interrupt_hint() {
+        // opencode's IDLE footer names `esc` for other things but has no
+        // interrupt verb — must NOT read as working.
+        let mut d = ExecutorPhaseDetector::new();
+        d.feed("Ask anything...  tab agents  ctrl+p commands  esc clear\n".as_bytes());
+        assert!(matches!(d.phase(), ExecutorPhase::Idle), "got {:?}", d.phase());
     }
 
     #[test]

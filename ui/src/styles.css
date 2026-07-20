@@ -3404,7 +3404,11 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
 
 .ctx-menu {
     position: fixed;
-    z-index: 1200;
+    /* Portaled to <body>, so it joins the same tier as .ui-select__popover /
+       .spawns-popover: above full-window takeovers (pulse-frame 9000,
+       op-creator 2147482000), below the notch ceiling (2147483000). At the old
+       1200 the Pulse dashboard painted over an open tab context menu. */
+    z-index: 2147482500;
     min-width: 180px;
     background: var(--bg-overlay);
     border: 1px solid var(--border);
@@ -12305,20 +12309,22 @@ body.tabbar-left .tab-btn.active .tab-op-chip-leading .tab-op-avatar-wrap::befor
 }
 .tab-op-level {
   position: absolute;
-  right: -4px;
-  bottom: -4px;
-  min-width: 9px;
-  height: 9px;
-  padding: 0 1.5px;
+  right: -2px;
+  bottom: -2px;
+  min-width: 8px;
+  height: 8px;
+  padding: 0 1px;
   border-radius: 0;
   background: #111;
-  border: 1px solid rgb(var(--ink-rgb) / 0.3);
-  color: #fff;
-  font-size: 7px;
-  font-weight: 700;
+  border: 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 6px;
+  font-weight: 600;
   line-height: 1;
   letter-spacing: 0;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  /* Hairline separation from the portrait instead of a full 1px border —
+     the border read as a second frame competing with the XP ring. */
+  box-shadow: 0 0 0 1px rgb(var(--ink-rgb) / 0.55);
   /* Flex-center the number so it sits in the geometric middle of the
      pill instead of riding the text baseline (was visibly top-heavy). */
   display: inline-flex;
@@ -12569,7 +12575,9 @@ body.tabbar-left .tab-btn.active .tab-op-chip-leading .tab-op-avatar-wrap::befor
   height: 20px;
   align-items: center;
   justify-content: center;
-  border-radius: 0;
+  /* Round here only: the XP ring is a circle, so a square frame inside it
+     reads as a bug. Sharp corners stay the rule everywhere else. */
+  border-radius: 50%;
   background: color-mix(
     in srgb,
     var(--tab-stripe, var(--accent)) 8%,
@@ -12578,6 +12586,12 @@ body.tabbar-left .tab-btn.active .tab-op-chip-leading .tab-op-avatar-wrap::befor
   box-shadow:
     inset 0 0 0 1px rgb(var(--ink-rgb) / 0.1),
     0 1px 2px rgba(0, 0, 0, 0.18);
+}
+/* Round the portrait itself — the wrap can't clip it (the XP ring and the
+   level badge are children and would get cut off). */
+.tab-btn .tab-op-avatar-wrap .op-avatar {
+  border-radius: 50%;
+  overflow: hidden;
 }
 
 /* XP ring around the operator avatar on tabs.
@@ -15503,7 +15517,9 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
    above the target (flips below near the top edge). */
 .ck-tooltip {
     position: fixed;
-    z-index: 9999;
+    /* Above every portaled layer (incl. .ctx-menu / popovers at 2147482500)
+       but below the notch ceiling. Safe: pointer-events: none, never traps input. */
+    z-index: 2147482600;
     display: none;
     pointer-events: none;
     max-width: 340px;
@@ -19111,6 +19127,12 @@ body.theme-light .task-pill--clickable:hover { background: rgb(var(--ink-rgb) / 
 .tp-act-row--startup { border-left-color: rgba(111,123,255,0.5); }
 .tp-act-row--startup .tp-act-ico,
 .tp-act-row--startup .tp-act-kind { color: var(--accent, #6f7bff); }
+
+/* A failed model call — amber, deliberately NOT the escalation red:
+   the operator reached no verdict, the provider just fell over. */
+.tp-act-row--error { border-left-color: rgba(224,175,104,0.45); }
+.tp-act-row--error .tp-act-ico,
+.tp-act-row--error .tp-act-kind { color: var(--running, #e0af68); }
 
 /* Run-collapse pill + expand */
 .tp-act-runpill {

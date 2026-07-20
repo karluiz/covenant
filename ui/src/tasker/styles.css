@@ -103,6 +103,12 @@ body.sidebar-view-tasker #tasker-panel {
 .tasker-project-headrow:hover .tasker-project-delete {
   opacity: 1;
 }
+/* The count badge shares this same right-edge slot with both hover actions
+   (delete always, share whenever it's visible) — fade it whenever the row is
+   hovered so neither overlaps the digits. F5: this used to also fade the
+   count unconditionally for any shared project (`:has(.tasker-project-share
+   .shared)` with no `:hover`), which hid the task count forever once a
+   project was shared instead of only while its hover actions are showing. */
 .tasker-project-headrow:hover .tasker-project-count {
   opacity: 0;
 }
@@ -628,3 +634,52 @@ body.theme-true-dark .tasker-edit-note .md-editor {
 .tasker-prio-dot.tasker-priority-high { background: #f97316; color: #f97316; }
 .tasker-prio-dot.tasker-priority-normal { background: #eab308; color: #eab308; }
 .tasker-prio-dot.tasker-priority-low { background: #22c55e; color: #22c55e; }
+
+/* Board share toggle — hover-revealed like the delete action beside it, but
+   in its own absolutely-positioned slot (same idiom as .tasker-project-delete
+   above) so the two never land on top of each other. Delete sits at right:
+   6px / 22px wide; share sits one slot further out, with a 2px gap between
+   them, regardless of whether delete is even rendered for this project
+   (Inbox has no delete button). */
+.tasker-project-share {
+  position: absolute;
+  right: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-dim);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 120ms, color 120ms;
+}
+.tasker-project-headrow:hover .tasker-project-share,
+.tasker-project-share.shared,
+.tasker-project-share:focus-visible {
+  opacity: 1;
+}
+.tasker-project-share.shared {
+  color: var(--accent);
+}
+.tasker-share-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.tasker-project-share[data-push-state="pushing"] .tasker-share-dot {
+  animation: tasker-share-pulse 1s ease-in-out infinite;
+}
+.tasker-project-share[data-push-state="stale"] .tasker-share-dot {
+  background: var(--text-dim);
+}
+@keyframes tasker-share-pulse {
+  50% { opacity: 0.3; }
+}
