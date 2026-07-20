@@ -90,6 +90,7 @@ export function makeSpecScoreHoverBadge(): {
       score = s;
       if (!s) {
         el.hidden = true;
+        el.textContent = '';
         hide();
         return;
       }

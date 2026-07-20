@@ -82,6 +82,12 @@
   cursor: pointer;
 }
 .spec-score-deep-btn:hover { border-color: var(--accent, #7aa2f7); }
+/* Author display rules outweigh the UA's `[hidden] { display: none }` —
+ * without this, a hidden chip/badge stays visible with stale text. */
+.spec-score-chip[hidden],
+.spec-score-badge[hidden] {
+  display: none;
+}
 .spec-score-badge--hover { cursor: default; }
 .spec-score-pop {
   position: fixed;
