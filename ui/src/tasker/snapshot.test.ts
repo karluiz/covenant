@@ -84,6 +84,17 @@ describe("toSnapshot", () => {
     expect(col.tasks[0].id).toBe(`d${DONE_LIMIT + 4}`); // newest first
   });
 
+  it("sorts done tasks by updatedAt when completedAt is absent", () => {
+    const done = [
+      task({ id: "early", status: "done", updatedAt: 1000 }),
+      task({ id: "late", status: "done", updatedAt: 3000 }),
+      task({ id: "middle", status: "done", updatedAt: 2000 }),
+    ];
+    const snap = toSnapshot(project(done), 5000);
+    const col = snap.columns[2];
+    expect(col.tasks.map((t) => t.id)).toEqual(["late", "middle", "early"]);
+  });
+
   it("omits absent optional fields rather than emitting undefined keys", () => {
     const snap = toSnapshot(project([task()]), 5000);
     expect(Object.keys(snap.columns[0].tasks[0]).sort()).toEqual(

@@ -41,6 +41,10 @@ export interface BoardSnapshot {
 }
 
 function shareTask(t: Task): SharedTask {
+  // CRITICAL: Never spread `t` into out. TypeScript's excess-property check is
+  // waived on spread expressions, so `{ ...t, ... }` would silently leak `description`
+  // (and other secret fields) at runtime. Always field-by-field. Guarded by test:
+  // "never leaks a task description".
   const out: SharedTask = {
     id: t.id,
     title: t.title,
@@ -66,7 +70,7 @@ export function toSnapshot(project: Project, now = Date.now()): BoardSnapshot {
     if (status === "done") {
       // ponytail: newest 20 only — the server paginates nothing and an
       // unbounded Done column would grow the payload forever.
-      tasks = [...tasks]
+      tasks = tasks
         .sort((a, b) => (b.completedAt ?? b.updatedAt) - (a.completedAt ?? a.updatedAt))
         .slice(0, DONE_LIMIT);
     }
