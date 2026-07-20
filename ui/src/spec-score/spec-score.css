@@ -82,6 +82,10 @@
   cursor: pointer;
 }
 .spec-score-deep-btn:hover { border-color: var(--accent, #7aa2f7); }
+.mission-page-preview-score {
+  display: flex;
+  margin-bottom: 10px;
+}
 .spec-score-deep-note {
   font-size: 10px;
   color: var(--fg-dim);
