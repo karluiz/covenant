@@ -13,6 +13,8 @@ export interface DraftSummary {
   slug: string;
   title: string;
   updated_at: string;
+  /** Branch of the sibling worktree this draft lives in; absent = current worktree. */
+  worktree_label?: string | null;
 }
 
 export interface DraftDocument {

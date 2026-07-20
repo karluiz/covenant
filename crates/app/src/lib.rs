@@ -1354,6 +1354,8 @@ struct SuperpowersMissionEntry {
     spec_filename: String,
     plan_path: Option<String>,
     goal_preview: String,
+    /// Branch of the sibling worktree this mission lives in; `None` = current.
+    worktree_label: Option<String>,
 }
 
 /// Background poller that emits `superpowers-missions-changed` whenever
@@ -1369,16 +1371,30 @@ fn spawn_superpowers_watcher(app: tauri::AppHandle) {
                 return;
             }
         };
-        let dirs = [
-            root.join("docs/superpowers/specs"),
-            root.join("docs/superpowers/plans"),
-        ];
-        tracing::info!(
-            specs = %dirs[0].display(),
-            plans = %dirs[1].display(),
-            "superpowers watcher started"
-        );
-        let snapshot = |dirs: &[std::path::PathBuf; 2]| -> std::collections::BTreeMap<std::path::PathBuf, u64> {
+        tracing::info!(root = %root.display(), "superpowers watcher started");
+        // ponytail: re-enumerates worktrees every tick (one ~2ms `git worktree
+        // list`) so a worktree created after boot is picked up. Cache it behind
+        // a counter if the subprocess ever shows up in a profile.
+        let dirs_of = |root: &std::path::Path| -> Vec<std::path::PathBuf> {
+            let roots: Vec<std::path::PathBuf> = {
+                let wts = crate::drafts::git_worktrees(root);
+                if wts.is_empty() {
+                    vec![root.to_path_buf()]
+                } else {
+                    wts.into_iter().map(|(r, _, _)| r).collect()
+                }
+            };
+            roots
+                .into_iter()
+                .flat_map(|r| {
+                    [
+                        r.join("docs/superpowers/specs"),
+                        r.join("docs/superpowers/plans"),
+                    ]
+                })
+                .collect()
+        };
+        let snapshot = |dirs: &[std::path::PathBuf]| -> std::collections::BTreeMap<std::path::PathBuf, u64> {
             let mut out = std::collections::BTreeMap::new();
             for d in dirs {
                 if let Ok(rd) = std::fs::read_dir(d) {
@@ -1398,10 +1414,10 @@ fn spawn_superpowers_watcher(app: tauri::AppHandle) {
             }
             out
         };
-        let mut last = snapshot(&dirs);
+        let mut last = snapshot(&dirs_of(&root));
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-            let now = snapshot(&dirs);
+            let now = snapshot(&dirs_of(&root));
             if now != last {
                 let _ = app.emit("superpowers-missions-changed", ());
                 last = now;
@@ -1458,6 +1474,42 @@ async fn list_superpowers_missions(
     let _ = state;
     let root = resolve_superpowers_root(cwd.as_deref())
         .ok_or_else(|| "could not resolve a docs/superpowers root".to_string())?;
+    // Same reasoning as the Covenant spec list: a mission authored on a
+    // feature worktree must be pickable without merging first. Dedupe by
+    // filename, current worktree wins.
+    let worktrees = crate::drafts::git_worktrees(&root);
+    if worktrees.is_empty() {
+        return superpowers_missions_in(&root, None, true);
+    }
+    let mut lists: Vec<_> = worktrees
+        .into_iter()
+        .map(|(r, label, is_current)| {
+            (
+                superpowers_missions_in(&r, label, is_current).unwrap_or_default(),
+                is_current,
+            )
+        })
+        .collect();
+    lists.sort_by_key(|(_, is_current)| !*is_current);
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (missions, _) in lists {
+        for m in missions {
+            if seen.insert(m.spec_filename.clone()) {
+                out.push(m);
+            }
+        }
+    }
+    out.sort_by(|a, b| b.spec_filename.cmp(&a.spec_filename));
+    Ok(out)
+}
+
+/// Scan one worktree root for Superpowers spec/plan pairs.
+fn superpowers_missions_in(
+    root: &std::path::Path,
+    worktree_label: Option<String>,
+    is_current: bool,
+) -> Result<Vec<SuperpowersMissionEntry>, String> {
     let specs_dir = root.join("docs/superpowers/specs");
     let plans_dir = root.join("docs/superpowers/plans");
     tracing::debug!(?specs_dir, ?plans_dir, "list_superpowers_missions resolved");
@@ -1492,6 +1544,11 @@ async fn list_superpowers_missions(
             spec_path: path.display().to_string(),
             plan_path: plan.map(|p| p.display().to_string()),
             goal_preview: goal,
+            worktree_label: if is_current {
+                None
+            } else {
+                worktree_label.clone()
+            },
         });
     }
     Ok(out)

@@ -19,6 +19,7 @@ const PRUNED: &[&str] = &[
     ".next",
     "vendor",
     ".claude",
+    ".covenant",
     ".worktrees",
 ];
 
