@@ -560,7 +560,7 @@ Existing tests build `emit_finding` payloads without `unit` and will now fail. U
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cargo test -p agent context_miner`
-Expected: the 4 new tests PASS. Loop tests that assert findings survive will still FAIL because no unit is proposed yet — that is Task 4's job. Confirm the failures are exactly `collects_findings_and_finishes_on_plain_turn` and any sibling asserting a finding count, and no others.
+Expected: PASS — all tests, new and pre-existing. This task does not touch the run loop, so `collects_findings_and_finishes_on_plain_turn` still passes once `finding_call` carries `"unit"`. **If any test fails, the task is not done** — do not commit a red suite and defer it to Task 4.
 
 - [ ] **Step 5: Commit**
 
@@ -1557,7 +1557,18 @@ Run: `npm test -- state.test`
 Expected: PASS — 7 tests.
 
 Run: `npm run build`
-Expected: type-check clean. `view.ts` will still fail here because it calls the removed `compilePreview(skillName, state)` — that is Task 7. If `npm run build` fails **only** inside `ui/src/canon/miner/view.ts`, proceed.
+Expected: type-check clean, **including `view.ts`**. `view.ts` calls the old
+`compilePreview(this.skillName, state)` and the old `state.findings`, which no
+longer exist. Do the minimum to keep it compiling — this task does not redesign
+the view (that is Task 7), it only stops the build from breaking:
+
+- `compilePreview(this.skillName, this.state)` → `compilePreview(this.state)`
+- any `this.state.findings` read → `this.state.units.flatMap((u) => u.findings)`
+- `canonCompileFindings(...)` call → `canonCompileUnits(this.repoRoot, selectedUnits(this.state))`
+- `canonMineStart(repoRoot, skillName, focus, thorough)` → drop the `skillName` argument
+
+The gate still renders a package-name field after this task; Task 7 removes it.
+**Do not commit with a failing `npm run build`.**
 
 - [ ] **Step 5: Commit**
 
