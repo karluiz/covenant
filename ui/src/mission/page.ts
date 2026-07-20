@@ -7,6 +7,7 @@ import { Icons } from "../icons";
 import { renderMarkdown } from "../ui/markdown";
 import { scoreSpec, type SpecScore } from "../spec-score/engine";
 import { makeSpecScoreChip, renderBreakdown } from "../spec-score/badge";
+import { deepScore } from "../spec-score/deep";
 import { formatChord } from "../platform";
 
 export type SelectedRef =
@@ -565,19 +566,31 @@ export class MissionPage {
     // SpecScore header — only for docs that are actually specs (canonical Goal
     // heading); arbitrary markdown previews stay unscored.
     if (/^##\s+Goal\s*$/m.test(this.previewBody)) {
-      const score = scoreSpec(this.previewBody);
+      const body = this.previewBody;
+      let score = scoreSpec(body);
       const bar = document.createElement("div");
       bar.className = "mission-page-preview-score";
       const chip = makeSpecScoreChip();
       chip.update(score);
       let breakdown: HTMLElement | null = null;
+      const renderBk = () => {
+        const next = renderBreakdown(score, {
+          onDeep: async () => {
+            score = await deepScore(body, score);
+            chip.update(score);
+            if (breakdown) renderBk();
+          },
+        });
+        if (breakdown) breakdown.replaceWith(next);
+        else bar.after(next);
+        breakdown = next;
+      };
       chip.setOnClick(() => {
         if (breakdown) {
           breakdown.remove();
           breakdown = null;
         } else {
-          breakdown = renderBreakdown(score);
-          bar.after(breakdown);
+          renderBk();
         }
       });
       bar.append(chip.el);

@@ -4211,6 +4211,17 @@ async fn telegram_status(
     Ok(state.telegram_notifier.status().await)
 }
 
+/// SpecScore deep pass — one-shot LLM judge over a spec's markdown. Returns
+/// the raw model text (JSON per the judge prompt); None when no summary
+/// route is configured.
+#[tauri::command]
+async fn spec_deep_score(
+    state: tauri::State<'_, AppState>,
+    markdown: String,
+) -> Result<Option<String>, String> {
+    summarizer::deep_score_oneshot(&state.settings, &markdown).await
+}
+
 #[tauri::command]
 async fn search_session_files(
     state: tauri::State<'_, AppState>,
@@ -5695,6 +5706,7 @@ pub fn run() {
             score_sync_commands::score_profile_set_publish,
             score_sync_commands::score_profile_preview,
             score_sync_commands::score_profile_share_url,
+            spec_deep_score,
             covenant_review::review_get_share,
             covenant_review::review_publish_spec,
             covenant_review::review_republish_spec,

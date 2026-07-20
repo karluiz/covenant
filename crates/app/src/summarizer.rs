@@ -440,6 +440,49 @@ pub async fn suggest_title_oneshot(
     Ok((!title.is_empty()).then_some(title))
 }
 
+const DEEP_SCORE_MAX_TOKENS: u32 = 700;
+const DEEP_SCORE_SYSTEM_PROMPT: &str = "\
+You judge software specs. Given a spec, return ONLY a JSON object: \
+{\"adjustments\":{<dimension>: <integer delta>}, \"findings\": [<string>]}. \
+Dimensions: goal, verifiability, scope, boundaries, complexity, loose_ends, precision. \
+Deltas are small corrections (-10..10) to a heuristic score, for problems heuristics \
+miss: semantic ambiguity, contradictions between sections, acceptance criteria that \
+sound testable but are not, goals that hide multiple goals. Findings are short, \
+concrete, and quote the offending text. No prose outside the JSON.";
+
+/// One-shot LLM judge for SpecScore's deep pass. Ok(None) when no Summary
+/// route is configured. Mirrors [`suggest_title_oneshot`], minus vitals —
+/// this call has no owning session.
+pub async fn deep_score_oneshot(
+    settings: &Arc<Mutex<Settings>>,
+    markdown: &str,
+) -> Result<Option<String>, String> {
+    let text = markdown.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let resolved = {
+        let s = settings.lock().await;
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(_) => return Ok(None), // no route → silently no deep score
+        }
+    };
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: DEEP_SCORE_SYSTEM_PROMPT.to_string(),
+        user_message: format!("# Spec\n\n{text}"),
+        max_tokens: DEEP_SCORE_MAX_TOKENS,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(Some(resp.text))
+}
+
 /// Split a summarizer response into (title, summary). The model is asked
 /// to make its first line `TITLE: <label>`. If absent, title is empty and
 /// the whole text is the summary (back-compat).

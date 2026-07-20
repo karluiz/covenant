@@ -3,6 +3,7 @@ import type { SpecEventSource, OutgoingImage } from './events';
 import { composePartialMarkdown, createStreamState } from './stream-state';
 import { makeSpecScoreChip, renderBreakdown } from '../spec-score/badge';
 import { scoreSpec, type SpecScore } from '../spec-score/engine';
+import { deepScore } from '../spec-score/deep';
 import { MarkdownEditor } from '../ui/markdown-editor';
 import { mountActivityStream } from './activity-stream';
 import { mountLiveSpec } from './live-spec';
@@ -106,7 +107,14 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
   let breakdownEl: HTMLElement | null = null;
   const renderScoreBreakdown = () => {
     if (!breakdownEl || !lastScore) return;
-    const next = renderBreakdown(lastScore);
+    const next = renderBreakdown(lastScore, {
+      onDeep: async () => {
+        if (!lastScore) return;
+        lastScore = await deepScore(composePartialMarkdown(state), lastScore);
+        scoreChip.update(lastScore);
+        renderScoreBreakdown();
+      },
+    });
     breakdownEl.replaceWith(next);
     breakdownEl = next;
   };
