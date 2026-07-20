@@ -10,7 +10,7 @@
   padding: 0;
   border: 1px solid var(--border, #232831);
   background: rgb(var(--ink-rgb) / 0.03);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--text, #d5d9de);
   font: inherit;
   font-size: 12px;
@@ -97,7 +97,7 @@
   padding: 7px 10px;
   background: none;
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--text, #d5d9de);
   font: inherit;
   font-size: 12.5px;
@@ -137,7 +137,7 @@
   color: color-mix(in srgb, var(--muted, #5a6873) 80%, transparent);
   background: rgb(var(--ink-rgb, 255 255 255) / 0.05);
   border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.07);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 2px 5px;
 }
 .spawns-popover__item.is-active .spawn-kbd {
@@ -153,7 +153,7 @@
   color: var(--accent, #b794f4);
   background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent, #b794f4) 30%, transparent);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 2px 5px;
 }
 
@@ -168,7 +168,7 @@
   padding: 7px 10px;
   background: none;
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--muted, #5a6873);
   font: inherit;
   font-size: 12px;
