@@ -479,7 +479,7 @@ pub async fn deep_score_oneshot(
     };
     let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::route_err("Summary", e))?;
     Ok(Some(resp.text))
 }
 

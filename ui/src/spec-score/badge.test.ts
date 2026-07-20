@@ -62,6 +62,24 @@ describe('spec-score UI', () => {
     await gate;
   });
 
+  it('missing-key failure renders Open Providers door, not a red error', async () => {
+    const el = renderBreakdown(s, {
+      onDeep: () =>
+        Promise.reject(new Error('The Summary route has no API key. Set it in Settings → Providers.')),
+    });
+    document.body.append(el);
+    el.querySelector<HTMLButtonElement>('.spec-score-deep-btn')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el.querySelector('.spec-score-deep-error')).toBeNull();
+    const door = el.querySelector<HTMLButtonElement>('.spec-score-deep-door')!;
+    expect(door.textContent).toBe('Open Providers');
+    let opened = 0;
+    document.addEventListener('covenant:open-providers', () => opened++, { once: true });
+    door.click();
+    expect(opened).toBe(1);
+    el.remove();
+  });
+
   it('deep button surfaces onDeep failure inline and re-enables', async () => {
     const el = renderBreakdown(s, {
       onDeep: () => Promise.reject(new Error('No summary model configured')),

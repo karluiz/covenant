@@ -93,6 +93,22 @@ export function renderBreakdown(s: SpecScore, opts?: { onDeep?: () => Promise<vo
       void onDeep()
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
+          // An unconfigured route is an empty state, not a failure — same
+          // convention as Changes: drop the red and offer the door.
+          if (msg.includes('Settings → Providers')) {
+            const note = document.createElement('div');
+            note.className = 'spec-score-deep-note';
+            note.textContent = 'The Summary route has no API key.';
+            const door = document.createElement('button');
+            door.type = 'button';
+            door.className = 'spec-score-deep-btn spec-score-deep-door';
+            door.textContent = 'Open Providers';
+            door.addEventListener('click', () =>
+              document.dispatchEvent(new CustomEvent('covenant:open-providers')),
+            );
+            btn.replaceWith(note, door);
+            return;
+          }
           const line = document.createElement('div');
           line.className = 'spec-score-deep-error';
           line.textContent = msg;
