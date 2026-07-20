@@ -8,7 +8,7 @@ use karl_canon::compile::{
     write_command_entry, write_memory_entry, write_skill_package, write_subagent_entry,
     CompiledFinding,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -90,7 +90,6 @@ pub async fn canon_mine_start(
     state: State<'_, crate::AppState>,
     runs: State<'_, MinerRuns>,
     repo_root: String,
-    skill_name: String,
     focus: String,
     thorough: bool,
 ) -> Result<String, String> {
@@ -131,71 +130,116 @@ pub async fn canon_mine_stop(runs: State<'_, MinerRuns>, run_id: String) -> Resu
     Ok(())
 }
 
-// ponytail: no lifetimes, owned clones at curation scale
-#[derive(Default)]
-pub(crate) struct KindGroups {
-    pub skills: Vec<CompiledFinding>,
-    pub memory: Vec<CompiledFinding>,
-    pub commands: Vec<CompiledFinding>,
-    pub agents: Vec<CompiledFinding>,
+/// A curated unit as the UI sends it back: the destination and its findings.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompiledUnit {
+    pub kind: String,
+    pub name: String,
+    pub findings: Vec<CompiledFinding>,
 }
 
-pub(crate) fn split_by_kind(findings: &[CompiledFinding]) -> KindGroups {
-    let mut g = KindGroups::default();
-    for f in findings {
-        match f.kind.as_str() {
-            "memory" => g.memory.push(f.clone()),
-            "command" => g.commands.push(f.clone()),
-            "subagent" => g.agents.push(f.clone()),
-            _ => g.skills.push(f.clone()),
-        }
+/// The exact bytes this unit will be written as — the input to state
+/// resolution and to the preview. Empty findings render empty.
+///
+/// ponytail: kinds other than "skill" render only `findings[0]` — a curated
+/// unit is one destination file, and `emit_finding` already groups by unit
+/// name upstream, so memory/command/subagent units carry exactly one finding
+/// in practice. Skill units are the one kind that legitimately batches many
+/// findings into a single SKILL.md.
+pub(crate) fn render_unit(u: &CompiledUnit) -> String {
+    if u.findings.is_empty() {
+        return String::new();
     }
-    g
+    if u.kind == "skill" {
+        karl_canon::compile::render_skill_md(&karl_canon::compile::slugify(&u.name), &u.findings)
+    } else {
+        karl_canon::compile::render_md_entry(&u.findings[0])
+    }
 }
 
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileReport {
-    pub skills: Option<String>,
+    pub skills: Vec<String>,
     pub memory: Vec<String>,
     pub commands: Vec<String>,
     pub agents: Vec<String>,
 }
 
 #[tauri::command]
-pub async fn canon_compile_findings(
+pub async fn canon_compile_units(
     repo_root: String,
-    skill_name: String,
-    findings: Vec<CompiledFinding>,
-    overwrite: bool,
+    units: Vec<CompiledUnit>,
 ) -> Result<CompileReport, String> {
     let root = PathBuf::from(&repo_root);
     tokio::task::spawn_blocking(move || {
-        let g = split_by_kind(&findings);
         let mut report = CompileReport::default();
-        if !g.skills.is_empty() {
-            let dir = write_skill_package(&root, &skill_name, None, &g.skills, overwrite)
-                .map_err(|e| e.to_string())?;
-            report.skills = Some(dir.to_string_lossy().into_owned());
-        }
-        let strvec = |v: Vec<std::path::PathBuf>| {
-            v.into_iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect()
+        let strvec = |v: Vec<std::path::PathBuf>| -> Vec<String> {
+            v.into_iter().map(|p| p.to_string_lossy().into_owned()).collect()
         };
-        if !g.memory.is_empty() {
-            report.memory =
-                strvec(write_memory_entry(&root, &g.memory, overwrite).map_err(|e| e.to_string())?);
-        }
-        if !g.commands.is_empty() {
-            report.commands =
-                strvec(write_command_entry(&root, &g.commands, overwrite).map_err(|e| e.to_string())?);
-        }
-        if !g.agents.is_empty() {
-            report.agents =
-                strvec(write_subagent_entry(&root, &g.agents, overwrite).map_err(|e| e.to_string())?);
+        for u in &units {
+            if u.findings.is_empty() {
+                continue;
+            }
+            let slug = karl_canon::compile::slugify(&u.name);
+            // The unit was resolved against Canon before the user pressed
+            // Write, so every write is an intentional create-or-update.
+            match u.kind.as_str() {
+                "skill" => {
+                    let dir = write_skill_package(&root, &slug, None, &u.findings, true)
+                        .map_err(|e| e.to_string())?;
+                    report.skills.push(dir.to_string_lossy().into_owned());
+                }
+                "command" => report.commands.extend(strvec(
+                    write_command_entry(&root, &u.findings[..1], true).map_err(|e| e.to_string())?,
+                )),
+                "subagent" => report.agents.extend(strvec(
+                    write_subagent_entry(&root, &u.findings[..1], true).map_err(|e| e.to_string())?,
+                )),
+                _ => report.memory.extend(strvec(
+                    write_memory_entry(&root, &u.findings[..1], true).map_err(|e| e.to_string())?,
+                )),
+            }
         }
         Ok::<_, String>(report)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnitStateRow {
+    pub kind: String,
+    pub slug: String,
+    pub state: karl_canon::UnitState,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryReport {
+    pub states: Vec<UnitStateRow>,
+    pub detected: Vec<karl_canon::ContextUnit>,
+}
+
+#[tauri::command]
+pub async fn canon_inventory_states(
+    repo_root: String,
+    units: Vec<CompiledUnit>,
+) -> Result<InventoryReport, String> {
+    let root = PathBuf::from(&repo_root);
+    tokio::task::spawn_blocking(move || {
+        let states = units
+            .iter()
+            .map(|u| {
+                let slug = karl_canon::compile::slugify(&u.name);
+                let state = karl_canon::resolve_state(&root, &u.kind, &slug, &render_unit(u));
+                UnitStateRow { kind: u.kind.clone(), slug, state }
+            })
+            .collect();
+        let detected = karl_canon::detected_rows(&root).map_err(|e| e.to_string())?;
+        Ok::<_, String>(InventoryReport { states, detected })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -218,17 +262,47 @@ mod tests {
     }
 
     #[test]
-    fn split_by_kind_groups_findings() {
-        use karl_canon::compile::CompiledFinding;
-        let f = |kind: &str| CompiledFinding {
-            category: "pattern".into(), title: format!("t {kind}"),
-            body_md: "b".into(), evidence: vec![], confidence: "high".into(), kind: kind.into(),
+    fn slug_rules_agree_across_crates() {
+        for name in ["PTY Conventions", "retry budget", "Foo/Bar baz", "  edge  "] {
+            assert_eq!(
+                karl_agent::context_miner::unit_slug(name),
+                karl_canon::compile::slugify(name),
+                "slug mismatch for {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_for_state_matches_what_gets_written() {
+        let f = CompiledFinding {
+            category: "convention".into(),
+            title: "Use tabs".into(),
+            body_md: "Always use tabs.".into(),
+            evidence: vec![],
+            confidence: "high".into(),
+            kind: "memory".into(),
         };
-        let all = vec![f("skill"), f("memory"), f("memory"), f("command"), f("subagent")];
-        let g = super::split_by_kind(&all);
-        assert_eq!(g.skills.len(), 1);
-        assert_eq!(g.memory.len(), 2);
-        assert_eq!(g.commands.len(), 1);
-        assert_eq!(g.agents.len(), 1);
+        let u = CompiledUnit {
+            kind: "memory".into(),
+            name: "Use tabs".into(),
+            findings: vec![f.clone()],
+        };
+        assert_eq!(render_unit(&u), karl_canon::compile::render_md_entry(&f));
+
+        let su = CompiledUnit {
+            kind: "skill".into(),
+            name: "PTY conventions".into(),
+            findings: vec![f],
+        };
+        assert_eq!(
+            render_unit(&su),
+            karl_canon::compile::render_skill_md("pty-conventions", &su.findings)
+        );
+    }
+
+    #[test]
+    fn empty_unit_renders_empty_not_panics() {
+        let u = CompiledUnit { kind: "memory".into(), name: "x".into(), findings: vec![] };
+        assert_eq!(render_unit(&u), String::new());
     }
 }
