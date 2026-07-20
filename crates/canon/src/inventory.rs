@@ -48,7 +48,16 @@ pub fn resolve_state(repo_root: &Path, kind: &str, slug: &str, body: &str) -> Un
     match std::fs::read_to_string(&path) {
         Ok(on_disk) if on_disk == body => UnitState::Exists,
         Ok(_) => UnitState::Changed,
-        Err(_) => UnitState::New,
+        // Only a genuinely absent file is `New`. Any other I/O error (permission
+        // denied, a directory sitting where a file belongs, a symlink loop, a
+        // transient read failure) means something IS there and we simply could
+        // not read it this once. Reporting that as `New` would pre-select the
+        // row for an overwrite-in-place write, silently clobbering a real file.
+        // `Changed` is the conservative call: it leaves the row unselected and
+        // offers Update instead. Do not "simplify" this back to a blanket
+        // `Err(_) => New`.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => UnitState::New,
+        Err(_) => UnitState::Changed,
     }
 }
 
@@ -88,7 +97,7 @@ mod tests {
         );
 
         let f = finding("Use tabs", "Always use tabs.");
-        write_memory_entry(&tmp, &[f.clone()], true).unwrap();
+        write_memory_entry(&tmp, std::slice::from_ref(&f), true).unwrap();
         let same = crate::compile::render_md_entry(&f);
 
         assert_eq!(
@@ -108,6 +117,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         assert_eq!(resolve_state(&tmp, "mcp", "x", "y"), UnitState::New);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn read_error_other_than_not_found_is_changed_not_new() {
+        // Put a *directory* at the exact path a unit's file would occupy.
+        // Reading it as a string fails with an io::Error whose kind is not
+        // `NotFound` (e.g. `IsADirectory` on macOS/Linux) — precisely the case
+        // this fix targets: something is there, we just can't read it as a
+        // file, and that must never be reported as `New`.
+        let tmp = std::env::temp_dir().join(format!("canon-inv3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let blocked_dir = tmp.join(".covenant").join("canon").join("memory").join("blocked.md");
+        std::fs::create_dir_all(&blocked_dir).unwrap();
+
+        assert_eq!(
+            resolve_state(&tmp, "memory", "blocked", "anything"),
+            UnitState::Changed
+        );
+
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
