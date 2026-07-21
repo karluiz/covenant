@@ -148,6 +148,14 @@ mod tests {
     }
 
     #[test]
+    fn a_new_mcp_server_is_projected_under_its_canon_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        new_unit(tmp.path(), ContextKind::Mcp, "ctx7").unwrap();
+        let projected = std::fs::read_to_string(tmp.path().join(".mcp.json")).unwrap();
+        assert!(projected.contains("canon-ctx7"), "not projected: {projected}");
+    }
+
+    #[test]
     fn slugifies_the_given_name() {
         let tmp = tempfile::tempdir().unwrap();
         let path = new_unit(tmp.path(), ContextKind::Agent, "My Reviewer").unwrap();
