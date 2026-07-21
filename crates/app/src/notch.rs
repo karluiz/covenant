@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use karl_blocks::executor_phase::ExecutorPhaseDetector;
+use karl_blocks::executor_phase::{contains_skill_call, skill_invocations, ExecutorPhaseDetector};
 use karl_session::{SessionEvent, SessionId};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{broadcast, Mutex};
@@ -39,7 +39,18 @@ struct Entry {
     /// swallowed — Claude Code routinely flashes `⏺ Update(foo.rs)`
     /// for a single frame and the spinner is back ~50ms later.
     last_active_at: std::time::Instant,
+    /// Last Canon unit whose load we recorded, and when. Claude Code redraws
+    /// its transcript constantly, so the same `⏺ Skill(x)` line arrives in
+    /// dozens of chunks; without this gate one load would count as dozens.
+    /// A genuine re-load of the same unit inside the window is lost — the
+    /// tradeoff that keeps the count honest.
+    last_skill: Option<(String, std::time::Instant)>,
 }
+
+/// How long the same unit name is suppressed after a recorded load — long
+/// enough to swallow a redraw storm, short enough that re-invoking a skill
+/// later in a session still counts.
+const SKILL_DEDUPE: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// How long to hold a Writing/Reading/Running display phase before letting
 /// the detector flap us back to Thinking. The tool-call line is the
@@ -161,6 +172,7 @@ impl NotchHub {
                 done_emitted: false,
                 display: karl_session::ExecutorPhase::Idle,
                 last_active_at: stale,
+                last_skill: None,
             },
         );
     }
@@ -181,6 +193,7 @@ impl NotchHub {
                 done_emitted: false,
                 display: karl_session::ExecutorPhase::Idle,
                 last_active_at: stale,
+                last_skill: None,
             },
         );
     }
@@ -268,9 +281,13 @@ impl NotchHub {
     }
 
     pub async fn ingest(&self, session: SessionId, bytes: &[u8]) {
-        // Feature disabled in settings → bail before touching state.
-        // Zero overhead beyond the atomic load.
-        if !self.enabled.load(Ordering::Relaxed) {
+        // Feature disabled in settings → bail before touching state. Zero
+        // overhead beyond the atomic load and a substring scan: Canon
+        // adoption is measured whether or not the notch pill is switched on,
+        // so a chunk carrying a skill call still goes through.
+        let has_skill = contains_skill_call(bytes);
+        let notch_on = self.enabled.load(Ordering::Relaxed);
+        if !notch_on && !has_skill {
             return;
         }
         let mut map = self.sessions.lock().await;
@@ -280,6 +297,26 @@ impl NotchHub {
         };
         // Skip sessions where no executor agent is currently in foreground.
         if entry.agent.is_none() {
+            return;
+        }
+        if has_skill {
+            // ponytail: the event inherits the *focused* session's group (same
+            // as prompts do), so a background agent's load lands in whatever
+            // group is on screen. Thread the session's own cwd/group through
+            // the notch entry if per-group usage ever needs to be exact.
+            let now = std::time::Instant::now();
+            for name in skill_invocations(bytes) {
+                let fresh = match &entry.last_skill {
+                    Some((prev, at)) => *prev != name || now.duration_since(*at) > SKILL_DEDUPE,
+                    None => true,
+                };
+                if fresh {
+                    karl_score::record_skill_use(&name);
+                    entry.last_skill = Some((name, now));
+                }
+            }
+        }
+        if !notch_on {
             return;
         }
         // Pi RPC sessions drive the notch via structured events
@@ -579,9 +616,7 @@ async fn emit_with_tokens(
 /// merely dragged to full size counts too, which is the intent here.
 pub fn main_covers_screen(app: &AppHandle) -> bool {
     app.get_webview_window("main")
-        .map(|w| {
-            w.is_fullscreen().unwrap_or(false) || w.is_maximized().unwrap_or(false)
-        })
+        .map(|w| w.is_fullscreen().unwrap_or(false) || w.is_maximized().unwrap_or(false))
         .unwrap_or(false)
 }
 
@@ -870,10 +905,11 @@ pub async fn notch_preview(
     }
     // Sync the webview's CSS mode (notch vs notch-mini vs corner) to match.
     let _ = app.emit("notch:corner", serde_json::json!({ "corner": corner }));
-    let phase = |k: serde_json::Value| {
-        serde_json::json!({ "session": "__preview__", "tab_label": "Preview", "phase": k })
-    };
-    let _ = app.emit("notch:state", phase(serde_json::json!({ "kind": "thinking" })));
+    let phase = |k: serde_json::Value| serde_json::json!({ "session": "__preview__", "tab_label": "Preview", "phase": k });
+    let _ = app.emit(
+        "notch:state",
+        phase(serde_json::json!({ "kind": "thinking" })),
+    );
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
@@ -938,6 +974,57 @@ pub async fn notch_ready(
 mod tests {
     use super::*;
     use karl_session::ExecutorPhase;
+
+    #[tokio::test]
+    async fn skill_load_recorded_once_per_redraw_storm_even_with_notch_off() {
+        let (tx, _rx) = broadcast::channel(16);
+        let hub = NotchHub::new();
+        let sid = SessionId::new();
+        hub.register(sid, tx).await;
+        hub.set_foreground_agent(sid, Some("claude".into())).await;
+        // Notch off: the pill is disabled but adoption is still measured.
+        hub.set_enabled(false).await;
+
+        hub.ingest(sid, "⏺ Skill(horizon)\n".as_bytes()).await;
+        let first = hub
+            .sessions
+            .lock()
+            .await
+            .get(&sid)
+            .unwrap()
+            .last_skill
+            .clone();
+        let (name, at) = first.expect("skill load recorded with the notch off");
+        assert_eq!(name, "horizon");
+
+        // The TUI redraws the same line — must not count again.
+        hub.ingest(sid, "⏺ Skill(horizon)\n".as_bytes()).await;
+        let again = hub
+            .sessions
+            .lock()
+            .await
+            .get(&sid)
+            .unwrap()
+            .last_skill
+            .clone();
+        assert_eq!(
+            again,
+            Some(("horizon".to_string(), at)),
+            "redraw re-counted"
+        );
+
+        // A different unit is a new load.
+        hub.ingest(sid, "⏺ Skill(deep-research)\n".as_bytes()).await;
+        let next = hub
+            .sessions
+            .lock()
+            .await
+            .get(&sid)
+            .unwrap()
+            .last_skill
+            .clone();
+        assert_eq!(next.unwrap().0, "deep-research");
+    }
 
     #[tokio::test]
     async fn phase_snapshot_reports_display_and_agent() {
