@@ -450,11 +450,18 @@ pub struct SpawnAcpResult {
 /// - `.credentials.json` — the "Claude Code-credentials" Keychain item
 ///   (0600), same file the CLI itself uses on Linux. Re-copied on every
 ///   spawn so the token is as fresh as the last real Claude Code refresh.
+/// Returns the config dir plus the OAuth access token to export as
+/// `CLAUDE_CODE_OAUTH_TOKEN`: under a custom `CLAUDE_CONFIG_DIR` the CLI
+/// keys its macOS Keychain item by a hash of that dir
+/// ("Claude Code-credentials-<hash>") and PREFERS it over
+/// `.credentials.json` — a stale/empty entry there (as one run leaves
+/// behind) makes every turn fail with `401 invalid authentication
+/// credentials`. The env var outranks both.
 /// Sync fs + `security`(1) — call inside spawn_blocking.
 fn prepare_claude_acp_config(
     base: &std::path::Path,
     cfg: &crate::settings::AcpExecutorConfig,
-) -> Result<PathBuf, String> {
+) -> Result<(PathBuf, Option<String>), String> {
     // The dir is SHARED by every claude tab (one path, no session id) and
     // settings.json below is a read-modify-write — two tabs spawning close
     // together could interleave and boot the adapter against the wrong
@@ -569,7 +576,7 @@ fn prepare_claude_acp_config(
     };
     match cred {
         Some(c) => {
-            std::fs::write(&cred_path, c).map_err(|e| format!("credentials copy: {e}"))?;
+            std::fs::write(&cred_path, &c).map_err(|e| format!("credentials copy: {e}"))?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -584,7 +591,19 @@ fn prepare_claude_acp_config(
             )
         }
     }
-    Ok(dir)
+    // ponytail: token snapshot per spawn — a session outliving the access
+    // token (~12h) dies at that point; wire a refresh if that ever bites.
+    let token = std::fs::read_to_string(&cred_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| {
+            v.get("claudeAiOauth")
+                .unwrap_or(&v)
+                .get("accessToken")?
+                .as_str()
+                .map(str::to_string)
+        });
+    Ok((dir, token))
 }
 
 /// Trust-aware resolver for interactive tabs. Ask defers everything to
@@ -667,7 +686,7 @@ pub async fn spawn_acp_session(
             .app_config_dir()
             .map_err(|e| format!("resolve app_config_dir: {e}"))?;
         let cfg_for_prep = cfg.clone();
-        let cfg_dir = tokio::task::spawn_blocking(move || {
+        let (cfg_dir, oauth_token) = tokio::task::spawn_blocking(move || {
             prepare_claude_acp_config(&base, &cfg_for_prep)
         })
         .await
@@ -676,6 +695,11 @@ pub async fn spawn_acp_session(
             "CLAUDE_CONFIG_DIR".to_string(),
             cfg_dir.to_string_lossy().into_owned(),
         ));
+        if let Some(tok) = oauth_token {
+            spawn_opts
+                .env
+                .push(("CLAUDE_CODE_OAUTH_TOKEN".to_string(), tok));
+        }
         if let Some(tokens) = cfg.thinking_tokens {
             spawn_opts
                 .env
@@ -1820,7 +1844,9 @@ mod claude_config_tests {
             model: Some("claude-sonnet-4.6".into()),
             ..Default::default()
         };
-        let out = prepare_claude_acp_config(tmp.path(), &cfg).expect("prep");
+        let (out, token) = prepare_claude_acp_config(tmp.path(), &cfg).expect("prep");
+        // The env-var token is what outranks the dir-hashed Keychain item.
+        assert!(token.is_some(), "access token extracted from credentials");
         let raw = std::fs::read_to_string(out.join("settings.json")).expect("read");
         let v: serde_json::Value = serde_json::from_str(&raw).expect("json");
         assert_eq!(v["permissions"]["defaultMode"], "bypassPermissions");
