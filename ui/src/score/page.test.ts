@@ -1,5 +1,33 @@
 import { describe, expect, test } from "vitest";
-import { reposTitle, intensityCeiling, intensityClass } from "./page";
+import { reposTitle, intensityCeiling, intensityClass, metricCount } from "./page";
+
+describe("heatmap metric toggle", () => {
+  const day = { prompts: 12, commits: 300 };
+
+  test("each metric plots only its own signal", () => {
+    expect(metricCount(day, "prompts")).toBe(12);
+    expect(metricCount(day, "commits")).toBe(300);
+    expect(metricCount(day, "both")).toBe(312);
+  });
+
+  test("prompts-only keeps gradient where combined saturates on commits", () => {
+    // A profile like Karluiz's: prompts are ~3% of the combined volume, so
+    // under "both" every day collapses to the same commit-driven bucket.
+    const days = [
+      { prompts: 2, commits: 400 },
+      { prompts: 40, commits: 410 },
+    ];
+    const both = intensityCeiling(days.map((d) => metricCount(d, "both")));
+    expect(intensityClass(metricCount(days[0]!, "both"), both)).toBe(
+      intensityClass(metricCount(days[1]!, "both"), both),
+    );
+
+    const prompts = intensityCeiling(days.map((d) => metricCount(d, "prompts")));
+    expect(intensityClass(metricCount(days[0]!, "prompts"), prompts)).not.toBe(
+      intensityClass(metricCount(days[1]!, "prompts"), prompts),
+    );
+  });
+});
 
 describe("heatmap intensity", () => {
   test("empty and all-zero data yield no ceiling and no shading", () => {

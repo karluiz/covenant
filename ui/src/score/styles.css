@@ -146,6 +146,10 @@ body.theme-light .pulse-mini { --num: #0d9488; }
   border-color: color-mix(in srgb, var(--num) 30%, transparent);
 }
 .cov-chip .x { color: var(--text-tertiary); margin-left: 4px; }
+.cov-chip--mini { font-size: var(--fs-micro); padding: 3px 8px; text-transform: none; letter-spacing: normal; font-weight: 400; }
+/* Segmented: one shared frame, so the three read as one control. */
+.cov-heat-toggle { margin-left: auto; display: inline-flex; }
+.cov-heat-toggle .cov-chip--mini + .cov-chip--mini { border-left-width: 0; }
 
 /* Stat cards */
 .cov-stats {

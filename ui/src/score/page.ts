@@ -19,7 +19,12 @@ interface State {
   /// without refetching when only the view changes.
   groups: GroupCell[];
   groupView: GroupView;
+  /// Which signal the heatmap plots. Combined drowns prompts (1.3k) under
+  /// commits (41k) on a busy profile, so the split has to be selectable.
+  heatMetric: HeatMetric;
 }
+
+export type HeatMetric = "prompts" | "commits" | "both";
 
 const TEMPLATE = /* html */ `
   <div class="covenant-page">
@@ -29,7 +34,9 @@ const TEMPLATE = /* html */ `
         <div class="cov-filters" data-role="filters"></div>
       </div>
       <div class="cov-heatmap-card">
-        <h4>Activity · last 12 months <span class="hint">click a cell to filter by day</span></h4>
+        <h4>Activity · last 12 months <span class="hint">click a cell to filter by day</span>
+          <span class="cov-heat-toggle" data-role="heat-toggle"></span>
+        </h4>
         <div class="cov-heatmap" data-role="heatmap"><div class="cov-skel cov-skel-heat"></div></div>
         <div class="cov-legend">Less <span class="cov-cell"></span><span class="cov-cell l1"></span><span class="cov-cell l2"></span><span class="cov-cell l3"></span><span class="cov-cell l4"></span> More</div>
       </div>
@@ -84,6 +91,7 @@ export function mountCovenantPage(host: HTMLElement): void {
     mounted: true,
     groups: [],
     groupView: { ...DEFAULT_GROUP_VIEW },
+    heatMetric: "both",
   };
   (host as unknown as { __cov: State }).__cov = state;
   void refresh(host, state);
@@ -115,7 +123,6 @@ async function refreshInner(host: HTMLElement, state: State): Promise<void> {
   host.querySelector<HTMLElement>("[data-role=refresh-error]")?.remove();
   const filtersHost = host.querySelector<HTMLElement>("[data-role=filters]")!;
   const statsHost = host.querySelector<HTMLElement>("[data-role=stats]")!;
-  const heatmapHost = host.querySelector<HTMLElement>("[data-role=heatmap]")!;
   const reposHost = host.querySelector<HTMLElement>("[data-role=repos]")!;
   const branchesHost = host.querySelector<HTMLElement>("[data-role=branches]")!;
   const branchesTitle = host.querySelector<HTMLElement>("[data-role=branches-title]")!;
@@ -139,7 +146,7 @@ async function refreshInner(host: HTMLElement, state: State): Promise<void> {
 
   renderFilters(filtersHost, state, host);
   renderStats(statsHost, summary, heatmap);
-  renderHeatmap(heatmapHost, heatmap, (day) => {
+  renderHeatmapCard(host, state, heatmap, (day) => {
     state.filter.day = day;
     void refresh(host, state);
   });
@@ -343,17 +350,59 @@ export function intensityClass(count: number, ceiling: number): string {
   return `l${Math.max(1, Math.min(4, q))}`;
 }
 
-function renderHeatmap(
-  host: HTMLElement,
+/// The plotted value for one day under the selected metric. Combined is the
+/// default; the single-signal views exist because the relative ceiling
+/// re-tunes itself, so prompts-only stays legible instead of going flat.
+export function metricCount(
+  stats: { prompts: number; commits: number },
+  metric: HeatMetric,
+): number {
+  if (metric === "prompts") return stats.prompts;
+  if (metric === "commits") return stats.commits;
+  return stats.prompts + stats.commits;
+}
+
+const HEAT_METRICS: ReadonlyArray<[HeatMetric, string]> = [
+  ["prompts", "Prompts"],
+  ["commits", "Commits"],
+  ["both", "Both"],
+];
+
+/// Toggle + grid together: switching metric re-renders from the cells already
+/// in hand, no refetch — the payload always carried both columns.
+function renderHeatmapCard(
+  page: HTMLElement,
+  state: State,
   cells: DailyCell[],
   onClick: (day: string) => void,
 ): void {
+  const gridHost = page.querySelector<HTMLElement>("[data-role=heatmap]")!;
+  const toggleHost = page.querySelector<HTMLElement>("[data-role=heat-toggle]")!;
+  toggleHost.innerHTML = "";
+  for (const [metric, label] of HEAT_METRICS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `cov-chip cov-chip--mini${state.heatMetric === metric ? " active" : ""}`;
+    btn.textContent = label;
+    btn.addEventListener("click", () => {
+      state.heatMetric = metric;
+      renderHeatmapCard(page, state, cells, onClick);
+    });
+    toggleHost.appendChild(btn);
+  }
+  renderHeatmap(gridHost, cells, state.heatMetric, onClick);
+}
+
+function renderHeatmap(
+  host: HTMLElement,
+  cells: DailyCell[],
+  metric: HeatMetric,
+  onClick: (day: string) => void,
+): void {
   host.innerHTML = "";
-  // Plot prompts AND commits. The payload always carried both; graphing
-  // prompts alone left "ACTIVITY" blank on a profile with 33k commits.
   const byDay = new Map<string, { prompts: number; commits: number }>();
   for (const c of cells) byDay.set(c.day, { prompts: c.prompts, commits: c.commits });
-  const ceiling = intensityCeiling(cells.map((c) => c.prompts + c.commits));
+  const ceiling = intensityCeiling(cells.map((c) => metricCount(c, metric)));
 
   const today = new Date();
   const start = new Date(today);
@@ -367,7 +416,7 @@ function renderHeatmap(
       const stats = byDay.get(key);
       const prompts = stats?.prompts ?? 0;
       const commits = stats?.commits ?? 0;
-      const count = prompts + commits;
+      const count = metricCount({ prompts, commits }, metric);
       const cell = document.createElement("div");
       const cls = intensityClass(count, ceiling);
       cell.className = `cov-cell${cls ? " " + cls : ""}`;
@@ -379,8 +428,10 @@ function renderHeatmap(
           year: "numeric",
         }),
         subtitle: key,
+        // Tooltip keeps the full breakdown whatever the cell is coloured by —
+        // an uncoloured day under "Prompts" can still have had commits.
         meta:
-          count === 0
+          prompts + commits === 0
             ? "No activity"
             : [
                 prompts > 0 ? `${prompts} prompt${prompts === 1 ? "" : "s"}` : null,
