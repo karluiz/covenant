@@ -6,6 +6,72 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.49 — Hand-opened ACP tabs get their own worktree
+
+### Added
+
+- **A chat tab opened by hand is isolated in a worktree, like a Spawn.** ⌘⌥⇧C,
+  the tab menu and the group menu previously ran the executor straight in the
+  active cwd; they now go through the same worktree launch a Spawn uses
+  (`ui/src/spawns/worktree-launch.ts`, `ui/src/tabs/manager.ts`). Same terms as
+  before: a silent no-op outside a repo, launch-in-place plus a toast on any
+  other failure. Restore and the Spawns path are untouched.
+
+- **cwd/branch chip in the ACP chat header.** The header carried the cwd as a
+  truncated absolute path in the meta slot, which answered "where am I" badly
+  and "which branch" not at all — the question that matters now that a
+  hand-opened tab gets its own worktree. The chip shows the branch (folder name
+  outside a repo) with the full path in the tooltip
+  (`ui/src/executors/acp/view.ts`, `acp.css`).
+
+### Changed
+
+- **`experimental.board_share` is gone.** The flag existed only because v0.9.47
+  shipped the Tasker board-share client before the forge had `/boards`; those
+  routes are deployed, so the share button and its auto-push now always render.
+  Removes the setting from `crates/app/src/settings.rs` and the
+  `boardShareEnabled` thread through `ui/src/main.ts` → `TaskerPanel`. A
+  leftover key in `config.json` is ignored, not an error.
+
+- **Release workflows no longer cache `target/`.** The key is
+  `hashFiles('**/Cargo.lock')` and every release bumps versions, so the cache
+  was always a miss — never restored, only re-saved, with the post-step
+  spending ~25m uploading multi-GB contents (v0.9.48 sat 24m41s there after the
+  bundles had already shipped). Only `~/.cargo/registry` and git are cached now
+  (`.github/workflows/release-{macos,windows}.yml`).
+
+### Fixed
+
+- **Detected skills previewed as "(empty)" in Canon.** Preview read only
+  `.covenant/canon/skills/…`, so a skill Canon detected but had not adopted had
+  no source to show. `read_source` now falls back to the executor directory
+  detect.rs found it in (`crates/canon/src/install.rs`,
+  `ui/src/canon/cockpit/view.ts`).
+
+- **The Canon cockpit `esc` pill flickered on row hover.** The pill sits above
+  the sticky section header; hovering a row animates opacity on the card
+  actions and the accent spine, repainting that layer and blinking the
+  non-composited pill. It gets its own compositing layer
+  (`ui/src/canon/cockpit/cockpit.css`).
+
+- **Org id-card edit/delete actions drifted apart.** `margin-left:auto` applied
+  to both buttons, so each pushed itself to the right edge independently — only
+  the first anchors now (`ui/src/canon/cockpit/cockpit.css`).
+
+- **A stale Keychain item could 401 every ACP turn.** Under a custom
+  `CLAUDE_CONFIG_DIR` the CLI keys its macOS Keychain item by a hash of that dir
+  and prefers it over the `.credentials.json` Covenant copies in on each spawn;
+  a stale entry failed every turn with "invalid authentication credentials"
+  while the real token was fine. Covenant now exports
+  `CLAUDE_CODE_OAUTH_TOKEN`, which outranks both
+  (`crates/app/src/acp_commands.rs`).
+
+- **Start agent typed the spawn command into a running agent.** The reuse-idle
+  launch writes `cd <worktree> && claude …`, but `detectExecutor` only read the
+  first token, so the tab never recorded `pane.executor` and stayed "idle"
+  forever (`ui/src/executor.ts`).
+
+
 ## v0.9.48 — Context Crawler inventory + Organization rename/delete
 
 ### Added
