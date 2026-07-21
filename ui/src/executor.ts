@@ -49,6 +49,15 @@ function firstRealToken(cmd: string): string {
 }
 
 export function detectExecutor(command: string): string | null {
+  // Covenant itself launches agents as `cd <worktree> && claude …`, so the
+  // executor is rarely the first token. Check every `&&`/`;`/`|` segment.
+  if (/&&|\|\||;|\|/.test(command)) {
+    for (const seg of command.split(/&&|\|\||;|\|/)) {
+      const hit = detectExecutor(seg);
+      if (hit) return hit;
+    }
+    return null;
+  }
   const tokens = command.trim().split(/\s+/);
   const head = firstRealToken(command);
   if (!head) return null;
