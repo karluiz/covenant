@@ -6,6 +6,29 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.54 — Canon authors a unit of any kind from the cockpit
+
+### Added
+
+- **Create a Canon unit from its section**: Subagents, Commands, MCP and
+  Memory each get a `+ New` head action that opens an inline name bar,
+  writes the scaffold into `.covenant/canon/…` and drops you straight into
+  the editor. Skills folds the same gesture into its existing add bar — a
+  value with a slash is still a skills.sh import, anything else is a new
+  skill — and Specs routes to the immersive Spec Creator scoped to the
+  group's repo instead of scaffolding a file. Inside an organization the
+  action renders only for owners; with no active org it stays open, since
+  the artifact is just a file in your own repo. `ui/src/canon/cockpit/view.ts`,
+  `ui/src/main.ts`.
+
+- **`canon_new_unit` backend**: one Tauri command in `crates/canon/src/new_unit.rs`
+  slugifies the name through the same `compile::slugify` that `adopt` uses,
+  refuses an empty slug or an existing path (no silent clobber), writes the
+  per-kind scaffold — frontmatter `.md` for agent/command/memory, `SKILL.md`
+  for a skill, a stub stdio server for MCP — and re-runs `project()` so the
+  executors see the new unit immediately. `crates/app/src/lib.rs`,
+  `ui/src/api.ts`.
+
 ## v0.9.53 — Green test suite (stale specs + a real flake)
 
 ### Fixed
