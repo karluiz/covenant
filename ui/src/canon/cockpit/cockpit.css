@@ -670,6 +670,12 @@ body.tabbar-left.canon-cockpit-open .canon-reader {
   /* Above the sticky section header (z-index 5) — its opaque fill would
      otherwise paint over the esc pill and hide it. */
   z-index: 10;
+  /* ponytail: own compositing layer. The header below is sticky (its own
+     WebKit layer); row hover animates opacity on the card actions and the
+     accent spine, which repaints that layer and made this overlapping,
+     non-composited pill flicker. Promote instead of restructuring — the
+     structural fix is moving the pill inside .canon-cockpit-sec-head. */
+  transform: translateZ(0);
   display: inline-flex;
   align-items: center;
   border: 0;

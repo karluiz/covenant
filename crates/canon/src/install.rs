@@ -1,4 +1,4 @@
-use crate::project::{project, SKILL_DIRS};
+use crate::project::{project, AGENT_DIRS, COMMAND_DIRS, SKILL_DIRS};
 use crate::types::{CanonManifest, InstalledRef, SkillManifest};
 use crate::{canon_dir, read_manifest, write_manifest, CanonError, ContextKind};
 use serde::Serialize;
@@ -183,7 +183,29 @@ pub fn read_source(repo_root: &Path, kind: ContextKind, name: &str) -> Result<St
         ContextKind::Mcp => canon_dir(repo_root).join(kind.dir()).join(format!("{name}.json")),
         _ => canon_dir(repo_root).join(kind.dir()).join(format!("{name}.md")),
     };
-    Ok(std::fs::read_to_string(path)?)
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(s),
+        // Detected/foreign units have no `.covenant/canon` source yet — read
+        // them where detect.rs found them so Preview works before Adopt.
+        Err(e) => match detected_path(repo_root, kind, name) {
+            Some(p) => Ok(std::fs::read_to_string(p)?),
+            None => Err(e.into()),
+        },
+    }
+}
+
+/// Where a not-yet-adopted unit lives in the executor dirs. Mirrors
+/// `detect.rs`'s scan, reusing the same dir constants.
+/// ponytail: file-per-item kinds only — a detected MCP server is one key
+/// inside `.mcp.json`, not a file; extend if Preview ever needs it.
+fn detected_path(repo_root: &Path, kind: ContextKind, name: &str) -> Option<std::path::PathBuf> {
+    let (dirs, rel) = match kind {
+        ContextKind::Skill => (SKILL_DIRS, format!("{name}/SKILL.md")),
+        ContextKind::Agent => (AGENT_DIRS, format!("{name}.md")),
+        ContextKind::Command => (COMMAND_DIRS, format!("{name}.md")),
+        _ => return None,
+    };
+    dirs.iter().map(|d| repo_root.join(d).join(&rel)).find(|p| p.is_file())
 }
 
 fn write_lock(repo_root: &Path, m: &CanonManifest) -> Result<(), CanonError> {
@@ -862,5 +884,15 @@ mod tests {
         let servers = v.get("mcpServers").and_then(|m| m.as_object()).unwrap();
         assert!(servers.contains_key("canon-context7"), "projected as canon-context7");
         assert!(!servers.contains_key("Context7"), "original uppercase key removed");
+    }
+    #[test]
+    fn read_source_falls_back_to_detected_skill_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        let dir = repo.join(".claude/skills/verify");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("SKILL.md"), "# verify\nnot adopted yet\n").unwrap();
+        let md = read_source(repo, ContextKind::Skill, "verify").unwrap();
+        assert!(md.contains("not adopted yet"));
     }
 }
