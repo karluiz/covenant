@@ -3441,6 +3441,12 @@ export class TabManager {
     // natural-language line at a bare shell to the super-agent. Anchored to
     // the terminal pane; updated from onData below.
     const promptHint = mountPromptHint(termHost, term);
+    // The hint is a *shell prompt* affordance: only offer to route prose to
+    // the super-agent while the shell owns the PTY. Any foreground program
+    // (claude/codex/vim/…) is between block_started and prompt_start, and its
+    // own input box must stay literal. Starts true so shells without OSC 133
+    // behave as before (they never emit either marker).
+    let atPrompt = true;
     const cdPicker = mountCdPicker(termHost, term, {
       writeBytes: (b) => void writeToSession(sessionId, b).catch((e) =>
         // eslint-disable-next-line no-console
@@ -3561,6 +3567,8 @@ export class TabManager {
             // tab. Detection mirrors the Rust `detect_executor` so the
             // operator panel and the bar agree on the name.
             if (event.kind === "block_started") {
+              atPrompt = false;
+              promptHint.reset();
               const next = detectExecutor(event.command);
               if (tabRef.current) {
                 const p = tabRef.current.panes[0];
@@ -3602,6 +3610,7 @@ export class TabManager {
             //   - cwd_changed: keep the cwd hint up to date so the
             //     backend can apply its cwd bonus.
             if (event.kind === "prompt_start") {
+              atPrompt = true;
               recall?.notifyPromptStart();
               promptHint.reset();
               cdPicker.reset();
@@ -4083,7 +4092,7 @@ export class TabManager {
     const encoder = new TextEncoder();
     const dataDispose = term.onData((data) => {
       const tab = tabRef.current;
-      const bare = !!tab && !activePane(tab).executor;
+      const bare = !!tab && !activePane(tab).executor && atPrompt;
       // cd-picker consumes its own navigation keys (↑/↓/Enter/Esc) before the PTY.
       if (cdPicker.handleKey(data)) return;
       // Intercept Enter while the autodetect hint is showing: clear the typed
