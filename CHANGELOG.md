@@ -6,6 +6,33 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.53 — Green test suite (stale specs + a real flake)
+
+### Fixed
+
+- **A genuine flake in the score breakdowns.** `breakdown_agents` and
+  `summary_includes_tokens_and_specs` both drove the process-global recorder
+  via `set_recorder`, so the two raced inside one test binary and stole each
+  other's events — roughly one run in four failed, on either test. They now
+  append to their own `ScoreStore` directly (`crates/score/tests/breakdown.rs`).
+
+- **Seven stale test expectations.** Each asserted behavior the code had
+  deliberately moved past: group breakdowns key on case-insensitive group name
+  alone (not `(workspace, group)`), notch pills never compact (the shrink read
+  as a glitch), `openWizardWithBody` takes a `{ canonContext }` argument, the
+  Tasker esc pill is board-only, confirmed proposals return the
+  `.task-pill-unit` wrapper with open-tab in the lifecycle drawer, and the
+  workspace switch is a `body.workspace-switching` overlay rather than three
+  `Element.animate` legs. Rewritten against the current contracts, intent
+  intact.
+
+- **`landing/` no longer swept into the root vitest run.** It is its own npm
+  project: its unit tests need `landing/node_modules` and its `.spec.ts` files
+  are Playwright suites vitest cannot run. Excluded in `vitest.config.ts`.
+
+- **`--all-targets` compiles again.** `crates/capabilities/examples/scan_real.rs`
+  now matches the `Agent` and `Memory` capability variants.
+
 ## v0.9.52 — Canon measures skill usage, not just installs
 
 ### Added
