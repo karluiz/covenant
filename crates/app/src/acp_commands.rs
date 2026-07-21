@@ -439,6 +439,146 @@ pub struct SpawnAcpResult {
     pub trust: AcpTrust,
 }
 
+/// Public OAuth client id Claude Code itself uses.
+const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+/// Refresh when the stored access token has less than this left.
+const CLAUDE_TOKEN_MIN_REMAINING: i64 = 6 * 3600 * 1000;
+
+/// Read the "Claude Code-credentials" Keychain item; `None` if absent.
+#[cfg(target_os = "macos")]
+fn read_keychain_credentials() -> Option<Value> {
+    let out = std::process::Command::new("security")
+        .args([
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+            "-w",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    serde_json::from_slice(&out.stdout).ok()
+}
+
+/// Refresh the Claude Code OAuth token when it is close to expiry, and
+/// write the result back to the Keychain so BOTH the real CLI and the
+/// next ACP spawn see it. Needed because `CLAUDE_CODE_OAUTH_TOKEN` is a
+/// snapshot taken at spawn: an adapter started with a nearly-expired
+/// token starts failing every turn with `401 invalid authentication
+/// credentials` mid-conversation, and cannot refresh itself (the env var
+/// outranks — and therefore pins — the credentials file).
+///
+/// Best-effort: any failure leaves the stored credentials untouched and
+/// the caller proceeds with whatever is there.
+///
+/// ponytail: refresh happens at spawn only — a session running longer
+/// than the token's remaining lifetime still dies. Fix that by
+/// respawning the adapter on a 401, not by refreshing harder.
+#[cfg(target_os = "macos")]
+async fn refresh_claude_token_if_stale() {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = LOCK.lock().await;
+
+    let stored = match tokio::task::spawn_blocking(read_keychain_credentials).await {
+        Ok(Some(v)) => v,
+        _ => return,
+    };
+    let oauth = stored.get("claudeAiOauth").unwrap_or(&stored).clone();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let expires_at = oauth.get("expiresAt").and_then(Value::as_i64).unwrap_or(0);
+    if expires_at - now_ms > CLAUDE_TOKEN_MIN_REMAINING {
+        return;
+    }
+    let Some(refresh) = oauth.get("refreshToken").and_then(Value::as_str) else {
+        return;
+    };
+
+    let resp = match reqwest::Client::new()
+        .post("https://console.anthropic.com/v1/oauth/token")
+        .json(&json!({
+            "grant_type": "refresh_token",
+            "refresh_token": refresh,
+            "client_id": CLAUDE_OAUTH_CLIENT_ID,
+        }))
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r.json::<Value>().await.ok(),
+        Ok(r) => {
+            tracing::warn!(status = %r.status(), "claude oauth refresh rejected");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "claude oauth refresh failed");
+            None
+        }
+    };
+    let Some(resp) = resp else { return };
+    let (Some(access), Some(expires_in)) = (
+        resp.get("access_token").and_then(Value::as_str),
+        resp.get("expires_in").and_then(Value::as_i64),
+    ) else {
+        return;
+    };
+
+    // Merge into the stored blob so scopes/subscriptionType survive, and
+    // persist the rotated refresh token — dropping it would break the
+    // user's real `claude` login, not just ours.
+    let mut merged = stored.clone();
+    let slot = if merged.get("claudeAiOauth").is_some() {
+        merged
+            .get_mut("claudeAiOauth")
+            .and_then(Value::as_object_mut)
+    } else {
+        merged.as_object_mut()
+    };
+    let Some(slot) = slot else { return };
+    slot.insert("accessToken".into(), json!(access));
+    slot.insert("expiresAt".into(), json!(now_ms + expires_in * 1000));
+    if let Some(rt) = resp.get("refresh_token").and_then(Value::as_str) {
+        slot.insert("refreshToken".into(), json!(rt));
+    }
+    let payload = merged.to_string();
+    let stored_ok = tokio::task::spawn_blocking(move || {
+        let user = std::env::var("USER").ok().unwrap_or_else(|| {
+            dirs::home_dir()
+                .and_then(|h| h.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .unwrap_or_default()
+        });
+        std::process::Command::new("security")
+            .args([
+                "add-generic-password",
+                "-U",
+                "-s",
+                "Claude Code-credentials",
+                "-a",
+                &user,
+                "-w",
+                &payload,
+            ])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false);
+    if stored_ok {
+        tracing::info!("claude oauth token refreshed before ACP spawn");
+    } else {
+        // The refresh token rotated but we could not persist it: say so
+        // loudly, this is the one path that can break the real CLI login.
+        tracing::error!("claude oauth refreshed but Keychain write FAILED — run `claude` to re-login if auth breaks");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn refresh_claude_token_if_stale() {}
+
 /// Prepare the isolated `CLAUDE_CONFIG_DIR` the claude ACP adapter runs
 /// against. Needed because the adapter's pinned Agent SDK rejects newer
 /// fields in the user's real `~/.claude/settings.json` (seen live:
@@ -685,6 +825,7 @@ pub async fn spawn_acp_session(
             .path()
             .app_config_dir()
             .map_err(|e| format!("resolve app_config_dir: {e}"))?;
+        refresh_claude_token_if_stale().await;
         let cfg_for_prep = cfg.clone();
         let (cfg_dir, oauth_token) = tokio::task::spawn_blocking(move || {
             prepare_claude_acp_config(&base, &cfg_for_prep)
