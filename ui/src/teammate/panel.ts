@@ -93,7 +93,13 @@ export interface TeammatePanelDeps {
   attachSessionToTask?: (operatorId: string, taskId: string, sessionId: string) => Promise<void>;
   spawnTabForTask?: (
     task: Task,
-    overrides?: { cwd?: string | null; groupId?: string | null; color?: string | null },
+    overrides?: {
+      cwd?: string | null;
+      groupId?: string | null;
+      color?: string | null;
+      /// Names the worktree branch (`agent/<executor>-MMDD-xxx`) only.
+      executor?: string | null;
+    },
   ) => Promise<{ sessionId: string; cwd: string | null; groupId: string | null; color: string | null }>;
   /// Fetch all tasks for the operator (proposed/active/done). Powers the Tasks tab.
   listTasks?:       (operatorId: string) => Promise<Task[]>;
@@ -1749,7 +1755,12 @@ export class TeammatePanel {
         let injectDelayMs = 150;
         let line = "";
         if (target === "spawn" && spawnTabForTask) {
-          const spawned = await spawnTabForTask(task);
+          // Executor name only feeds the worktree branch slug
+          // (`agent/<executor>-MMDD-xxx`); the actual cmdline is built
+          // below by buildTaskInjection with the same precedence.
+          const spawned = await spawnTabForTask(task, {
+            executor: operatorPickedExecutor ?? this.defaultExecutor,
+          });
           targetSessionId = spawned.sessionId;
           this.taskSpawnedSessions.set(task.id, {
             sessionId: spawned.sessionId,

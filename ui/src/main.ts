@@ -109,7 +109,7 @@ import type { Org } from "./api";
 import { SpawnsChip, spawnBrandGlyph } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor, quickCallAcp } from "./spawns/shortcuts";
-import { resolveLaunch, isSilentWorktreeFailure } from "./spawns/worktree-launch";
+import { resolveLaunch, isolateCwd, isSilentWorktreeFailure } from "./spawns/worktree-launch";
 import { worktreeCreate, worktreeRetire } from "./api";
 import {
   TeammatePanel,
@@ -771,7 +771,12 @@ async function boot(): Promise<void> {
   // without duplicating the body.
   const spawnTabForTask = async (
     task: Task,
-    overrides?: { cwd?: string | null; groupId?: string | null; color?: string | null },
+    overrides?: {
+      cwd?: string | null;
+      groupId?: string | null;
+      color?: string | null;
+      executor?: string | null;
+    },
   ): Promise<{ sessionId: string; cwd: string | null; groupId: string | null; color: string | null }> => {
     // Inherit cwd + group from the active tab's workspace so the
     // spawned tab visually belongs to the same stripe and lands in
@@ -779,18 +784,45 @@ async function boot(): Promise<void> {
     // Overrides win (used by Continue to recover original metadata
     // post-restart, when the active tab may be unrelated).
     const group = manager.activeGroup();
-    const cwd = overrides?.cwd ?? group?.rootDir ?? manager.activeCwd();
+    const baseCwd = overrides?.cwd ?? group?.rootDir ?? manager.activeCwd();
     const groupId = overrides?.groupId ?? group?.id ?? null;
     const color = overrides?.color ?? group?.color ?? null;
-    const tab = await manager.createTab({
-      // Auto-slot seed, not a pin: the tab shows the task title until
-      // live inference produces an activity label, then evolves.
-      defaultTitle: task.title.slice(0, 32),
-      cwd,
-      groupId,
-      color,
-    });
-    if (!tab) throw new Error("createTab returned null");
+    // Same isolation the spawns path hands out (main.ts runSpawn): an
+    // operator-dispatched executor edits code, so it gets a worktree too.
+    // A Continue/respawn passes the original cwd — that IS the worktree
+    // already, so don't mint a second one.
+    let cwd = baseCwd;
+    let isolated = false;
+    if (!overrides?.cwd) {
+      const res = await isolateCwd(baseCwd, overrides?.executor || "operator", {
+        create: worktreeCreate,
+        now: () => new Date(),
+        rand: Math.random,
+      });
+      cwd = res.cwd;
+      isolated = res.isolated;
+      if (res.error && !isSilentWorktreeFailure(res.error)) {
+        pushInfoToast({ message: `Launching in place — worktree failed: ${res.error}` });
+      }
+    }
+    let tab: Awaited<ReturnType<typeof manager.createTab>>;
+    try {
+      tab = await manager.createTab({
+        // Auto-slot seed, not a pin: the tab shows the task title until
+        // live inference produces an activity label, then evolves.
+        defaultTitle: task.title.slice(0, 32),
+        cwd,
+        groupId,
+        color,
+      });
+    } catch (e) {
+      if (isolated && cwd) void worktreeRetire(cwd, cwd).catch(() => {});
+      throw e;
+    }
+    if (!tab) {
+      if (isolated && cwd) void worktreeRetire(cwd, cwd).catch(() => {});
+      throw new Error("createTab returned null");
+    }
     const pane = activePane(tab);
     return {
       sessionId: (pane.sessionId ?? "").toString(),
