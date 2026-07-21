@@ -63,4 +63,5 @@ export const promptsApi = {
   delete: (id: string) => invoke<void>("prompt_delete", { id }),
   reorder: (orderedIds: string[]) =>
     invoke<void>("prompt_reorder", { orderedIds }),
+  improve: (text: string) => invoke<string>("improve_prompt", { text }),
 };

@@ -3220,6 +3220,40 @@ async fn generate_commit_message(
     Ok(text.trim().to_string())
 }
 
+/// Rewrite a saved prompt so it briefs an agent better. One-shot, same Chat
+/// route as the commit-message helper.
+#[tauri::command]
+async fn improve_prompt(state: State<'_, AppState>, text: String) -> Result<String, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("nothing to improve".into());
+    }
+    let resolved = {
+        let s = state.settings.lock().await;
+        provider_resolve::resolve_route(&s, settings::Role::Chat)
+            .map_err(|_| "provider unavailable".to_string())?
+    };
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: "You rewrite prompts that a developer sends to a coding agent. \
+            Reply with ONLY the rewritten prompt — no preamble, no commentary, no \
+            markdown fences. Keep the author's intent and any concrete details \
+            (paths, names, commands) verbatim. Make the task, the constraints and \
+            the expected output explicit. Keep it tight; never pad."
+            .to_string(),
+        user_message: format!("Prompt to improve:\n\n{text}"),
+        max_tokens: 900,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let out = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| route_err("Chat", e))?
+        .text;
+    Ok(out.trim().to_string())
+}
+
 /// AI explanation of the whole change set, as markdown. Same provider path and
 /// same "staged if you staged, else working tree" scope as the commit message.
 #[tauri::command]
@@ -5636,6 +5670,7 @@ pub fn run() {
             git_unstage_hunk,
             git_commit,
             generate_commit_message,
+            improve_prompt,
             explain_changes,
             resolve_existing_path,
             structure_list_dir,

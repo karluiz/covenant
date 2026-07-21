@@ -30,6 +30,10 @@ vi.mock("./api", () => {
         state.prompts = state.prompts.filter((x: any) => x.id !== id);
       }),
       reorder: vi.fn(async () => {}),
+      improve: vi.fn(async () => {
+        if (state.improveFails) throw new Error("The Chat route has no API key. Set it in Settings → Providers.");
+        return "improved body";
+      }),
     },
     __state: state,
   };
@@ -85,6 +89,30 @@ describe("PromptsTab", () => {
       "g1",
       "review the diff",
     );
+  });
+
+  it("improve rewrites the body, and a missing route offers the providers door", async () => {
+    const apiMod = (await import("./api")) as any;
+    const tab = new PromptsTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    (host.querySelector(".pn-prompt-new") as HTMLButtonElement).click();
+    const body = host.querySelector(".pn-prompt-body-input") as HTMLTextAreaElement;
+    body.value = "review it";
+    (host.querySelector(".pn-prompt-improve") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(body.value).toBe("improved body");
+
+    apiMod.__state.improveFails = true;
+    let opened = 0;
+    document.addEventListener("covenant:open-providers", () => opened++, { once: true });
+    (host.querySelector(".pn-prompt-improve") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    const status = host.querySelector(".pn-prompt-status") as HTMLElement;
+    expect(status.hidden).toBe(false);
+    expect(status.classList.contains("pn-prompt-status--err")).toBe(false);
+    (status.querySelector(".pn-prompt-status-fix") as HTMLButtonElement).click();
+    expect(opened).toBe(1);
+    apiMod.__state.improveFails = false;
   });
 
   it("reorders prompts and persists the new order", async () => {
