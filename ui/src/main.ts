@@ -1298,14 +1298,14 @@ async function boot(): Promise<void> {
       claudeThemeFor(resolveTheme(activeThemeMode, activeSpecialId));
     const runSpawn = (id: string, target?: SessionId, inGroup?: string): void => {
       void (async () => {
-        // Group-scoped launch (group context menu): take an idle tab in that
-        // group if there is one. Otherwise the tab created below is placed in
-        // the group — never loose in the tabbar.
+        // Group-scoped launch (group context menu) always opens a NEW tab
+        // inside the group — "Start new agent" means new. Only a launch
+        // aimed at a terminal (pane menu target, or the current one) runs
+        // in place.
         const group = inGroup
           ? manager.groupInfo(inGroup)
           : manager.activeGroup();
-        const idleInGroup = inGroup ? manager.idleSessionInGroup(inGroup) : null;
-        const sid = target ?? idleInGroup ?? manager.activeSessionId();
+        const sid = inGroup ? null : target ?? manager.activeSessionId();
         if (!sid && !group) return;
         const specs = await listSpawns();
         const spec = specs.find((s) => s.id === id);
@@ -1365,7 +1365,7 @@ async function boot(): Promise<void> {
           isolated &&
           !!launchCwd &&
           !!sid &&
-          (sid === idleInGroup ||
+          (sid === target ||
             (sid === manager.activeSessionId() && !manager.activeExecutor()));
         // Reusing a group's idle tab means bringing it forward first —
         // otherwise the agent starts in a tab the user can't see.
@@ -1426,8 +1426,8 @@ async function boot(): Promise<void> {
         if (spec) runSpawn(spec.id, sid);
       })();
     };
-    // Group context menu → "Start new agent": same default spawn, scoped to
-    // the group (idle tab reuse + placement live in runSpawn).
+    // Group context menu → "Start new agent": same default spawn, in a new
+    // tab inside the group (placement lives in runSpawn).
     manager.runDefaultAgentInGroup = (groupId: string): void => {
       void (async () => {
         const specs = await listSpawns();
