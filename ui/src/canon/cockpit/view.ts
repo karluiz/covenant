@@ -27,6 +27,7 @@ import {
   canonInstallRegistry,
   canonInstallRegistryUnit,
   scoreSummaryFiltered,
+  scoreSkillUsage,
   canonEvalSummary,
   operatorList,
   operatorDelete,
@@ -1488,9 +1489,11 @@ export class CanonCockpitView {
       return el;
     }
 
-    // Adoption — org-wide installs for this group's registry-sourced skills.
-    // Needs both a local skill list (to know what's registry-sourced) and an
-    // active org (to know install counts), so it's the one two-hop fetch here.
+    // Adoption — org-wide installs, plus local uses, for this group's
+    // registry-sourced units. Skills are the ones whose local record carries a
+    // `registry:` source; shared contexts have no source field, so a local
+    // context counts as registry-sourced iff the org publishes that name.
+    // Needs the local list AND the org's packages, hence the multi-hop fetch.
     const adoptionBox = document.createElement("div");
     el.appendChild(adoptionBox);
     if (cwd && active) {
@@ -1498,16 +1501,32 @@ export class CanonCockpitView {
       void Promise.all([
         canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] }) as CanonStatus),
         canonSearch(orgSlug, null, "skill").catch(() => [] as PkgMeta[]),
-      ]).then(([status, pkgs]) => {
-        const registrySkills = status.installed.filter((i) => i.source.startsWith("registry:"));
-        if (registrySkills.length === 0) return;
-        const adoption = new Map(pkgs.map((p) => [p.name, p.installs]));
+        canonSearch(orgSlug, null, "context").catch(() => [] as PkgMeta[]),
+        scoreSkillUsage(this.opts.groupLabel ?? null).catch(() => []),
+      ]).then(([status, skillPkgs, contextPkgs, usage]) => {
+        const skillInstalls = new Map(skillPkgs.map((p) => [p.name, p.installs]));
+        const contextInstalls = new Map(contextPkgs.map((p) => [p.name, p.installs]));
+        const rows: { name: string; installs: number | undefined; kind: string }[] = [
+          ...status.installed
+            .filter((i) => i.source.startsWith("registry:"))
+            .map((i) => ({ name: i.name, installs: skillInstalls.get(i.name), kind: "skill" })),
+          ...status.contexts
+            .filter((c) => contextInstalls.has(c.name))
+            .map((c) => ({ name: c.name, installs: contextInstalls.get(c.name), kind: "context" })),
+        ];
+        if (rows.length === 0) return;
+        const uses = new Map(usage.map((u) => [u.skill, u.uses]));
         adoptionBox.appendChild(loopSubhead("Adoption"));
-        const maxInstalls = Math.max(1, ...registrySkills.map((i) => adoption.get(i.name) ?? 0));
-        for (const i of registrySkills) {
-          const n = adoption.get(i.name);
-          const value = n === undefined ? "—" : `${n} ${n === 1 ? "install" : "installs"}`;
-          adoptionBox.appendChild(meterRow(i.name, value, ((n ?? 0) / maxInstalls) * 100));
+        const maxInstalls = Math.max(1, ...rows.map((r) => r.installs ?? 0));
+        for (const r of rows) {
+          const n = r.installs;
+          const used = uses.get(r.name) ?? 0;
+          const parts = [
+            n === undefined ? "—" : `${n} ${n === 1 ? "install" : "installs"}`,
+            `${used} ${used === 1 ? "use" : "uses"}`,
+          ];
+          if (r.kind === "context") parts.push("context");
+          adoptionBox.appendChild(meterRow(r.name, parts.join(" · "), ((n ?? 0) / maxInstalls) * 100));
         }
       });
     }

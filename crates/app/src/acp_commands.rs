@@ -111,6 +111,30 @@ fn tool_call_target(f: &ToolCallFields) -> String {
         .unwrap_or_else(|| "file".to_string())
 }
 
+/// Name of the Canon unit an executor is loading, if this tool call is a
+/// skill invocation. Harnesses differ: Claude's ACP bridge puts the slug in
+/// `rawInput.skill`, others only title the call `Skill(name)`. Anything else
+/// is not a skill load.
+///
+/// ponytail: two shapes cover claude + codex today; add a third only when a
+/// harness actually ships a different one.
+pub(crate) fn skill_from_tool_call(f: &ToolCallFields) -> Option<String> {
+    if let Some(s) = f
+        .raw_input
+        .as_ref()
+        .and_then(|v| v.get("skill"))
+        .and_then(Value::as_str)
+    {
+        let s = s.trim();
+        if !s.is_empty() {
+            return Some(s.to_string());
+        }
+    }
+    let title = f.title.as_deref()?.trim();
+    let inner = title.strip_prefix("Skill(")?.strip_suffix(')')?.trim();
+    (!inner.is_empty()).then(|| inner.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Perception: auto-answer trivial + safe permission prompts
 // ---------------------------------------------------------------------------
@@ -1114,6 +1138,12 @@ pub async fn spawn_acp_session(
                         }
                     }
                     SessionUpdate::ToolCall(f) => {
+                        // Adoption's other half: a skill was actually loaded.
+                        // `ToolCall` (not `ToolCallUpdate`) fires once per call,
+                        // so this can't double-count a long-running load.
+                        if let Some(skill) = skill_from_tool_call(f) {
+                            karl_score::record_skill_use(&skill);
+                        }
                         let title = f
                             .title
                             .as_deref()
@@ -1709,6 +1739,32 @@ mod tests {
     fn notification(update_json: &str) -> SessionNotification {
         let raw = format!(r#"{{"sessionId":"s1","update":{update_json}}}"#);
         serde_json::from_str(&raw).expect("notification fixture parses")
+    }
+
+    fn tool_call_fields(json: &str) -> ToolCallFields {
+        serde_json::from_str(json).expect("tool call fixture parses")
+    }
+
+    #[test]
+    fn skill_use_is_detected_from_raw_input_or_title_and_nothing_else() {
+        let from_input = tool_call_fields(
+            r#"{"toolCallId":"t1","title":"Skill","rawInput":{"skill":"superpowers:brainstorming"}}"#,
+        );
+        assert_eq!(
+            skill_from_tool_call(&from_input).as_deref(),
+            Some("superpowers:brainstorming")
+        );
+
+        let from_title = tool_call_fields(r#"{"toolCallId":"t1","title":"Skill(horizon)"}"#);
+        assert_eq!(skill_from_tool_call(&from_title).as_deref(), Some("horizon"));
+
+        let plain = tool_call_fields(
+            r#"{"toolCallId":"t1","kind":"execute","title":"ls","rawInput":{"command":"ls"}}"#,
+        );
+        assert_eq!(skill_from_tool_call(&plain), None);
+
+        let blank = tool_call_fields(r#"{"toolCallId":"t1","rawInput":{"skill":"  "}}"#);
+        assert_eq!(skill_from_tool_call(&blank), None);
     }
 
     #[test]

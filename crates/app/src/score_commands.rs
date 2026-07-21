@@ -3,7 +3,7 @@ use karl_score::achievements::{
 };
 use karl_score::{
     AgentCell, BranchCell, DailyCell, GroupCell, ModelCell, ModelSource, RepoCell, ScoreFilter,
-    ScoreStore, SessionRow, SpecBreakdown, Summary,
+    ScoreStore, SessionRow, SkillUseCell, SpecBreakdown, Summary,
 };
 use std::sync::Arc;
 use tauri::State;
@@ -60,6 +60,16 @@ pub fn score_heatmap_filtered(
     filter: ScoreFilter,
 ) -> Result<Vec<DailyCell>, String> {
     state.0.heatmap_filtered(&filter).map_err(|e| e.to_string())
+}
+
+/// Per-skill load counts — the "used" half of Canon's adoption story
+/// (installs come from the registry, uses from local score events).
+#[tauri::command]
+pub fn score_skill_usage(
+    state: State<'_, ScoreState>,
+    filter: ScoreFilter,
+) -> Result<Vec<SkillUseCell>, String> {
+    state.0.skill_usage(&filter).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

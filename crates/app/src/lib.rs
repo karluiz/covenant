@@ -5838,6 +5838,7 @@ pub fn run() {
             covenant_board::board_revoke,
             score_commands::score_set_current_session,
             score_commands::score_summary_filtered,
+            score_commands::score_skill_usage,
             score_commands::score_heatmap_filtered,
             score_commands::score_breakdown_repos,
             score_commands::score_breakdown_branches,

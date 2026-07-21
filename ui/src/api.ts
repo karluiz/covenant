@@ -1861,6 +1861,16 @@ export async function scoreSummaryFiltered(groupName: string | null): Promise<Sc
   const filter = { repo: null, branch: null, group_name: groupName, day: null, agent: null };
   return invoke<ScoreSummary>("score_summary_filtered", { filter });
 }
+export interface SkillUseCell {
+  skill: string;
+  uses: number;
+}
+/** How many times each Canon unit was loaded by an executor in this group —
+ *  the "used" counterpart to the registry's install count. */
+export async function scoreSkillUsage(groupName: string | null): Promise<SkillUseCell[]> {
+  const filter = { repo: null, branch: null, group_name: groupName, day: null, agent: null };
+  return invoke<SkillUseCell[]>("score_skill_usage", { filter });
+}
 export async function canonPublish(cwd: string, org: string, name: string, kind: CanonPkgKind): Promise<unknown> {
   return invoke<unknown>("canon_publish", { cwd, org, name, kind });
 }
