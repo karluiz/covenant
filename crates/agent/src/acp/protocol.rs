@@ -70,12 +70,18 @@ pub struct SessionNotification {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "sessionUpdate", rename_all = "snake_case")]
 pub enum SessionUpdate {
-    AgentMessageChunk { content: ContentBlock },
-    AgentThoughtChunk { content: ContentBlock },
+    AgentMessageChunk {
+        content: ContentBlock,
+    },
+    AgentThoughtChunk {
+        content: ContentBlock,
+    },
     /// Only seen during a `session/load` replay — live prompts never echo
     /// the user's message back (verified against copilot 1.0.68). Typed so
     /// the tag survives the re-emit to the frontend (Unknown would eat it).
-    UserMessageChunk { content: ContentBlock },
+    UserMessageChunk {
+        content: ContentBlock,
+    },
     ToolCall(ToolCallFields),
     ToolCallUpdate(ToolCallFields),
     AvailableCommandsUpdate {
@@ -375,7 +381,11 @@ mod tests {
                     .unwrap_or_default()
                     .starts_with("Summarize"));
                 assert_eq!(
-                    available_commands[1].input.as_ref().and_then(|i| i.get("hint")).and_then(|h| h.as_str()),
+                    available_commands[1]
+                        .input
+                        .as_ref()
+                        .and_then(|i| i.get("hint"))
+                        .and_then(|h| h.as_str()),
                     Some("[on|off]")
                 );
             }

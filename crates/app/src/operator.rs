@@ -3317,9 +3317,11 @@ async fn run_tick(
                 ),
                 OperatorAction::Complete { rationale } => {
                     let did = if let Some(ident) = task_ident.as_ref() {
-                        let storage_arc = app.try_state::<std::sync::Arc<crate::storage::Storage>>();
+                        let storage_arc =
+                            app.try_state::<std::sync::Arc<crate::storage::Storage>>();
                         let runtime = app
-                            .try_state::<std::sync::Arc<crate::teammate::runtime::TeammateRuntime>>();
+                            .try_state::<std::sync::Arc<crate::teammate::runtime::TeammateRuntime>>(
+                            );
                         match (storage_arc, runtime) {
                             (Some(s), Some(r)) => {
                                 let now_ms = std::time::SystemTime::now()
@@ -3327,15 +3329,17 @@ async fn run_tick(
                                     .map(|d| d.as_millis() as u64)
                                     .unwrap_or(0);
                                 let result = crate::teammate::commands::complete_task_inner(
-                                    s.inner(), r.inner(), ident.id, now_ms,
+                                    s.inner(),
+                                    r.inner(),
+                                    ident.id,
+                                    now_ms,
                                 )
                                 .await;
                                 // Clear the stash whenever we actually attempted
                                 // a completion, regardless of outcome, so we
                                 // never keep offering COMPLETE for a task that
                                 // is already done (or was cancelled) elsewhere.
-                                if let Some(att) =
-                                    inner.lock().await.sessions.get_mut(&session_id)
+                                if let Some(att) = inner.lock().await.sessions.get_mut(&session_id)
                                 {
                                     att.task_ident = None;
                                 }
@@ -3365,7 +3369,9 @@ async fn run_tick(
                         false
                     };
                     (
-                        OperatorAction::Complete { rationale: rationale.clone() },
+                        OperatorAction::Complete {
+                            rationale: rationale.clone(),
+                        },
                         did,
                         "complete".to_string(),
                         None,
@@ -3414,7 +3420,9 @@ async fn run_tick(
                     None,
                 ),
                 OperatorAction::Complete { rationale } => (
-                    OperatorAction::Complete { rationale: rationale.clone() },
+                    OperatorAction::Complete {
+                        rationale: rationale.clone(),
+                    },
                     false,
                     "complete".to_string(),
                     None,
@@ -5486,10 +5494,16 @@ mod tests {
         // Different replies on one frozen screen: the operator is still
         // trying new things, not stuck.
         let one = compute_reply_text_hash("1");
-        assert!(!reply_loop_stuck(&ring(&[(yes, 100), (one, 100)]), REPLY_REPEAT_THRESHOLD));
+        assert!(!reply_loop_stuck(
+            &ring(&[(yes, 100), (one, 100)]),
+            REPLY_REPEAT_THRESHOLD
+        ));
 
         // Under threshold never fires, even when everything matches.
-        assert!(!reply_loop_stuck(&ring(&[(yes, 100)]), REPLY_REPEAT_THRESHOLD));
+        assert!(!reply_loop_stuck(
+            &ring(&[(yes, 100)]),
+            REPLY_REPEAT_THRESHOLD
+        ));
         assert!(!reply_loop_stuck(&ring(&[]), REPLY_REPEAT_THRESHOLD));
     }
 
@@ -5580,7 +5594,10 @@ error[E0382]: borrow of moved value\n";
             other => panic!("expected Complete, got {:?}", other.kind()),
         }
         assert_eq!(
-            OperatorAction::Complete { rationale: "x".into() }.kind(),
+            OperatorAction::Complete {
+                rationale: "x".into()
+            }
+            .kind(),
             "complete"
         );
     }
@@ -5711,16 +5728,31 @@ error[E0382]: borrow of moved value\n";
             deliverable: "app launches on Windows".into(),
         };
         let with = build_system_prompt(
-            "persona", true, None, &[], "", false,
-            crate::operator_registry::VoiceTone::Terse, 0.6, Some(crate::teammate::types::TaskArchetype::Do),
+            "persona",
+            true,
+            None,
+            &[],
+            "",
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+            0.6,
+            Some(crate::teammate::types::TaskArchetype::Do),
             Some(&ident),
         );
         assert!(with.contains("Fix Windows startup"));
         assert!(with.contains("ACTION: COMPLETE"));
 
         let without = build_system_prompt(
-            "persona", true, None, &[], "", false,
-            crate::operator_registry::VoiceTone::Terse, 0.6, None, None,
+            "persona",
+            true,
+            None,
+            &[],
+            "",
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+            0.6,
+            None,
+            None,
         );
         assert!(!without.contains("ACTION: COMPLETE"));
     }

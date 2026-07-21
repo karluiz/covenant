@@ -44,7 +44,12 @@ pub struct SomnusResponse {
 /// (or no content-type at all) is binary — body neither returned nor stored.
 pub fn is_text_content_type(ct: Option<&str>) -> bool {
     let Some(ct) = ct else { return false };
-    let mime = ct.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let mime = ct
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     mime.starts_with("text/")
         || mime == "application/json"
         || mime == "application/xml"
@@ -63,7 +68,8 @@ async fn send_with_cap(req: &SomnusRequest, cap: usize) -> Result<SomnusResponse
     if !METHODS.contains(&method.as_str()) {
         return Err(format!("somnus: unsupported method {method}"));
     }
-    let url = reqwest::Url::parse(req.url.trim()).map_err(|e| format!("somnus: invalid URL — {e}"))?;
+    let url =
+        reqwest::Url::parse(req.url.trim()).map_err(|e| format!("somnus: invalid URL — {e}"))?;
     if url.scheme() != "http" && url.scheme() != "https" {
         return Err("somnus: only http/https URLs are supported".into());
     }
@@ -71,8 +77,8 @@ async fn send_with_cap(req: &SomnusRequest, cap: usize) -> Result<SomnusResponse
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("somnus: http client init failed — {e}"))?;
-    let reqwest_method = reqwest::Method::from_bytes(method.as_bytes())
-        .map_err(|e| format!("somnus: {e}"))?;
+    let reqwest_method =
+        reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| format!("somnus: {e}"))?;
     let mut builder = client.request(reqwest_method, url);
     for (k, v) in &req.headers {
         if k.trim().is_empty() {
@@ -89,7 +95,12 @@ async fn send_with_cap(req: &SomnusRequest, cap: usize) -> Result<SomnusResponse
     let headers: Vec<(String, String)> = resp
         .headers()
         .iter()
-        .map(|(k, v)| (k.to_string(), String::from_utf8_lossy(v.as_bytes()).to_string()))
+        .map(|(k, v)| {
+            (
+                k.to_string(),
+                String::from_utf8_lossy(v.as_bytes()).to_string(),
+            )
+        })
         .collect();
     let content_type = headers
         .iter()
@@ -107,7 +118,11 @@ async fn send_with_cap(req: &SomnusRequest, cap: usize) -> Result<SomnusResponse
     } else {
         let truncated = bytes.len() > cap;
         let end = bytes.len().min(cap);
-        (String::from_utf8_lossy(&bytes[..end]).to_string(), truncated, false)
+        (
+            String::from_utf8_lossy(&bytes[..end]).to_string(),
+            truncated,
+            false,
+        )
     };
     Ok(SomnusResponse {
         status: status.as_u16(),
@@ -236,8 +251,18 @@ impl Store {
                   resp_body, error, duration_ms, size_bytes, created_at_unix_ms)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
-                    id, method, url, req_headers, req_body, status, resp_headers,
-                    resp_body, error, duration_ms, size_bytes, now
+                    id,
+                    method,
+                    url,
+                    req_headers,
+                    req_body,
+                    status,
+                    resp_headers,
+                    resp_body,
+                    error,
+                    duration_ms,
+                    size_bytes,
+                    now
                 ],
             )?;
             Ok(())
@@ -260,7 +285,8 @@ impl Store {
                  LIMIT ?1",
             )?;
             let parse_headers = |raw: Option<String>| -> Vec<(String, String)> {
-                raw.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+                raw.and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_default()
             };
             let rows = stmt
                 .query_map(params![limit], |row| {
@@ -283,7 +309,20 @@ impl Store {
             Ok(rows
                 .into_iter()
                 .map(
-                    |(id, method, url, req_h, req_body, status, resp_h, resp_body, error, dur, size, at)| {
+                    |(
+                        id,
+                        method,
+                        url,
+                        req_h,
+                        req_body,
+                        status,
+                        resp_h,
+                        resp_body,
+                        error,
+                        dur,
+                        size,
+                        at,
+                    )| {
                         SomnusHistoryEntry {
                             id,
                             method,
@@ -499,7 +538,8 @@ impl Store {
             if rows.is_empty() {
                 return Err(StoreError::Invalid(format!("no tree node {id}")));
             }
-            let mut remap: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut remap: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
             for (old_id, _, _, _, _) in &rows {
                 remap.insert(old_id.clone(), ulid::Ulid::new().to_string());
             }
@@ -514,9 +554,15 @@ impl Store {
                 let new_parent = if is_root {
                     parent.clone()
                 } else {
-                    parent.as_ref().map(|p| remap.get(p).cloned().unwrap_or_else(|| p.clone()))
+                    parent
+                        .as_ref()
+                        .map(|p| remap.get(p).cloned().unwrap_or_else(|| p.clone()))
                 };
-                let new_name = if is_root { format!("{name} copy") } else { name.clone() };
+                let new_name = if is_root {
+                    format!("{name} copy")
+                } else {
+                    name.clone()
+                };
                 tx.execute(
                     "INSERT INTO somnus_tree (id, parent_id, kind, name, sort, request, updated_at)
                      VALUES (?1, ?2, ?3, ?4,
@@ -706,7 +752,10 @@ pub async fn somnus_history(
     store: State<'_, Store>,
     limit: Option<u32>,
 ) -> Result<Vec<SomnusHistoryEntry>, String> {
-    store.list(limit.unwrap_or(50)).await.map_err(|e| e.to_string())
+    store
+        .list(limit.unwrap_or(50))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -732,7 +781,10 @@ pub async fn somnus_tree_create(
     name: String,
     request: Option<String>,
 ) -> Result<String, String> {
-    store.tree_create(parent_id, kind, name, request).await.map_err(|e| e.to_string())
+    store
+        .tree_create(parent_id, kind, name, request)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -742,7 +794,10 @@ pub async fn somnus_tree_update(
     name: Option<String>,
     request: Option<String>,
 ) -> Result<(), String> {
-    store.tree_update(&id, name, request).await.map_err(|e| e.to_string())
+    store
+        .tree_update(&id, name, request)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -761,7 +816,10 @@ pub async fn somnus_tree_import(
     name: String,
     nodes: Vec<SomnusImportNode>,
 ) -> Result<u32, String> {
-    store.tree_import(name, nodes).await.map_err(|e| e.to_string())
+    store
+        .tree_import(name, nodes)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -781,7 +839,10 @@ pub async fn somnus_env_update(
     name: String,
     vars: String,
 ) -> Result<(), String> {
-    store.env_update(&id, name, vars).await.map_err(|e| e.to_string())
+    store
+        .env_update(&id, name, vars)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -790,7 +851,10 @@ pub async fn somnus_env_delete(store: State<'_, Store>, id: String) -> Result<()
 }
 
 #[tauri::command]
-pub async fn somnus_env_activate(store: State<'_, Store>, id: Option<String>) -> Result<(), String> {
+pub async fn somnus_env_activate(
+    store: State<'_, Store>,
+    id: Option<String>,
+) -> Result<(), String> {
     store.env_activate(id).await.map_err(|e| e.to_string())
 }
 
@@ -799,17 +863,26 @@ mod tests {
     use super::*;
 
     fn req(method: &str, url: String) -> SomnusRequest {
-        SomnusRequest { method: method.into(), url, headers: Vec::new(), body: None }
+        SomnusRequest {
+            method: method.into(),
+            url,
+            headers: Vec::new(),
+            body: None,
+        }
     }
 
     #[test]
     fn text_content_type_detection() {
         assert!(is_text_content_type(Some("application/json")));
-        assert!(is_text_content_type(Some("application/json; charset=utf-8")));
+        assert!(is_text_content_type(Some(
+            "application/json; charset=utf-8"
+        )));
         assert!(is_text_content_type(Some("text/html")));
         assert!(is_text_content_type(Some("application/vnd.github+json")));
         assert!(is_text_content_type(Some("application/xml")));
-        assert!(is_text_content_type(Some("application/x-www-form-urlencoded")));
+        assert!(is_text_content_type(Some(
+            "application/x-www-form-urlencoded"
+        )));
         assert!(!is_text_content_type(Some("application/octet-stream")));
         assert!(!is_text_content_type(Some("image/png")));
         assert!(!is_text_content_type(None));
@@ -826,13 +899,18 @@ mod tests {
             .with_body(r#"{"ok":true}"#)
             .create_async()
             .await;
-        let resp = send_request(&req("get", format!("{}/ping", server.url()))).await.unwrap();
+        let resp = send_request(&req("get", format!("{}/ping", server.url())))
+            .await
+            .unwrap();
         assert_eq!(resp.status, 200);
         assert_eq!(resp.status_text, "OK");
         assert_eq!(resp.body, r#"{"ok":true}"#);
         assert!(!resp.body_truncated);
         assert!(!resp.body_binary);
-        assert!(resp.headers.iter().any(|(k, v)| k == "x-covenant" && v == "1"));
+        assert!(resp
+            .headers
+            .iter()
+            .any(|(k, v)| k == "x-covenant" && v == "1"));
         assert_eq!(resp.size_bytes, 11);
     }
 
@@ -872,7 +950,9 @@ mod tests {
             .with_body(big)
             .create_async()
             .await;
-        let resp = send_with_cap(&req("GET", format!("{}/big", server.url())), 10).await.unwrap();
+        let resp = send_with_cap(&req("GET", format!("{}/big", server.url())), 10)
+            .await
+            .unwrap();
         assert!(resp.body_truncated);
         assert_eq!(resp.body.len(), 10);
         assert_eq!(resp.size_bytes, 100);
@@ -888,7 +968,9 @@ mod tests {
             .with_body(vec![0u8, 159, 146, 150])
             .create_async()
             .await;
-        let resp = send_request(&req("GET", format!("{}/blob", server.url()))).await.unwrap();
+        let resp = send_request(&req("GET", format!("{}/blob", server.url())))
+            .await
+            .unwrap();
         assert!(resp.body_binary);
         assert_eq!(resp.body, "");
         assert!(!resp.body_truncated);
@@ -905,25 +987,35 @@ mod tests {
             .with_body("boom")
             .create_async()
             .await;
-        let resp = send_request(&req("GET", format!("{}/nope", server.url()))).await.unwrap();
+        let resp = send_request(&req("GET", format!("{}/nope", server.url())))
+            .await
+            .unwrap();
         assert_eq!(resp.status, 500);
         assert_eq!(resp.body, "boom");
     }
 
     #[tokio::test]
     async fn rejects_bad_method_and_scheme() {
-        let e = send_request(&req("BREW", "https://example.test".into())).await.unwrap_err();
+        let e = send_request(&req("BREW", "https://example.test".into()))
+            .await
+            .unwrap_err();
         assert!(e.contains("unsupported method"), "{e}");
-        let e = send_request(&req("GET", "ftp://example.test".into())).await.unwrap_err();
+        let e = send_request(&req("GET", "ftp://example.test".into()))
+            .await
+            .unwrap_err();
         assert!(e.contains("only http/https"), "{e}");
-        let e = send_request(&req("GET", "not a url".into())).await.unwrap_err();
+        let e = send_request(&req("GET", "not a url".into()))
+            .await
+            .unwrap_err();
         assert!(e.starts_with("somnus: invalid URL"), "{e}");
     }
 
     #[tokio::test]
     async fn connection_error_is_shaped() {
         // Port 1 is virtually guaranteed closed.
-        let e = send_request(&req("GET", "http://127.0.0.1:1/x".into())).await.unwrap_err();
+        let e = send_request(&req("GET", "http://127.0.0.1:1/x".into()))
+            .await
+            .unwrap_err();
         assert!(e.starts_with("somnus: "), "{e}");
     }
 
@@ -956,7 +1048,10 @@ mod tests {
             headers: vec![("Authorization".into(), "Bearer x".into())],
             body: Some("{}".into()),
         };
-        let id = store.record(&request, &Ok(ok_resp("created"))).await.unwrap();
+        let id = store
+            .record(&request, &Ok(ok_resp("created")))
+            .await
+            .unwrap();
         assert!(!id.is_empty());
         let rows = store.list(10).await.unwrap();
         assert_eq!(rows.len(), 1);
@@ -964,7 +1059,10 @@ mod tests {
         assert_eq!(row.id, id);
         assert_eq!(row.method, "POST");
         assert_eq!(row.url, "https://api.test/things");
-        assert_eq!(row.req_headers, vec![("Authorization".to_string(), "Bearer x".to_string())]);
+        assert_eq!(
+            row.req_headers,
+            vec![("Authorization".to_string(), "Bearer x".to_string())]
+        );
         assert_eq!(row.req_body.as_deref(), Some("{}"));
         assert_eq!(row.status, Some(200));
         assert_eq!(row.resp_body.as_deref(), Some("created"));
@@ -988,7 +1086,10 @@ mod tests {
         let rows = store.list(10).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, None);
-        assert_eq!(rows[0].error.as_deref(), Some("somnus: connection failed — refused"));
+        assert_eq!(
+            rows[0].error.as_deref(),
+            Some("somnus: connection failed — refused")
+        );
         assert!(rows[0].resp_body.is_none());
     }
 
@@ -1001,9 +1102,18 @@ mod tests {
             headers: Vec::new(),
             body: None,
         };
-        store.record(&mk("https://a.test"), &Ok(ok_resp("a"))).await.unwrap();
-        store.record(&mk("https://b.test"), &Ok(ok_resp("b"))).await.unwrap();
-        store.record(&mk("https://c.test"), &Ok(ok_resp("c"))).await.unwrap();
+        store
+            .record(&mk("https://a.test"), &Ok(ok_resp("a")))
+            .await
+            .unwrap();
+        store
+            .record(&mk("https://b.test"), &Ok(ok_resp("b")))
+            .await
+            .unwrap();
+        store
+            .record(&mk("https://c.test"), &Ok(ok_resp("c")))
+            .await
+            .unwrap();
         let rows = store.list(2).await.unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].url, "https://c.test");
@@ -1045,7 +1155,10 @@ mod tests {
     // ── v2: collections tree ──
 
     async fn mk_collection(store: &Store, name: &str) -> String {
-        store.tree_create(None, "collection".into(), name.into(), None).await.unwrap()
+        store
+            .tree_create(None, "collection".into(), name.into(), None)
+            .await
+            .unwrap()
     }
 
     #[tokio::test]
@@ -1058,7 +1171,12 @@ mod tests {
             .unwrap();
         let req_json = r#"{"method":"GET","url":"https://{{base_url}}/users","headers":[],"body":"","body_mode":"none","auth":{"type":"none"}}"#;
         let req_id = store
-            .tree_create(Some(folder.clone()), "request".into(), "List users".into(), Some(req_json.into()))
+            .tree_create(
+                Some(folder.clone()),
+                "request".into(),
+                "List users".into(),
+                Some(req_json.into()),
+            )
             .await
             .unwrap();
         let rows = store.tree_list().await.unwrap();
@@ -1073,8 +1191,14 @@ mod tests {
     async fn tree_sort_increments_per_sibling_group() {
         let store = mem_store();
         let col = mk_collection(&store, "A").await;
-        let r1 = store.tree_create(Some(col.clone()), "request".into(), "one".into(), None).await.unwrap();
-        let r2 = store.tree_create(Some(col.clone()), "request".into(), "two".into(), None).await.unwrap();
+        let r1 = store
+            .tree_create(Some(col.clone()), "request".into(), "one".into(), None)
+            .await
+            .unwrap();
+        let r2 = store
+            .tree_create(Some(col.clone()), "request".into(), "two".into(), None)
+            .await
+            .unwrap();
         let rows = store.tree_list().await.unwrap();
         let s = |id: &str| rows.iter().find(|r| r.id == id).unwrap().sort;
         assert!(s(&r1) < s(&r2));
@@ -1083,7 +1207,10 @@ mod tests {
     #[tokio::test]
     async fn tree_create_rejects_bad_kind() {
         let store = mem_store();
-        let e = store.tree_create(None, "blob".into(), "x".into(), None).await.unwrap_err();
+        let e = store
+            .tree_create(None, "blob".into(), "x".into(), None)
+            .await
+            .unwrap_err();
         assert!(e.to_string().contains("kind"), "{e}");
     }
 
@@ -1091,14 +1218,23 @@ mod tests {
     async fn tree_update_renames_and_saves_request() {
         let store = mem_store();
         let col = mk_collection(&store, "A").await;
-        let id = store.tree_create(Some(col), "request".into(), "old".into(), None).await.unwrap();
-        store.tree_update(&id, Some("new".into()), Some(r#"{"method":"POST"}"#.into())).await.unwrap();
+        let id = store
+            .tree_create(Some(col), "request".into(), "old".into(), None)
+            .await
+            .unwrap();
+        store
+            .tree_update(&id, Some("new".into()), Some(r#"{"method":"POST"}"#.into()))
+            .await
+            .unwrap();
         let rows = store.tree_list().await.unwrap();
         let row = rows.iter().find(|r| r.id == id).unwrap();
         assert_eq!(row.name, "new");
         assert_eq!(row.request.as_deref(), Some(r#"{"method":"POST"}"#));
         // Partial update: rename only must not clobber the stored request.
-        store.tree_update(&id, Some("newer".into()), None).await.unwrap();
+        store
+            .tree_update(&id, Some("newer".into()), None)
+            .await
+            .unwrap();
         let rows = store.tree_list().await.unwrap();
         let row = rows.iter().find(|r| r.id == id).unwrap();
         assert_eq!(row.name, "newer");
@@ -1108,7 +1244,10 @@ mod tests {
     #[tokio::test]
     async fn tree_update_errors_on_missing_id() {
         let store = mem_store();
-        let e = store.tree_update("does-not-exist", Some("new".into()), None).await.unwrap_err();
+        let e = store
+            .tree_update("does-not-exist", Some("new".into()), None)
+            .await
+            .unwrap_err();
         assert!(e.to_string().contains("no tree node"), "{e}");
     }
 
@@ -1116,8 +1255,14 @@ mod tests {
     async fn tree_delete_is_recursive() {
         let store = mem_store();
         let col = mk_collection(&store, "A").await;
-        let folder = store.tree_create(Some(col.clone()), "folder".into(), "f".into(), None).await.unwrap();
-        store.tree_create(Some(folder.clone()), "request".into(), "leaf".into(), None).await.unwrap();
+        let folder = store
+            .tree_create(Some(col.clone()), "folder".into(), "f".into(), None)
+            .await
+            .unwrap();
+        store
+            .tree_create(Some(folder.clone()), "request".into(), "leaf".into(), None)
+            .await
+            .unwrap();
         store.tree_delete(&col).await.unwrap();
         assert!(store.tree_list().await.unwrap().is_empty());
     }
@@ -1126,9 +1271,17 @@ mod tests {
     async fn tree_duplicate_copies_subtree_with_new_ids() {
         let store = mem_store();
         let col = mk_collection(&store, "A").await;
-        let folder = store.tree_create(Some(col.clone()), "folder".into(), "f".into(), None).await.unwrap();
+        let folder = store
+            .tree_create(Some(col.clone()), "folder".into(), "f".into(), None)
+            .await
+            .unwrap();
         store
-            .tree_create(Some(folder.clone()), "request".into(), "leaf".into(), Some("{}".into()))
+            .tree_create(
+                Some(folder.clone()),
+                "request".into(),
+                "leaf".into(),
+                Some("{}".into()),
+            )
             .await
             .unwrap();
         let copy_id = store.tree_duplicate(&folder).await.unwrap();
@@ -1137,7 +1290,10 @@ mod tests {
         let copy = rows.iter().find(|r| r.id == copy_id).unwrap();
         assert_eq!(copy.name, "f copy");
         assert_eq!(copy.parent_id.as_deref(), Some(col.as_str()));
-        let copied_leaf = rows.iter().find(|r| r.parent_id.as_deref() == Some(copy_id.as_str())).unwrap();
+        let copied_leaf = rows
+            .iter()
+            .find(|r| r.parent_id.as_deref() == Some(copy_id.as_str()))
+            .unwrap();
         assert_eq!(copied_leaf.name, "leaf");
         assert_eq!(copied_leaf.request.as_deref(), Some("{}"));
     }
@@ -1157,7 +1313,12 @@ mod tests {
                     children: vec![],
                 }],
             },
-            SomnusImportNode { kind: "request".into(), name: "Ping".into(), request: Some("{}".into()), children: vec![] },
+            SomnusImportNode {
+                kind: "request".into(),
+                name: "Ping".into(),
+                request: Some("{}".into()),
+                children: vec![],
+            },
         ];
         let count = store.tree_import("Imported".into(), nodes).await.unwrap();
         assert_eq!(count, 2);
@@ -1175,7 +1336,11 @@ mod tests {
         let store = mem_store();
         let id = store.env_create("Staging".into()).await.unwrap();
         store
-            .env_update(&id, "Staging".into(), r#"[{"key":"base_url","value":"https://stg.test","secret":false}]"#.into())
+            .env_update(
+                &id,
+                "Staging".into(),
+                r#"[{"key":"base_url","value":"https://stg.test","secret":false}]"#.into(),
+            )
             .await
             .unwrap();
         let envs = store.env_list().await.unwrap();

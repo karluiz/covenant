@@ -1,9 +1,7 @@
 //! Tauri surface for the Canon Context Miner: start/stop mining runs and
 //! compile accepted findings into a skill package.
 
-use karl_agent::context_miner::{
-    run_miner, MinerDepth, MinerEvent, MinerOpts, MinerSink,
-};
+use karl_agent::context_miner::{run_miner, MinerDepth, MinerEvent, MinerOpts, MinerSink};
 use karl_canon::compile::{
     write_command_entry, write_memory_entry, write_skill_package, write_subagent_entry,
     CompiledFinding,
@@ -244,7 +242,11 @@ pub async fn canon_inventory_states(
             .map(|u| {
                 let slug = karl_canon::compile::slugify(&u.name);
                 let state = karl_canon::resolve_state(&root, &u.kind, &slug, &render_unit(u));
-                UnitStateRow { kind: u.kind.clone(), slug, state }
+                UnitStateRow {
+                    kind: u.kind.clone(),
+                    slug,
+                    state,
+                }
             })
             .collect();
         let detected = karl_canon::detected_rows(&root).map_err(|e| e.to_string())?;
@@ -345,7 +347,11 @@ mod tests {
 
     #[test]
     fn empty_unit_renders_empty_not_panics() {
-        let u = CompiledUnit { kind: "memory".into(), name: "x".into(), findings: vec![] };
+        let u = CompiledUnit {
+            kind: "memory".into(),
+            name: "x".into(),
+            findings: vec![],
+        };
         assert_eq!(render_unit(&u), String::new());
     }
 
@@ -380,7 +386,9 @@ mod tests {
             }],
         };
 
-        canon_compile_units(root.clone(), vec![unit.clone()]).await.unwrap();
+        canon_compile_units(root.clone(), vec![unit.clone()])
+            .await
+            .unwrap();
 
         let report = canon_inventory_states(root, vec![unit]).await.unwrap();
         assert_eq!(report.states.len(), 1);

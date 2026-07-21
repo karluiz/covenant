@@ -262,8 +262,9 @@ pub async fn spawn_pi_session(
                     match &tagged.envelope {
                         PiEvent::AgentStart | PiEvent::TurnStart => {
                             if vitals_call.is_none() {
-                                vitals_call =
-                                    Some(vitals.record_executor_started(session_id, "pi".to_string()));
+                                vitals_call = Some(
+                                    vitals.record_executor_started(session_id, "pi".to_string()),
+                                );
                                 vitals_started = Some(Instant::now());
                             }
                         }
@@ -287,7 +288,9 @@ pub async fn spawn_pi_session(
                                 if let Some(call) = vitals_call.take() {
                                     call.complete_with_model(model, usage, latency_ms);
                                 } else {
-                                    vitals.record_executor_complete(session_id, model, usage, latency_ms);
+                                    vitals.record_executor_complete(
+                                        session_id, model, usage, latency_ms,
+                                    );
                                 }
                             }
                         }
@@ -304,11 +307,7 @@ pub async fn spawn_pi_session(
                                         .input_tokens
                                         .saturating_add(usage.cache_creation_input_tokens)
                                         .saturating_add(usage.cache_read_input_tokens);
-                                    vitals.record_executor_context(
-                                        session_id,
-                                        model.clone(),
-                                        ctx,
-                                    );
+                                    vitals.record_executor_context(session_id, model.clone(), ctx);
                                     call.complete_with_model(model, usage, latency_ms);
                                 } else {
                                     vitals_started = None;

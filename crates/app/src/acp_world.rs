@@ -132,10 +132,7 @@ fn truncate(s: &str) -> String {
         return s.to_string();
     }
     let head: String = s.chars().take(HEAD_CHARS).collect();
-    let tail: String = s
-        .chars()
-        .skip(count - TAIL_CHARS)
-        .collect();
+    let tail: String = s.chars().skip(count - TAIL_CHARS).collect();
     format!("{head}…[{count} chars]…{tail}")
 }
 
@@ -152,7 +149,10 @@ mod tests {
         w.flush_agent_turn();
         let turns = w.turns();
         assert_eq!(turns.len(), 2);
-        assert_eq!(turns[1], (AcpRole::Agent, "Looking at the code now.".to_string()));
+        assert_eq!(
+            turns[1],
+            (AcpRole::Agent, "Looking at the code now.".to_string())
+        );
         // Flush with empty buffer is a no-op.
         w.flush_agent_turn();
         assert_eq!(w.turns().len(), 2);

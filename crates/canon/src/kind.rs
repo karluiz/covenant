@@ -214,7 +214,11 @@ mod tests {
 
         let pkg = tmp.path().join("pkg");
         std::fs::create_dir_all(&pkg).unwrap();
-        std::fs::write(pkg.join("skill.toml"), "name = \"testing\"\nversion = \"1.0.0\"\n").unwrap();
+        std::fs::write(
+            pkg.join("skill.toml"),
+            "name = \"testing\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         std::fs::write(pkg.join("SKILL.md"), "---\nname: testing\n---\nx\n").unwrap();
         install_local(root, &pkg).unwrap();
 
@@ -225,7 +229,10 @@ mod tests {
         let agent = units.iter().find(|u| u.kind == ContextKind::Agent).unwrap();
         assert_eq!(agent.name, "reviewer");
         assert!(agent.packageable);
-        let ctx = units.iter().find(|u| u.kind == ContextKind::Context).unwrap();
+        let ctx = units
+            .iter()
+            .find(|u| u.kind == ContextKind::Context)
+            .unwrap();
         assert_eq!(ctx.name, "kyc");
         assert_eq!(ctx.summary.as_deref(), Some("KYC rules for Peru"));
         assert!(ctx.packageable);
@@ -247,7 +254,10 @@ mod tests {
         .unwrap();
 
         let units = list_context(root).unwrap();
-        let cmd = units.iter().find(|u| u.kind == ContextKind::Command).unwrap();
+        let cmd = units
+            .iter()
+            .find(|u| u.kind == ContextKind::Command)
+            .unwrap();
         assert_eq!(cmd.name, "deploy");
         assert_eq!(cmd.summary.as_deref(), Some("Ship the current branch"));
         assert!(cmd.packageable);
@@ -301,7 +311,10 @@ mod tests {
         .unwrap();
 
         let units = list_context(root).unwrap();
-        let mem = units.iter().find(|u| u.kind == ContextKind::Memory).unwrap();
+        let mem = units
+            .iter()
+            .find(|u| u.kind == ContextKind::Memory)
+            .unwrap();
         assert_eq!(mem.name, "decision-x");
         assert_eq!(mem.summary.as_deref(), Some("We chose X on 2026-07-10"));
         assert!(mem.projectable);
@@ -314,7 +327,11 @@ mod tests {
         let root = tmp.path();
         let dir = root.join(".covenant/canon/mcp");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("ctx7.json"), r#"{"command":"npx","description":"C7"}"#).unwrap();
+        std::fs::write(
+            dir.join("ctx7.json"),
+            r#"{"command":"npx","description":"C7"}"#,
+        )
+        .unwrap();
         let units = list_context(root).unwrap();
         let mcp = units.iter().find(|u| u.kind == ContextKind::Mcp).unwrap();
         assert_eq!(mcp.name, "ctx7");

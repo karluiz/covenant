@@ -64,9 +64,16 @@ pub enum BeaconState {
     NotAuthed,
     NoRepo,
     /// cwd has no GitHub remote but contains sub-repos — let the user pick one.
-    Repos { dirs: Vec<SubRepo> },
-    Ok { repo: String, runs: Vec<WorkflowRun> },
-    Error { message: String },
+    Repos {
+        dirs: Vec<SubRepo>,
+    },
+    Ok {
+        repo: String,
+        runs: Vec<WorkflowRun>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 /// Collapse Actions (status, conclusion) into one state token the UI colors.
@@ -106,7 +113,11 @@ async fn github_incident(client: &reqwest::Client) -> Option<String> {
     status_note(&resp.json::<serde_json::Value>().await.ok()?)
 }
 
-async fn gh_get(client: &reqwest::Client, token: &str, url: &str) -> Result<serde_json::Value, String> {
+async fn gh_get(
+    client: &reqwest::Client,
+    token: &str,
+    url: &str,
+) -> Result<serde_json::Value, String> {
     let resp = client
         .get(url)
         .header("Accept", "application/vnd.github+json")
@@ -123,7 +134,11 @@ async fn gh_get(client: &reqwest::Client, token: &str, url: &str) -> Result<serd
         tracing::warn!(url, status, "github request failed");
         let mut detail = serde_json::from_str::<serde_json::Value>(&text)
             .ok()
-            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_string));
+            .and_then(|v| {
+                v.get("message")
+                    .and_then(|m| m.as_str())
+                    .map(str::to_string)
+            });
         // A 5xx is never the user's doing — if GitHub is having an incident,
         // that beats whatever prose the edge returned.
         if status >= 500 {
@@ -160,7 +175,11 @@ async fn gh_post(client: &reqwest::Client, token: &str, url: &str) -> Result<(),
     let text = resp.text().await.unwrap_or_default();
     let detail = serde_json::from_str::<serde_json::Value>(&text)
         .ok()
-        .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_string));
+        .and_then(|v| {
+            v.get("message")
+                .and_then(|m| m.as_str())
+                .map(str::to_string)
+        });
     Err(match (status, detail) {
         (401, _) => "github: token invalid or expired — reconnect GitHub in Settings".into(),
         (403, Some(m)) => format!("github: {m}"),
@@ -212,26 +231,46 @@ pub fn parse_jobs(v: &serde_json::Value) -> Vec<Job> {
                 .map(|arr| {
                     arr.iter()
                         .map(|s| Step {
-                            name: s.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                            name: s
+                                .get("name")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             state: run_state(
                                 s.get("status").and_then(|x| x.as_str()).unwrap_or(""),
                                 s.get("conclusion").and_then(|x| x.as_str()),
                             ),
-                            started_at: s.get("started_at").and_then(|x| x.as_str()).map(str::to_string),
-                            completed_at: s.get("completed_at").and_then(|x| x.as_str()).map(str::to_string),
+                            started_at: s
+                                .get("started_at")
+                                .and_then(|x| x.as_str())
+                                .map(str::to_string),
+                            completed_at: s
+                                .get("completed_at")
+                                .and_then(|x| x.as_str())
+                                .map(str::to_string),
                         })
                         .collect()
                 })
                 .unwrap_or_default();
             Some(Job {
                 id,
-                name: j.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                name: j
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 state: run_state(
                     j.get("status").and_then(|x| x.as_str()).unwrap_or(""),
                     j.get("conclusion").and_then(|x| x.as_str()),
                 ),
-                started_at: j.get("started_at").and_then(|x| x.as_str()).map(str::to_string),
-                completed_at: j.get("completed_at").and_then(|x| x.as_str()).map(str::to_string),
+                started_at: j
+                    .get("started_at")
+                    .and_then(|x| x.as_str())
+                    .map(str::to_string),
+                completed_at: j
+                    .get("completed_at")
+                    .and_then(|x| x.as_str())
+                    .map(str::to_string),
                 steps,
             })
         })
@@ -287,7 +326,10 @@ async fn scan_subrepos(cwd: &str) -> Vec<SubRepo> {
         // ponytail: bound scan; project umbrellas rarely hold >50 repos
         let path = p.to_string_lossy().to_string();
         if let Some((owner, repo)) = resolve_owner_repo(&path).await {
-            out.push(SubRepo { path, repo: format!("{owner}/{repo}") });
+            out.push(SubRepo {
+                path,
+                repo: format!("{owner}/{repo}"),
+            });
         }
     }
     out
@@ -314,7 +356,11 @@ pub async fn load_workflow_runs(cwd: String) -> BeaconState {
     let token = match karl_score::auth::load_token_from_keychain() {
         Ok(Some(t)) => t,
         Ok(None) => return BeaconState::NotAuthed,
-        Err(e) => return BeaconState::Error { message: format!("keychain: {e}") },
+        Err(e) => {
+            return BeaconState::Error {
+                message: format!("keychain: {e}"),
+            }
+        }
     };
 
     let client = match reqwest::Client::builder()
@@ -322,7 +368,11 @@ pub async fn load_workflow_runs(cwd: String) -> BeaconState {
         .build()
     {
         Ok(c) => c,
-        Err(e) => return BeaconState::Error { message: format!("http client init failed: {e}") },
+        Err(e) => {
+            return BeaconState::Error {
+                message: format!("http client init failed: {e}"),
+            }
+        }
     };
 
     let api = "https://api.github.com";
@@ -371,22 +421,35 @@ pub async fn load_workflow_runs(cwd: String) -> BeaconState {
             name,
             state: run_state(status, conclusion),
             run_number: r.get("run_number").and_then(|x| x.as_u64()).unwrap_or(0),
-            branch: r.get("head_branch").and_then(|x| x.as_str()).map(|s| s.to_string()),
+            branch: r
+                .get("head_branch")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string()),
             sha: short_sha(r.get("head_sha").and_then(|x| x.as_str()).unwrap_or("")),
             actor: r
                 .get("actor")
                 .and_then(|a| a.get("login"))
                 .and_then(|l| l.as_str())
                 .map(|s| s.to_string()),
-            url: r.get("html_url").and_then(|x| x.as_str()).map(|s| s.to_string()),
-            updated_at: r.get("updated_at").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            url: r
+                .get("html_url")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string()),
+            updated_at: r
+                .get("updated_at")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
         });
     }
 
     // Most recently updated first.
     runs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
 
-    BeaconState::Ok { repo: format!("{owner}/{repo}"), runs }
+    BeaconState::Ok {
+        repo: format!("{owner}/{repo}"),
+        runs,
+    }
 }
 
 /// Parse a GitHub `owner/repo` out of a `git remote` URL. Handles
@@ -412,7 +475,8 @@ pub fn parse_owner_repo(remote_url: &str) -> Option<(String, String)> {
     // Reject segments containing characters outside [A-Za-z0-9._-] and
     // require at least one alphanumeric character (rules out "..", ".", etc.).
     let is_safe = |s: &str| {
-        s.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+        s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
             && s.chars().any(|c| c.is_ascii_alphanumeric())
     };
     if !is_safe(owner) || !is_safe(repo) {
@@ -431,11 +495,17 @@ mod tests {
         assert_eq!(status_note(&green), None);
 
         let degraded = serde_json::json!({"status":{"indicator":"minor","description":"Minor Service Outage"}});
-        assert_eq!(status_note(&degraded), Some("GitHub reports: Minor Service Outage".into()));
+        assert_eq!(
+            status_note(&degraded),
+            Some("GitHub reports: Minor Service Outage".into())
+        );
 
         // Shape drift upstream must not panic — just stay quiet.
         assert_eq!(status_note(&serde_json::json!({})), None);
-        assert_eq!(status_note(&serde_json::json!({"status":{"indicator":"major"}})), None);
+        assert_eq!(
+            status_note(&serde_json::json!({"status":{"indicator":"major"}})),
+            None
+        );
     }
 
     #[test]
@@ -454,10 +524,22 @@ mod tests {
     #[test]
     fn parses_remote_url_variants() {
         let cases = [
-            ("git@github.com:karluiz/covenant.git", Some(("karluiz", "covenant"))),
-            ("https://github.com/karluiz/covenant.git", Some(("karluiz", "covenant"))),
-            ("https://github.com/karluiz/covenant", Some(("karluiz", "covenant"))),
-            ("ssh://git@github.com/karluiz/covenant.git", Some(("karluiz", "covenant"))),
+            (
+                "git@github.com:karluiz/covenant.git",
+                Some(("karluiz", "covenant")),
+            ),
+            (
+                "https://github.com/karluiz/covenant.git",
+                Some(("karluiz", "covenant")),
+            ),
+            (
+                "https://github.com/karluiz/covenant",
+                Some(("karluiz", "covenant")),
+            ),
+            (
+                "ssh://git@github.com/karluiz/covenant.git",
+                Some(("karluiz", "covenant")),
+            ),
             ("git@gitlab.com:karluiz/covenant.git", None),
             ("", None),
             // Path traversal must be rejected.

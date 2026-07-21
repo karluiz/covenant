@@ -22,8 +22,7 @@ pub use store::{ScoreError, ScoreStore};
 pub use types::{
     AgentCell, BranchCell, Context, DailyCell, EventKind, GroupCell, LlmUsage, ModelCell,
     ModelSource, RepoCell, ScoreEvent, ScoreFilter, SessionRow, SkillUseCell, SpecBreakdown,
-    SpecRow, Summary,
-    TimeRange, User,
+    SpecRow, Summary, TimeRange, User,
 };
 
 use crate::context::ContextResolver;

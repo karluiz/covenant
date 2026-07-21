@@ -29,7 +29,10 @@ pub struct EvalResult {
 }
 
 fn evals_dir(repo_root: &Path, skill: &str) -> std::path::PathBuf {
-    canon_dir(repo_root).join("skills").join(skill).join("evals")
+    canon_dir(repo_root)
+        .join("skills")
+        .join(skill)
+        .join("evals")
 }
 
 /// Scan `.covenant/canon/skills/<skill>/evals/*.toml`, sorted by id.
@@ -46,9 +49,14 @@ pub fn read_evals(repo_root: &Path, skill: &str) -> Vec<Eval> {
         if path.extension().and_then(|e| e.to_str()) != Some("toml") {
             continue;
         }
-        match std::fs::read_to_string(&path).ok().and_then(|s| toml::from_str::<Eval>(&s).ok()) {
+        match std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| toml::from_str::<Eval>(&s).ok())
+        {
             Some(ev) => out.push(ev),
-            None => tracing::warn!(target: "canon", path = %path.display(), "skipping unparseable eval"),
+            None => {
+                tracing::warn!(target: "canon", path = %path.display(), "skipping unparseable eval")
+            }
         }
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
@@ -166,7 +174,11 @@ mod tests {
         write_eval(&evals_dir, "bad.toml", "id = ");
 
         let evals = read_evals(tmp.path(), "kyc-peru");
-        assert_eq!(evals.len(), 2, "two valid evals, malformed/non-toml skipped");
+        assert_eq!(
+            evals.len(),
+            2,
+            "two valid evals, malformed/non-toml skipped"
+        );
         assert_eq!(evals[0].id, "one", "sorted by id");
         assert_eq!(evals[1].scenario, "S2");
     }
@@ -249,7 +261,14 @@ mod tests {
             baseline_pass: None,
         };
         write_result(tmp.path(), "skill-a", &r).unwrap();
-        assert!(dir.join("eval-results.corrupt.json").exists(), "corrupt file preserved");
-        assert_eq!(read_results(tmp.path())["skill-a"]["e1"].pass, true, "new write still lands");
+        assert!(
+            dir.join("eval-results.corrupt.json").exists(),
+            "corrupt file preserved"
+        );
+        assert_eq!(
+            read_results(tmp.path())["skill-a"]["e1"].pass,
+            true,
+            "new write still lands"
+        );
     }
 }

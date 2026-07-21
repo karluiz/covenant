@@ -460,7 +460,11 @@ pub fn list_drafts_all_sync(cwd: &Path) -> Result<Vec<DraftSummary>, DraftError>
     let mut lists: Vec<_> = worktrees
         .into_iter()
         .map(|(root, label, is_current)| {
-            (list_drafts_sync(&root).unwrap_or_default(), label, is_current)
+            (
+                list_drafts_sync(&root).unwrap_or_default(),
+                label,
+                is_current,
+            )
         })
         .collect();
     lists.sort_by_key(|(_, _, is_current)| !*is_current);
@@ -690,26 +694,46 @@ mod tests {
         git(&["add", "-A"]);
         git(&["commit", "-qm", "init"]);
         let feat = tmp.path().join("wt-feat");
-        git(&["worktree", "add", "-q", "-b", "feat-x", feat.to_str().unwrap()]);
+        git(&[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feat-x",
+            feat.to_str().unwrap(),
+        ]);
         save_draft_sync(&feat, "there", "There", "y").unwrap();
 
         let out = list_drafts_all_sync(&main).unwrap();
-        let there = out.iter().find(|d| d.slug == "there").expect("cross-worktree draft listed");
+        let there = out
+            .iter()
+            .find(|d| d.slug == "there")
+            .expect("cross-worktree draft listed");
         assert_eq!(there.worktree_label.as_deref(), Some("feat-x"));
         let here = out.iter().find(|d| d.slug == "here").unwrap();
-        assert_eq!(here.worktree_label, None, "current worktree drafts stay unlabelled");
+        assert_eq!(
+            here.worktree_label, None,
+            "current worktree drafts stay unlabelled"
+        );
     }
 
     #[test]
     fn merge_dedupes_current_wins_and_labels_others() {
         // Current worktree has 3.10; a feature worktree has 3.10 (dup) + 3.11 (unique).
         let current = (vec![spec("3.10")], Some("main".into()), true);
-        let feature = (vec![spec("3.10"), spec("3.11")], Some("feat-x".into()), false);
+        let feature = (
+            vec![spec("3.10"), spec("3.11")],
+            Some("feat-x".into()),
+            false,
+        );
         // Pass feature first to prove ordering doesn't decide the winner.
         let out = merge_worktree_specs(vec![feature, current]);
 
         // Sorted by id desc: 3.11 then 3.10.
-        assert_eq!(out.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["3.11", "3.10"]);
+        assert_eq!(
+            out.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["3.11", "3.10"]
+        );
         // 3.10 came from the CURRENT worktree → no label.
         let s310 = out.iter().find(|s| s.id == "3.10").unwrap();
         assert_eq!(s310.worktree_label, None);

@@ -498,12 +498,18 @@ mod tests {
     fn mask_secrets_scrubs_tokens_in_blanked_mcp_args_and_url() {
         let stdio = r#"{"command":"npx","args":["-y","mcp","--api-key","sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUV"],"env":{"K":"v"}}"#;
         let masked = super::mask_secrets(&karl_canon::blank_mcp_secrets(stdio).unwrap());
-        assert!(!masked.contains("sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUV"), "arg token must be scrubbed");
+        assert!(
+            !masked.contains("sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUV"),
+            "arg token must be scrubbed"
+        );
         assert!(masked.contains("[REDACTED:anthropic]"));
 
         let remote = r#"{"type":"http","url":"https://x.example/sse?token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"}"#;
         let masked = super::mask_secrets(&karl_canon::blank_mcp_secrets(remote).unwrap());
-        assert!(!masked.contains("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"), "url token must be scrubbed");
+        assert!(
+            !masked.contains("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"),
+            "url token must be scrubbed"
+        );
         assert!(masked.contains("[REDACTED:github]"));
     }
 
@@ -511,9 +517,18 @@ mod tests {
     fn mask_secrets_redacts_full_pem_body_not_just_header() {
         let pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAsecretKeyMaterial123\nabcDEFghiJKL456\n-----END RSA PRIVATE KEY-----";
         let masked = super::mask_secrets(pem);
-        assert!(!masked.contains("MIIEowIBAAKCAQEAsecretKeyMaterial123"), "key body must be redacted");
-        assert!(!masked.contains("abcDEFghiJKL456"), "key body must be redacted");
+        assert!(
+            !masked.contains("MIIEowIBAAKCAQEAsecretKeyMaterial123"),
+            "key body must be redacted"
+        );
+        assert!(
+            !masked.contains("abcDEFghiJKL456"),
+            "key body must be redacted"
+        );
         assert!(masked.contains("[REDACTED:pem]"));
-        assert!(!masked.contains("PRIVATE KEY"), "no PEM markers should survive");
+        assert!(
+            !masked.contains("PRIVATE KEY"),
+            "no PEM markers should survive"
+        );
     }
 }

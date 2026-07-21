@@ -180,14 +180,20 @@ impl ClaudeStatusline {
                 };
                 for (token, session) in snapshot {
                     let path = dir.join(format!("{token}.json"));
-                    let Ok(meta) = std::fs::metadata(&path) else { continue };
+                    let Ok(meta) = std::fs::metadata(&path) else {
+                        continue;
+                    };
                     let Ok(mtime) = meta.modified() else { continue };
                     if seen.get(&token) == Some(&mtime) {
                         continue;
                     }
                     seen.insert(token.clone(), mtime);
-                    let Ok(txt) = std::fs::read_to_string(&path) else { continue };
-                    let Ok(p) = serde_json::from_str::<StatusPayload>(&txt) else { continue };
+                    let Ok(txt) = std::fs::read_to_string(&path) else {
+                        continue;
+                    };
+                    let Ok(p) = serde_json::from_str::<StatusPayload>(&txt) else {
+                        continue;
+                    };
                     feed(&inner.vitals, session, p);
                 }
             }
@@ -237,7 +243,10 @@ mod tests {
         let p: StatusPayload = serde_json::from_str(json).unwrap();
         assert_eq!(p.model.display_name.as_deref(), Some("Opus 4.8"));
         assert_eq!(p.context_window.used_percentage, Some(17.4));
-        assert_eq!(p.context_window.current_usage.cache_read_input_tokens, 168000);
+        assert_eq!(
+            p.context_window.current_usage.cache_read_input_tokens,
+            168000
+        );
         // tokens = 1200 + 168000 + 2000
         let u = &p.context_window.current_usage;
         let tokens = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens;

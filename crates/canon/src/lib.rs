@@ -2,26 +2,29 @@
 
 pub mod compile;
 pub mod detect;
-pub mod inventory;
+pub mod eval;
 pub mod install;
+pub mod inventory;
+pub mod kind;
 pub mod manifest;
+pub mod mcp;
 pub mod project;
 pub mod types;
-pub mod eval;
-pub mod kind;
-pub mod mcp;
 
-pub use install::{install_from_dir, install_local, install_unit, uninstall_skill, read_skill_package, read_source, status, CanonStatus, content_version, adopt, adopt_new_skills};
+pub use detect::scan_detected;
+pub use eval::{pass_rate, read_evals, read_results, write_result, Eval, EvalResult};
+pub use install::{
+    adopt, adopt_new_skills, content_version, install_from_dir, install_local, install_unit,
+    read_skill_package, read_source, status, uninstall_skill, CanonStatus,
+};
+pub use inventory::{detected_rows, resolve_state, UnitState};
+pub use kind::{list_context, ContextKind, ContextUnit};
 pub use manifest::{canon_dir, read_manifest, write_manifest};
+pub use mcp::{blank_mcp_secrets, McpServer};
 pub use project::{
     project, project_with_active, projection_status, ExecutorStatus, ProjState, ProjectionStatus,
 };
 pub use types::{CanonManifest, InstalledRef, SkillManifest};
-pub use eval::{pass_rate, read_evals, read_results, write_result, Eval, EvalResult};
-pub use kind::{list_context, ContextKind, ContextUnit};
-pub use detect::scan_detected;
-pub use inventory::{detected_rows, resolve_state, UnitState};
-pub use mcp::{McpServer, blank_mcp_secrets};
 
 use thiserror::Error;
 

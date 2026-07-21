@@ -169,7 +169,11 @@ pub fn render_with_acp(snapshots: &[SessionSnapshot], acp: &[AcpTabSnapshot]) ->
                 .as_deref()
                 .map(|p| format!("last prompt: \"{}\"", first_line(p)))
                 .unwrap_or_else(|| "idle".to_string());
-            let cwd = if s.cwd.is_empty() { "—" } else { s.cwd.as_str() };
+            let cwd = if s.cwd.is_empty() {
+                "—"
+            } else {
+                s.cwd.as_str()
+            };
             out.push_str(&format!(
                 "- {} tab [id `{}` — machine-only] · cwd `{cwd}` · {last}\n",
                 s.executor,
@@ -211,7 +215,9 @@ fn render_session_full(out: &mut String, s: &SessionSnapshot) {
     let (inherited, live): (Vec<&BlockBrief>, Vec<&BlockBrief>) =
         s.last_blocks.iter().partition(|b| b.inherited);
     if !inherited.is_empty() {
-        out.push_str("- from previous sessions in this cwd (oldest first, NOT this session's activity):\n");
+        out.push_str(
+            "- from previous sessions in this cwd (oldest first, NOT this session's activity):\n",
+        );
         for b in inherited {
             render_block_line(out, b);
         }
@@ -352,7 +358,10 @@ mod tests {
         let snap = project(id, &w, true, 0);
         let out = render(&[snap]);
         assert!(out.contains("from previous sessions in this cwd"));
-        let prior_section = out.split("from previous sessions in this cwd").nth(1).unwrap();
+        let prior_section = out
+            .split("from previous sessions in this cwd")
+            .nth(1)
+            .unwrap();
         assert!(prior_section.contains("old-build"));
         assert!(out.contains("- recent blocks"));
         let recent_section = out.split("- recent blocks").nth(1).unwrap();

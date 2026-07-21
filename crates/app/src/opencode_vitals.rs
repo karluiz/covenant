@@ -133,8 +133,7 @@ async fn poll_loop(session: SessionId, db: PathBuf, cwd: PathBuf, vitals: Vitals
         let cwd_s = cwd_s.clone();
         // SQLite work is blocking — keep it off the async worker.
         let db = db.clone();
-        let res = tokio::task::spawn_blocking(move || read_new(&db, &cwd_s, watermark))
-            .await;
+        let res = tokio::task::spawn_blocking(move || read_new(&db, &cwd_s, watermark)).await;
         let rows = match res {
             Ok(Ok(rows)) => rows,
             _ => continue,

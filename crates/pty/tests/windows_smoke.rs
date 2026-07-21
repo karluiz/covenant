@@ -15,7 +15,10 @@ fn pwsh_echo_round_trip() {
 
     // ponytail: re-send the command until observed, not once — a blind first
     // write can land before cold pwsh is ready to read and get dropped on CI.
-    let write = |s: &mut PtySession| s.write(b"Write-Output covenant-hello\r\n").expect("write to pty");
+    let write = |s: &mut PtySession| {
+        s.write(b"Write-Output covenant-hello\r\n")
+            .expect("write to pty")
+    };
     write(&mut session);
 
     let deadline = Instant::now() + Duration::from_secs(30);

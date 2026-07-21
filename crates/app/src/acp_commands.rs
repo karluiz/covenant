@@ -676,7 +676,8 @@ fn prepare_claude_acp_config(
             }
         }
     }
-    let rendered = serde_json::to_string_pretty(&root).map_err(|e| format!("settings.json: {e}"))?;
+    let rendered =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("settings.json: {e}"))?;
     // Atomic replace (tmp + rename, same pattern as settings::save) so a
     // reader — the adapter booting — never sees a half-written file.
     let tmp = dir.join("settings.json.tmp");
@@ -851,11 +852,10 @@ pub async fn spawn_acp_session(
             .map_err(|e| format!("resolve app_config_dir: {e}"))?;
         refresh_claude_token_if_stale().await;
         let cfg_for_prep = cfg.clone();
-        let (cfg_dir, oauth_token) = tokio::task::spawn_blocking(move || {
-            prepare_claude_acp_config(&base, &cfg_for_prep)
-        })
-        .await
-        .map_err(|e| format!("claude config prep: {e}"))??;
+        let (cfg_dir, oauth_token) =
+            tokio::task::spawn_blocking(move || prepare_claude_acp_config(&base, &cfg_for_prep))
+                .await
+                .map_err(|e| format!("claude config prep: {e}"))??;
         spawn_opts.env.push((
             "CLAUDE_CONFIG_DIR".to_string(),
             cfg_dir.to_string_lossy().into_owned(),
@@ -1756,7 +1756,10 @@ mod tests {
         );
 
         let from_title = tool_call_fields(r#"{"toolCallId":"t1","title":"Skill(horizon)"}"#);
-        assert_eq!(skill_from_tool_call(&from_title).as_deref(), Some("horizon"));
+        assert_eq!(
+            skill_from_tool_call(&from_title).as_deref(),
+            Some("horizon")
+        );
 
         let plain = tool_call_fields(
             r#"{"toolCallId":"t1","kind":"execute","title":"ls","rawInput":{"command":"ls"}}"#,
