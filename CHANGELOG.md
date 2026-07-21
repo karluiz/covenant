@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.55 — Pulse heatmap plots prompts, commits, or both
+
+### Added
+
+- **Heatmap metric toggle**: the ACTIVITY grid summed `prompts + commits`
+  into one cell, so on a profile with 1,340 prompts against 41,696 commits
+  the prompt signal was ~3% of the value and never moved a bucket — it was
+  a commit heatmap wearing a combined label, and a prompt only showed up on
+  hover. Three chips in the card header now pick the plotted signal
+  (`ui/src/score/page.ts`, `ui/src/score/styles.css`). The relative ceiling
+  (quartile of the p90 of active days) re-tunes per metric, so prompts-only
+  keeps its own gradient instead of going flat. Switching re-renders from
+  the cells already in hand — the payload always carried both columns, so
+  there is no refetch. The tooltip keeps the full breakdown whatever the
+  cell is coloured by: an uncoloured day under **Prompts** can still have
+  had commits, and calling that "No activity" would be a lie.
+
 ## v0.9.54 — Canon authors a unit of any kind from the cockpit
 
 ### Added
