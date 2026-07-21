@@ -120,12 +120,6 @@ export class TaskerPanel {
   private projectMenuOutside: ((ev: MouseEvent) => void) | null = null;
   private shareMenuEl: HTMLElement | null = null;
   private shareMenuOutside: ((ev: MouseEvent) => void) | null = null;
-  /// F1 — `experimental.board_share`, resolved once by the caller (main.ts
-  /// has no live-updating route to it the way TabManager caches
-  /// `internal_browser`) and threaded in at construction. No Settings UI
-  /// toggle exists for this flag, so it never changes for the panel's
-  /// lifetime — a constructor-time snapshot is honest, not stale.
-  private readonly boardShareEnabled: boolean;
   private editingTitle: { projectId: string; taskId: string } | null = null;
   private renamingProjectId: string | null = null;
   private composingList = false;
@@ -140,10 +134,9 @@ export class TaskerPanel {
   private noteEditors: Array<{ editor: MarkdownEditor; projectId: string; taskId: string }> = [];
   private noteSaveTimer: number | null = null;
 
-  constructor(host: HTMLElement, opts?: { onClose?: () => void; boardShareEnabled?: boolean }) {
+  constructor(host: HTMLElement, opts?: { onClose?: () => void }) {
     this.host = host;
     this.onClose = opts?.onClose ?? null;
-    this.boardShareEnabled = opts?.boardShareEnabled ?? false;
     this.storage = new TaskStorage();
     this.loadExpandedProjects();
     this.loadViewPrefs();
@@ -157,28 +150,22 @@ export class TaskerPanel {
       if (first) this.expandedProjects.add(first.id);
     }
 
-    // F1 — the forge has no `/boards` routes yet, so every share attempt
-    // 404s in production. Gate ALL board-share background work behind the
-    // flag: with it off, nothing here fires — no listShares round-trip, no
-    // debounced re-publish subscription, no shares-changed listener.
-    if (this.boardShareEnabled) {
-      // ponytail: no teardown — TaskerPanel has no dispose and lives for the
-      // app's lifetime. Add one here if the panel ever becomes disposable.
-      startBoardAutoPush(this.storage);
-      window.addEventListener(BOARD_SHARES_EVENT, () => {
-        // Finding 3: auto-push fires this event twice (pushing → synced)
-        // ~2s after any edit to a shared project — a moment that has nothing
-        // to do with what the user is doing right now. render() rebuilds the
-        // whole panel via innerHTML, which would silently discard an
-        // in-progress edit (project rename, new-task/new-list composer, task
-        // title, notes editor) if it fired mid-keystroke. Skip the rebuild
-        // while the user is actively typing inside the panel — the share
-        // button's dot/pulse just catches up on the next render the user's
-        // own action triggers.
-        if (this.isTypingInPanel()) return;
-        this.render();
-      });
-    }
+    // ponytail: no teardown — TaskerPanel has no dispose and lives for the
+    // app's lifetime. Add one here if the panel ever becomes disposable.
+    startBoardAutoPush(this.storage);
+    window.addEventListener(BOARD_SHARES_EVENT, () => {
+      // Finding 3: auto-push fires this event twice (pushing → synced)
+      // ~2s after any edit to a shared project — a moment that has nothing
+      // to do with what the user is doing right now. render() rebuilds the
+      // whole panel via innerHTML, which would silently discard an
+      // in-progress edit (project rename, new-task/new-list composer, task
+      // title, notes editor) if it fired mid-keystroke. Skip the rebuild
+      // while the user is actively typing inside the panel — the share
+      // button's dot/pulse just catches up on the next render the user's
+      // own action triggers.
+      if (this.isTypingInPanel()) return;
+      this.render();
+    });
   }
 
   private isTypingInPanel(): boolean {
@@ -420,9 +407,6 @@ export class TaskerPanel {
   }
 
   private renderShareButton(project: Project): string {
-    // F1 — off by default (the forge has no /boards routes yet); no button
-    // at all when disabled, not just a hidden one.
-    if (!this.boardShareEnabled) return "";
     const shared = isBoardShared(project.id);
     const state = shared ? getPushState(project.id) : "synced";
     // F4 — say exactly what a click does now: opens a Copy link / Stop

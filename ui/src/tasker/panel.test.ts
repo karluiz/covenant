@@ -10,10 +10,10 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.reject(new 
 import { invoke } from "@tauri-apps/api/core";
 import { getPushState, isBoardShared, resetBoardShareStateForTests, shareProjectBoard } from "./share";
 
-function mount(opts?: { boardShareEnabled?: boolean }): { panel: TaskerPanel; host: HTMLElement } {
+function mount(): { panel: TaskerPanel; host: HTMLElement } {
   document.body.innerHTML = `<div id="tasker-panel"></div>`;
   const host = document.getElementById("tasker-panel")!;
-  const panel = new TaskerPanel(host, opts);
+  const panel = new TaskerPanel(host);
   panel.render();
   return { panel, host };
 }
@@ -331,20 +331,8 @@ describe("TaskerPanel new-list composer", () => {
 });
 
 describe("board share control", () => {
-  // F1 — the forge has no /boards routes yet, so the whole feature is gated
-  // behind experimental.board_share. Off by default, mount() with no opts
-  // must render no share button at all (not merely a hidden one).
-  it("renders no share button when experimental.board_share is off", () => {
-    const { panel, host } = mount();
-    const pid = inbox(panel);
-
-    expect(
-      host.querySelector(`.tasker-project-share[data-project-id="${pid}"]`),
-    ).toBeNull();
-  });
-
   it("renders a share button per project, unmarked when not shared", () => {
-    const { panel, host } = mount({ boardShareEnabled: true });
+    const { panel, host } = mount();
     const pid = inbox(panel);
 
     const btn = host.querySelector<HTMLButtonElement>(
@@ -356,7 +344,7 @@ describe("board share control", () => {
   });
 
   it("renders the shared state: shared class + matching push-state attribute", async () => {
-    const { panel, host } = mount({ boardShareEnabled: true });
+    const { panel, host } = mount();
     const pid = inbox(panel);
     const project = storageOf(panel).getProject(pid);
 
@@ -376,7 +364,7 @@ describe("board share control", () => {
   // opens a Copy link / Stop sharing menu, cloned from the panel's existing
   // project-switcher menu chrome.
   it("clicking a shared board's button opens a Copy link / Stop sharing menu, and Stop sharing revokes", async () => {
-    const { panel, host } = mount({ boardShareEnabled: true });
+    const { panel, host } = mount();
     const pid = inbox(panel);
     const project = storageOf(panel).getProject(pid);
 

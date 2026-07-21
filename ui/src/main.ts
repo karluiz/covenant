@@ -48,7 +48,7 @@ import { AfkOverlay } from "./aom/afk";
 import { shq } from "./terminal/cd-picker";
 import { Icons } from "./icons";
 import { RightRailController, type RailTarget } from "./titlebar/right-rail";
-import { findSpecs, findRecentCommands, getExperimentalFlags, getSettings, getVitals, injectCommand, killSessionForeground, takeCliOpenPaths, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, takeCliOpenPaths, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, claudeThemeFor, type ThemeMode } from "./theme/mode";
 import {
   SPECIAL_THEMES,
@@ -924,16 +924,8 @@ async function boot(): Promise<void> {
 
   // Tasker sidebar — todo list / task management.
   const taskerPanelHost = requireEl<HTMLElement>("tasker-panel");
-  // `experimental.board_share` gates the share button + its background work
-  // (auto-push, shares listener). The forge has no `/boards` routes yet, so
-  // every share attempt would 404 in production — off by default. TaskerPanel
-  // has no route to a live-updating flag source (TabManager, the only thing
-  // that caches experimental flags, isn't constructed until after this line),
-  // so read it once here, the shortest honest way to thread it through.
-  const boardShareEnabled = (await getExperimentalFlags()).board_share;
   const taskerPanel = new TaskerPanel(taskerPanelHost, {
     onClose: () => rail.toggle("tasker"),
-    boardShareEnabled,
   });
 
   const closeTaskerPanel = (): void => {
