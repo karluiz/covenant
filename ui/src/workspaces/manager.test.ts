@@ -254,30 +254,7 @@ const mkWorkspace = (id: string, name: string, tabs: TabManifestV1["tabs"]) => (
 describe("WorkspaceManager.switchTo", () => {
   beforeEach(() => saveSpy.mockClear());
 
-  /// Put the three sliding panels in the DOM and stub Element.animate (jsdom
-  /// has neither), so switchTo takes its real animated path instead of the
-  /// no-panels shortcut. Returns the frames of every leg, each stamped with
-  /// how many tabs existed when that leg started.
-  function armAnimatedPath(tabCount: () => number): { legs: { opacity: unknown; tabs: number }[] } {
-    for (const pid of ["tabbar-host", "workspace", "status-bar"]) {
-      const el = document.createElement("div");
-      el.id = pid;
-      document.body.appendChild(el);
-    }
-    const legs: { opacity: unknown; tabs: number }[] = [];
-    Element.prototype.animate = function animate(frames: unknown): Animation {
-      const last = (frames as Keyframe[])[1];
-      legs.push({ opacity: last?.opacity, tabs: tabCount() });
-      return {
-        finished: Promise.resolve(),
-        commitStyles: () => {},
-        cancel: () => {},
-      } as unknown as Animation;
-    } as typeof Element.prototype.animate;
-    return { legs };
-  }
-
-  it("reveals the column once the active tab is live, without waiting for the rest", async () => {
+  it("lifts the switch overlay once the active tab is live, without waiting for the rest", async () => {
     const { manager, state } = makeMockTabManager();
     const ws = new WorkspaceManager(manager);
     await ws.boot(
@@ -290,23 +267,27 @@ describe("WorkspaceManager.switchTo", () => {
         ],
       }),
     );
-    const { legs } = armAnimatedPath(() => state.manifest.tabs.length);
 
     let releaseRest = (): void => {};
     state.slowSpawns = new Promise<void>((r) => (releaseRest = r));
-    const switching = ws.switchTo("w2");
-    await new Promise((r) => setTimeout(r, 0));
+    vi.useFakeTimers();
+    try {
+      const switching = ws.switchTo("w2");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.body.classList.contains("workspace-switching")).toBe(true);
 
-    // The reveal leg (the one that fades in, opacity → 1) must have run with
-    // only the active tab spawned. Waiting for all three is the 5s black
-    // screen this fix exists to kill.
-    const reveal = legs.find((l) => l.opacity === 1);
-    expect(reveal).toBeDefined();
-    expect(reveal!.tabs).toBe(1);
+      // The card holds a minimum beat, then lifts on the ACTIVE tab alone.
+      // Waiting for all three is the 5s black screen this fix exists to kill.
+      await vi.advanceTimersByTimeAsync(500);
+      expect(document.body.classList.contains("workspace-switching")).toBe(false);
+      expect(state.manifest.tabs).toHaveLength(1);
 
-    releaseRest();
-    await switching;
-    expect(state.manifest.tabs).toHaveLength(3);
+      releaseRest();
+      await switching;
+      expect(state.manifest.tabs).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("persists the target only after every tab spawned, not when the reveal is released", async () => {

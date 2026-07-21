@@ -97,38 +97,43 @@ fn groups_breakdown_sums_by_group() {
 }
 
 #[test]
-fn groups_breakdown_collapses_casing_keeps_workspace_distinct() {
+fn groups_breakdown_collapses_casing_and_badges_a_single_workspace() {
     let d = tempfile::tempdir().unwrap();
     let s = ScoreStore::open(d.path()).unwrap();
     let t = 1_700_000_000_000;
-    // Two casings of the same group inside the SAME workspace must collapse.
+    // One logical group: casing typos AND workspaces all fold into one row.
+    // Keying by workspace too would split the panel into near-duplicate rows
+    // (and strand legacy null-workspace events in a bare row of their own).
     for _ in 0..3 {
         seed_ws(&s, t, "COVENANT", Some("ws-a"));
     }
     for _ in 0..2 {
         seed_ws(&s, t, "COVEnant", Some("ws-a"));
     }
-    // A same-named group in a DIFFERENT workspace stays its own row.
     for _ in 0..7 {
         seed_ws(&s, t, "Covenant", Some("ws-b"));
     }
+    // Legacy event with no workspace attribution at all.
+    seed_ws(&s, t, "Covenant", None);
+
     let rows = s.breakdown_groups(&ScoreFilter::default()).unwrap();
-    let ws_a: Vec<_> = rows
-        .iter()
-        .filter(|g| g.workspace.as_deref() == Some("ws-a"))
-        .collect();
-    let ws_b: Vec<_> = rows
-        .iter()
-        .filter(|g| g.workspace.as_deref() == Some("ws-b"))
-        .collect();
+    assert_eq!(rows.len(), 1, "one row per logical group");
+    assert_eq!(rows[0].prompts, 13);
     assert_eq!(
-        ws_a.len(),
-        1,
-        "casing variants in one workspace collapse to one row"
+        rows[0].workspace, None,
+        "two named workspaces is ambiguous — no badge"
     );
-    assert_eq!(ws_a[0].prompts, 5);
-    assert_eq!(ws_b.len(), 1);
-    assert_eq!(ws_b[0].prompts, 7);
+
+    // A group living in exactly one named workspace DOES get the badge, and
+    // trailing legacy nulls don't suppress it.
+    let d2 = tempfile::tempdir().unwrap();
+    let s2 = ScoreStore::open(d2.path()).unwrap();
+    seed_ws(&s2, t, "Solo", Some("ws-a"));
+    seed_ws(&s2, t, "solo", None);
+    let rows2 = s2.breakdown_groups(&ScoreFilter::default()).unwrap();
+    assert_eq!(rows2.len(), 1);
+    assert_eq!(rows2[0].prompts, 2);
+    assert_eq!(rows2[0].workspace.as_deref(), Some("ws-a"));
 }
 
 #[test]
@@ -153,13 +158,26 @@ fn recent_sessions_bucket_by_15min_gap() {
 #[test]
 fn breakdown_agents_ranks_by_prompt_count() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = std::sync::Arc::new(karl_score::ScoreStore::open(tmp.path()).unwrap());
-    karl_score::set_recorder(store.clone());
-
-    karl_score::record_prompt_with_agent("anthropic", Some("claude_code"));
-    karl_score::record_prompt_with_agent("anthropic", Some("claude_code"));
-    karl_score::record_prompt_with_agent("anthropic", Some("codex"));
-    karl_score::record_prompt_with_agent("anthropic", None);
+    let store = karl_score::ScoreStore::open(tmp.path()).unwrap();
+    let t = 1_700_000_000_000;
+    // Append straight to the store rather than through `set_recorder` +
+    // `record_prompt_with_agent`: the recorder is a process-global, so two
+    // tests in this binary using it race and steal each other's events.
+    let prompt = |agent: Option<&str>| {
+        store
+            .append_with_context(
+                t,
+                EventKind::Prompt,
+                "anthropic",
+                agent,
+                &Context::default(),
+            )
+            .unwrap()
+    };
+    prompt(Some("claude_code"));
+    prompt(Some("claude_code"));
+    prompt(Some("codex"));
+    prompt(None);
 
     let cells = store
         .breakdown_agents(&karl_score::ScoreFilter::default())
@@ -170,36 +188,39 @@ fn breakdown_agents_ranks_by_prompt_count() {
     assert_eq!(cells[1].prompts, 1);
     // None is collapsed under "shell"
     assert!(cells.iter().any(|c| c.agent == "shell" && c.prompts == 1));
-    karl_score::clear_recorder_for_test();
 }
 
 #[test]
 fn summary_includes_tokens_and_specs() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = std::sync::Arc::new(karl_score::ScoreStore::open(tmp.path()).unwrap());
-    karl_score::set_recorder(store.clone());
-
-    karl_score::record_llm_call(
-        karl_score::ModelSource::Internal,
-        None,
-        "anthropic",
-        "m",
-        karl_score::LlmUsage {
-            input: 10,
-            output: 5,
-            cache_read: 0,
-            cache_creation: 0,
-        },
-        &karl_score::Context::default(),
-    );
-    karl_score::record_spec("/x/y.md", &karl_score::Context::default());
+    let store = karl_score::ScoreStore::open(tmp.path()).unwrap();
+    let t = 1_700_000_000_000;
+    // Same reason as above: no process-global recorder in a parallel test.
+    store
+        .append_llm_call(
+            t,
+            karl_score::ModelSource::Internal,
+            None,
+            "anthropic",
+            "m",
+            karl_score::LlmUsage {
+                input: 10,
+                output: 5,
+                cache_read: 0,
+                cache_creation: 0,
+            },
+            &Context::default(),
+        )
+        .unwrap();
+    store
+        .append_spec(t, "/x/y.md", &Context::default())
+        .unwrap();
 
     let s = store
         .summary_filtered(&karl_score::ScoreFilter::default())
         .unwrap();
     assert_eq!(s.total_tokens, 15);
     assert_eq!(s.total_specs, 1);
-    karl_score::clear_recorder_for_test();
 }
 
 #[test]

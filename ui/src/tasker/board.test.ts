@@ -68,6 +68,8 @@ describe("view toggle + fullscreen", () => {
   it("the header esc pill closes the panel via onClose", () => {
     let closed = 0;
     const { host } = mount(() => { closed++; });
+    // The pill is board-only — list view has its own close affordances.
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
     host.querySelector<HTMLButtonElement>(".tasker-esc-btn")!.click();
     expect(closed).toBe(1);
   });

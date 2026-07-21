@@ -49,20 +49,25 @@ describe("renderTaskCard", () => {
   });
 
   it("collapses to a confirmed pill when already confirmed", () => {
+    // The root is the unit wrapper (pill + its lifecycle drawer); the pill
+    // itself is the child. With no lifecycle events the pill renders bare.
     const el = renderTaskCard(sampleMessage({ confirmed: true, taskId: "task-1" }), {
       onConfirm: vi.fn(), onCancel: vi.fn(), onEdit: vi.fn(),
     });
-    expect(el.classList.contains("task-pill")).toBe(true);
-    expect(el.classList.contains("task-pill--confirmed")).toBe(true);
+    expect(el.classList.contains("task-pill-unit")).toBe(true);
+    expect(el.querySelector(".task-pill.task-pill--confirmed")).not.toBeNull();
     expect(el.querySelector('[data-action="confirm"]')).toBeNull();
     expect(el.textContent).toContain("Revisar migración de auth");
-    expect(el.textContent).toContain("open tab");
+    expect(el.querySelector(".task-pill-drawer")).toBeNull();
   });
 
-  it("invokes onOpenTab from the confirmed pill link", () => {
+  it("invokes onOpenTab from the lifecycle drawer link", () => {
     const onOpenTab = vi.fn();
+    // The open-tab affordance lives in the drawer, which only exists once
+    // the task has lifecycle history.
     const el = renderTaskCard(sampleMessage({ confirmed: true, taskId: "task-1" }), {
       onConfirm: vi.fn(), onCancel: vi.fn(), onEdit: vi.fn(), onOpenTab,
+      lifecycle: [{ kind: "started", ts: 1 }],
     });
     (el.querySelector('[data-action="open-tab"]') as HTMLButtonElement).click();
     expect(onOpenTab).toHaveBeenCalledWith("task-1");

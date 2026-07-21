@@ -17,15 +17,19 @@ fn main() {
     let mut cmds = 0;
     let mut hooks = 0;
     let mut mcps = 0;
+    let mut agents = 0;
+    let mut memories = 0;
     for c in user.iter().chain(plugins.iter()) {
         match c {
             claude::Capability::Skill(_) => skills += 1,
             claude::Capability::SlashCommand(_) => cmds += 1,
             claude::Capability::Hook(_) => hooks += 1,
             claude::Capability::McpServer(_) => mcps += 1,
+            claude::Capability::Agent(_) => agents += 1,
+            claude::Capability::Memory(_) => memories += 1,
         }
     }
-    println!("  skills={skills} commands={cmds} hooks={hooks} mcps={mcps}");
+    println!("  skills={skills} commands={cmds} hooks={hooks} mcps={mcps} agents={agents} memories={memories}");
 
     if let Some(c) = plugins.iter().find_map(|c| {
         if let claude::Capability::Skill(s) = c {

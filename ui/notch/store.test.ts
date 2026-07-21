@@ -27,21 +27,24 @@ describe("StackStore", () => {
     expect(s.pills()[0].compact).toBe(false);
   });
 
-  it("compacts when pills.length >= 4", () => {
+  // Compact mode was removed deliberately (see `recomputeCompact`): the
+  // shrink animation read as a glitch in use. These pin that decision —
+  // neither a crowded stack nor a stale phase may bring it back.
+  it("stays expanded with 4+ pills", () => {
     const s = new StackStore();
     ["a", "b", "c", "d"].forEach((id) =>
       s.apply({ ...tab(id), phase: { kind: "thinking" } }),
     );
-    expect(s.pills().every((p) => p.compact)).toBe(true);
+    expect(s.pills().every((p) => !p.compact)).toBe(true);
   });
 
-  it("compacts when phase age > 5s", () => {
+  it("stays expanded as a phase ages past 5s", () => {
     const s = new StackStore();
     s.apply({ ...tab("a"), phase: { kind: "running", cmd: "ls" } });
     vi.setSystemTime(now + 6000);
     // recompute happens on apply/expandSticky/gc; trigger via gc.
     s.gc();
-    expect(s.pills()[0].compact).toBe(true);
+    expect(s.pills()[0].compact).toBe(false);
   });
 
   it("Waiting is always expanded", () => {
