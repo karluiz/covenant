@@ -17,4 +17,12 @@ describe("detectExecutor", () => {
     expect(detectExecutor("hermes setup")).toBe("hermes");
     expect(detectExecutor("hermes model")).toBe("hermes");
   });
+
+  // Covenant's own reuse-idle launch is `cd <worktree> && claude …`; if this
+  // returns null the tab stays "idle" forever and the next Start-agent
+  // types into the running agent instead of spawning a session.
+  it("sees past a leading cd in a compound command", () => {
+    expect(detectExecutor("cd '/tmp/wt' && claude --effort high")).toBe("claude");
+    expect(detectExecutor("cd /tmp && ls")).toBe(null);
+  });
 });
