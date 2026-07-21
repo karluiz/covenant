@@ -181,7 +181,11 @@ describe("mountSpecChat — entrance logic", () => {
     // Fire the publish callback directly — simulates user clicking "Review & publish"
     latestOpts()!.onPublish!("# My Spec\n", "test-draft-id");
 
-    expect(deps.openWizardWithBody).toHaveBeenCalledWith("# My Spec\n");
+    // The wizard also receives the Canon-context toggle the immersive was
+    // opened with (off unless the entrance turned it on).
+    expect(deps.openWizardWithBody).toHaveBeenCalledWith("# My Spec\n", {
+      canonContext: false,
+    });
     expect(markPublished).toHaveBeenCalledWith("test-draft-id");
     // Controller closes itself after publish
     expect(ctrl.isOpen()).toBe(false);
