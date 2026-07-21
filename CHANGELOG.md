@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.51 — Group "Start new agent" always opens a new tab
+
+### Fixed
+
+- **"Start new agent" from a group no longer hijacks an idle tab.** The group
+  context-menu item now always opens a *new* tab inside that group, matching
+  its label. Running in place stays reserved for launches aimed at a terminal:
+  the pane context menu's "Start agent" (already gated on no executor running)
+  and the current session. In `runSpawn` (`ui/src/main.ts`) a group-scoped
+  launch forces `sid = null` so both new-tab branches fire, and `reuseIdle`
+  now keys off the explicit pane `target`; the now-dead
+  `idleSessionInGroup` helper is removed from `ui/src/tabs/manager.ts`.
+
 ## v0.9.50 — Claude OAuth refresh + prompt Improve helper
 
 ### Added
