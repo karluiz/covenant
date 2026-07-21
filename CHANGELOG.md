@@ -6,6 +6,55 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.50 — Claude OAuth refresh + prompt Improve helper
+
+### Added
+
+- **"Improve" button in the prompt editor.** A one-shot `improve_prompt`
+  command on the Chat route (same shape as `generate_commit_message`) rewrites
+  the prompt body in place (`crates/app/src/lib.rs`,
+  `ui/src/project-notes/prompts-tab.ts`, `api.ts`). An unconfigured route
+  renders as a neutral empty state with an Open Providers door, never a red
+  error.
+
+- **Landing is indexable.** `robots.txt` plus a generated sitemap
+  (`landing/astro.config.mjs`, `landing/public/robots.txt`), and a canonical
+  URL with `SoftwareApplication` JSON-LD in the shared layout
+  (`landing/src/layouts/Base.astro`).
+
+### Changed
+
+- **Design pass on the Project panel editors.** Prompts/Commands/Notes had
+  drifted off the system: `--font-ui`, `--font-mono` and the panel-local
+  `--surface` alias were either undefined or pointed at the panel's own
+  background, so those declarations dropped silently. Homologates radii to 0,
+  sizes to the `--fs-*` scale, transitions to the house ease, and fixes
+  accent-fill buttons to dark text per `DESIGN.md`
+  (`ui/src/project-notes/styles.css`).
+
+### Fixed
+
+- **Long ACP sessions stop 401ing mid-conversation.**
+  `CLAUDE_CODE_OAUTH_TOKEN` is snapshotted at spawn and pins the adapter to
+  that token — it cannot refresh itself, so a tab started with a half-spent
+  token (lifetime ~12h) began failing every turn with `401 invalid
+  authentication credentials`. Covenant now refreshes via the OAuth endpoint
+  when under 6h remain and writes the result back to the Keychain, persisting
+  the rotated refresh token the real CLI needs too (`crates/app/src/
+  acp_commands.rs`). Best-effort: any failure leaves credentials untouched.
+  The dead-turn notice is also actionable when the stop reason is a 401
+  (`ui/src/executors/acp/view.ts`).
+
+- **The super-agent hint no longer appears over an agent's own input box.**
+  The prose-detection hint ("⏎ ask the super-agent") was gated on
+  `!pane.executor`, which only knows the executors `detectExecutor` recognizes
+  from an OSC 133 `block_started`. Anything else owning the PTY — an
+  unrecognized agent invocation, `vim`, `less` — still got the hint, where
+  Enter must stay literal. It is now gated on prompt state: `atPrompt` flips
+  false on `block_started` and true on `prompt_start`, so the hint only shows
+  while the shell itself owns the PTY (`ui/src/tabs/manager.ts`). The same gate
+  fixes the cd-picker, which had the identical bug.
+
 ## v0.9.49 — Hand-opened ACP tabs get their own worktree
 
 ### Added
