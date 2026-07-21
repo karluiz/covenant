@@ -107,9 +107,13 @@ export async function cliInstalled(): Promise<boolean> {
 /// Fetch the tail of a tab's persisted scrollback. Returns an empty
 /// array for unknown / new tabs. Write the bytes into xterm BEFORE
 /// `spawnSession` attaches its live channel.
+///
+/// The command returns a `tauri::ipc::Response` (raw body), which the
+/// IPC bootstrap decodes with `response.arrayBuffer()` — no JSON parse
+/// of a 2-million-element number array on the UI thread.
 export async function replayScrollback(replayKey: string): Promise<Uint8Array> {
-  const data = await invoke<number[]>("replay_scrollback", { replayKey });
-  return new Uint8Array(data);
+  const buf = await invoke<ArrayBuffer>("replay_scrollback", { replayKey });
+  return new Uint8Array(buf);
 }
 
 export async function deleteScrollback(replayKey: string): Promise<void> {
