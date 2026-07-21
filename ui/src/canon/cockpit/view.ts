@@ -39,6 +39,7 @@ import {
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
+import { openConfirmTyped } from "../../workspaces/confirm-typed";
 import { openOperatorModal, wireOperatorModal, renderOperatorList } from "../../operator/creator";
 import { operatorsForOrg, isStaleOrg } from "../../operator/org-filter";
 import { pushInfoToast } from "../../notifications/toast";
@@ -463,15 +464,22 @@ export class CanonCockpitView {
         });
         edit.classList.add("canon-cockpit-idcard-edit");
         const del = iconButton(Icons.trash({ size: 14 }), "Delete organization", () => {
-          if (!confirm(`Delete organization "${active.name}"? This removes its registry namespace and cannot be undone.`)) return;
-          void canonDeleteOrg(active.slug)
-            .then(() => {
-              const remaining = this.opts.orgs.filter((o) => o.slug !== active.slug);
-              this.opts.orgs = remaining;
-              this.opts.setActiveOrg(remaining[0]?.slug ?? null);
-              this.showSection("org");
-            })
-            .catch((e) => pushInfoToast({ message: `Couldn't delete organization: ${this.friendlyError(e)}` }));
+          openConfirmTyped({
+            label: "Delete organization",
+            message: `This permanently deletes "${active.name}" and every skill, agent, command and package published under its registry namespace. Can't be undone.`,
+            expected: active.name,
+            confirmText: "Delete organization",
+            onConfirm: () => {
+              void canonDeleteOrg(active.slug)
+                .then(() => {
+                  const remaining = this.opts.orgs.filter((o) => o.slug !== active.slug);
+                  this.opts.orgs = remaining;
+                  this.opts.setActiveOrg(remaining[0]?.slug ?? null);
+                  this.showSection("org");
+                })
+                .catch((e) => pushInfoToast({ message: `Couldn't delete organization: ${this.friendlyError(e)}` }));
+            },
+          });
         });
         del.classList.add("canon-cockpit-idcard-edit");
         card.append(edit, del);
