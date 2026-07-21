@@ -1183,7 +1183,9 @@ export class CanonCockpitView {
               meta: `detected · ${d.detectedIn}`,
               className: "canon-skill-row is-detected",
               leadIcon: Icons.packageBox({ size: 15 }),
-              fetchPreview: () => Promise.resolve(""),
+              // Not adopted yet → no `.covenant/canon` source; read_source
+              // falls back to the executor dir it was detected in.
+              fetchPreview: () => canonReadSource(cwd, "skill", d.name),
               actions: [this.unitAdoptAction(cwd, "skill", d.name)],
             }));
           }
