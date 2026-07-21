@@ -471,7 +471,53 @@ pub fn create_worktree(cwd: &Path, slug: &str, base: Option<&str>) -> Result<Str
         cwd,
         &["worktree", "add", "-q", &dest_str, "-b", slug, &base_ref],
     )?;
+    link_executor_history(&main_root, &dest);
     Ok(dest_str)
+}
+
+/// Claude Code indexes conversation history by a slug of the session's cwd, so
+/// a freshly cut worktree starts with an empty `/resume` list — the executor
+/// has no way to know it is the same repo. Point the worktree's history
+/// directory at the main worktree's, so every worktree of a repo shares one
+/// past (and new sessions land back in that shared dir).
+///
+/// Best-effort by design: a failure here costs history, not correctness, and
+/// must never fail worktree creation.
+///
+/// ponytail: claude only. Codex records cwd *inside* each session file and
+/// filters on it, so a directory symlink buys it nothing; if codex resume
+/// starts mattering, that needs its own mechanism.
+#[cfg(unix)]
+fn link_executor_history(main_root: &Path, worktree: &Path) {
+    let Some(home) = dirs::home_dir() else { return };
+    let projects = home.join(".claude/projects");
+
+    let target = projects.join(history_slug(main_root));
+    if !target.is_dir() {
+        return;
+    }
+    let link = projects.join(history_slug(worktree));
+    // `exists()` follows symlinks, so it answers "is there a live history here"
+    // — which is the question. A dangling link is replaced below via the
+    // symlink_metadata check.
+    if link.exists() {
+        return;
+    }
+    if link.symlink_metadata().is_ok() {
+        let _ = std::fs::remove_file(&link);
+    }
+    let _ = std::os::unix::fs::symlink(&target, &link);
+}
+
+#[cfg(not(unix))]
+fn link_executor_history(_main_root: &Path, _worktree: &Path) {}
+
+/// How Claude Code names a project's history directory: the absolute cwd with
+/// every `/` and `.` flattened to `-`. `.covenant/worktrees` therefore yields a
+/// double dash, which is load-bearing — get this wrong and the link points at a
+/// directory no executor will ever read.
+fn history_slug(path: &Path) -> String {
+    path.to_string_lossy().replace(['/', '.'], "-")
 }
 
 /// The ref an agent branch should be cut from when the caller didn't pin one:
@@ -3149,6 +3195,19 @@ index e69de29..0cfbf08 100644
                 .lines()
                 .any(|l| l.trim() == "agent/claude-0719-y72"),
             "branch must be deleted via ancestry-against-base, not HEAD-relative -d",
+        );
+    }
+
+    #[test]
+    fn history_slug_matches_claude_codes_project_dir_naming() {
+        // Verbatim from `~/.claude/projects/` — the double dash before
+        // `covenant` is `.covenant` flattening, and is the part most likely to
+        // be "fixed" into a single dash by someone tidying the replace.
+        assert_eq!(
+            history_slug(Path::new(
+                "/Users/carlosgallardoarenas/Sources/karlTerminal/.covenant/worktrees/agent-claude-0721-v1d"
+            )),
+            "-Users-carlosgallardoarenas-Sources-karlTerminal--covenant-worktrees-agent-claude-0721-v1d"
         );
     }
 
