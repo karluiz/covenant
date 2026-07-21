@@ -2722,7 +2722,7 @@ async function boot(): Promise<void> {
     // ("Ç" on US, dead keys on ISO layouts) that never equals "c".
     if (e.metaKey && e.altKey && e.shiftKey && e.code === "KeyC") {
       e.preventDefault();
-      void manager.createAcpTab({ cwd: manager.activeCwd() });
+      void manager.createAcpTab({ cwd: manager.activeCwd(), isolate: true });
       return;
     }
     // ⌘⇧A — pure AOM toggle: off ↔ on.

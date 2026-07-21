@@ -3,6 +3,7 @@ import {
   wantsWorktree,
   agentSlug,
   resolveLaunch,
+  isolateCwd,
   isSilentWorktreeFailure,
 } from "./worktree-launch";
 import type { SpawnSpec } from "./types";
@@ -36,20 +37,20 @@ describe("worktree launch decision", () => {
     // Local-time components, not a UTC instant — agentSlug reads
     // now.getMonth()/getDate() in local time, so a UTC fixture would read as
     // the previous day on any runner west of UTC (e.g. UTC-11).
-    const s = agentSlug(spec({ id: "copilot" }), new Date(2026, 6, 19, 10, 0, 0), () => 0.5);
+    const s = agentSlug("copilot", new Date(2026, 6, 19, 10, 0, 0), () => 0.5);
     expect(s).toMatch(/^agent\/copilot-0719-[a-z0-9]{3}$/);
   });
 
   it("varies the suffix so two same-day launches do not collide", () => {
     const day = new Date("2026-07-19T10:00:00Z");
-    const a = agentSlug(spec(), day, () => 0.1);
-    const b = agentSlug(spec(), day, () => 0.9);
+    const a = agentSlug(spec().id, day, () => 0.1);
+    const b = agentSlug(spec().id, day, () => 0.9);
     expect(a).not.toBe(b);
   });
 
   it("produces a slug git accepts as a ref", () => {
     // No spaces, no double dots, no trailing slash, no leading dash.
-    const s = agentSlug(spec({ id: "pi agent" }), new Date("2026-07-19T10:00:00Z"), () => 0.5);
+    const s = agentSlug("pi agent", new Date("2026-07-19T10:00:00Z"), () => 0.5);
     expect(s).not.toMatch(/\s|\.\.|^-|\/$/);
   });
 
@@ -59,11 +60,11 @@ describe("worktree launch decision", () => {
     // random suffix — not this sanitising — is what actually prevents
     // worktree collisions (see the doc comment on agentSlug).
     const day = new Date(2026, 6, 19);
-    const dash = agentSlug(spec({ id: "agent-x" }), day, () => 0.5);
-    const space = agentSlug(spec({ id: "agent x" }), day, () => 0.5);
-    const slash = agentSlug(spec({ id: "agent/x" }), day, () => 0.5);
-    const dot = agentSlug(spec({ id: "agent.x" }), day, () => 0.5);
-    const underscore = agentSlug(spec({ id: "agent_x" }), day, () => 0.5);
+    const dash = agentSlug("agent-x", day, () => 0.5);
+    const space = agentSlug("agent x", day, () => 0.5);
+    const slash = agentSlug("agent/x", day, () => 0.5);
+    const dot = agentSlug("agent.x", day, () => 0.5);
+    const underscore = agentSlug("agent_x", day, () => 0.5);
     expect(dash).toBe(space);
     expect(dash).toBe(slash);
     expect(dash).toBe(dot);
@@ -72,8 +73,8 @@ describe("worktree launch decision", () => {
 
   it("does not alias the suffix at the rand()===1 boundary", () => {
     const day = new Date(2026, 6, 19);
-    const low = agentSlug(spec(), day, () => 0);
-    const high = agentSlug(spec(), day, () => 1);
+    const low = agentSlug(spec().id, day, () => 0);
+    const high = agentSlug(spec().id, day, () => 1);
     const suffixOf = (s: string) => s.slice(s.lastIndexOf("-") + 1);
     expect(suffixOf(low)).toHaveLength(3);
     expect(suffixOf(high)).toHaveLength(3);
@@ -136,5 +137,40 @@ describe("resolveLaunch", () => {
       isolated: true,
     });
     expect(d.create).toHaveBeenCalledWith("/repo", expect.stringMatching(/^agent\/codex-0719-/));
+  });
+});
+
+describe("spec-less isolation (ACP chat tabs)", () => {
+  const deps = (create: (c: string, s: string) => Promise<string>) => ({
+    create,
+    now: () => new Date(2026, 6, 19),
+    rand: () => 0.5,
+  });
+
+  it("cuts a worktree named after the executor", async () => {
+    const create = vi.fn(async (_c: string, slug: string) => `/wt/${slug}`);
+    const r = await isolateCwd("/repo", "claude", deps(create));
+    expect(create).toHaveBeenCalledWith("/repo", expect.stringMatching(/^agent\/claude-0719-/));
+    expect(r).toMatchObject({ isolated: true });
+    expect(r.cwd).toMatch(/^\/wt\/agent\/claude-0719-/);
+  });
+
+  it("launches in place, silently, outside a git repo", async () => {
+    const r = await isolateCwd(
+      "/tmp/x",
+      "claude",
+      deps(() => Promise.reject(new Error("fatal: not a git repository"))),
+    );
+    expect(r).toMatchObject({ cwd: "/tmp/x", isolated: false });
+    expect(isSilentWorktreeFailure(r.error ?? "")).toBe(true);
+  });
+
+  it("has nothing to isolate without a cwd", async () => {
+    const create = vi.fn();
+    expect(await isolateCwd(null, "claude", deps(create as never))).toEqual({
+      cwd: null,
+      isolated: false,
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 });

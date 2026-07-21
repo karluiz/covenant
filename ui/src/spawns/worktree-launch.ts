@@ -27,8 +27,8 @@ export function wantsWorktree(spec: SpawnSpec): boolean {
 ///   clamps so every value in that range — including the `1` boundary —
 ///   maps to a distinct 3-character base-36 suffix; nothing aliases with the
 ///   suffix produced by `rand() === 0`.
-export function agentSlug(spec: SpawnSpec, now: Date, rand: () => number): string {
-  const executor = spec.id.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+export function agentSlug(id: string, now: Date, rand: () => number): string {
+  const executor = id.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
     || "agent";
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
@@ -78,11 +78,22 @@ export async function resolveLaunch(
   baseCwd: string | null,
   deps: LaunchDeps,
 ): Promise<LaunchResolution> {
-  if (!wantsWorktree(spec) || !baseCwd) {
-    return { cwd: baseCwd, isolated: false };
-  }
+  if (!wantsWorktree(spec)) return { cwd: baseCwd, isolated: false };
+  return isolateCwd(baseCwd, spec.id, deps);
+}
+
+/// The same decision with no spawn spec behind it — an ACP chat tab opened
+/// by hand gets the isolation an agent spawn already got, so "an executor
+/// edits code" always means "inside a worktree Covenant handed out",
+/// whichever door it came through. `id` names the branch (the executor).
+export async function isolateCwd(
+  baseCwd: string | null,
+  id: string,
+  deps: LaunchDeps,
+): Promise<LaunchResolution> {
+  if (!baseCwd) return { cwd: baseCwd, isolated: false };
   try {
-    const cwd = await deps.create(baseCwd, agentSlug(spec, deps.now(), deps.rand));
+    const cwd = await deps.create(baseCwd, agentSlug(id, deps.now(), deps.rand));
     return { cwd, isolated: true };
   } catch (e) {
     return { cwd: baseCwd, isolated: false, error: String(e) };

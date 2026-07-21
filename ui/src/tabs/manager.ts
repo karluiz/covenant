@@ -79,6 +79,7 @@ import {
   replayScrollback,
   deleteScrollback,
   tabManifestSave,
+  worktreeCreate,
   worktreeRetire,
   worktreeRetitle,
   writeToSession,
@@ -94,6 +95,7 @@ import { StructureTree } from "../structure/tree";
 import { attachFileDrop } from "../structure/file-drop";
 import { StructureEditor } from "../structure/editor";
 import { pushInfoToast } from "../notifications/toast";
+import { isolateCwd, isSilentWorktreeFailure } from "../spawns/worktree-launch";
 import { Icons } from "../icons";
 import { brandIconSvg } from "../icons/brands";
 import { ContextMenu, COLOR_SWATCHES, COLOR_SWATCHES_PASTEL, type MenuItem } from "../menu/context-menu";
@@ -1753,6 +1755,7 @@ export class TabManager {
             groupId,
             color: tab.color,
             cwd: pane?.cwd ?? this.activeCwd(),
+            isolate: true,
             ...(e.executor ? { executor: e.executor } : {}),
           }),
       })),
@@ -4783,6 +4786,11 @@ export class TabManager {
     resumeAcpSessionId?: string | null;
     /// Which agent drives the tab. Default "copilot".
     executor?: AcpExecutor;
+    /// Cut a worktree off `cwd` and run the session there — what a Spawn
+    /// already does before it launches an executor. Set by the doors a
+    /// human opens a fresh chat through; NOT by restore or by the Spawns
+    /// path (which hands over an isolated cwd already).
+    isolate?: boolean;
   }): Promise<Tab | null> {
     const id = crypto.randomUUID();
     const replayKey = id.replace(/-/g, "").slice(0, 26);
@@ -4790,6 +4798,23 @@ export class TabManager {
     const executor: AcpExecutor = opts?.executor ?? "copilot";
     const executorTitle =
       { copilot: "Copilot", pi: "pi", claude: "Claude", opencode: "OpenCode" }[executor];
+
+    // Isolation, same terms as a Spawn: Covenant hands out the worktree so
+    // the executor never faces the question. Outside a repo it's silently a
+    // no-op; any other failure launches in place and says why — isolation is
+    // never the reason a session fails to start.
+    let launchCwd = opts?.cwd ?? null;
+    if (opts?.isolate) {
+      const res = await isolateCwd(launchCwd, executor, {
+        create: worktreeCreate,
+        now: () => new Date(),
+        rand: Math.random,
+      });
+      launchCwd = res.cwd;
+      if (res.error && !isSilentWorktreeFailure(res.error)) {
+        pushInfoToast({ message: `Launching in place — worktree failed: ${res.error}` });
+      }
+    }
 
     // The tab appears IMMEDIATELY with a boot placeholder; copilot's ACP
     // handshake takes seconds and blocking ⌘⌥⇧C on it read as "nothing
@@ -4861,7 +4886,7 @@ export class TabManager {
       id: `p-${replayKey}`,
       kind: "acp",
       sessionId: null, // set once the ACP handshake resolves
-      cwd: opts?.cwd ?? "",
+      cwd: launchCwd ?? "",
       mission: null,
       operator: null,
       blocks: [],
@@ -4992,7 +5017,7 @@ export class TabManager {
       };
       try {
         spawned = await spawnAcpSession({
-          cwd: opts?.cwd ?? undefined,
+          cwd: launchCwd ?? undefined,
           resumeAcpSessionId: opts?.resumeAcpSessionId ?? undefined,
           executor,
         });
@@ -5013,7 +5038,7 @@ export class TabManager {
       const view = new AcpChatView({
         sessionId: spawned.sessionId,
         host: acpPaneHost0,
-        cwd: opts?.cwd ?? null,
+        cwd: launchCwd,
         model: spawned.model,
         executor,
         acpSessionId: spawned.acpSessionId,
@@ -7889,6 +7914,7 @@ export class TabManager {
               groupId: group.id,
               color: group.color,
               cwd: group.rootDir ?? this.activeCwd(),
+              isolate: true,
               ...(e.executor ? { executor: e.executor } : {}),
             });
           },
