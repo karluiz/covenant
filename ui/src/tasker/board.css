@@ -228,6 +228,30 @@ body.theme-true-dark .kb-card { background: #141416; }
   gap: 8px;
   padding: 10px 16px 0;
 }
+/* Toolbar variant of the share button. The list-row original is absolutely
+   positioned inside the project header row and hover-revealed; a toolbar has
+   no row to hover, so it sits in flow and stays visible, with a bordered
+   capsule matching the project switcher beside it. */
+.tasker-board-toolbar .tasker-project-share {
+  position: static;
+  transform: none;
+  opacity: 1;
+  gap: 6px;
+  height: 27px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  font: 600 11.5px ui-monospace, "SF Mono", Menlo, monospace;
+}
+.tasker-board-toolbar .tasker-project-share.shared {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.tasker-board-toolbar .tasker-project-share:hover {
+  color: var(--text-primary);
+}
+.tasker-board-toolbar .tasker-project-share.shared:hover {
+  color: var(--accent);
+}
+
 .kb-project-select,
 .kb-project-name {
   font: 600 12.5px ui-monospace, "SF Mono", Menlo, monospace;
