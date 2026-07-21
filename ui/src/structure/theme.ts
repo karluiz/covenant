@@ -225,6 +225,11 @@ export function editorHighlight(mode: ThemePaletteMode): Extension {
       { tag: [t.typeName, t.className, t.namespace], color: p.type },
       { tag: [t.function(t.variableName), t.function(t.propertyName)], color: p.fn },
       { tag: [t.variableName, t.propertyName], color: p.fg },
+      // YAML/TOML keys are `definition(propertyName)`; without this they
+      // fall back to plain fg and the whole document reads unhighlighted.
+      { tag: [t.definition(t.propertyName), t.labelName], color: p.type },
+      { tag: [t.separator], color: p.punct },
+      { tag: [t.content], color: p.fg },
       { tag: [t.punctuation, t.bracket, t.brace, t.paren], color: p.punct },
       { tag: [t.operator, t.derefOperator, t.logicOperator, t.compareOperator], color: p.punct },
       { tag: [t.tagName, t.angleBracket], color: p.tag },
