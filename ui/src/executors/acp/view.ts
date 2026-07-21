@@ -473,7 +473,13 @@ export function reduceAcpEvent(state: AcpStreamState, ev: AcpTabEvent): void {
       // turn is noise. Only surface stop reasons that carry information
       // (timeout, cancelled, refusal, max_tokens, errors).
       if (ev.stopReason !== "end_turn") {
-        state.items.push({ kind: "notice", text: `Turn finished — ${ev.stopReason}`, variant: "divider" });
+        // A 401 means the OAuth token snapshotted at spawn expired; the
+        // adapter cannot refresh it, so only a new tab recovers.
+        const authDead = /401|authentication_error|invalid authentication/i.test(ev.stopReason);
+        const text = authDead
+          ? "Authentication expired — the agent's login token ran out mid-session. Open a new tab to reconnect."
+          : `Turn finished — ${ev.stopReason}`;
+        state.items.push({ kind: "notice", text, variant: "divider" });
       } else if (!state.turnHadOutput) {
         // Clean end_turn with zero output = a provider failing silently
         // behind the adapter (seen live: pi + a broken cf-gateway model).
