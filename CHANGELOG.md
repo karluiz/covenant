@@ -6,6 +6,51 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.48 — Context Crawler inventory + Organization rename/delete
+
+### Added
+
+- **Context Crawler — whole-repo inventory.** The miner now crawls the entire
+  repository into an inventory of candidate units rather than proposing one at a
+  time: a `propose_unit` agent tool with unit-scoped findings
+  (`crates/agent/…`), each candidate resolved against Canon state
+  (`crates/app/src/canon_registry.rs`) and rendered as a per-row inventory
+  surface with selection and state (`ui/src/canon/…`). Curation is opt-out —
+  every discovered unit starts selected.
+
+- **Delete an organization.** Owners get a trash affordance on the org identity
+  card in the Canon cockpit (`ui/src/canon/cockpit/view.ts`) wired through
+  `canon_delete_org` (`crates/app/src/lib.rs`,
+  `crates/app/src/canon_registry.rs`) to a new owner-gated
+  `DELETE /orgs/:slug` on the backend; `org_members` and packages cascade via
+  their existing foreign keys.
+
+### Changed
+
+- **The Canon left-nav "Org" section is now labelled "Organization"**
+  (`ui/src/canon/cockpit/view.ts`).
+
+### Fixed
+
+- **Deleting an organization is a type-to-confirm.** The trash button opens the
+  type-the-name confirmation (`ui/src/workspaces/confirm-typed.ts`) instead of a
+  bare browser dialog — an org delete cascades its whole registry namespace, so
+  it earns the strongest guard.
+
+- **Context Crawler write/resolve correctness.** Unit writes are keyed on the
+  unit's own slug and unknown kinds are rejected; cross-kind name collisions are
+  refused; non-`NotFound` read errors resolve as `Changed` rather than `New`;
+  and `.md` entries overwrite in place instead of accumulating `-2`/`-3`
+  suffixes (`crates/app`, `crates/agent`). The crawler's write, teardown and
+  resolve paths are guarded, and re-routed miner units deselect correctly
+  (`ui/src/canon/…`).
+
+- **Light-theme hero stat colour + Somnus expanded tabbar.** The light-theme
+  `.canon-stat.is-hero` value mixed 62% toward ink so it stops reading as a
+  harsh red on white (`ui/src/canon/styles.css`); in default top-tabbar mode the
+  expanded Somnus panel no longer spills `#tabbar-host` into an implicit row
+  below the status bar (`ui/src/somnus/somnus.css`).
+
 ## v0.9.47 — Tasker board share to forge + honest Score metrics
 
 ### Added
