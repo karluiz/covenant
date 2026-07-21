@@ -6,6 +6,39 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.52 — Canon measures skill usage, not just installs
+
+### Added
+
+- **Adoption now counts uses, not only installs.** Canon could answer "how
+  many people installed this skill" (the registry's install counter) but not
+  "does anyone actually use it". A new `EventKind::SkillUse` score event
+  records every load: ACP tabs detect it structurally in the forwarder
+  (`rawInput.skill`, or a `Skill(name)` title — `crates/app/src/acp_commands.rs`),
+  and plain PTY sessions detect claude's `⏺ Skill(name)` tool-call line via
+  `skill_invocations` in `crates/blocks/src/executor_phase.rs`, fed from
+  `NotchHub::ingest`. `ScoreStore::skill_usage` + the `score_skill_usage`
+  command expose per-unit counts, group-filterable. Loop → Adoption reads
+  `N installs · M uses`.
+
+- **Shared contexts appear in Adoption.** The meter filtered to `kind="skill"`,
+  so installed contexts had an install counter server-side that no surface
+  ever showed. A local context now counts as registry-sourced iff the org
+  publishes that name (`ContextRef` carries no source field) —
+  `ui/src/canon/cockpit/view.ts`.
+
+- **Board sharing reachable from the board toolbar.** The share affordance
+  only existed on the list view's hover-revealed project header row, which
+  board view doesn't have. The same button now sits beside the board
+  toolbar's project switcher, reusing the existing `.tasker-project-share`
+  binding for publish, Copy link / Stop sharing, the stale-push tooltip and
+  the signed-out route to Settings.
+
+### Changed
+
+- **`cargo fmt --all` across 44 files.** Pure rustfmt line-wrapping the
+  formatter had drifted from; `git diff -w` is line breaks only.
+
 ## v0.9.51 — Group "Start new agent" always opens a new tab
 
 ### Fixed
