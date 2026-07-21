@@ -1794,6 +1794,10 @@ async function boot(): Promise<void> {
             getActiveOrg: () => manager.groupCanonOrg(a.groupId),
             setActiveOrg: (slug) => manager.setGroupCanonOrg(a.groupId, slug),
             onNewContext: () => launchContextMiner(a.groupId, a.groupLabel),
+            onOpenFile: (path) => manager.openFileAtLine(path),
+            onNewSpec: (repoRoot) => window.dispatchEvent(new CustomEvent("spec-chat:open", {
+              detail: { canonContext: true, cwd: repoRoot },
+            })),
             // Esc closes Canon entirely (cockpit + rail) → terminal, the
             // app-wide convention (Tasker / Settings / Changes / Release log).
             onClose: () => activeCanonPanel?.close(),
@@ -1825,6 +1829,10 @@ async function boot(): Promise<void> {
         getActiveOrg: () => manager.groupCanonOrg(g.id),
         setActiveOrg: (slug) => manager.setGroupCanonOrg(g.id, slug),
         onNewContext: () => launchContextMiner(g.id, g.name),
+        onOpenFile: (path) => manager.openFileAtLine(path),
+        onNewSpec: (repoRoot) => window.dispatchEvent(new CustomEvent("spec-chat:open", {
+          detail: { canonContext: true, cwd: repoRoot },
+        })),
         onClose: () => activeCanonPanel?.close(),
       }).open();
     });
@@ -2254,6 +2262,10 @@ async function boot(): Promise<void> {
     }
   };
 
+  // ponytail: a single override slot instead of threading a cwd through the
+  // spec-chat factory. Set by whoever opens the creator for a specific repo
+  // (the Canon cockpit), cleared by every other opener.
+  let specChatCwd: string | null = null;
   const specChatPage = requireEl<HTMLElement>("spec-chat-page");
   const specChat = mountSpecChat(specChatPage, {
     openWizardWithBody: (body, opts) => {
@@ -2262,7 +2274,7 @@ async function boot(): Promise<void> {
     openBlankWizard: () => {
       draftsPanel.open({ slug: null });
     },
-    getCwd: () => manager.activeCwd() ?? null,
+    getCwd: () => specChatCwd ?? manager.activeCwd() ?? null,
   });
 
   closeWorkspacePagesForMission = () => {
@@ -2279,7 +2291,8 @@ async function boot(): Promise<void> {
   };
 
   window.addEventListener("spec-chat:open", (e: Event) => {
-    const detail = (e as CustomEvent<{ draftId?: string; canonContext?: boolean }>).detail;
+    const detail = (e as CustomEvent<{ draftId?: string; canonContext?: boolean; cwd?: string }>).detail;
+    specChatCwd = detail?.cwd ?? null;
     specChat.open(detail?.draftId, { canonContext: detail?.canonContext });
   });
 
@@ -2617,6 +2630,7 @@ async function boot(): Promise<void> {
       if (settings.isOpen()) settings.close();
       if (docsPanel.isOpen()) docsPanel.close();
       if (draftsPanel.isOpen()) draftsPanel.close();
+      specChatCwd = null; // not scoped to a Canon group — fall back to the workspace cwd
       specChat.open();
       return;
     }
