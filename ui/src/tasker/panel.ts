@@ -285,6 +285,13 @@ export class TaskerPanel {
       </button>`;
   }
 
+  /// Same fallback the project switcher uses: a null `boardProjectId` (first
+  /// run, or a stale id self-healed elsewhere) still shows the first project.
+  private currentBoardProject(): Project | null {
+    const projects = this.storage.getProjects();
+    return projects.find((p) => p.id === this.boardProjectId) ?? projects[0] ?? null;
+  }
+
   private renderBoardBody(): string {
     const sel = this.selectedTask;
     let dock = "";
@@ -292,8 +299,12 @@ export class TaskerPanel {
       const task = this.storage.getTask(sel.projectId, sel.taskId);
       if (task) dock = this.renderTaskDetails(sel.projectId, task);
     }
+    // The toolbar's project switcher names the board being looked at, so the
+    // share affordance belongs beside it — board view has no project header
+    // row, which is the only place the list view exposes it.
+    const boardProject = this.currentBoardProject();
     return `
-    <div class="tasker-board-toolbar">${this.renderProjectSwitcher()}</div>
+    <div class="tasker-board-toolbar">${this.renderProjectSwitcher()}${boardProject ? this.renderShareButton(boardProject, "toolbar") : ""}</div>
     <div class="tasker-board-layout">
       <div class="kb-columns-host"></div>
       <aside class="tasker-board-dock${dock ? " tasker-board-dock-open" : ""}">${dock}</aside>
@@ -406,7 +417,11 @@ export class TaskerPanel {
     `;
   }
 
-  private renderShareButton(project: Project): string {
+  /// `variant` only changes the chrome, never the behavior: the board toolbar
+  /// has no row to hover, so its copy sits in flow with a text label, while the
+  /// list row stays icon-only and hover-revealed. Both carry the same class, so
+  /// the single `.tasker-project-share` click binding covers them both.
+  private renderShareButton(project: Project, variant: "row" | "toolbar" = "row"): string {
     const shared = isBoardShared(project.id);
     const state = shared ? getPushState(project.id) : "synced";
     // F4 — say exactly what a click does now: opens a Copy link / Stop
@@ -418,9 +433,10 @@ export class TaskerPanel {
       const err = getPushError(project.id);
       label = err ? `Board shared — last sync failed: ${err}` : "Board shared — last sync failed";
     }
-    return `<button class="tasker-project-share${shared ? " shared" : ""}" type="button"
+    const text = variant === "toolbar" ? `<span class="tasker-share-label">${shared ? "Shared" : "Share"}</span>` : "";
+    return `<button class="tasker-project-share${shared ? " shared" : ""}${variant === "toolbar" ? " tasker-share-toolbar" : ""}" type="button"
       data-project-id="${project.id}" data-push-state="${state}" aria-label="${escapeAttr(label)}"
-      data-tip="${escapeAttr(label)}">${Icons.share({ size: 13 })}${shared ? `<span class="tasker-share-dot" aria-hidden="true"></span>` : ""}</button>`;
+      data-tip="${escapeAttr(label)}">${Icons.share({ size: 13 })}${text}${shared ? `<span class="tasker-share-dot" aria-hidden="true"></span>` : ""}</button>`;
   }
 
   private renderComposer(projectId: string): string {

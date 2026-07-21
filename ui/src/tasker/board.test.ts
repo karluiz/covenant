@@ -72,6 +72,19 @@ describe("view toggle + fullscreen", () => {
     expect(closed).toBe(1);
   });
 
+  // Board view has no project header row, so before this the share
+  // affordance was unreachable from the board entirely.
+  it("the board toolbar carries a share button for the current project", () => {
+    const { host } = mount();
+    expect(host.querySelector(".tasker-board-toolbar .tasker-project-share")).toBeNull();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
+    const btn = host.querySelector<HTMLButtonElement>(".tasker-board-toolbar .tasker-project-share");
+    expect(btn).toBeTruthy();
+    // Same class as the list-row button, so the one click binding covers both.
+    expect(btn!.dataset.projectId).toBeTruthy();
+    expect(btn!.querySelector(".tasker-share-label")?.textContent).toBe("Share");
+  });
+
   it("persists view mode across re-mount", () => {
     const { host } = mount();
     host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
