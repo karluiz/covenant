@@ -2945,6 +2945,19 @@ export class TabManager {
           // Ligatures pipeline: canvas renderer + custom font-ligatures
           // joiner. Both must be installed/disposed together.
           const wantLigaturesLive = !!cfg.ligatures;
+          const wantWebgl = !wantLigaturesLive && (cfg.renderer ?? "webgl") === "webgl";
+          // Drop an unwanted WebGL addon BEFORE the canvas branch below
+          // can load its renderer. WebglAddon.dispose() restores xterm's
+          // default DOM renderer, so disposing after would silently
+          // clobber the canvas renderer ligatures just installed.
+          if (tab.webgl && !wantWebgl) {
+            try {
+              tab.webgl.dispose();
+            } catch {
+              /* ignore */
+            }
+            tab.webgl = null;
+          }
           if (wantLigaturesLive && !tab.canvas) {
             try {
               const c = new CanvasAddon();
@@ -2980,25 +2993,33 @@ export class TabManager {
             });
           }
 
-          // Surefire WebGL refresh: dispose the addon + load a fresh
-          // one. clearTextureAtlas() alone is a silent no-op in xterm
-          // 5.x when the font changes after open(); the dispose-and-
-          // recreate dance forces a full atlas rebuild against the
-          // new font metrics.
-          if (tab.webgl) {
+          // WebGL (re)load. Even when the addon is already present and
+          // stays wanted we dispose and reload: clearTextureAtlas() is a
+          // silent no-op in xterm 5.x once the font changes after
+          // open(), and the dispose-and-recreate dance is what forces a
+          // full atlas rebuild against the new font metrics.
+          if (wantWebgl) {
             try {
-              tab.webgl.dispose();
+              tab.webgl?.dispose();
             } catch {
               /* ignore */
             }
             try {
               const next = new WebglAddon();
+              next.onContextLoss(() => {
+                try {
+                  next.dispose();
+                } catch {
+                  /* ignore */
+                }
+                if (tab.webgl === next) tab.webgl = null;
+              });
               tab.term.loadAddon(next);
               tab.webgl = next;
             } catch (err) {
               // eslint-disable-next-line no-console
               console.warn(
-                "WebGL recreate failed; falling back to canvas",
+                "WebGL recreate failed; falling back to DOM renderer",
                 err,
               );
               tab.webgl = null;
@@ -3446,12 +3467,45 @@ export class TabManager {
     // up later. Scoped to the terminal host so the rest of the app
     // (file tree, tab strip, inputs) keeps its native menus intact.
     termHost.addEventListener("contextmenu", (e) => e.preventDefault());
-    // WebGL addon disabled — its glyph atlas doesn't pick up
-    // fontFamily changes from term.options reliably, and both
-    // WebGL and Canvas addons produce garbled glyphs when
-    // allowTransparency is on (required for vibrancy).
-    // DOM renderer is the only one that works correctly here.
-    const webgl: WebglAddon | null = null;
+    // Renderer. The DOM renderer builds a node per cell, so a full-screen
+    // TUI repainting at speed (any agentic executor) saturates the main
+    // thread and every other interaction — tab switches included — goes
+    // sluggish. WebGL draws from a texture atlas instead.
+    //
+    // It was previously hard-disabled for two reasons. The first (the
+    // atlas ignoring live fontFamily changes) is handled: both
+    // applyTerminalSettings and rebuildWebglAtlases dispose the addon and
+    // load a fresh one, which forces a full atlas rebuild. The second
+    // (artifacts under allowTransparency, which vibrancy needs) can only
+    // be judged on screen — hence settings.terminal.renderer, which falls
+    // back to DOM without a rebuild.
+    //
+    // Ligatures win over both: the shaping pass needs the canvas
+    // renderer, and loading two renderer addons on one Terminal is
+    // undefined behavior in xterm.
+    let webgl: WebglAddon | null = null;
+    if (!termCfg?.ligatures && (termCfg?.renderer ?? "webgl") === "webgl") {
+      try {
+        const w = new WebglAddon();
+        // A lost GL context (GPU reset, driver sleep, too many live
+        // contexts) leaves the canvas blank forever unless we drop the
+        // addon — disposing falls the terminal back to the DOM renderer.
+        w.onContextLoss(() => {
+          try {
+            w.dispose();
+          } catch {
+            /* ignore */
+          }
+          if (tabRef.current) tabRef.current.webgl = null;
+        });
+        term.loadAddon(w);
+        webgl = w;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("webgl addon failed; falling back to DOM renderer", err);
+        webgl = null;
+      }
+    }
     // Opt-in ligatures pipeline. Character joiners require the canvas
     // (or webgl) renderer; the DOM renderer ignores them. The ligature
     // ranges come from font-ligatures parsing the user's actual TTF —

@@ -80,12 +80,15 @@ interface OperatorConfig {
   mind_thinking_budget: number;
 }
 
+type TerminalRenderer = "webgl" | "dom";
+
 interface TerminalConfig {
   font_family: string;
   font_size: number;
   letter_spacing: number;
   line_height: number;
   ligatures: boolean;
+  renderer: TerminalRenderer;
 }
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
@@ -366,6 +369,7 @@ export class SettingsPanel {
           letter_spacing: 0,
           line_height: 1.2,
           ligatures: false,
+          renderer: "webgl",
         },
         window: { background: "vibrant" },
         aom: { default_budget_usd: 10 },
@@ -1067,6 +1071,17 @@ export class SettingsPanel {
               by default.
             </small>
           </label>
+          <label class="settings-field">
+            <span class="settings-label">Renderer</span>
+            <span data-role="term-renderer-select"></span>
+            <small class="settings-hint">
+              GPU draws the terminal from a texture atlas instead of one DOM
+              node per cell — the difference shows when an agent repaints a
+              full-screen TUI. Switch to DOM if glyphs look wrong on a
+              translucent background. Ignored while ligatures are on (those
+              need the canvas renderer).
+            </small>
+          </label>
         </section>
         <section class="settings-section" id="sec-code-intel"></section>
         <section class="settings-section" id="sec-operators">
@@ -1387,6 +1402,19 @@ export class SettingsPanel {
     const termLigatures = form.querySelector<HTMLInputElement>(
       'input[name="term_ligatures"]',
     )!;
+    const termRendererHost = form.querySelector<HTMLElement>(
+      '[data-role="term-renderer-select"]',
+    )!;
+    const termRenderer = new CustomSelect({
+      className: "settings-select",
+      ariaLabel: "Terminal renderer",
+      value: this.current.terminal.renderer ?? "webgl",
+      options: [
+        { value: "webgl", label: "GPU (WebGL)" },
+        { value: "dom", label: "DOM" },
+      ],
+    });
+    termRendererHost.replaceWith(termRenderer.element);
     const splitPanesInput = form.querySelector<HTMLInputElement>(
       'input[name="experimental_split_panes"]',
     )!;
@@ -1564,6 +1592,7 @@ export class SettingsPanel {
     termLetterSpacing.value = String(this.current.terminal.letter_spacing);
     termLineHeight.value = String(this.current.terminal.line_height);
     termLigatures.checked = !!this.current.terminal.ligatures;
+    termRenderer.value = this.current.terminal.renderer ?? "webgl";
     splitPanesInput.checked = !!this.current.experimental?.split_panes;
     statusbarTwoRowInput.checked =
       this.current.experimental?.statusbar_two_row ?? true;
@@ -2328,6 +2357,7 @@ export class SettingsPanel {
             Math.min(2, Number(termLineHeight.value) || 1.2),
           ),
           ligatures: termLigatures.checked,
+          renderer: termRenderer.value as TerminalRenderer,
         },
         window: {
           background:

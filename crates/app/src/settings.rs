@@ -898,6 +898,28 @@ impl Default for WindowBackground {
     }
 }
 
+/// Which xterm renderer backs a terminal.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalRenderer {
+    /// Default. GPU texture atlas — one draw call per frame instead of a
+    /// DOM node per cell. The DOM renderer starves the main thread when
+    /// a full-screen TUI (an agentic executor, say) repaints at speed,
+    /// which shows up as lag everywhere else in the app.
+    Webgl,
+    /// Escape hatch. Slower, but immune to the texture-atlas rendering
+    /// artifacts WebGL/canvas can show when `allowTransparency` is on
+    /// (which vibrancy window backgrounds require). Flip here if glyphs
+    /// look wrong on your theme.
+    Dom,
+}
+
+impl Default for TerminalRenderer {
+    fn default() -> Self {
+        Self::Webgl
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalConfig {
     #[serde(default = "default_font_family")]
@@ -921,6 +943,10 @@ pub struct TerminalConfig {
     /// Code etc. flip it on.
     #[serde(default)]
     pub ligatures: bool,
+    /// Renderer backing every terminal. `ligatures` overrides this: the
+    /// shaping pass needs the canvas renderer either way.
+    #[serde(default)]
+    pub renderer: TerminalRenderer,
 }
 
 impl Default for TerminalConfig {
@@ -931,6 +957,7 @@ impl Default for TerminalConfig {
             letter_spacing: 0,
             line_height: default_line_height(),
             ligatures: false,
+            renderer: TerminalRenderer::default(),
         }
     }
 }
@@ -1265,6 +1292,35 @@ mod tests {
         }"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert!(!s.experimental.statusbar_two_row);
+    }
+
+    /// Every config.json written before the renderer setting existed
+    /// lacks the field entirely — it must land on WebGL, not fail to
+    /// parse and reset the user's whole terminal config.
+    #[test]
+    fn terminal_renderer_missing_in_json_defaults_to_webgl() {
+        let json = r#"{
+            "terminal": { "font_size": 15, "ligatures": true }
+        }"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.terminal.renderer, TerminalRenderer::Webgl);
+        // Neighbouring fields still round-trip.
+        assert_eq!(s.terminal.font_size, 15);
+        assert!(s.terminal.ligatures);
+    }
+
+    #[test]
+    fn terminal_renderer_round_trips_both_variants() {
+        for (raw, want) in [
+            ("dom", TerminalRenderer::Dom),
+            ("webgl", TerminalRenderer::Webgl),
+        ] {
+            let json = format!(r#"{{ "terminal": {{ "renderer": "{raw}" }} }}"#);
+            let s: Settings = serde_json::from_str(&json).unwrap();
+            assert_eq!(s.terminal.renderer, want);
+            let back = serde_json::to_value(s.terminal.renderer).unwrap();
+            assert_eq!(back, serde_json::json!(raw));
+        }
     }
 
     #[test]
