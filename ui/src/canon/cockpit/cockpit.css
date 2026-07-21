@@ -314,6 +314,8 @@ body.tabbar-left .canon-cockpit {
 .canon-cockpit-idcard-text { min-width: 0; }
 /* Owner-only rename — quiet until the card is hovered. */
 .canon-cockpit-idcard-edit { margin-left: auto; opacity: 0; transition: opacity 0.15s ease; }
+/* Only the first action pushes to the right edge; the rest sit next to it. */
+.canon-cockpit-idcard-edit + .canon-cockpit-idcard-edit { margin-left: 4px; }
 .canon-cockpit-idcard:hover .canon-cockpit-idcard-edit,
 .canon-cockpit-idcard-edit:focus-visible { opacity: 1; }
 .canon-cockpit-idcard-name {
