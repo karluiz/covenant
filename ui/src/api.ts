@@ -1288,7 +1288,6 @@ export interface Settings {
     split_panes?: boolean;
     statusbar_two_row?: boolean;
     internal_browser?: boolean;
-    board_share?: boolean;
     tab_styles?: TabStylesConfig;
   };
   /// First-run onboarding wizard. `false` on a clean install so the
@@ -1954,7 +1953,6 @@ export interface ExperimentalFlags {
   split_panes: boolean;
   statusbar_two_row: boolean;
   internal_browser: boolean;
-  board_share: boolean;
   tab_styles: TabStylesConfig;
 }
 
@@ -1964,7 +1962,6 @@ export async function getExperimentalFlags(): Promise<ExperimentalFlags> {
     split_panes: settings.experimental?.split_panes ?? false,
     statusbar_two_row: settings.experimental?.statusbar_two_row ?? true,
     internal_browser: settings.experimental?.internal_browser ?? false,
-    board_share: settings.experimental?.board_share ?? false,
     tab_styles: settings.experimental?.tab_styles ?? {
       enabled: false,
       shape: "rectangle",
