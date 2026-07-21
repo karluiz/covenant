@@ -164,7 +164,10 @@ export class PromptsTab {
     dialog.innerHTML = `
       <input class="pn-prompt-title-input" placeholder="Title" autocomplete="off" autocapitalize="off" spellcheck="false" />
       <textarea class="pn-prompt-body-input" placeholder="Prompt" rows="6"></textarea>
+      <div class="pn-prompt-status" hidden></div>
       <div class="pn-prompt-editor-actions">
+        <button class="pn-prompt-improve">${Icons.sparkles({ size: 12 })}<span>Improve</span></button>
+        <span class="pn-prompt-spacer"></span>
         <button class="pn-prompt-save">Save</button>
         <button class="pn-prompt-cancel">Cancel</button>
       </div>
@@ -187,6 +190,38 @@ export class PromptsTab {
         empty.style.display = "";
       }
     };
+
+    const status = dialog.querySelector<HTMLElement>(".pn-prompt-status")!;
+    const improveBtn = dialog.querySelector<HTMLButtonElement>(".pn-prompt-improve")!;
+    attachTooltip(improveBtn, "Rewrite this prompt with AI");
+    improveBtn.addEventListener("click", async () => {
+      const body = bodyInput.value.trim();
+      if (!body || improveBtn.disabled) return;
+      improveBtn.disabled = true;
+      status.hidden = false;
+      status.classList.remove("pn-prompt-status--err");
+      status.textContent = "Improving…";
+      try {
+        bodyInput.value = await promptsApi.improve(body);
+        status.hidden = true;
+      } catch (err) {
+        const msg = String(err);
+        // An unconfigured route is an empty state, not a failure — offer the door.
+        const noKey = msg.includes("Settings → Providers") || msg.includes("provider unavailable");
+        status.classList.toggle("pn-prompt-status--err", !noKey);
+        status.textContent = noKey ? "No AI provider configured. " : msg;
+        if (noKey) {
+          const fix = document.createElement("button");
+          fix.className = "pn-prompt-status-fix";
+          fix.textContent = "Open Providers";
+          fix.addEventListener("click", () =>
+            document.dispatchEvent(new CustomEvent("covenant:open-providers")));
+          status.appendChild(fix);
+        }
+      } finally {
+        improveBtn.disabled = false;
+      }
+    });
 
     dialog.querySelector(".pn-prompt-cancel")!.addEventListener("click", () => {
       dialog.remove();
