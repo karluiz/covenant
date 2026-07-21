@@ -195,6 +195,41 @@
   background: rgb(var(--ink-rgb) / 0.06);
 }
 .acp-model-chip[hidden] { display: none; }
+
+/* Where the session is standing — same mono chrome as the model chip, but
+   inert (no menu behind it). The leading glyph is a branch fork for a repo
+   cwd, a folder for anything else. */
+.acp-cwd-chip {
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 1px 8px 1px 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.acp-cwd-chip::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  background: currentColor;
+  opacity: 0.75;
+  /* branch: two rails and a fork */
+  mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><circle cx="4.5" cy="3.5" r="1.8" stroke="black" stroke-width="1.4"/><circle cx="4.5" cy="12.5" r="1.8" stroke="black" stroke-width="1.4"/><circle cx="11.5" cy="3.5" r="1.8" stroke="black" stroke-width="1.4"/><path d="M4.5 5.3v5.4M11.5 5.3v1.2c0 2-1.6 3-3.5 3.2-1.6.2-2.6.6-3.5 1.4" stroke="black" stroke-width="1.4" stroke-linecap="round"/></svg>')
+    center / contain no-repeat;
+}
+.acp-cwd-chip[data-kind="dir"]::before {
+  mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path d="M2 4.2h4.2l1.3 1.6H14v6.4H2V4.2Z" stroke="black" stroke-width="1.4" stroke-linejoin="round"/></svg>')
+    center / contain no-repeat;
+}
+.acp-cwd-chip[hidden] { display: none; }
 .acp-model-menu {
   position: absolute;
   top: 100%;

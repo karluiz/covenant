@@ -39,6 +39,7 @@ import {
   acpSetTrust,
   acpSuggestTitle,
   closeAcpSession,
+  getDirContext,
   spawnAcpSession,
   structureListDir,
   subscribeAcpEvents,
@@ -599,6 +600,7 @@ export class AcpChatView {
   private model: string | null;
   private metaEl!: HTMLElement;
   private modelChipEl!: HTMLButtonElement;
+  private cwdChipEl!: HTMLSpanElement;
   private modelMenuEl!: HTMLElement;
   private models: AcpModelInfo[] = [];
   private trustChipEl!: HTMLButtonElement;
@@ -788,6 +790,7 @@ export class AcpChatView {
       <div class="acp-chat-header">
         <span class="acp-chat-logo" aria-hidden="true">${logo}</span>
         <span class="acp-chat-title">${brand.title}</span>
+        <span class="acp-cwd-chip" hidden></span>
         <button type="button" class="acp-model-chip" hidden></button>
         <button type="button" class="acp-trust-chip"></button>
         <span class="acp-chat-meta"></span>
@@ -839,6 +842,7 @@ export class AcpChatView {
     this.statusEl = requireChild(this.host, ".acp-chat-status");
     this.metaEl = requireChild(this.host, ".acp-chat-meta");
     this.modelChipEl = requireChild(this.host, ".acp-model-chip") as HTMLButtonElement;
+    this.cwdChipEl = requireChild(this.host, ".acp-cwd-chip") as HTMLSpanElement;
     this.modelMenuEl = requireChild(this.host, ".acp-model-menu");
     this.modelChipEl.addEventListener("click", () => {
       if (this.modelMenuEl.hidden) this.openModelMenu();
@@ -1221,12 +1225,41 @@ export class AcpChatView {
   }
 
   /// Header meta — plain textContent, wire/user strings never hit
-  /// innerHTML. The model lives in its own clickable chip; meta is cwd.
+  /// innerHTML. The model lives in its own clickable chip, the cwd in the
+  /// chip beside it; meta is the flex spacer that pushes status right.
   private renderMeta(): void {
-    const home = /^\/Users\/[^/]+/;
-    this.metaEl.textContent = this.cwd ? this.cwd.replace(home, "~") : "";
+    this.metaEl.textContent = "";
+    void this.renderCwdChip();
     this.modelChipEl.textContent = this.model ?? "model";
     this.modelChipEl.hidden = this.model === null && this.models.length === 0;
+  }
+
+  /// Where this session is standing. Hand-opened ACP tabs get their own
+  /// worktree (see `createAcpTab({ isolate })`), so "which branch am I
+  /// editing" is a real question the panel used to answer only with a
+  /// truncated absolute path. Branch when the cwd is a repo, directory
+  /// name otherwise; the full path lives in the tooltip.
+  private async renderCwdChip(): Promise<void> {
+    const cwd = this.cwd;
+    if (!cwd) {
+      this.cwdChipEl.hidden = true;
+      return;
+    }
+    const dir = cwd.split("/").filter(Boolean).pop() ?? cwd;
+    // Best-effort: a probe failure (deleted worktree, permissions) still
+    // leaves the directory name, which beats an empty header.
+    let branch: string | null = null;
+    try {
+      branch = (await getDirContext(cwd)).git?.branch ?? null;
+    } catch {
+      /* keep the directory name */
+    }
+    // The view can be torn down or re-pointed during the probe await.
+    if (this.destroyed || this.cwd !== cwd) return;
+    this.cwdChipEl.textContent = branch ?? dir;
+    this.cwdChipEl.dataset.kind = branch ? "branch" : "dir";
+    this.cwdChipEl.hidden = false;
+    attachTooltip(this.cwdChipEl, cwd.replace(/^\/Users\/[^/]+/, "~"));
   }
 
   /// Trust chip — always visible (unlike the model chip, which hides
