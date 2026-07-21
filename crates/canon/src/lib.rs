@@ -8,6 +8,7 @@ pub mod inventory;
 pub mod kind;
 pub mod manifest;
 pub mod mcp;
+pub mod new_unit;
 pub mod project;
 pub mod types;
 
@@ -24,6 +25,7 @@ pub use mcp::{blank_mcp_secrets, McpServer};
 pub use project::{
     project, project_with_active, projection_status, ExecutorStatus, ProjState, ProjectionStatus,
 };
+pub use new_unit::new_unit;
 pub use types::{CanonManifest, InstalledRef, SkillManifest};
 
 use thiserror::Error;

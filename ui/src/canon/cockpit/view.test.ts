@@ -12,6 +12,10 @@ vi.mock("../../api", () => ({
   canonReadLocal: vi.fn().mockResolvedValue(""),
   canonPublish: vi.fn().mockResolvedValue(undefined),
   canonUninstallSkill: vi.fn(async () => undefined),
+  canonNewUnit: vi.fn(async () => "/x/.covenant/canon/agents/reviewer.md"),
+  canonImportSkill: vi.fn(async () => [] as string[]),
+  canonAdopt: vi.fn(async () => undefined),
+  canonReadSource: vi.fn(async () => ""),
   canonSearch: vi.fn().mockResolvedValue([]),
   canonPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
   canonInstallRegistry: vi.fn().mockResolvedValue(undefined),
@@ -35,6 +39,7 @@ vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 import {
   canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
   operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, canonPublish, canonUninstallSkill,
+  canonNewUnit, canonImportSkill,
   type Operator, type MarketplaceListing,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
@@ -531,5 +536,87 @@ describe("CanonCockpitView operators empty state", () => {
     expect(empty?.textContent).toContain("No operators in this org");
     expect(empty?.querySelector(".rail-empty-btn")?.textContent).toBe("New operator");
     v.close();
+  });
+});
+
+describe("CanonCockpitView authoring", () => {
+  const memberOpts = {
+    ...opts,
+    orgs: [{ id: 1, slug: "acme", name: "Acme", role: "member", personal: false }],
+    getActiveOrg: () => "acme",
+  };
+  const noOrgOpts = { ...opts, orgs: [], getActiveOrg: () => null };
+
+  it("shows the New action to an org owner", () => {
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("agents");
+    expect(v.element.querySelector(".canon-sec-head-action")).toBeTruthy();
+    v.close();
+  });
+
+  it("hides the New action from a non-owner member", () => {
+    const v = new CanonCockpitView(memberOpts);
+    v.open();
+    v.showSection("agents");
+    expect(v.element.querySelector(".canon-sec-head-action")).toBeNull();
+    v.close();
+  });
+
+  it("shows the New action when there is no organization at all", () => {
+    const v = new CanonCockpitView(noOrgOpts);
+    v.open();
+    v.showSection("commands");
+    expect(v.element.querySelector(".canon-sec-head-action")).toBeTruthy();
+    v.close();
+  });
+
+  it("creates the unit and hands the path to onOpenFile", async () => {
+    const onOpenFile = vi.fn();
+    const v = new CanonCockpitView({ ...opts, onOpenFile });
+    v.open();
+    v.showSection("agents");
+    const input = v.element.querySelector<HTMLInputElement>(".canon-import-input");
+    expect(input).toBeTruthy();
+    input!.value = "reviewer";
+    v.element.querySelector<HTMLFormElement>(".canon-import-bar")!
+      .dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect(canonNewUnit).toHaveBeenCalledWith("/x", "agent", "reviewer"));
+    await vi.waitFor(() =>
+      expect(onOpenFile).toHaveBeenCalledWith("/x/.covenant/canon/agents/reviewer.md"));
+  });
+
+  it("routes a slash-bearing value to the skills.sh import", async () => {
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("skills");
+    const input = v.element.querySelector<HTMLInputElement>(".canon-import-input")!;
+    input.value = "obra/skills --skill deploy";
+    v.element.querySelector<HTMLFormElement>(".canon-import-bar")!
+      .dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() =>
+      expect(canonImportSkill).toHaveBeenCalledWith("/x", "obra/skills --skill deploy"));
+    expect(canonNewUnit).not.toHaveBeenCalledWith("/x", "skill", "obra/skills --skill deploy");
+    v.close();
+  });
+
+  it("routes a bare name to a new skill", async () => {
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("skills");
+    const input = v.element.querySelector<HTMLInputElement>(".canon-import-input")!;
+    input.value = "deploy-notes";
+    v.element.querySelector<HTMLFormElement>(".canon-import-bar")!
+      .dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect(canonNewUnit).toHaveBeenCalledWith("/x", "skill", "deploy-notes"));
+  });
+
+  it("opens the spec creator scoped to the group's repo", () => {
+    const onNewSpec = vi.fn();
+    const v = new CanonCockpitView({ ...opts, onNewSpec });
+    v.open();
+    v.showSection("spec");
+    v.element.querySelector<HTMLButtonElement>(".canon-sec-head-action")!.click();
+    expect(onNewSpec).toHaveBeenCalledWith("/x");
   });
 });

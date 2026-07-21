@@ -8,7 +8,7 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { CanonStatus, Org, Member, Operator, PkgMeta, MarketplaceListing, CanonPkgKind } from "../../api";
+import type { CanonStatus, Org, Member, Operator, PkgMeta, MarketplaceListing, CanonPkgKind, CanonNewKind } from "../../api";
 import {
   canonOrgMembers,
   canonAddMember,
@@ -20,6 +20,7 @@ import {
   canonReadSource,
   canonPublish,
   canonAdopt,
+  canonNewUnit,
   canonImportSkill,
   canonUninstallSkill,
   canonSearch,
@@ -67,6 +68,14 @@ export interface CanonCockpitOpts {
   /** Launch the repo-mining Context Miner for this group (same flow the
    *  rail panel used to expose directly — now only reachable from here). */
   onNewContext?: () => void;
+  /** Open a file in the workspace editor (the cockpit closes first). Used by
+   *  the per-kind "New …" actions to drop the author straight into the
+   *  scaffold they just created. */
+  onOpenFile?: (path: string) => void;
+  /** Open the immersive Spec Creator grounded in this group's repo. Specs are
+   *  authored there, not scaffolded — the creator is a better surface than an
+   *  empty file, as long as it is scoped to the repo being worked on. */
+  onNewSpec?: (repoRoot: string) => void;
   /** Called after the overlay is torn down — lets the caller refresh the
    *  still-mounted rail panel, whose org chip otherwise goes stale until
    *  its next own refresh (e.g. after this cockpit switched/created an org). */
@@ -112,6 +121,15 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "context", label: "Context" },
   { key: "loop", label: "Loop" },
 ];
+
+/** Sections whose header carries a "New" action that scaffolds a unit. Specs
+ *  routes to the Spec Creator and Context to the miner, so neither is here. */
+const NEW_KINDS: Partial<Record<SectionKey, CanonNewKind>> = {
+  agents: "agent",
+  commands: "command",
+  mcp: "mcp",
+  memory: "memory",
+};
 
 /** Title + one-line description for each section's header. */
 const SECTION_HEAD: Record<SectionKey, [string, string]> = {
@@ -203,7 +221,23 @@ export class CanonCockpitView {
 
   private renderSection(key: SectionKey): HTMLElement {
     let headAction: HTMLElement | undefined;
-    if (key === "context" && this.opts.groupRootDir && this.opts.onNewContext) {
+    const newKind = NEW_KINDS[key];
+    if (newKind && this.opts.groupRootDir && this.canCreate()) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "canon-sec-head-action";
+      btn.innerHTML = Icons.plus({ size: 14 }) + "<span>New</span>";
+      // Toggles the create bar (wired by the section's newUnitBar).
+      headAction = btn;
+    } else if (key === "spec" && this.opts.groupRootDir && this.opts.onNewSpec && this.canCreate()) {
+      const root = this.opts.groupRootDir;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "canon-sec-head-action";
+      btn.innerHTML = Icons.plus({ size: 14 }) + "<span>New spec</span>";
+      btn.addEventListener("click", () => { this.close(); this.opts.onNewSpec?.(root); });
+      headAction = btn;
+    } else if (key === "context" && this.opts.groupRootDir && this.opts.onNewContext) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "canon-sec-head-action";
@@ -211,7 +245,7 @@ export class CanonCockpitView {
       btn.hidden = true; // revealed once the list confirms it has files
       btn.addEventListener("click", () => this.opts.onNewContext?.());
       headAction = btn;
-    } else if (key === "skills" && this.opts.groupRootDir) {
+    } else if (key === "skills" && this.opts.groupRootDir && this.canCreate()) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "canon-sec-head-action";
@@ -223,11 +257,11 @@ export class CanonCockpitView {
       key === "org" ? this.renderOrgSection()
       : key === "members" ? this.renderMembersSection()
       : key === "operators" ? this.renderOperatorsSection()
-      : key === "agents" ? this.renderAgentsSection()
-      : key === "commands" ? this.renderCommandsSection()
-      : key === "mcp" ? this.renderMcpSection()
+      : key === "agents" ? this.renderAgentsSection(headAction)
+      : key === "commands" ? this.renderCommandsSection(headAction)
+      : key === "mcp" ? this.renderMcpSection(headAction)
       : key === "spec" ? this.renderSpecSection()
-      : key === "memory" ? this.renderMemorySection()
+      : key === "memory" ? this.renderMemorySection(headAction)
       : key === "skills" ? this.renderSkillsSection(headAction)
       : key === "registry" ? this.renderRegistrySection()
       : key === "context" ? this.renderContextSection(headAction)
@@ -414,6 +448,79 @@ export class CanonCockpitView {
         });
     });
     return btn;
+  }
+
+  /** Authoring gate. Inside an organization only owners inscribe new units;
+   *  with no active org (or an org list we never managed to fetch) this is
+   *  just your own repo, so authoring stays open. A surface gate, not a
+   *  security boundary — the file is writable outside the app regardless. */
+  private canCreate(): boolean {
+    const active = this.activeOrg();
+    return !active || active.role === "owner";
+  }
+
+  /** The inline "name it and go" bar behind a section's New action: writes the
+   *  scaffold, closes the cockpit, and opens the file in the editor. Shares the
+   *  `.canon-import-bar` chrome with the skills.sh import row. */
+  private newUnitBar(
+    cwd: string,
+    kind: CanonNewKind,
+    headBtn: HTMLElement | undefined,
+    onCreated: () => void,
+  ): { element: HTMLElement; reveal: () => void } {
+    const bar = document.createElement("form");
+    bar.className = "canon-import-bar";
+    bar.hidden = true;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "canon-import-input";
+    input.placeholder = `New ${kind} name`;
+    input.setAttribute("aria-label", `New ${kind} name`);
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.className = "canon-import-btn";
+    submit.textContent = "Create";
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "canon-import-close canon-icon-btn";
+    dismiss.innerHTML = Icons.x({ size: 15 });
+    dismiss.setAttribute("aria-label", "Dismiss");
+    dismiss.addEventListener("click", () => { bar.hidden = true; });
+    bar.append(input, submit, dismiss);
+
+    const reveal = (): void => { bar.hidden = false; input.focus(); };
+    headBtn?.addEventListener("click", () => {
+      bar.hidden = !bar.hidden;
+      if (!bar.hidden) input.focus();
+    });
+
+    bar.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name) return;
+      submit.disabled = true;
+      input.disabled = true;
+      void canonNewUnit(cwd, kind, name)
+        .then((path) => {
+          const org = this.activeOrg();
+          pushInfoToast({
+            message: org
+              ? `Created ${name} — publish it to ${org.slug} when it's ready`
+              : `Created ${name}`,
+          });
+          input.value = "";
+          bar.hidden = true;
+          onCreated();
+          if (this.opts.onOpenFile) {
+            this.close();
+            this.opts.onOpenFile(path);
+          }
+        })
+        .catch((err) => pushInfoToast({ message: `Create failed: ${this.friendlyError(err)}` }))
+        .finally(() => { submit.disabled = false; input.disabled = false; });
+    });
+
+    return { element: bar, reveal };
   }
 
   // ── Org section ──────────────────────────────────────────────────────
@@ -799,7 +906,7 @@ export class CanonCockpitView {
 
   // ── Agents section ───────────────────────────────────────────────────
 
-  private renderAgentsSection(): HTMLElement {
+  private renderAgentsSection(headBtn?: HTMLElement): HTMLElement {
     const el = document.createElement("div");
     el.className = "canon-cockpit-section is-agents";
     const cwd = this.opts.groupRootDir;
@@ -813,7 +920,8 @@ export class CanonCockpitView {
     list.className = "canon-cockpit-agents-list";
     list.appendChild(this.note("Loading…"));
     const toolbar = this.filterToolbar(list, "Filter subagents…");
-    el.append(toolbar, list);
+    const create = this.newUnitBar(cwd, "agent", headBtn, () => this.showSection("agents"));
+    el.append(create.element, toolbar, list);
 
     void canonLocalStatus(cwd)
       .then((status) => {
@@ -823,6 +931,7 @@ export class CanonCockpitView {
             icon: Icons.bot({ size: 28 }),
             title: "No subagents yet",
             hint: "Install a subagent, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
+            action: this.canCreate() ? { label: "New subagent", onClick: create.reveal } : undefined,
           }));
           return;
         }
@@ -852,7 +961,7 @@ export class CanonCockpitView {
 
   // ── Commands section ─────────────────────────────────────────────────
 
-  private renderCommandsSection(): HTMLElement {
+  private renderCommandsSection(headBtn?: HTMLElement): HTMLElement {
     const el = document.createElement("div");
     el.className = "canon-cockpit-section is-commands";
     const cwd = this.opts.groupRootDir;
@@ -866,7 +975,8 @@ export class CanonCockpitView {
     list.className = "canon-cockpit-commands-list";
     list.appendChild(this.note("Loading…"));
     const toolbar = this.filterToolbar(list, "Filter commands…");
-    el.append(toolbar, list);
+    const create = this.newUnitBar(cwd, "command", headBtn, () => this.showSection("commands"));
+    el.append(create.element, toolbar, list);
 
     void canonLocalStatus(cwd)
       .then((status) => {
@@ -876,6 +986,7 @@ export class CanonCockpitView {
             icon: Icons.terminalSquare({ size: 28 }),
             title: "No commands yet",
             hint: "Install a command, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
+            action: this.canCreate() ? { label: "New command", onClick: create.reveal } : undefined,
           }));
           return;
         }
@@ -905,7 +1016,7 @@ export class CanonCockpitView {
 
   // ── MCP section ──────────────────────────────────────────────────────
 
-  private renderMcpSection(): HTMLElement {
+  private renderMcpSection(headBtn?: HTMLElement): HTMLElement {
     const el = document.createElement("div");
     el.className = "canon-cockpit-section is-mcp";
     const cwd = this.opts.groupRootDir;
@@ -919,7 +1030,8 @@ export class CanonCockpitView {
     list.className = "canon-cockpit-mcp-list";
     list.appendChild(this.note("Loading…"));
     const toolbar = this.filterToolbar(list, "Filter MCP servers…");
-    el.append(toolbar, list);
+    const create = this.newUnitBar(cwd, "mcp", headBtn, () => this.showSection("mcp"));
+    el.append(create.element, toolbar, list);
 
     void canonLocalStatus(cwd)
       .then((status) => {
@@ -929,6 +1041,7 @@ export class CanonCockpitView {
             icon: Icons.radioTower({ size: 28 }),
             title: "No MCP servers yet",
             hint: "Install an MCP server, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
+            action: this.canCreate() ? { label: "New MCP server", onClick: create.reveal } : undefined,
           }));
           return;
         }
@@ -982,6 +1095,9 @@ export class CanonCockpitView {
             icon: Icons.fileText({ size: 28 }),
             title: "No specs published",
             hint: "Specs published to docs/specs anchor tasks for your executors.",
+            action: this.opts.onNewSpec && this.canCreate()
+              ? { label: "New spec", onClick: () => { this.close(); this.opts.onNewSpec?.(cwd); } }
+              : undefined,
           }));
           return;
         }
@@ -1012,7 +1128,7 @@ export class CanonCockpitView {
 
   // ── Memory section ───────────────────────────────────────────────────
 
-  private renderMemorySection(): HTMLElement {
+  private renderMemorySection(headBtn?: HTMLElement): HTMLElement {
     const el = document.createElement("div");
     el.className = "canon-cockpit-section is-memory";
     const cwd = this.opts.groupRootDir;
@@ -1026,7 +1142,8 @@ export class CanonCockpitView {
     list.className = "canon-cockpit-memory-list";
     list.appendChild(this.note("Loading…"));
     const toolbar = this.filterToolbar(list, "Filter memories…");
-    el.append(toolbar, list);
+    const create = this.newUnitBar(cwd, "memory", headBtn, () => this.showSection("memory"));
+    el.append(create.element, toolbar, list);
 
     void canonLocalStatus(cwd)
       .then((status) => {
@@ -1035,7 +1152,8 @@ export class CanonCockpitView {
           list.appendChild(this.emptyState({
             icon: Icons.database({ size: 28 }),
             title: "No memories yet",
-            hint: "Author durable facts under .covenant/canon/memory — they ride into every executor's managed block.",
+            hint: "Durable facts that ride into every executor's managed block.",
+            action: this.canCreate() ? { label: "New memory", onClick: create.reveal } : undefined,
           }));
           return;
         }
@@ -1087,7 +1205,8 @@ export class CanonCockpitView {
     const importInput = document.createElement("input");
     importInput.type = "text";
     importInput.className = "canon-import-input";
-    importInput.placeholder = "owner/repo --skill name";
+    importInput.placeholder = "new-skill-name   ·   or   owner/repo --skill name";
+    importInput.setAttribute("aria-label", "New skill name, or a skills.sh reference");
     const importBtn = document.createElement("button");
     importBtn.type = "submit";
     importBtn.className = "canon-import-btn";
@@ -1109,15 +1228,32 @@ export class CanonCockpitView {
       if (!ref) return;
       importBtn.disabled = true;
       importInput.disabled = true;
-      void canonImportSkill(cwd, ref)
-        .then((names) => {
-          pushInfoToast({
-            message: names.length ? `Imported: ${names.join(", ")}` : "Nothing new to import",
+      // ponytail: one input, two intents. A "/" means it's an owner/repo
+      // reference for skills.sh; anything else is the name of a new skill.
+      const run = ref.includes("/")
+        ? canonImportSkill(cwd, ref).then((names) => {
+            pushInfoToast({
+              message: names.length ? `Imported: ${names.join(", ")}` : "Nothing new to import",
+            });
+            importInput.value = "";
+            load();
+          })
+        : canonNewUnit(cwd, "skill", ref).then((path) => {
+            const org = this.activeOrg();
+            pushInfoToast({
+              message: org
+                ? `Created ${ref} — publish it to ${org.slug} when it's ready`
+                : `Created ${ref}`,
+            });
+            importInput.value = "";
+            load();
+            if (this.opts.onOpenFile) {
+              this.close();
+              this.opts.onOpenFile(path);
+            }
           });
-          importInput.value = "";
-          load();
-        })
-        .catch((err) => pushInfoToast({ message: `Import failed: ${this.friendlyError(err)}` }))
+      void run
+        .catch((err) => pushInfoToast({ message: `Failed: ${this.friendlyError(err)}` }))
         .finally(() => {
           importBtn.disabled = false;
           importInput.disabled = false;
@@ -1133,6 +1269,9 @@ export class CanonCockpitView {
               icon: Icons.packageBox({ size: 28 }),
               title: "No skills installed",
               hint: "Install from your organization's registry, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
+              // Installing what the org already published beats authoring from
+              // scratch as the first move here; the header's Add action is the
+              // door to a new skill.
               action: { label: "Browse registry", onClick: () => this.showSection("registry") },
             }));
             return;

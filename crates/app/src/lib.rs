@@ -2885,6 +2885,19 @@ async fn canon_adopt(cwd: String, kind: String, name: String) -> Result<(), Stri
         .map_err(|e| e.to_string())
 }
 
+/// Author a brand-new context unit (subagent/command/mcp/memory/skill) and
+/// return the path of the file to open in the editor.
+#[tauri::command]
+async fn canon_new_unit(cwd: String, kind: String, name: String) -> Result<String, String> {
+    let repo = std::path::PathBuf::from(cwd);
+    let k = parse_unit_kind(&kind)?;
+    let path = tokio::task::spawn_blocking(move || karl_canon::new_unit(&repo, k, &name))
+        .await
+        .map_err(|e| format!("canon_new_unit join: {e}"))?
+        .map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// The user's login-shell PATH. GUI apps launched from Finder/.app inherit a
 /// minimal PATH (no nvm/brew/asdf shims), so we ask the login+interactive shell.
 /// Returns None if the shell call fails (caller falls back to inherited PATH).
@@ -5673,6 +5686,7 @@ pub fn run() {
             canon_read_local,
             canon_read_source,
             canon_adopt,
+            canon_new_unit,
             canon_import_skill,
             canon_export,
             canon_projection_status,
