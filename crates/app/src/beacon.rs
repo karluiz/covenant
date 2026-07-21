@@ -335,15 +335,37 @@ async fn scan_subrepos(cwd: &str) -> Vec<SubRepo> {
     out
 }
 
+/// `cwd` then its ancestors (up to 3 hops, never past `$HOME`), stopping at the
+/// first level that holds sub-repos. Covers standing inside a worktree — or any
+/// nested folder — of a remote-less umbrella dir whose siblings are the repos.
+async fn scan_subrepos_upward(cwd: &str) -> Vec<SubRepo> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut dir = std::path::PathBuf::from(cwd);
+    for _ in 0..4 {
+        let found = scan_subrepos(&dir.to_string_lossy()).await;
+        if !found.is_empty() {
+            return found;
+        }
+        if dir.as_os_str() == home.as_str() {
+            break; // ponytail: $HOME is not an umbrella; every repo you own lives under it
+        }
+        match dir.parent() {
+            Some(p) => dir = p.to_path_buf(),
+            None => break,
+        }
+    }
+    Vec::new()
+}
+
 /// Resolve owner/repo from `cwd`'s `origin` remote, load the keychain token,
 /// and build the latest-run-per-Actions-workflow state.
 pub async fn load_workflow_runs(cwd: String) -> BeaconState {
     // 1. owner/repo from git remote. No GitHub remote here? Fall back to
-    //    offering the sub-repos under this folder (umbrella-dir case).
+    //    offering the sub-repos under this folder or an ancestor (umbrella case).
     let (owner, repo) = match resolve_owner_repo(&cwd).await {
         Some(v) => v,
         None => {
-            let dirs = scan_subrepos(&cwd).await;
+            let dirs = scan_subrepos_upward(&cwd).await;
             return if dirs.is_empty() {
                 BeaconState::NoRepo
             } else {
@@ -488,6 +510,34 @@ pub fn parse_owner_repo(remote_url: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Standing in a nested folder of a remote-less umbrella must still surface
+    /// the sibling repos (the worktree-inside-umbrella case).
+    #[tokio::test]
+    async fn scan_walks_up_to_the_umbrella() {
+        let tmp = std::env::temp_dir().join(format!("beacon-scan-{}", std::process::id()));
+        let repo = tmp.join("some-repo");
+        let deep = tmp.join(".covenant/worktrees/wt");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(std::process::Command::new("git")
+            .args(["init", "-q"])
+            .arg(&repo)
+            .status()
+            .unwrap()
+            .success());
+        assert!(std::process::Command::new("git")
+            .args(["-C", repo.to_str().unwrap(), "remote", "add", "origin"])
+            .arg("https://github.com/acme/some-repo.git")
+            .status()
+            .unwrap()
+            .success());
+
+        let found = scan_subrepos_upward(deep.to_str().unwrap()).await;
+        std::fs::remove_dir_all(&tmp).ok();
+        assert_eq!(found.len(), 1, "expected the umbrella's sibling repo");
+        assert_eq!(found[0].repo, "acme/some-repo");
+    }
 
     #[test]
     fn status_note_speaks_only_during_an_incident() {
