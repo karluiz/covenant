@@ -1012,10 +1012,7 @@ impl Storage {
     /// spawn so the operator can answer "what was I doing here" right
     /// after an app restart (session ids don't survive restarts; cwd is
     /// the only stable key — see the tab manifest).
-    pub async fn latest_summary_by_cwd(
-        &self,
-        cwd: String,
-    ) -> Result<Option<String>, StorageError> {
+    pub async fn latest_summary_by_cwd(&self, cwd: String) -> Result<Option<String>, StorageError> {
         if cwd.is_empty() {
             return Ok(None);
         }
@@ -3893,7 +3890,11 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-        assert!(s.latest_summary_by_cwd(String::new()).await.unwrap().is_none());
+        assert!(s
+            .latest_summary_by_cwd(String::new())
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
@@ -4862,7 +4863,13 @@ mod tests {
         assert!(list3.iter().find(|o| o.id == op_id).unwrap().acp_enabled);
 
         // perception_enabled defaults off, flips via its own dedicated setter.
-        assert!(!list3.iter().find(|o| o.id == op_id).unwrap().perception_enabled);
+        assert!(
+            !list3
+                .iter()
+                .find(|o| o.id == op_id)
+                .unwrap()
+                .perception_enabled
+        );
         s.operator_set_perception_enabled(op_id.to_string(), true)
             .await
             .unwrap();

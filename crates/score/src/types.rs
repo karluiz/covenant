@@ -7,6 +7,17 @@ pub enum EventKind {
     Prompt,
     Commit,
     CanonInstall,
+    /// An executor loaded a Canon unit mid-turn (`executor` = `skill:<name>`).
+    /// Adoption counts installs; this counts actual use.
+    SkillUse,
+}
+
+/// One row of the skill-usage breakdown: how many times an executor loaded
+/// this unit. Name is the bare unit name (no `skill:` prefix).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillUseCell {
+    pub skill: String,
+    pub uses: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

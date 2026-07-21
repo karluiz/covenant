@@ -199,6 +199,44 @@ pub fn matches_interrupt_hint(text: &str) -> bool {
     re_interrupt_hint().is_match(text)
 }
 
+static RE_SKILL_CALL: OnceLock<Regex> = OnceLock::new();
+
+/// Claude Code's skill invocation as it appears in the PTY: a tool-call line
+/// `⏺ Skill(superpowers:brainstorming)`. Anchored at line start (after the
+/// optional bullet) so the same string quoted inside prose or a file listing
+/// doesn't count as a load.
+///
+/// ponytail: claude's shape only — codex/copilot/hermes don't render skill
+/// loads as a distinct tool call today. Add a branch when one does.
+fn re_skill_call() -> &'static Regex {
+    RE_SKILL_CALL.get_or_init(|| Regex::new(r"^⏺?\s*Skill\(([^)]+)\)").unwrap())
+}
+
+/// Canon units an executor loaded in this PTY chunk, in order of appearance.
+/// Callers must dedupe: TUIs redraw, so the same line arrives many times.
+pub fn skill_invocations(bytes: &[u8]) -> Vec<String> {
+    // Cheap bail before the per-line ANSI strip — the overwhelming majority
+    // of chunks carry no skill call at all.
+    if !contains_skill_call(bytes) {
+        return vec![];
+    }
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .filter_map(|line| {
+            let stripped = strip_ansi(line);
+            let caps = re_skill_call().captures(stripped.trim())?;
+            let name = caps.get(1)?.as_str().trim();
+            (!name.is_empty()).then(|| name.to_string())
+        })
+        .collect()
+}
+
+/// Substring pre-check for [`skill_invocations`], cheap enough to run on
+/// every PTY chunk even when the notch is switched off.
+pub fn contains_skill_call(bytes: &[u8]) -> bool {
+    bytes.windows(6).any(|w| w == b"Skill(")
+}
+
 fn strip_ansi(s: &str) -> String {
     String::from_utf8_lossy(&strip_ansi_escapes::strip(s.as_bytes())).into_owned()
 }
@@ -386,6 +424,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn skill_invocations_reads_claude_tool_lines_only() {
+        // The real shape: a bullet tool-call line, ANSI-colored.
+        let chunk = "\x1b[32m⏺\x1b[0m Skill(superpowers:brainstorming)\r\n";
+        assert_eq!(
+            super::skill_invocations(chunk.as_bytes()),
+            vec!["superpowers:brainstorming"]
+        );
+
+        // Wrapped/indented redraw without the bullet still counts.
+        assert_eq!(
+            super::skill_invocations(b"  Skill(horizon)\n"),
+            vec!["horizon"]
+        );
+
+        // Prose or a file listing mentioning it mid-line does NOT.
+        assert!(super::skill_invocations(b"see Skill(horizon) in the docs\n").is_empty());
+        assert!(super::skill_invocations(b"nothing to see here\n").is_empty());
+
+        // Two loads in one chunk, both reported (the caller dedupes).
+        assert_eq!(
+            super::skill_invocations(b"\xe2\x8f\xba Skill(a)\n\xe2\x8f\xba Skill(b)\n"),
+            vec!["a", "b"]
+        );
+    }
+
+    #[test]
     fn idle_until_first_byte() {
         let d = ExecutorPhaseDetector::new();
         assert_eq!(d.phase(), &ExecutorPhase::Idle);
@@ -471,7 +535,11 @@ mod tests {
         let changed =
             d.feed("What is 2 plus 2?  esc interrupt  tab agents  ctrl+p commands\n".as_bytes());
         assert!(changed);
-        assert!(matches!(d.phase(), ExecutorPhase::Thinking), "got {:?}", d.phase());
+        assert!(
+            matches!(d.phase(), ExecutorPhase::Thinking),
+            "got {:?}",
+            d.phase()
+        );
     }
 
     #[test]
@@ -484,7 +552,11 @@ mod tests {
         ] {
             let mut d = ExecutorPhaseDetector::new();
             d.feed(footer.as_bytes());
-            assert!(matches!(d.phase(), ExecutorPhase::Thinking), "footer {footer:?} → {:?}", d.phase());
+            assert!(
+                matches!(d.phase(), ExecutorPhase::Thinking),
+                "footer {footer:?} → {:?}",
+                d.phase()
+            );
         }
     }
 
@@ -515,7 +587,11 @@ tab agents   ctrl+p commands   esc clear\n";
         // interrupt verb — must NOT read as working.
         let mut d = ExecutorPhaseDetector::new();
         d.feed("Ask anything...  tab agents  ctrl+p commands  esc clear\n".as_bytes());
-        assert!(matches!(d.phase(), ExecutorPhase::Idle), "got {:?}", d.phase());
+        assert!(
+            matches!(d.phase(), ExecutorPhase::Idle),
+            "got {:?}",
+            d.phase()
+        );
     }
 
     #[test]

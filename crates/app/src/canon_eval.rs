@@ -67,10 +67,16 @@ pub(crate) fn prepare_sandbox(repo_root: &Path, skill: &str) -> std::io::Result<
         .join("SKILL.md");
     let body = std::fs::read_to_string(&src)?; // missing skill → Err
     let sbox = tempfile::Builder::new().prefix("eval-sbox-").tempdir()?;
-    let skill_dir = sbox.path().join(".claude/skills").join(format!("canon-{skill}"));
+    let skill_dir = sbox
+        .path()
+        .join(".claude/skills")
+        .join(format!("canon-{skill}"));
     std::fs::create_dir_all(&skill_dir)?;
     std::fs::write(skill_dir.join("SKILL.md"), body)?;
-    std::fs::write(sbox.path().join(".claude/settings.json"), denylist_settings())?;
+    std::fs::write(
+        sbox.path().join(".claude/settings.json"),
+        denylist_settings(),
+    )?;
     Ok(sbox)
 }
 
@@ -79,7 +85,10 @@ pub(crate) fn prepare_sandbox(repo_root: &Path, skill: &str) -> std::io::Result<
 pub(crate) fn prepare_sandbox_bare(_repo_root: &Path) -> std::io::Result<tempfile::TempDir> {
     let sbox = tempfile::Builder::new().prefix("eval-sbox-").tempdir()?;
     std::fs::create_dir_all(sbox.path().join(".claude"))?;
-    std::fs::write(sbox.path().join(".claude/settings.json"), denylist_settings())?;
+    std::fs::write(
+        sbox.path().join(".claude/settings.json"),
+        denylist_settings(),
+    )?;
     Ok(sbox)
 }
 
@@ -107,7 +116,10 @@ fn classify_output(success: bool, stdout: &str, stderr: &str) -> HarnessStatus {
         let why = if stderr.trim().is_empty() {
             "claude produced no output".to_string()
         } else {
-            format!("claude failed: {}", stderr.trim().chars().take(200).collect::<String>())
+            format!(
+                "claude failed: {}",
+                stderr.trim().chars().take(200).collect::<String>()
+            )
         };
         HarnessStatus::Skipped(why)
     }
@@ -123,7 +135,10 @@ async fn run_scenario_in(sbox_path: &Path, scenario: &str, started: Instant) -> 
     let (transcript, status) =
         match tokio::time::timeout(Duration::from_secs(HARNESS_TIMEOUT_SECS), cmd.output()).await {
             Err(_) => (String::new(), HarnessStatus::TimedOut),
-            Ok(Err(e)) => (String::new(), HarnessStatus::Skipped(format!("claude spawn failed: {e}"))),
+            Ok(Err(e)) => (
+                String::new(),
+                HarnessStatus::Skipped(format!("claude spawn failed: {e}")),
+            ),
             Ok(Ok(out)) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -131,7 +146,11 @@ async fn run_scenario_in(sbox_path: &Path, scenario: &str, started: Instant) -> 
                 (stdout, status)
             }
         };
-    HarnessOutcome { transcript, status, duration_ms: started.elapsed().as_millis() as u64 }
+    HarnessOutcome {
+        transcript,
+        status,
+        duration_ms: started.elapsed().as_millis() as u64,
+    }
 }
 
 /// Run one scenario through `claude -p` in the sandbox. Confined by read-only
@@ -139,7 +158,9 @@ async fn run_scenario_in(sbox_path: &Path, scenario: &str, started: Instant) -> 
 /// Full-tool agentic runs need the deferred hardened container.
 pub async fn run_harness(repo_root: &Path, skill: &str, scenario: &str) -> HarnessOutcome {
     let started = Instant::now();
-    let available = tokio::task::spawn_blocking(claude_available).await.unwrap_or(false);
+    let available = tokio::task::spawn_blocking(claude_available)
+        .await
+        .unwrap_or(false);
     if !available {
         return HarnessOutcome {
             transcript: String::new(),
@@ -264,13 +285,14 @@ pub async fn judge(
         let s = settings.lock().await;
         match resolve_route(&s, Role::Summary) {
             Ok(r) => r,
-            Err(ResolveError::NoRoute(_)) => return Err("no LLM route configured for judging".into()),
+            Err(ResolveError::NoRoute(_)) => {
+                return Err("no LLM route configured for judging".into())
+            }
             Err(e) => return Err(format!("judge provider unavailable: {e}")),
         }
     };
-    let user = format!(
-        "## SCENARIO\n{scenario}\n\n## RUBRIC\n{rubric}\n\n## TRANSCRIPT\n{transcript}"
-    );
+    let user =
+        format!("## SCENARIO\n{scenario}\n\n## RUBRIC\n{rubric}\n\n## TRANSCRIPT\n{transcript}");
     for attempt in 0..2 {
         let req = karl_agent::AskRequest {
             api_key: String::new(),
@@ -335,7 +357,9 @@ pub async fn canon_run_evals(
     }
     // Global precondition: claude must be on PATH. Check once so a missing CLI
     // gives a single clean abort instead of N per-eval skips.
-    let available = tokio::task::spawn_blocking(claude_available).await.unwrap_or(false);
+    let available = tokio::task::spawn_blocking(claude_available)
+        .await
+        .unwrap_or(false);
     if !available {
         emit_progress(&app, &skill, "", "skipped", "claude CLI not found on PATH");
         emit_progress(&app, &skill, "", "done", "");
@@ -364,7 +388,14 @@ pub async fn canon_run_evals(
                 let base_outcome = run_baseline(&repo_root, &ev.scenario).await;
                 let baseline_pass = match base_outcome.status {
                     HarnessStatus::Ran => {
-                        match judge(&settings, &ev.scenario, &ev.rubric, &base_outcome.transcript).await {
+                        match judge(
+                            &settings,
+                            &ev.scenario,
+                            &ev.rubric,
+                            &base_outcome.transcript,
+                        )
+                        .await
+                        {
                             Ok(bv) => Some(bv.pass),
                             Err(_) => None, // baseline judge failed → lift not measurable for this eval
                         }
@@ -382,7 +413,13 @@ pub async fn canon_run_evals(
                 if let Err(e) = karl_canon::write_result(&repo_root, &skill, &result) {
                     tracing::warn!(target: "canon", error = %e, "write_result failed");
                 }
-                emit_progress(&app, &skill, &ev.id, if v.pass { "pass" } else { "fail" }, &v.reason);
+                emit_progress(
+                    &app,
+                    &skill,
+                    &ev.id,
+                    if v.pass { "pass" } else { "fail" },
+                    &v.reason,
+                );
             }
             Err(e) => emit_progress(&app, &skill, &ev.id, "error", &e),
         }
@@ -401,8 +438,17 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalSkillSummary>, St
         .map(|(skill, inner)| {
             let passed = inner.values().filter(|r| r.pass).count();
             let baseline_total = inner.values().filter(|r| r.baseline_pass.is_some()).count();
-            let baseline_passed = inner.values().filter(|r| r.baseline_pass == Some(true)).count();
-            EvalSkillSummary { skill, passed, total: inner.len(), baseline_passed, baseline_total }
+            let baseline_passed = inner
+                .values()
+                .filter(|r| r.baseline_pass == Some(true))
+                .count();
+            EvalSkillSummary {
+                skill,
+                passed,
+                total: inner.len(),
+                baseline_passed,
+                baseline_total,
+            }
         })
         .collect())
 }
@@ -448,13 +494,17 @@ mod tests {
         let projected = sbox.path().join(".claude/skills/canon-kyc-peru/SKILL.md");
         assert!(projected.exists(), "skill projected into sandbox");
         assert!(
-            fs::read_to_string(&projected).unwrap().contains("refuse without KYC"),
+            fs::read_to_string(&projected)
+                .unwrap()
+                .contains("refuse without KYC"),
             "skill body copied"
         );
         let settings = sbox.path().join(".claude/settings.json");
         assert!(settings.exists(), "deny-list settings written");
         assert!(
-            fs::read_to_string(&settings).unwrap().contains("Bash(rm:*)"),
+            fs::read_to_string(&settings)
+                .unwrap()
+                .contains("Bash(rm:*)"),
             "deny-list mirrors the safety blocklist"
         );
     }
@@ -469,31 +519,52 @@ mod tests {
     fn prepare_sandbox_bare_has_settings_but_no_skill() {
         let tmp = tempfile::tempdir().unwrap();
         let sbox = prepare_sandbox_bare(tmp.path()).unwrap();
-        assert!(sbox.path().join(".claude/settings.json").exists(), "deny-list settings present");
-        assert!(!sbox.path().join(".claude/skills").exists(), "no skill projected in baseline");
+        assert!(
+            sbox.path().join(".claude/settings.json").exists(),
+            "deny-list settings present"
+        );
+        assert!(
+            !sbox.path().join(".claude/skills").exists(),
+            "no skill projected in baseline"
+        );
     }
 
     #[test]
     fn harness_args_are_readonly_no_bypass() {
         let a = harness_args("do the thing");
-        assert!(!a.iter().any(|s| s.contains("bypassPermissions")), "must not bypass permissions");
+        assert!(
+            !a.iter().any(|s| s.contains("bypassPermissions")),
+            "must not bypass permissions"
+        );
         assert!(a.iter().any(|s| s == "--allowedTools"));
         assert!(
-            a.iter().any(|s| s == "Read") && a.iter().any(|s| s == "Grep") && a.iter().any(|s| s == "Glob"),
+            a.iter().any(|s| s == "Read")
+                && a.iter().any(|s| s == "Grep")
+                && a.iter().any(|s| s == "Glob"),
             "read-only tools present"
         );
         assert!(
-            !a.iter().any(|s| s == "Bash" || s == "Write" || s == "WebFetch"),
+            !a.iter()
+                .any(|s| s == "Bash" || s == "Write" || s == "WebFetch"),
             "no write/exec/net tools"
         );
         assert!(a.iter().any(|s| s == "--strict-mcp-config"));
-        assert!(a.contains(&"do the thing".to_string()), "scenario passed through");
+        assert!(
+            a.contains(&"do the thing".to_string()),
+            "scenario passed through"
+        );
     }
 
     #[test]
     fn classify_output_treats_infra_failure_as_skipped_not_ran() {
-        assert_eq!(classify_output(true, "refuses correctly", ""), HarnessStatus::Ran);
-        assert!(matches!(classify_output(false, "", "auth error"), HarnessStatus::Skipped(_)));
+        assert_eq!(
+            classify_output(true, "refuses correctly", ""),
+            HarnessStatus::Ran
+        );
+        assert!(matches!(
+            classify_output(false, "", "auth error"),
+            HarnessStatus::Skipped(_)
+        ));
         assert!(
             matches!(classify_output(true, "   ", ""), HarnessStatus::Skipped(_)),
             "empty stdout = non-result"

@@ -284,7 +284,10 @@ fn input_recent(inner: &Inner, session: SessionId) -> bool {
         .last_input
         .lock()
         .ok()
-        .and_then(|m| m.get(&session).map(|t| t.elapsed() < INPUT_CORRELATION_WINDOW))
+        .and_then(|m| {
+            m.get(&session)
+                .map(|t| t.elapsed() < INPUT_CORRELATION_WINDOW)
+        })
         .unwrap_or(false)
 }
 

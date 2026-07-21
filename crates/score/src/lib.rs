@@ -21,8 +21,8 @@ pub use sync::SyncStatus;
 pub use store::{ScoreError, ScoreStore};
 pub use types::{
     AgentCell, BranchCell, Context, DailyCell, EventKind, GroupCell, LlmUsage, ModelCell,
-    ModelSource, RepoCell, ScoreEvent, ScoreFilter, SessionRow, SpecBreakdown, SpecRow, Summary,
-    TimeRange, User,
+    ModelSource, RepoCell, ScoreEvent, ScoreFilter, SessionRow, SkillUseCell, SpecBreakdown,
+    SpecRow, Summary, TimeRange, User,
 };
 
 use crate::context::ContextResolver;
@@ -214,6 +214,20 @@ pub fn record_canon_install(name: &str, group: Option<String>, workspace: Option
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
             let _ = store.append_with_context(now, EventKind::CanonInstall, &exec, None, &ctx);
+        }
+    }
+}
+
+/// One executor load of a Canon unit (skill / context / command / agent).
+/// Inherits the ambient session context so per-group views can filter it,
+/// exactly like prompts do.
+pub fn record_skill_use(name: &str) {
+    let now = chrono::Utc::now().timestamp_millis();
+    let exec = format!("skill:{name}");
+    let ctx = current_context();
+    if let Ok(g) = slot().lock() {
+        if let Some(store) = g.as_ref() {
+            let _ = store.append_with_context(now, EventKind::SkillUse, &exec, None, &ctx);
         }
     }
 }

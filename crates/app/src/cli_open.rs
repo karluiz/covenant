@@ -15,11 +15,7 @@ static PENDING: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// Relative paths resolve against `base` (the invoking shell's cwd).
 fn resolve(raw: &str, base: Option<&Path>) -> Option<String> {
     let p = PathBuf::from(raw);
-    let p = if p.is_absolute() {
-        p
-    } else {
-        base?.join(p)
-    };
+    let p = if p.is_absolute() { p } else { base?.join(p) };
     let p = p.canonicalize().ok()?;
     Some(p.to_string_lossy().into_owned())
 }
@@ -98,7 +94,13 @@ pub fn install_cli(app: AppHandle) -> Result<String, String> {
     let dest = Path::new("/usr/local/bin/covenant");
 
     let direct = std::fs::remove_file(dest)
-        .or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+        .or_else(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        })
         .and_then(|_| std::os::unix::fs::symlink(&shim, dest));
     if direct.is_ok() {
         return Ok(dest.to_string_lossy().into_owned());
@@ -143,7 +145,12 @@ mod tests {
     fn skips_argv0_and_flags() {
         let tmp = std::env::temp_dir();
         let tmp_str = tmp.to_string_lossy().into_owned();
-        let argv = vec!["covenant".into(), "--flag".into(), tmp_str, "/nonexistent-xyz".into()];
+        let argv = vec![
+            "covenant".into(),
+            "--flag".into(),
+            tmp_str,
+            "/nonexistent-xyz".into(),
+        ];
         let paths = paths_from_argv(&argv, None);
         assert_eq!(paths.len(), 1);
         assert!(PathBuf::from(&paths[0]).is_dir());

@@ -145,7 +145,12 @@ pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
     let default_branch = default_branch(cwd);
     let merged: std::collections::HashSet<String> = git(
         cwd,
-        &["branch", "--merged", &default_branch, "--format=%(refname:short)"],
+        &[
+            "branch",
+            "--merged",
+            &default_branch,
+            "--format=%(refname:short)",
+        ],
     )
     .unwrap_or_default()
     .lines()
@@ -270,10 +275,7 @@ pub struct ReclaimOutcome {
 ///     is left untouched. An orphaned worktree's branch may be the only
 ///     remaining copy of unmerged work, and there is no working tree left
 ///     to run the merge re-check against anyway.
-pub fn reclaim_worktrees(
-    cwd: &Path,
-    paths: Vec<String>,
-) -> Result<Vec<ReclaimOutcome>, String> {
+pub fn reclaim_worktrees(cwd: &Path, paths: Vec<String>) -> Result<Vec<ReclaimOutcome>, String> {
     let summary = repo_summary(cwd)?;
     // Every git call in the `Spent` arm below runs from the MAIN worktree,
     // never from `cwd`. `retire_worktree` hit and fixed the identical bug:
@@ -342,7 +344,11 @@ pub fn reclaim_worktrees(
                 }
 
                 if let Err(e) = git(main, &["worktree", "remove", &wt.path]) {
-                    outcomes.push(ReclaimOutcome { path, removed: false, reason: Some(e) });
+                    outcomes.push(ReclaimOutcome {
+                        path,
+                        removed: false,
+                        reason: Some(e),
+                    });
                     continue;
                 }
                 // `-d`'s refusal is HEAD-relative — it checks merge status
@@ -369,7 +375,11 @@ pub fn reclaim_worktrees(
                         }
                     }
                 }
-                outcomes.push(ReclaimOutcome { path, removed: true, reason: None });
+                outcomes.push(ReclaimOutcome {
+                    path,
+                    removed: true,
+                    reason: None,
+                });
             }
 
             WorktreeState::Orphan => {
@@ -389,10 +399,18 @@ pub fn reclaim_worktrees(
                 // which worktree invokes them.
                 let main = main_root.as_deref().unwrap_or(cwd);
                 if let Err(e) = git(main, &["worktree", "remove", &wt.path]) {
-                    outcomes.push(ReclaimOutcome { path, removed: false, reason: Some(e) });
+                    outcomes.push(ReclaimOutcome {
+                        path,
+                        removed: false,
+                        reason: Some(e),
+                    });
                     continue;
                 }
-                outcomes.push(ReclaimOutcome { path, removed: true, reason: None });
+                outcomes.push(ReclaimOutcome {
+                    path,
+                    removed: true,
+                    reason: None,
+                });
             }
 
             other => {
@@ -445,9 +463,14 @@ pub fn create_worktree(cwd: &Path, slug: &str, base: Option<&str>) -> Result<Str
         return Err(format!("{} already exists", dest.display()));
     }
 
-    let base_ref = base.map(str::to_string).unwrap_or_else(|| preferred_base(cwd));
+    let base_ref = base
+        .map(str::to_string)
+        .unwrap_or_else(|| preferred_base(cwd));
     let dest_str = dest.to_string_lossy().to_string();
-    git(cwd, &["worktree", "add", "-q", &dest_str, "-b", slug, &base_ref])?;
+    git(
+        cwd,
+        &["worktree", "add", "-q", &dest_str, "-b", slug, &base_ref],
+    )?;
     Ok(dest_str)
 }
 
@@ -529,7 +552,11 @@ pub fn relocate_worktree(cwd: &Path, path: &str) -> Result<String, String> {
     // already tracks that better than we can: a locked worktree is claimed by
     // a session, and the lock reason names it.
     if let Some(reason) = wt.locked.as_deref() {
-        let who = if reason.is_empty() { "another session" } else { reason };
+        let who = if reason.is_empty() {
+            "another session"
+        } else {
+            reason
+        };
         return Err(format!("worktree is locked by {who}; close it first"));
     }
     if !wt.off_convention {
@@ -684,11 +711,20 @@ pub fn retitle_worktree_branch(
     // to a local branch and no tracking is configured.
     //
     // The real question is whether a remote branch exists under THIS name.
-    let published = git(&main_root, &["for-each-ref", "--format=%(refname:short)", "refs/remotes"])
-        .unwrap_or_default()
-        .lines()
-        .any(|r| r.trim().rsplit_once('/').is_some_and(|(_, name)| name == branch)
-            || r.trim().split_once('/').is_some_and(|(_, rest)| rest == branch));
+    let published = git(
+        &main_root,
+        &["for-each-ref", "--format=%(refname:short)", "refs/remotes"],
+    )
+    .unwrap_or_default()
+    .lines()
+    .any(|r| {
+        r.trim()
+            .rsplit_once('/')
+            .is_some_and(|(_, name)| name == branch)
+            || r.trim()
+                .split_once('/')
+                .is_some_and(|(_, rest)| rest == branch)
+    });
     if published {
         return Ok(None);
     }
@@ -938,7 +974,10 @@ fn default_branch(cwd: &Path) -> String {
     let resolves_locally =
         |name: &str| git(cwd, &["rev-parse", "--verify", "--quiet", name]).is_ok();
 
-    if let Ok(sym) = git(cwd, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
+    if let Ok(sym) = git(
+        cwd,
+        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+    ) {
         if let Some(name) = sym.trim().rsplit('/').next() {
             // origin/HEAD can go stale after a remote default-branch rename;
             // never trust it without confirming the branch still resolves.
@@ -1223,7 +1262,10 @@ pub fn commit(cwd: &Path, message: &str, push: bool) -> Result<diff::Changes, St
     }
     // Nothing staged → "commit all": stage every change (incl. untracked). When the
     // user has staged specific files, honour that and commit only those.
-    if git(cwd, &["diff", "--cached", "--name-only"])?.trim().is_empty() {
+    if git(cwd, &["diff", "--cached", "--name-only"])?
+        .trim()
+        .is_empty()
+    {
         git(cwd, &["add", "-A"])?;
     }
     git(cwd, &["commit", "-m", msg])?;
@@ -2020,7 +2062,10 @@ index e69de29..0cfbf08 100644
         // this is exactly the divergence the bulk-reclaim confirm copy
         // needs to name correctly.
         let summary = repo_summary(root).unwrap();
-        assert_eq!(summary.current_branch.as_deref(), Some("feat/worktree-lifecycle"));
+        assert_eq!(
+            summary.current_branch.as_deref(),
+            Some("feat/worktree-lifecycle")
+        );
         assert_eq!(summary.default_branch, "main");
     }
 
@@ -2031,20 +2076,31 @@ index e69de29..0cfbf08 100644
         init_repo(root);
         let base = String::from_utf8(
             std::process::Command::new("git")
-                .arg("-C").arg(root)
+                .arg("-C")
+                .arg(root)
                 .args(["branch", "--show-current"])
-                .output().unwrap().stdout,
-        ).unwrap().trim().to_string();
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
 
         let wt = root.join("wt-merged");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "done"]);
+        git_run(
+            root,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "done"],
+        );
         std::fs::write(wt.join("tracked.txt"), "changed\n").unwrap();
         git_run(&wt, &["add", "."]);
         git_run(&wt, &["commit", "-q", "-m", "work"]);
         git_run(root, &["merge", "-q", "--no-ff", "-m", "merge", "done"]);
 
         let summary = repo_summary(root).unwrap();
-        let row = summary.worktrees.iter()
+        let row = summary
+            .worktrees
+            .iter()
             .find(|w| w.branch.as_deref() == Some("done"))
             .expect("worktree present");
         assert!(row.merged, "branch was merged into {base}");
@@ -2058,11 +2114,24 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let wt = root.join(CANONICAL_WORKTREE_DIR).join("feature-x");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "feature-x"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "-b",
+                "feature-x",
+            ],
+        );
 
         let summary = repo_summary(root).unwrap();
-        let row = summary.worktrees.iter()
-            .find(|w| w.branch.as_deref() == Some("feature-x")).unwrap();
+        let row = summary
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("feature-x"))
+            .unwrap();
         assert!(!row.off_convention);
     }
 
@@ -2072,11 +2141,17 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let wt = root.join("somewhere-else");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "stray"]);
+        git_run(
+            root,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "stray"],
+        );
 
         let summary = repo_summary(root).unwrap();
-        let row = summary.worktrees.iter()
-            .find(|w| w.branch.as_deref() == Some("stray")).unwrap();
+        let row = summary
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("stray"))
+            .unwrap();
         assert!(row.off_convention);
     }
 
@@ -2098,7 +2173,14 @@ index e69de29..0cfbf08 100644
         let wt = root.join(CANONICAL_WORKTREE_DIR).join("feature-x");
         git_run(
             root,
-            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "feature-x"],
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "-b",
+                "feature-x",
+            ],
         );
 
         // Call repo_summary with the LINKED worktree's path as cwd — this is
@@ -2143,11 +2225,25 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let linked = root.join(CANONICAL_WORKTREE_DIR).join("side");
-        git_run(root, &["worktree", "add", "-q", linked.to_str().unwrap(), "-b", "side"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked.to_str().unwrap(),
+                "-b",
+                "side",
+            ],
+        );
 
         // Called from the MAIN worktree: main.current == true, main.is_main == true.
         let summary_from_main = repo_summary(root).unwrap();
-        let main_row = summary_from_main.worktrees.iter().find(|w| w.current).unwrap();
+        let main_row = summary_from_main
+            .worktrees
+            .iter()
+            .find(|w| w.current)
+            .unwrap();
         assert!(main_row.is_main);
         let linked_row_from_main = summary_from_main
             .worktrees
@@ -2171,7 +2267,10 @@ index e69de29..0cfbf08 100644
                     == root_canonical
             })
             .expect("main worktree present in the summary");
-        assert!(!main_row_from_linked.current, "sanity: cwd was the linked worktree");
+        assert!(
+            !main_row_from_linked.current,
+            "sanity: cwd was the linked worktree"
+        );
         assert!(
             main_row_from_linked.is_main,
             "is_main must not depend on which worktree the call originated from"
@@ -2195,14 +2294,28 @@ index e69de29..0cfbf08 100644
         let caller = root.join(CANONICAL_WORKTREE_DIR).join("caller");
         git_run(
             root,
-            &["worktree", "add", "-q", caller.to_str().unwrap(), "-b", "caller-branch"],
+            &[
+                "worktree",
+                "add",
+                "-q",
+                caller.to_str().unwrap(),
+                "-b",
+                "caller-branch",
+            ],
         );
 
         // The RELOCATION TARGET: a different, stray worktree.
         let stray = root.join("stray-place");
         git_run(
             root,
-            &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "feat/other-thing"],
+            &[
+                "worktree",
+                "add",
+                "-q",
+                stray.to_str().unwrap(),
+                "-b",
+                "feat/other-thing",
+            ],
         );
 
         let moved = relocate_worktree(&caller, stray.to_str().unwrap()).unwrap();
@@ -2234,8 +2347,7 @@ index e69de29..0cfbf08 100644
     // own cwd (the normal case for Covenant's own workflow), must report
     // `off_convention == false` for its own row.
     #[test]
-    fn repo_summary_reports_a_correctly_placed_linked_worktree_as_on_convention_from_its_own_cwd()
-    {
+    fn repo_summary_reports_a_correctly_placed_linked_worktree_as_on_convention_from_its_own_cwd() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
         init_repo(root);
@@ -2243,7 +2355,14 @@ index e69de29..0cfbf08 100644
         let wt = root.join(CANONICAL_WORKTREE_DIR).join("feature-x");
         git_run(
             root,
-            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "feature-x"],
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "-b",
+                "feature-x",
+            ],
         );
 
         // Query repo_summary FROM the linked worktree's own cwd.
@@ -2271,7 +2390,17 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let stray = root.join("stray-place");
-        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "feat/thing"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                stray.to_str().unwrap(),
+                "-b",
+                "feat/thing",
+            ],
+        );
 
         let moved = relocate_worktree(root, stray.to_str().unwrap()).unwrap();
         assert!(moved.ends_with("/.covenant/worktrees/thing"), "got {moved}");
@@ -2279,8 +2408,11 @@ index e69de29..0cfbf08 100644
         assert!(!stray.exists());
 
         let summary = repo_summary(root).unwrap();
-        let row = summary.worktrees.iter()
-            .find(|w| w.branch.as_deref() == Some("feat/thing")).unwrap();
+        let row = summary
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("feat/thing"))
+            .unwrap();
         assert!(!row.off_convention);
     }
 
@@ -2294,7 +2426,17 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let stray = root.join("stray-dirty");
-        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "feat/busy"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                stray.to_str().unwrap(),
+                "-b",
+                "feat/busy",
+            ],
+        );
         std::fs::write(stray.join("tracked.txt"), "uncommitted work\n").unwrap();
 
         let moved = relocate_worktree(root, stray.to_str().unwrap()).unwrap();
@@ -2316,12 +2458,34 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let stray = root.join("stray-locked");
-        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "feat/claimed"]);
-        git_run(root, &["worktree", "lock", "--reason", "claude session probe (pid 123)", stray.to_str().unwrap()]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                stray.to_str().unwrap(),
+                "-b",
+                "feat/claimed",
+            ],
+        );
+        git_run(
+            root,
+            &[
+                "worktree",
+                "lock",
+                "--reason",
+                "claude session probe (pid 123)",
+                stray.to_str().unwrap(),
+            ],
+        );
 
         let err = relocate_worktree(root, stray.to_str().unwrap()).unwrap_err();
         assert!(err.contains("locked"), "got {err}");
-        assert!(err.contains("claude session probe"), "must name the holder: {err}");
+        assert!(
+            err.contains("claude session probe"),
+            "must name the holder: {err}"
+        );
         assert!(stray.exists());
     }
 
@@ -2331,11 +2495,34 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let wt = root.join(CANONICAL_WORKTREE_DIR).join("claimed");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "claimed"]);
-        git_run(root, &["worktree", "lock", "--reason", "claude session x (pid 9)", wt.to_str().unwrap()]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "-b",
+                "claimed",
+            ],
+        );
+        git_run(
+            root,
+            &[
+                "worktree",
+                "lock",
+                "--reason",
+                "claude session x (pid 9)",
+                wt.to_str().unwrap(),
+            ],
+        );
 
         let summary = repo_summary(root).unwrap();
-        let row = summary.worktrees.iter().find(|w| w.branch.as_deref() == Some("claimed")).unwrap();
+        let row = summary
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("claimed"))
+            .unwrap();
         assert_eq!(row.locked.as_deref(), Some("claude session x (pid 9)"));
         // An unlocked sibling stays None.
         let main = summary.worktrees.iter().find(|w| w.is_main).unwrap();
@@ -2357,7 +2544,10 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let good = root.join(CANONICAL_WORKTREE_DIR).join("ok");
-        git_run(root, &["worktree", "add", "-q", good.to_str().unwrap(), "-b", "ok"]);
+        git_run(
+            root,
+            &["worktree", "add", "-q", good.to_str().unwrap(), "-b", "ok"],
+        );
 
         let out = relocate_worktree(root, good.to_str().unwrap()).unwrap();
         assert_eq!(canonical_or_self(Path::new(&out)), canonical_or_self(&good));
@@ -2379,7 +2569,17 @@ index e69de29..0cfbf08 100644
         init_repo(root);
 
         let linked = root.join(CANONICAL_WORKTREE_DIR).join("side");
-        git_run(root, &["worktree", "add", "-q", linked.to_str().unwrap(), "-b", "side"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked.to_str().unwrap(),
+                "-b",
+                "side",
+            ],
+        );
 
         // Sanity check the setup actually reproduces the bug shape: called
         // from the linked worktree, the main worktree's `current` flag must
@@ -2439,7 +2639,10 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let wt = root.join("wt-done");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "done"]);
+        git_run(
+            root,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "done"],
+        );
         std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
         git_run(&wt, &["add", "."]);
         git_run(&wt, &["commit", "-q", "-m", "w"]);
@@ -2451,7 +2654,10 @@ index e69de29..0cfbf08 100644
         assert!(!wt.exists(), "directory is gone");
 
         let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
-        assert!(!branches.lines().any(|l| l.trim() == "done"), "branch deleted too");
+        assert!(
+            !branches.lines().any(|l| l.trim() == "done"),
+            "branch deleted too"
+        );
     }
 
     #[test]
@@ -2462,14 +2668,25 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let wt = root.join("wt-live");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "live"]);
+        git_run(
+            root,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "live"],
+        );
         std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
         git_run(&wt, &["add", "."]);
         git_run(&wt, &["commit", "-q", "-m", "w"]);
 
         let summary = repo_summary(root).unwrap();
-        let row = summary.worktrees.iter().find(|w| w.branch.as_deref() == Some("live")).unwrap();
-        assert_eq!(row.state, WorktreeState::Active, "sanity: setup must reproduce Active");
+        let row = summary
+            .worktrees
+            .iter()
+            .find(|w| w.branch.as_deref() == Some("live"))
+            .unwrap();
+        assert_eq!(
+            row.state,
+            WorktreeState::Active,
+            "sanity: setup must reproduce Active"
+        );
 
         let out = reclaim_worktrees(root, vec![wt.to_string_lossy().to_string()]).unwrap();
         assert_eq!(out.len(), 1);
@@ -2484,7 +2701,17 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let wt = root.join("wt-stale");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "stale-branch"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "-b",
+                "stale-branch",
+            ],
+        );
         std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
         git_run(&wt, &["add", "."]);
         // Backdate the commit so it falls outside STALE_AFTER_DAYS: clean +
@@ -2506,12 +2733,20 @@ index e69de29..0cfbf08 100644
             .iter()
             .find(|w| w.branch.as_deref() == Some("stale-branch"))
             .unwrap();
-        assert_eq!(row.state, WorktreeState::Stale, "sanity: setup must reproduce Stale");
+        assert_eq!(
+            row.state,
+            WorktreeState::Stale,
+            "sanity: setup must reproduce Stale"
+        );
 
         let outcome = reclaim_worktrees(root, vec![wt.to_string_lossy().to_string()]).unwrap();
         assert_eq!(outcome.len(), 1);
         assert!(!outcome[0].removed);
-        assert!(outcome[0].reason.as_deref().unwrap_or("").contains("not spent"));
+        assert!(outcome[0]
+            .reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("not spent"));
         assert!(wt.exists(), "untouched");
     }
 
@@ -2523,7 +2758,17 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let wt = root.join("wt-orphan");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "orphan-branch"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "-b",
+                "orphan-branch",
+            ],
+        );
         std::fs::write(wt.join("tracked.txt"), "unmerged work\n").unwrap();
         git_run(&wt, &["add", "."]);
         git_run(&wt, &["commit", "-q", "-m", "unmerged work"]);
@@ -2546,7 +2791,11 @@ index e69de29..0cfbf08 100644
             .iter()
             .find(|w| w.branch.as_deref() == Some("orphan-branch"))
             .expect("orphan row present");
-        assert_eq!(row.state, WorktreeState::Orphan, "sanity: setup must reproduce Orphan");
+        assert_eq!(
+            row.state,
+            WorktreeState::Orphan,
+            "sanity: setup must reproduce Orphan"
+        );
 
         let out = reclaim_worktrees(root, vec![path]).unwrap();
         assert_eq!(out.len(), 1);
@@ -2571,7 +2820,10 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let wt = root.join("wt-dirty");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "dirty"]);
+        git_run(
+            root,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "dirty"],
+        );
         std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
         git_run(&wt, &["add", "."]);
         git_run(&wt, &["commit", "-q", "-m", "w"]);
@@ -2609,7 +2861,17 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let good = root.join("wt-good");
-        git_run(root, &["worktree", "add", "-q", good.to_str().unwrap(), "-b", "good"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                good.to_str().unwrap(),
+                "-b",
+                "good",
+            ],
+        );
         std::fs::write(good.join("tracked.txt"), "x\n").unwrap();
         git_run(&good, &["add", "."]);
         git_run(&good, &["commit", "-q", "-m", "w"]);
@@ -2621,7 +2883,10 @@ index e69de29..0cfbf08 100644
         )
         .unwrap();
         assert_eq!(out.len(), 2);
-        assert!(out.iter().any(|o| o.removed), "the valid one still went through");
+        assert!(
+            out.iter().any(|o| o.removed),
+            "the valid one still went through"
+        );
     }
 
     // --- Finding 1: TOCTOU on merge status -----------------------------
@@ -2676,7 +2941,10 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let wt = root.join("wt-dup");
-        git_run(root, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "dup"]);
+        git_run(
+            root,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "dup"],
+        );
         std::fs::write(wt.join("tracked.txt"), "x\n").unwrap();
         git_run(&wt, &["add", "."]);
         git_run(&wt, &["commit", "-q", "-m", "w"]);
@@ -2730,7 +2998,17 @@ index e69de29..0cfbf08 100644
         init_repo(root);
 
         let linked = root.join(CANONICAL_WORKTREE_DIR).join("side");
-        git_run(root, &["worktree", "add", "-q", linked.to_str().unwrap(), "-b", "side"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked.to_str().unwrap(),
+                "-b",
+                "side",
+            ],
+        );
 
         // Put the MAIN worktree on a branch that is merged into the default
         // branch and clean — the only way it can pass reclaim_worktrees's
@@ -2740,7 +3018,10 @@ index e69de29..0cfbf08 100644
         git_run(root, &["add", "."]);
         git_run(root, &["commit", "-q", "-m", "work"]);
         git_run(root, &["checkout", "-q", "main"]);
-        git_run(root, &["merge", "-q", "--no-ff", "-m", "merge", "merged-branch"]);
+        git_run(
+            root,
+            &["merge", "-q", "--no-ff", "-m", "merge", "merged-branch"],
+        );
         git_run(root, &["checkout", "-q", "merged-branch"]);
 
         // Sanity check the setup actually reproduces the bug shape: called
@@ -2807,15 +3088,34 @@ index e69de29..0cfbf08 100644
         // Back on main, cut the agent worktree/branch and merge it back —
         // this is what makes it classify as Spent.
         git_run(root, &["switch", "-q", "main"]);
-        let wt = root.join(CANONICAL_WORKTREE_DIR).join("agent-claude-0719-y72");
+        let wt = root
+            .join(CANONICAL_WORKTREE_DIR)
+            .join("agent-claude-0719-y72");
         git_run(
             root,
-            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "agent/claude-0719-y72"],
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "-b",
+                "agent/claude-0719-y72",
+            ],
         );
         std::fs::write(wt.join("agent-work.txt"), "done\n").unwrap();
         git_run(&wt, &["add", "."]);
         git_run(&wt, &["commit", "-q", "-m", "agent work"]);
-        git_run(root, &["merge", "-q", "--no-ff", "-m", "merge", "agent/claude-0719-y72"]);
+        git_run(
+            root,
+            &[
+                "merge",
+                "-q",
+                "--no-ff",
+                "-m",
+                "merge",
+                "agent/claude-0719-y72",
+            ],
+        );
 
         // Now move the MAIN checkout onto the feature branch (F), which does
         // NOT contain the merge commit. `git branch -d
@@ -2845,7 +3145,9 @@ index e69de29..0cfbf08 100644
 
         let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
         assert!(
-            !branches.lines().any(|l| l.trim() == "agent/claude-0719-y72"),
+            !branches
+                .lines()
+                .any(|l| l.trim() == "agent/claude-0719-y72"),
             "branch must be deleted via ancestry-against-base, not HEAD-relative -d",
         );
     }
@@ -2858,7 +3160,9 @@ index e69de29..0cfbf08 100644
 
         let path = create_worktree(root, "agent/claude-0719-a3f", None).unwrap();
         let expected = canonical_or_self(
-            &root.join(CANONICAL_WORKTREE_DIR).join("agent-claude-0719-a3f"),
+            &root
+                .join(CANONICAL_WORKTREE_DIR)
+                .join("agent-claude-0719-a3f"),
         );
         assert_eq!(canonical_or_self(Path::new(&path)), expected, "got {path}");
         assert!(Path::new(&path).is_dir());
@@ -2872,14 +3176,29 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let caller = root.join(CANONICAL_WORKTREE_DIR).join("caller");
-        git_run(root, &["worktree", "add", "-q", caller.to_str().unwrap(), "-b", "caller"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                caller.to_str().unwrap(),
+                "-b",
+                "caller",
+            ],
+        );
 
         let path = create_worktree(&caller, "agent/codex-0719-b7c", None).unwrap();
         let expected = canonical_or_self(
-            &root.join(CANONICAL_WORKTREE_DIR).join("agent-codex-0719-b7c"),
+            &root
+                .join(CANONICAL_WORKTREE_DIR)
+                .join("agent-codex-0719-b7c"),
         );
         assert_eq!(canonical_or_self(Path::new(&path)), expected, "got {path}");
-        assert!(!path.contains("caller"), "must not nest inside the caller: {path}");
+        assert!(
+            !path.contains("caller"),
+            "must not nest inside the caller: {path}"
+        );
         // The caller must not be dirtied as a side effect.
         assert_eq!(status_count(&caller).unwrap(), 0);
     }
@@ -2936,7 +3255,15 @@ index e69de29..0cfbf08 100644
         // caller's local "main" falls behind it — a real lag, not a
         // fast-forward the caller could trivially pick up.
         let other = tmp.path().join("other-clone");
-        git_run(tmp.path(), &["clone", "-q", bare.to_str().unwrap(), other.to_str().unwrap()]);
+        git_run(
+            tmp.path(),
+            &[
+                "clone",
+                "-q",
+                bare.to_str().unwrap(),
+                other.to_str().unwrap(),
+            ],
+        );
         git_run(&other, &["config", "user.email", "t@t.t"]);
         git_run(&other, &["config", "user.name", "t"]);
         std::fs::write(other.join("origin-only.txt"), "from origin\n").unwrap();
@@ -2985,7 +3312,9 @@ index e69de29..0cfbf08 100644
         assert!(!Path::new(&path).exists());
         let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
         assert!(
-            !branches.lines().any(|l| l.trim() == "agent/untouched-0719-aaa"),
+            !branches
+                .lines()
+                .any(|l| l.trim() == "agent/untouched-0719-aaa"),
             "an empty worktree's branch has nothing in it either",
         );
     }
@@ -3019,7 +3348,15 @@ index e69de29..0cfbf08 100644
         // caller's local "main" falls behind it — a real lag, not a
         // fast-forward the caller could trivially pick up.
         let other = tmp.path().join("other-clone");
-        git_run(tmp.path(), &["clone", "-q", bare.to_str().unwrap(), other.to_str().unwrap()]);
+        git_run(
+            tmp.path(),
+            &[
+                "clone",
+                "-q",
+                bare.to_str().unwrap(),
+                other.to_str().unwrap(),
+            ],
+        );
         git_run(&other, &["config", "user.email", "t@t.t"]);
         git_run(&other, &["config", "user.name", "t"]);
         std::fs::write(other.join("origin-only.txt"), "from origin\n").unwrap();
@@ -3093,7 +3430,17 @@ index e69de29..0cfbf08 100644
         let root = tmp.path();
         init_repo(root);
         let stray = root.join("stray");
-        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "stray"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                stray.to_str().unwrap(),
+                "-b",
+                "stray",
+            ],
+        );
 
         assert!(!retire_worktree(root, stray.to_str().unwrap()).unwrap());
         assert!(stray.exists());
@@ -3277,16 +3624,27 @@ index e69de29..0cfbf08 100644
         assert!(!Path::new(&path).exists());
         let branches = git(root, &["branch", "--format=%(refname:short)"]).unwrap();
         assert!(
-            !branches.lines().any(|l| l.trim() == "agent/orphan-0719-fff"),
+            !branches
+                .lines()
+                .any(|l| l.trim() == "agent/orphan-0719-fff"),
             "branch must be deleted via ancestry-against-base, not HEAD-relative -d",
         );
     }
     #[test]
     fn birth_slug_tail_matches_only_the_shape_create_worktree_emits() {
-        assert_eq!(birth_slug_tail("agent/claude-0719-y72").as_deref(), Some("0719-y72"));
-        assert_eq!(birth_slug_tail("agent/pi-agent-1231-abc").as_deref(), Some("1231-abc"));
+        assert_eq!(
+            birth_slug_tail("agent/claude-0719-y72").as_deref(),
+            Some("0719-y72")
+        );
+        assert_eq!(
+            birth_slug_tail("agent/pi-agent-1231-abc").as_deref(),
+            Some("1231-abc")
+        );
         // Already retitled — must not be renamed a second time.
-        assert_eq!(birth_slug_tail("agent/worktree-prevention-0719-y72").as_deref(), Some("0719-y72"));
+        assert_eq!(
+            birth_slug_tail("agent/worktree-prevention-0719-y72").as_deref(),
+            Some("0719-y72")
+        );
         assert_eq!(birth_slug_tail("agent/worktree-prevention"), None);
         // Not ours.
         assert_eq!(birth_slug_tail("feat/something"), None);
@@ -3297,8 +3655,14 @@ index e69de29..0cfbf08 100644
 
     #[test]
     fn title_slug_produces_a_legal_ref_fragment() {
-        assert_eq!(title_slug("Worktree prevention").as_deref(), Some("worktree-prevention"));
-        assert_eq!(title_slug("Fix: the CI race!").as_deref(), Some("fix-the-ci-race"));
+        assert_eq!(
+            title_slug("Worktree prevention").as_deref(),
+            Some("worktree-prevention")
+        );
+        assert_eq!(
+            title_slug("Fix: the CI race!").as_deref(),
+            Some("fix-the-ci-race")
+        );
         assert_eq!(title_slug("  spaced  out  ").as_deref(), Some("spaced-out"));
         assert_eq!(title_slug("café ñandú").as_deref(), Some("caf-and"));
         assert_eq!(title_slug("!!!"), None);
@@ -3331,7 +3695,10 @@ index e69de29..0cfbf08 100644
             .iter()
             .find(|w| canonical_or_self(Path::new(&w.path)) == canonical_or_self(Path::new(&path)))
             .unwrap();
-        assert_eq!(row.branch.as_deref(), Some("agent/worktree-prevention-0719-y72"));
+        assert_eq!(
+            row.branch.as_deref(),
+            Some("agent/worktree-prevention-0719-y72")
+        );
     }
 
     #[test]
@@ -3341,14 +3708,21 @@ index e69de29..0cfbf08 100644
         init_repo(root);
         let path = create_worktree(root, "agent/claude-0719-y72", None).unwrap();
 
-        let first = retitle_worktree_branch(root, &path, "First title").unwrap().expect("first");
+        let first = retitle_worktree_branch(root, &path, "First title")
+            .unwrap()
+            .expect("first");
         assert_eq!(first, "agent/first-title-0719-y72");
         // A later, better title wins: the birth suffix is preserved throughout,
         // so this converges rather than accumulating.
-        let second = retitle_worktree_branch(root, &path, "Second title").unwrap().expect("second");
+        let second = retitle_worktree_branch(root, &path, "Second title")
+            .unwrap()
+            .expect("second");
         assert_eq!(second, "agent/second-title-0719-y72");
         // The same title twice is a genuine no-op.
-        assert_eq!(retitle_worktree_branch(root, &path, "Second title").unwrap(), None);
+        assert_eq!(
+            retitle_worktree_branch(root, &path, "Second title").unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -3370,7 +3744,15 @@ index e69de29..0cfbf08 100644
         let path = create_worktree(root, "agent/claude-0719-y72", None).unwrap();
         // Confirm the premise: the branch really does have an upstream.
         assert!(
-            git(root, &["rev-parse", "--abbrev-ref", "agent/claude-0719-y72@{upstream}"]).is_ok(),
+            git(
+                root,
+                &[
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "agent/claude-0719-y72@{upstream}"
+                ]
+            )
+            .is_ok(),
             "premise: a branch based on origin/main tracks it",
         );
 
@@ -3394,10 +3776,16 @@ index e69de29..0cfbf08 100644
         let origin = origin_tmp.path().join("origin.git");
         git_run(root, &["init", "-q", "--bare", origin.to_str().unwrap()]);
         git_run(root, &["remote", "add", "origin", origin.to_str().unwrap()]);
-        git_run(Path::new(&path), &["push", "-q", "-u", "origin", "agent/claude-0719-y72"]);
+        git_run(
+            Path::new(&path),
+            &["push", "-q", "-u", "origin", "agent/claude-0719-y72"],
+        );
 
         // Published means somebody else may be tracking the name.
-        assert_eq!(retitle_worktree_branch(root, &path, "Too late").unwrap(), None);
+        assert_eq!(
+            retitle_worktree_branch(root, &path, "Too late").unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -3420,15 +3808,27 @@ index e69de29..0cfbf08 100644
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
         init_repo(root);
-        assert_eq!(retitle_worktree_branch(root, root.to_str().unwrap(), "Nope").unwrap(), None);
+        assert_eq!(
+            retitle_worktree_branch(root, root.to_str().unwrap(), "Nope").unwrap(),
+            None
+        );
 
         let stray = root.join("stray");
-        git_run(root, &["worktree", "add", "-q", stray.to_str().unwrap(), "-b", "agent/claude-0719-zzz"]);
+        git_run(
+            root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                stray.to_str().unwrap(),
+                "-b",
+                "agent/claude-0719-zzz",
+            ],
+        );
         assert_eq!(
             retitle_worktree_branch(root, stray.to_str().unwrap(), "Also nope").unwrap(),
             None,
         );
         assert!(stray.exists());
     }
-
 }

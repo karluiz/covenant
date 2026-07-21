@@ -916,10 +916,7 @@ struct DispatchAcpArgs {
 pub async fn dispatch_acp(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     let parsed: DispatchAcpArgs =
         serde_json::from_value(args.clone()).map_err(|e| ToolError::InvalidArgs(e.to_string()))?;
-    let root = env
-        .root
-        .canonicalize()
-        .unwrap_or_else(|_| env.root.clone());
+    let root = env.root.canonicalize().unwrap_or_else(|_| env.root.clone());
     let cwd = match parsed.cwd.as_deref() {
         None | Some("") | Some(".") => root.clone(),
         Some(rel) => {
@@ -1195,8 +1192,8 @@ mod tests {
         .await
         .expect("dispatch_acp should succeed");
         assert!(out.contains("stop_reason:"), "report shape: {out}");
-        let contents =
-            std::fs::read_to_string(root.join("hello.txt")).expect("copilot should write hello.txt");
+        let contents = std::fs::read_to_string(root.join("hello.txt"))
+            .expect("copilot should write hello.txt");
         assert!(contents.to_lowercase().contains("hello"), "got: {contents}");
     }
 
@@ -1228,14 +1225,23 @@ mod tests {
             stop_reason: "end_turn".into(),
             agent_text: "done".into(),
             tool_events: (0..500)
-                .map(|i| format!("execute `cmd-{i:04}` — completed (exit 0) {}", "x".repeat(40)))
+                .map(|i| {
+                    format!(
+                        "execute `cmd-{i:04}` — completed (exit 0) {}",
+                        "x".repeat(40)
+                    )
+                })
                 .collect(),
             denied: (0..200)
                 .map(|i| format!("sudo dangerous-{i:03} {}", "y".repeat(60)))
                 .collect(),
         };
         let s = format_acp_report(&report);
-        assert!(s.len() < 12_000, "report must stay bounded, got {}", s.len());
+        assert!(
+            s.len() < 12_000,
+            "report must stay bounded, got {}",
+            s.len()
+        );
         // Truncated lists must end with a "… (+N more)" marker.
         assert!(s.contains("… (+460 more)"), "tool_events marker missing");
         assert!(s.contains("… (+180 more)"), "denied marker missing");

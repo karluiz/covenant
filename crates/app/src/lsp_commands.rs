@@ -194,7 +194,8 @@ fn find_solution_path(root: &Path, language: &str) -> Option<(String, &'static s
         return Some((p.to_string_lossy().to_string(), "solution"));
     }
 
-    let proj = find_direct_child(root, ".csproj").or_else(|| find_first_bounded(root, ".csproj", 1));
+    let proj =
+        find_direct_child(root, ".csproj").or_else(|| find_first_bounded(root, ".csproj", 1));
     if let Some(p) = proj {
         return Some((p.to_string_lossy().to_string(), "project"));
     }
@@ -590,106 +591,105 @@ pub async fn lsp_start(
     //     plus a writable per-server log dir.
     //   - Plain Binary with no runtime (rust-analyzer) spawns `entry_path`
     //     directly with `spec.args` — unchanged from before this task.
-    let (bin, spawn_args): (PathBuf, Vec<String>) = match spec.install_kind() {
-        InstallKind::Npm => {
-            let rt = spec
-                .runtime
-                .as_ref()
-                .ok_or_else(|| format!("{} is an npm server but has no runtime spec", spec.name))?;
-            let node = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
-            let entry = install::entry_path(&state.data_dir, spec);
-            let mut args = vec![entry.to_string_lossy().to_string()];
-            args.extend(spec.args.iter().cloned());
-            (node.path, args)
-        }
-        InstallKind::Binary if spec.config_subpath.is_some() => {
-            let rt = spec
-                .runtime
-                .as_ref()
-                .ok_or_else(|| format!("{} is a java server but has no runtime spec", spec.name))?;
-            let java = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
-            let entry = install::entry_path(&state.data_dir, spec);
-            let config_subpath = spec.config_subpath.as_deref().ok_or_else(|| {
-                format!("{} is a java server but has no config_subpath", spec.name)
-            })?;
-            let config_src = install::install_root(&state.data_dir, spec).join(config_subpath);
+    let (bin, spawn_args): (PathBuf, Vec<String>) =
+        match spec.install_kind() {
+            InstallKind::Npm => {
+                let rt = spec.runtime.as_ref().ok_or_else(|| {
+                    format!("{} is an npm server but has no runtime spec", spec.name)
+                })?;
+                let node = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
+                let entry = install::entry_path(&state.data_dir, spec);
+                let mut args = vec![entry.to_string_lossy().to_string()];
+                args.extend(spec.args.iter().cloned());
+                (node.path, args)
+            }
+            InstallKind::Binary if spec.config_subpath.is_some() => {
+                let rt = spec.runtime.as_ref().ok_or_else(|| {
+                    format!("{} is a java server but has no runtime spec", spec.name)
+                })?;
+                let java = runtime::detect(&rt.as_runtime_req()).map_err(|e| e.to_string())?;
+                let entry = install::entry_path(&state.data_dir, spec);
+                let config_subpath = spec.config_subpath.as_deref().ok_or_else(|| {
+                    format!("{} is a java server but has no config_subpath", spec.name)
+                })?;
+                let config_src = install::install_root(&state.data_dir, spec).join(config_subpath);
 
-            // Per-server writable dirs. These MUST live outside
-            // `lsp/jdtls/` (the install-name dir): `install_from_bytes`'s
-            // version-GC sweep deletes every sibling of `install_root`
-            // under `lsp/jdtls/`, which would nuke a running server's
-            // config/workspace on the next re-download. Use a separate
-            // parent, mirroring how the C# arm uses `lsp/logs/<id>`.
-            let server_dir = state
-                .data_dir
-                .join("lsp")
-                .join("jdtls-servers")
-                .join(id.to_string());
-            let config_dst = server_dir.join("config");
-            let workspace_dir = server_dir.join("data");
-            copy_dir_all(&config_src, &config_dst).map_err(|e| {
-                format!(
-                    "copying jdtls config {} -> {}: {e}",
-                    config_src.display(),
-                    config_dst.display()
-                )
-            })?;
-            std::fs::create_dir_all(&workspace_dir).map_err(|e| {
-                format!(
-                    "creating jdtls -data workspace dir {}: {e}",
-                    workspace_dir.display()
-                )
-            })?;
+                // Per-server writable dirs. These MUST live outside
+                // `lsp/jdtls/` (the install-name dir): `install_from_bytes`'s
+                // version-GC sweep deletes every sibling of `install_root`
+                // under `lsp/jdtls/`, which would nuke a running server's
+                // config/workspace on the next re-download. Use a separate
+                // parent, mirroring how the C# arm uses `lsp/logs/<id>`.
+                let server_dir = state
+                    .data_dir
+                    .join("lsp")
+                    .join("jdtls-servers")
+                    .join(id.to_string());
+                let config_dst = server_dir.join("config");
+                let workspace_dir = server_dir.join("data");
+                copy_dir_all(&config_src, &config_dst).map_err(|e| {
+                    format!(
+                        "copying jdtls config {} -> {}: {e}",
+                        config_src.display(),
+                        config_dst.display()
+                    )
+                })?;
+                std::fs::create_dir_all(&workspace_dir).map_err(|e| {
+                    format!(
+                        "creating jdtls -data workspace dir {}: {e}",
+                        workspace_dir.display()
+                    )
+                })?;
 
-            // Verified working JVM flag set (lsp-p5-research.md §3.3):
-            // initialize returned in ~2.2s with exactly these flags, no
-            // more, no fewer.
-            let mut args: Vec<String> = [
-                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
-                "-Dosgi.bundles.defaultStartLevel=4",
-                "-Declipse.product=org.eclipse.jdt.ls.core.product",
-                "-Dfile.encoding=UTF-8",
-                "-Xmx1G",
-                "--add-modules=ALL-SYSTEM",
-                "--add-opens",
-                "java.base/java.util=ALL-UNNAMED",
-                "--add-opens",
-                "java.base/java.lang=ALL-UNNAMED",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-            args.push("-jar".to_string());
-            args.push(entry.to_string_lossy().to_string());
-            args.push("-configuration".to_string());
-            args.push(config_dst.to_string_lossy().to_string());
-            args.push("-data".to_string());
-            args.push(workspace_dir.to_string_lossy().to_string());
-            args.extend(spec.args.iter().cloned());
-            (java.path, args)
-        }
-        InstallKind::Binary if spec.runtime.is_some() => {
-            let entry = install::entry_path(&state.data_dir, spec);
-            let log_dir = state.data_dir.join("lsp").join("logs").join(id.to_string());
-            std::fs::create_dir_all(&log_dir)
-                .map_err(|e| format!("creating lsp log dir {}: {e}", log_dir.display()))?;
-            // Required by the Roslyn CLI: it errors out without
-            // --logLevel/--extensionLogDirectory/--stdio.
-            let mut args = vec![
-                "--logLevel".to_string(),
-                "Information".to_string(),
-                "--extensionLogDirectory".to_string(),
-                log_dir.to_string_lossy().to_string(),
-                "--stdio".to_string(),
-            ];
-            args.extend(spec.args.iter().cloned());
-            (entry, args)
-        }
-        InstallKind::Binary => (
-            install::entry_path(&state.data_dir, spec),
-            spec.args.clone(),
-        ),
-    };
+                // Verified working JVM flag set (lsp-p5-research.md §3.3):
+                // initialize returned in ~2.2s with exactly these flags, no
+                // more, no fewer.
+                let mut args: Vec<String> = [
+                    "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+                    "-Dosgi.bundles.defaultStartLevel=4",
+                    "-Declipse.product=org.eclipse.jdt.ls.core.product",
+                    "-Dfile.encoding=UTF-8",
+                    "-Xmx1G",
+                    "--add-modules=ALL-SYSTEM",
+                    "--add-opens",
+                    "java.base/java.util=ALL-UNNAMED",
+                    "--add-opens",
+                    "java.base/java.lang=ALL-UNNAMED",
+                ]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+                args.push("-jar".to_string());
+                args.push(entry.to_string_lossy().to_string());
+                args.push("-configuration".to_string());
+                args.push(config_dst.to_string_lossy().to_string());
+                args.push("-data".to_string());
+                args.push(workspace_dir.to_string_lossy().to_string());
+                args.extend(spec.args.iter().cloned());
+                (java.path, args)
+            }
+            InstallKind::Binary if spec.runtime.is_some() => {
+                let entry = install::entry_path(&state.data_dir, spec);
+                let log_dir = state.data_dir.join("lsp").join("logs").join(id.to_string());
+                std::fs::create_dir_all(&log_dir)
+                    .map_err(|e| format!("creating lsp log dir {}: {e}", log_dir.display()))?;
+                // Required by the Roslyn CLI: it errors out without
+                // --logLevel/--extensionLogDirectory/--stdio.
+                let mut args = vec![
+                    "--logLevel".to_string(),
+                    "Information".to_string(),
+                    "--extensionLogDirectory".to_string(),
+                    log_dir.to_string_lossy().to_string(),
+                    "--stdio".to_string(),
+                ];
+                args.extend(spec.args.iter().cloned());
+                (entry, args)
+            }
+            InstallKind::Binary => (
+                install::entry_path(&state.data_dir, spec),
+                spec.args.clone(),
+            ),
+        };
 
     let msg_topic = format!("lsp://{id}/message");
     let exit_topic = format!("lsp://{id}/exit");

@@ -1176,7 +1176,10 @@ mod tests {
         }
     }
 
-    fn sample_task(title: &str, status: crate::teammate::types::TaskStatus) -> crate::teammate::Task {
+    fn sample_task(
+        title: &str,
+        status: crate::teammate::types::TaskStatus,
+    ) -> crate::teammate::Task {
         use crate::teammate::types::{TaskArchetype, TaskId, TaskScope};
         crate::teammate::Task {
             id: TaskId(Ulid::new()),

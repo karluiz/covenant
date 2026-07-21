@@ -192,7 +192,8 @@ mod tests {
     #[test]
     fn acp_defaults_false_for_legacy_json() {
         // Pre-acp spawns.json rows have no "acp" key at all.
-        let legacy = r#"{"id":"claude","label":"Claude","icon":null,"command":"claude","cwd":null}"#;
+        let legacy =
+            r#"{"id":"claude","label":"Claude","icon":null,"command":"claude","cwd":null}"#;
         let back: SpawnSpec = serde_json::from_str(legacy).unwrap();
         assert!(!back.acp);
     }
@@ -321,7 +322,8 @@ mod tests {
     fn a_pre_existing_spawns_json_still_parses() {
         // Installs upgrading from before this field must not break; they
         // inherit isolation rather than silently opting out.
-        let legacy = r#"[{"id":"claude","label":"Claude","icon":null,"command":"claude","cwd":null}]"#;
+        let legacy =
+            r#"[{"id":"claude","label":"Claude","icon":null,"command":"claude","cwd":null}]"#;
         let specs: Vec<SpawnSpec> = serde_json::from_str(legacy).unwrap();
         assert_eq!(specs.len(), 1);
         assert!(specs[0].worktree);

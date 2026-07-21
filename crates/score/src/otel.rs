@@ -21,17 +21,13 @@ pub fn init_meter_provider() -> Result<SdkMeterProvider, Box<dyn std::error::Err
     use opentelemetry_otlp::MetricExporter;
     use opentelemetry_sdk::metrics::PeriodicReader;
 
-    let exporter = MetricExporter::builder()
-        .with_tonic()
-        .build()?;
+    let exporter = MetricExporter::builder().with_tonic().build()?;
 
     let reader = PeriodicReader::builder(exporter)
         .with_interval(EXPORT_INTERVAL)
         .build();
 
-    let provider = SdkMeterProvider::builder()
-        .with_reader(reader)
-        .build();
+    let provider = SdkMeterProvider::builder().with_reader(reader).build();
 
     opentelemetry::global::set_meter_provider(provider.clone());
 

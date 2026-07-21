@@ -254,7 +254,12 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
     Ok(AcpRunReport {
         stop_reason,
         agent_text: c.text.clone(),
-        tool_events: c.order.iter().filter_map(|id| c.tools.get(id)).map(tool_line).collect(),
+        tool_events: c
+            .order
+            .iter()
+            .filter_map(|id| c.tools.get(id))
+            .map(tool_line)
+            .collect(),
         denied,
     })
 }

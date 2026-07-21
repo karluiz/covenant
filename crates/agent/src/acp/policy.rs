@@ -58,7 +58,11 @@ pub fn resolve_headless_with_log(req: &PermissionRequest, denied: &Mutex<Vec<Str
 
 fn pick_option(req: &PermissionRequest, allow: bool) -> String {
     let wanted = if allow { "allow_once" } else { "reject_once" };
-    if let Some(o) = req.options.iter().find(|o| o.kind.eq_ignore_ascii_case(wanted)) {
+    if let Some(o) = req
+        .options
+        .iter()
+        .find(|o| o.kind.eq_ignore_ascii_case(wanted))
+    {
         return o.option_id.clone();
     }
     // Deny-biased floor: neither branch may fall through to
@@ -128,14 +132,27 @@ mod tests {
     #[test]
     fn safe_commands_allowed() {
         for cmd in ["ls", "git status", "python3 fib.py", "cargo check"] {
-            assert_eq!(resolve_headless(&req("execute", Some(cmd))), "allow_once", "{cmd}");
+            assert_eq!(
+                resolve_headless(&req("execute", Some(cmd))),
+                "allow_once",
+                "{cmd}"
+            );
         }
     }
 
     #[test]
     fn mutating_and_destructive_commands_denied() {
-        for cmd in ["git push origin main", "rm -rf /tmp/x", "sudo ls", "npm install left-pad"] {
-            assert_eq!(resolve_headless(&req("execute", Some(cmd))), "reject_once", "{cmd}");
+        for cmd in [
+            "git push origin main",
+            "rm -rf /tmp/x",
+            "sudo ls",
+            "npm install left-pad",
+        ] {
+            assert_eq!(
+                resolve_headless(&req("execute", Some(cmd))),
+                "reject_once",
+                "{cmd}"
+            );
         }
     }
 
@@ -254,7 +271,10 @@ mod tests {
     fn trust_default_is_balanced() {
         assert_eq!(AcpTrust::default(), AcpTrust::Balanced);
         // Wire format is snake_case lowercase words.
-        assert_eq!(serde_json::to_string(&AcpTrust::Yolo).expect("ser"), "\"yolo\"");
+        assert_eq!(
+            serde_json::to_string(&AcpTrust::Yolo).expect("ser"),
+            "\"yolo\""
+        );
         let t: AcpTrust = serde_json::from_str("\"ask\"").expect("de");
         assert_eq!(t, AcpTrust::Ask);
     }

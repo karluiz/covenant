@@ -248,7 +248,10 @@ pub fn suggest_fix(req: &RuntimeReq) -> RuntimeSuggestion {
         if !exe.is_file() {
             continue;
         }
-        if let Ok(out) = std::process::Command::new(&exe).arg(&req.version_arg).output() {
+        if let Ok(out) = std::process::Command::new(&exe)
+            .arg(&req.version_arg)
+            .output()
+        {
             let raw = String::from_utf8_lossy(&out.stdout);
             // node/dotnet print to stdout; java --version also stdout.
             let raw = if raw.trim().is_empty() {
@@ -268,12 +271,16 @@ pub fn suggest_fix(req: &RuntimeReq) -> RuntimeSuggestion {
                 // Already on PATH yet detect failed → the on-PATH one is the
                 // old one and this dir is too; don't tell the user to add a
                 // dir they have. Fall back to install hint.
-                RuntimeSuggestion::Install { hint: install_hint(&req.name) }
+                RuntimeSuggestion::Install {
+                    hint: install_hint(&req.name),
+                }
             } else {
                 RuntimeSuggestion::OnDiskNotOnPath { version, dir }
             }
         }
-        None => RuntimeSuggestion::Install { hint: install_hint(&req.name) },
+        None => RuntimeSuggestion::Install {
+            hint: install_hint(&req.name),
+        },
     }
 }
 

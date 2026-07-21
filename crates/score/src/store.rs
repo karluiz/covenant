@@ -275,6 +275,7 @@ impl ScoreStore {
             EventKind::Prompt => "prompt",
             EventKind::Commit => "commit",
             EventKind::CanonInstall => "canon_install",
+            EventKind::SkillUse => "skill_use",
         };
         let c = self.conn.lock().unwrap();
         c.execute(
@@ -297,6 +298,7 @@ impl ScoreStore {
             EventKind::Prompt => "prompt",
             EventKind::Commit => "commit",
             EventKind::CanonInstall => "canon_install",
+            EventKind::SkillUse => "skill_use",
         };
         let c = self.conn.lock().unwrap();
         // OR IGNORE: commits carry a unique (repo, executor) index so
@@ -366,6 +368,7 @@ impl ScoreStore {
                 "prompt" => EventKind::Prompt,
                 "commit" => EventKind::Commit,
                 "canon_install" => EventKind::CanonInstall,
+                "skill_use" => EventKind::SkillUse,
                 _ => EventKind::Prompt, // fallback
             };
             Ok((
@@ -635,6 +638,30 @@ impl ScoreStore {
             rusqlite::params![group_name, color, now],
         )?;
         Ok(())
+    }
+
+    /// How many times each Canon unit was loaded by an executor, most-used
+    /// first. `executor` is stored as `skill:<name>`; the prefix is stripped
+    /// here so callers key by the same bare name the registry uses.
+    pub fn skill_usage(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::SkillUseCell>> {
+        let w = crate::filter::build_where(f);
+        let sql = format!(
+            "SELECT executor, COUNT(*) FROM score_events
+             WHERE kind='skill_use' AND {}
+             GROUP BY executor ORDER BY 2 DESC",
+            w.sql
+        );
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
+            let exec: String = r.get(0)?;
+            Ok(crate::SkillUseCell {
+                skill: exec.strip_prefix("skill:").unwrap_or(&exec).to_string(),
+                uses: r.get::<_, i64>(1)? as u32,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn breakdown_groups(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::GroupCell>> {

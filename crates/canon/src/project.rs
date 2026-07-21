@@ -423,7 +423,11 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
     let mut skills: Vec<(String, String, String)> = Vec::new();
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
-        skills.push((i.name.clone(), i.version.clone(), std::fs::read_to_string(&md)?));
+        skills.push((
+            i.name.clone(),
+            i.version.clone(),
+            std::fs::read_to_string(&md)?,
+        ));
     }
 
     // No sources at all → nothing is projected anywhere.
@@ -437,7 +441,10 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         return Ok(ProjectionStatus {
             executors: TOOLS
                 .iter()
-                .map(|t| ExecutorStatus { tool: t.to_string(), state: ProjState::NotProjected })
+                .map(|t| ExecutorStatus {
+                    tool: t.to_string(),
+                    state: ProjState::NotProjected,
+                })
                 .collect(),
             source_edited_unix: None,
         });
@@ -447,40 +454,102 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
     let mut files: Vec<(&str, std::path::PathBuf, String)> = Vec::new();
     for (stem, raw) in &agents {
         let content = strip_covenant_block(raw);
-        files.push(("claude", repo_root.join(".claude/agents").join(format!("{stem}.md")), content.clone()));
-        files.push(("opencode", repo_root.join(".opencode/agent").join(format!("{stem}.md")), content));
+        files.push((
+            "claude",
+            repo_root.join(".claude/agents").join(format!("{stem}.md")),
+            content.clone(),
+        ));
+        files.push((
+            "opencode",
+            repo_root.join(".opencode/agent").join(format!("{stem}.md")),
+            content,
+        ));
     }
     for (name, _v, body) in &skills {
         let content = ensure_frontmatter(name, body);
-        files.push(("claude", repo_root.join(".claude/skills").join(format!("canon-{name}")).join("SKILL.md"), content.clone()));
-        files.push(("pi", repo_root.join(".pi/skills").join(format!("canon-{name}")).join("SKILL.md"), content));
+        files.push((
+            "claude",
+            repo_root
+                .join(".claude/skills")
+                .join(format!("canon-{name}"))
+                .join("SKILL.md"),
+            content.clone(),
+        ));
+        files.push((
+            "pi",
+            repo_root
+                .join(".pi/skills")
+                .join(format!("canon-{name}"))
+                .join("SKILL.md"),
+            content,
+        ));
     }
     for (stem, raw) in &contexts {
         let content = ensure_frontmatter(stem, body_after_frontmatter(raw));
-        files.push(("claude", repo_root.join(".claude/skills").join(format!("canon-{stem}")).join("SKILL.md"), content.clone()));
-        files.push(("pi", repo_root.join(".pi/skills").join(format!("canon-{stem}")).join("SKILL.md"), content));
+        files.push((
+            "claude",
+            repo_root
+                .join(".claude/skills")
+                .join(format!("canon-{stem}"))
+                .join("SKILL.md"),
+            content.clone(),
+        ));
+        files.push((
+            "pi",
+            repo_root
+                .join(".pi/skills")
+                .join(format!("canon-{stem}"))
+                .join("SKILL.md"),
+            content,
+        ));
     }
     for (stem, raw) in &commands {
         let content = strip_covenant_block(raw);
-        files.push(("claude", repo_root.join(".claude/commands").join(format!("{stem}.md")), content.clone()));
-        files.push(("opencode", repo_root.join(".opencode/commands").join(format!("{stem}.md")), content.clone()));
-        files.push(("pi", repo_root.join(".pi/prompts").join(format!("{stem}.md")), content));
+        files.push((
+            "claude",
+            repo_root
+                .join(".claude/commands")
+                .join(format!("{stem}.md")),
+            content.clone(),
+        ));
+        files.push((
+            "opencode",
+            repo_root
+                .join(".opencode/commands")
+                .join(format!("{stem}.md")),
+            content.clone(),
+        ));
+        files.push((
+            "pi",
+            repo_root.join(".pi/prompts").join(format!("{stem}.md")),
+            content,
+        ));
     }
 
     let body = managed_body(None, &agents, &skills, &contexts, &memories);
 
-    let mut checks: std::collections::BTreeMap<&str, Vec<Check>> = std::collections::BTreeMap::new();
+    let mut checks: std::collections::BTreeMap<&str, Vec<Check>> =
+        std::collections::BTreeMap::new();
     for (tool, path, expected) in &files {
-        checks.entry(tool).or_default().push(check_file(path, expected));
+        checks
+            .entry(tool)
+            .or_default()
+            .push(check_file(path, expected));
     }
     // Managed-block executors. codex + opencode both read AGENTS.md.
     let agents_md = repo_root.join("AGENTS.md");
-    checks.entry("codex").or_default().push(check_managed(&agents_md, body.as_deref()));
-    checks.entry("opencode").or_default().push(check_managed(&agents_md, body.as_deref()));
     checks
-        .entry("copilot")
+        .entry("codex")
         .or_default()
-        .push(check_managed(&repo_root.join(".github/copilot-instructions.md"), body.as_deref()));
+        .push(check_managed(&agents_md, body.as_deref()));
+    checks
+        .entry("opencode")
+        .or_default()
+        .push(check_managed(&agents_md, body.as_deref()));
+    checks.entry("copilot").or_default().push(check_managed(
+        &repo_root.join(".github/copilot-instructions.md"),
+        body.as_deref(),
+    ));
 
     let mut executors: Vec<ExecutorStatus> = TOOLS
         .iter()
@@ -512,7 +581,10 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         }
     }
 
-    Ok(ProjectionStatus { executors, source_edited_unix: newest_source_mtime(repo_root) })
+    Ok(ProjectionStatus {
+        executors,
+        source_edited_unix: newest_source_mtime(repo_root),
+    })
 }
 
 /// Generate every executor's native files from the repo's Canon sources.
@@ -1068,20 +1140,48 @@ mod tests {
         .unwrap();
         let cdir = crate::canon_dir(&repo).join("context");
         std::fs::create_dir_all(&cdir).unwrap();
-        std::fs::write(cdir.join("sbs.md"), "---\nsummary: Cite SBS.\n---\n# SBS\nfull\n").unwrap();
-        write_manifest(&repo, &CanonManifest { version: 1, installed: vec![] }).unwrap();
+        std::fs::write(
+            cdir.join("sbs.md"),
+            "---\nsummary: Cite SBS.\n---\n# SBS\nfull\n",
+        )
+        .unwrap();
+        write_manifest(
+            &repo,
+            &CanonManifest {
+                version: 1,
+                installed: vec![],
+            },
+        )
+        .unwrap();
 
         // Before projecting: everything is not_projected.
         let st = projection_status(&repo).unwrap();
-        let state = |tool: &str| st.executors.iter().find(|e| e.tool == tool).unwrap().state.clone();
+        let state = |tool: &str| {
+            st.executors
+                .iter()
+                .find(|e| e.tool == tool)
+                .unwrap()
+                .state
+                .clone()
+        };
         assert_eq!(state("claude"), ProjState::NotProjected);
         assert_eq!(state("codex"), ProjState::NotProjected);
-        assert!(st.source_edited_unix.is_some(), "sources exist → mtime present");
+        assert!(
+            st.source_edited_unix.is_some(),
+            "sources exist → mtime present"
+        );
 
         // After projecting: everything the sources touch is synced.
         project(&repo).unwrap();
         let st = projection_status(&repo).unwrap();
-        let state = |tool: &str| st.executors.iter().find(|e| e.tool == tool).unwrap().state.clone();
+        let state = |tool: &str| {
+            st.executors
+                .iter()
+                .find(|e| e.tool == tool)
+                .unwrap()
+                .state
+                .clone()
+        };
         assert_eq!(state("claude"), ProjState::Synced);
         assert_eq!(state("opencode"), ProjState::Synced);
         assert_eq!(state("codex"), ProjState::Synced);
@@ -1094,7 +1194,14 @@ mod tests {
         // Hand-edit Claude's projected agent file → claude goes stale, others stay synced.
         std::fs::write(repo.join(".claude/agents/kyc-reviewer.md"), "tampered\n").unwrap();
         let st = projection_status(&repo).unwrap();
-        let state = |tool: &str| st.executors.iter().find(|e| e.tool == tool).unwrap().state.clone();
+        let state = |tool: &str| {
+            st.executors
+                .iter()
+                .find(|e| e.tool == tool)
+                .unwrap()
+                .state
+                .clone()
+        };
         assert_eq!(state("claude"), ProjState::Stale);
         assert_eq!(state("codex"), ProjState::Synced);
 
@@ -1106,10 +1213,20 @@ mod tests {
         let base = std::env::temp_dir().join(format!("canon-status-empty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let repo = base.clone();
-        write_manifest(&repo, &CanonManifest { version: 1, installed: vec![] }).unwrap();
+        write_manifest(
+            &repo,
+            &CanonManifest {
+                version: 1,
+                installed: vec![],
+            },
+        )
+        .unwrap();
 
         let st = projection_status(&repo).unwrap();
-        assert!(st.executors.iter().all(|e| e.state == ProjState::NotProjected));
+        assert!(st
+            .executors
+            .iter()
+            .all(|e| e.state == ProjState::NotProjected));
         assert_eq!(st.source_edited_unix, None);
 
         let _ = std::fs::remove_dir_all(&base);
@@ -1119,7 +1236,10 @@ mod tests {
     fn project_commands_writes_all_three_dirs() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = tmp.path();
-        let cmds = vec![("deploy".to_string(), "---\ndescription: x\n---\nRun deploy\n".to_string())];
+        let cmds = vec![(
+            "deploy".to_string(),
+            "---\ndescription: x\n---\nRun deploy\n".to_string(),
+        )];
         project_commands(repo, &cmds).unwrap();
         assert!(repo.join(".claude/commands/deploy.md").exists());
         assert!(repo.join(".opencode/commands/deploy.md").exists());
@@ -1133,7 +1253,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let repo = tmp.path();
         std::fs::create_dir_all(repo.join(".covenant/canon/commands")).unwrap();
-        std::fs::write(repo.join(".covenant/canon/commands/deploy.md"), "Run deploy\n").unwrap();
+        std::fs::write(
+            repo.join(".covenant/canon/commands/deploy.md"),
+            "Run deploy\n",
+        )
+        .unwrap();
         project(repo).unwrap();
         // Tamper the projected claude command → claude must read stale.
         std::fs::write(repo.join(".claude/commands/deploy.md"), "tampered\n").unwrap();
@@ -1147,10 +1271,18 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let repo = tmp.path();
         std::fs::create_dir_all(repo.join(".covenant/canon/mcp")).unwrap();
-        std::fs::write(repo.join(".covenant/canon/mcp/ctx7.json"), r#"{"command":"npx"}"#).unwrap();
+        std::fs::write(
+            repo.join(".covenant/canon/mcp/ctx7.json"),
+            r#"{"command":"npx"}"#,
+        )
+        .unwrap();
         project(repo).unwrap();
         // Tamper the projected Claude MCP config.
-        std::fs::write(repo.join(".mcp.json"), r#"{"mcpServers":{"canon-ctx7":{"command":"TAMPERED"}}}"#).unwrap();
+        std::fs::write(
+            repo.join(".mcp.json"),
+            r#"{"mcpServers":{"canon-ctx7":{"command":"TAMPERED"}}}"#,
+        )
+        .unwrap();
         let st = projection_status(repo).unwrap();
         let claude = st.executors.iter().find(|e| e.tool == "claude").unwrap();
         assert_eq!(claude.state, ProjState::Stale);
@@ -1168,7 +1300,11 @@ mod tests {
         // MCP source only — project() projects the MCP config but there is no
         // managed-block content yet, so AGENTS.md is never written.
         std::fs::create_dir_all(repo.join(".covenant/canon/mcp")).unwrap();
-        std::fs::write(repo.join(".covenant/canon/mcp/ctx7.json"), r#"{"command":"npx"}"#).unwrap();
+        std::fs::write(
+            repo.join(".covenant/canon/mcp/ctx7.json"),
+            r#"{"command":"npx"}"#,
+        )
+        .unwrap();
         project(repo).unwrap();
         assert!(!repo.join("AGENTS.md").exists(), "no managed content yet");
 
@@ -1198,7 +1334,11 @@ mod tests {
         let repo = tmp.path();
         let dir = repo.join(".covenant/canon/memory");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("decision-x.md"), "---\ndescription: We chose X\n---\nbody\n").unwrap();
+        std::fs::write(
+            dir.join("decision-x.md"),
+            "---\ndescription: We chose X\n---\nbody\n",
+        )
+        .unwrap();
         project(repo).unwrap();
         let agents_md = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();
         assert!(agents_md.contains("## Memory"), "memory heading present");
@@ -1211,14 +1351,22 @@ mod tests {
         let repo = tmp.path();
         let dir = repo.join(".covenant/canon/memory");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("decision-x.md"), "---\ndescription: We chose X\n---\nbody\n").unwrap();
+        std::fs::write(
+            dir.join("decision-x.md"),
+            "---\ndescription: We chose X\n---\nbody\n",
+        )
+        .unwrap();
         project(repo).unwrap();
         // Edit the memory source WITHOUT re-projecting. The managed block in AGENTS.md
         // still says "We chose X" but the expected block now says "We chose Y" → the
         // block's START marker is present but its content differs → check_managed → Differ
         // → codex Stale. (Rewriting AGENTS.md to drop the marker entirely would instead
         // read as Missing → NotProjected, which is not what we want to assert here.)
-        std::fs::write(dir.join("decision-x.md"), "---\ndescription: We chose Y\n---\nbody\n").unwrap();
+        std::fs::write(
+            dir.join("decision-x.md"),
+            "---\ndescription: We chose Y\n---\nbody\n",
+        )
+        .unwrap();
         let st = projection_status(repo).unwrap();
         let codex = st.executors.iter().find(|e| e.tool == "codex").unwrap();
         assert_eq!(codex.state, ProjState::Stale);
@@ -1232,13 +1380,21 @@ mod tests {
         // A real installed skill (manifest + source), so projection re-creates its dir.
         let src = root.join(".covenant/canon/skills/kept");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("skill.toml"), "name = \"kept\"\nversion = \"1.0.0\"\n").unwrap();
+        std::fs::write(
+            src.join("skill.toml"),
+            "name = \"kept\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         std::fs::write(src.join("SKILL.md"), "---\nname: kept\n---\nbody\n").unwrap();
         let manifest = crate::CanonManifest {
             version: 1,
             installed: vec![crate::types::InstalledRef {
-                name: "kept".into(), version: "1.0.0".into(), source: "local:x".into(),
-                sha: "0".into(), signer: None, installed_at: "t".into(),
+                name: "kept".into(),
+                version: "1.0.0".into(),
+                source: "local:x".into(),
+                sha: "0".into(),
+                signer: None,
+                installed_at: "t".into(),
             }],
         };
         crate::write_manifest(root, &manifest).unwrap();
@@ -1251,8 +1407,17 @@ mod tests {
 
         project(root).unwrap();
 
-        assert!(!root.join(".claude/skills/canon-ghost").exists(), "stale canon dir pruned");
-        assert!(root.join(".claude/skills/canon-kept/SKILL.md").exists(), "installed skill projected");
-        assert!(root.join(".claude/skills/my-own/SKILL.md").exists(), "user dir untouched");
+        assert!(
+            !root.join(".claude/skills/canon-ghost").exists(),
+            "stale canon dir pruned"
+        );
+        assert!(
+            root.join(".claude/skills/canon-kept/SKILL.md").exists(),
+            "installed skill projected"
+        );
+        assert!(
+            root.join(".claude/skills/my-own/SKILL.md").exists(),
+            "user dir untouched"
+        );
     }
 }

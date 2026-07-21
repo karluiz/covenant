@@ -12,35 +12,34 @@
 mod acp_commands;
 mod acp_world;
 mod aom;
-mod cli_open;
 mod archetypes;
+mod beacon;
 mod browser;
-mod capabilities_commands;
 mod canon_eval;
 mod canon_miner;
 mod canon_registry;
+mod capabilities_commands;
+mod claude_statusline;
+mod cli_open;
 pub mod cloud_sync;
 mod connectivity;
 mod context;
 pub mod convergence;
 mod cost;
-mod covenant_gist;
 mod covenant_board;
+mod covenant_gist;
 mod covenant_review;
 mod cross_session;
 mod discord_presence;
 mod drafts;
 pub mod email;
 mod embedder;
-mod claude_statusline;
 mod exec_vitals;
 mod executor_idle;
-mod opencode_vitals;
 mod familiar_commands;
 mod favorites_commands;
 mod file_search;
 mod fix_proposer;
-mod beacon;
 mod git_tools;
 mod history_import;
 mod lsp_commands;
@@ -51,6 +50,7 @@ mod mission_persistence;
 pub mod notch;
 pub mod notifications;
 mod notify;
+mod opencode_vitals;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
@@ -69,8 +69,8 @@ mod score_commands;
 mod score_sync_commands;
 mod scrollback;
 pub mod settings;
-mod soul;
 mod somnus;
+mod soul;
 mod spawns_commands;
 mod spawns_store;
 mod spec_detector;
@@ -147,7 +147,8 @@ mod traffic_lights {
         size: CGSize,
     }
     unsafe impl Encode for CGRect {
-        const ENCODING: Encoding = Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
+        const ENCODING: Encoding =
+            Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
     }
 
     /// Re-apply the traffic-light inset. MUST run on the main thread. Safe to
@@ -637,7 +638,8 @@ async fn spawn_session(
     opts.env
         .push(("COVENANT_TAB".to_string(), statusline_tab.clone()));
     if let Some(orig) = claude_statusline::ClaudeStatusline::user_statusline_command() {
-        opts.env.push(("COVENANT_ORIG_STATUSLINE".to_string(), orig));
+        opts.env
+            .push(("COVENANT_ORIG_STATUSLINE".to_string(), orig));
     }
     // Persistence-restored cwd is set HERE (before spawn) instead of
     // injected as `cd <path>\r` after the first prompt. portable-pty
@@ -1405,26 +1407,27 @@ fn spawn_superpowers_watcher(app: tauri::AppHandle) {
                 })
                 .collect()
         };
-        let snapshot = |dirs: &[std::path::PathBuf]| -> std::collections::BTreeMap<std::path::PathBuf, u64> {
-            let mut out = std::collections::BTreeMap::new();
-            for d in dirs {
-                if let Ok(rd) = std::fs::read_dir(d) {
-                    for entry in rd.flatten() {
-                        let p = entry.path();
-                        if p.extension().and_then(|s| s.to_str()) == Some("md") {
-                            if let Ok(meta) = entry.metadata() {
-                                if let Ok(m) = meta.modified() {
-                                    if let Ok(dur) = m.duration_since(std::time::UNIX_EPOCH) {
-                                        out.insert(p, dur.as_millis() as u64);
+        let snapshot =
+            |dirs: &[std::path::PathBuf]| -> std::collections::BTreeMap<std::path::PathBuf, u64> {
+                let mut out = std::collections::BTreeMap::new();
+                for d in dirs {
+                    if let Ok(rd) = std::fs::read_dir(d) {
+                        for entry in rd.flatten() {
+                            let p = entry.path();
+                            if p.extension().and_then(|s| s.to_str()) == Some("md") {
+                                if let Ok(meta) = entry.metadata() {
+                                    if let Ok(m) = meta.modified() {
+                                        if let Ok(dur) = m.duration_since(std::time::UNIX_EPOCH) {
+                                            out.insert(p, dur.as_millis() as u64);
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-            out
-        };
+                out
+            };
         let mut last = snapshot(&dirs_of(&root));
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
@@ -2010,7 +2013,8 @@ fn valid_ref_seg(s: &str) -> bool {
     !s.is_empty()
         && !s.starts_with('.')
         && !s.starts_with('-')
-        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
 }
 
 /// Parse a user-pasted skills.sh ref into a safe `npx` argument vector. Accepts
@@ -2019,7 +2023,10 @@ fn valid_ref_seg(s: &str) -> bool {
 /// whitelisted so no shell metacharacter ever reaches a spawn.
 fn parse_skills_ref(input: &str) -> Result<Vec<String>, String> {
     let s = input.trim();
-    let s = s.strip_prefix("npx skills add ").map(str::trim).unwrap_or(s);
+    let s = s
+        .strip_prefix("npx skills add ")
+        .map(str::trim)
+        .unwrap_or(s);
     let mut toks = s.split_whitespace();
     let repo = toks.next().ok_or_else(|| "empty ref".to_string())?;
     let repo_ok = match repo.split_once('/') {
@@ -2037,9 +2044,13 @@ fn parse_skills_ref(input: &str) -> Result<Vec<String>, String> {
     ];
     while let Some(t) = toks.next() {
         if t != "--skill" {
-            return Err(format!("unexpected token {t:?} (only `--skill <name>` allowed)"));
+            return Err(format!(
+                "unexpected token {t:?} (only `--skill <name>` allowed)"
+            ));
         }
-        let name = toks.next().ok_or_else(|| "`--skill` needs a name".to_string())?;
+        let name = toks
+            .next()
+            .ok_or_else(|| "`--skill` needs a name".to_string())?;
         if !valid_ref_seg(name) {
             return Err(format!("invalid skill name: {name:?}"));
         }
@@ -2672,11 +2683,9 @@ async fn worktree_create(
     base: Option<String>,
 ) -> Result<String, String> {
     let root = PathBuf::from(cwd);
-    tokio::task::spawn_blocking(move || {
-        git_tools::create_worktree(&root, &slug, base.as_deref())
-    })
-    .await
-    .map_err(|e| format!("worktree_create join: {e}"))?
+    tokio::task::spawn_blocking(move || git_tools::create_worktree(&root, &slug, base.as_deref()))
+        .await
+        .map_err(|e| format!("worktree_create join: {e}"))?
 }
 
 #[tauri::command]
@@ -2686,11 +2695,9 @@ async fn worktree_retitle(
     title: String,
 ) -> Result<Option<String>, String> {
     let root = PathBuf::from(cwd);
-    tokio::task::spawn_blocking(move || {
-        git_tools::retitle_worktree_branch(&root, &path, &title)
-    })
-    .await
-    .map_err(|e| format!("worktree_retitle join: {e}"))?
+    tokio::task::spawn_blocking(move || git_tools::retitle_worktree_branch(&root, &path, &title))
+        .await
+        .map_err(|e| format!("worktree_retitle join: {e}"))?
 }
 
 #[tauri::command]
@@ -2937,13 +2944,15 @@ async fn canon_import_skill(cwd: String, skill_ref: String) -> Result<Vec<String
         cmd.env("PATH", p);
     }
     let run = tokio::time::timeout(std::time::Duration::from_secs(120), cmd.output()).await;
-    let out = match run {
-        Err(_) => {
-            return Err("import timed out after 120s — a bare repo may be prompting; add `--skill <name>`".into())
-        }
-        Ok(Err(e)) => return Err(format!("could not run npx (is Node installed?): {e}")),
-        Ok(Ok(o)) => o,
-    };
+    let out =
+        match run {
+            Err(_) => return Err(
+                "import timed out after 120s — a bare repo may be prompting; add `--skill <name>`"
+                    .into(),
+            ),
+            Ok(Err(e)) => return Err(format!("could not run npx (is Node installed?): {e}")),
+            Ok(Ok(o)) => o,
+        };
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(format!("npx skills add failed: {}", err.trim()));
@@ -3299,8 +3308,10 @@ async fn explain_changes(state: State<'_, AppState>, cwd: String) -> Result<Stri
     let mut out = text.trim().to_string();
     // Without this the explanation describes a prefix but reads as complete.
     if truncated {
-        out.push_str("\n\nThis diff was truncated before the model saw it — the explanation \
-            covers only the first part of the change set.");
+        out.push_str(
+            "\n\nThis diff was truncated before the model saw it — the explanation \
+            covers only the first part of the change set.",
+        );
     }
     Ok(out)
 }
@@ -3381,8 +3392,7 @@ async fn adopt_trial_provider(state: State<'_, AppState>) -> Result<(), String> 
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Sign in to Covenant first".to_string())?;
     let current = state.settings.lock().await.clone();
-    let next =
-        settings::build_trial_settings(current, &karl_score::auth::backend_url(), &jwt);
+    let next = settings::build_trial_settings(current, &karl_score::auth::backend_url(), &jwt);
     settings::save(&state.settings_path, &next).map_err(|e| e.to_string())?;
     *state.settings.lock().await = next;
     Ok(())
@@ -4067,7 +4077,9 @@ pub(crate) fn build_role_dispatcher(
             }))
         }
         ProviderKind::AzureFoundry => {
-            let mode = entry.azure_mode.ok_or("Azure provider missing azure_mode")?;
+            let mode = entry
+                .azure_mode
+                .ok_or("Azure provider missing azure_mode")?;
             let endpoint = entry
                 .base_url
                 .clone()
@@ -4098,7 +4110,10 @@ pub(crate) fn build_role_dispatcher(
                     )
                 }
                 AzureMode::AiInference => (
-                    format!("{}/models/chat/completions?api-version={}", base, api_version),
+                    format!(
+                        "{}/models/chat/completions?api-version={}",
+                        base, api_version
+                    ),
                     Some(model),
                 ),
             };
@@ -4370,7 +4385,10 @@ async fn search_session_files(
 fn raise_fd_limit() {
     // SAFETY: plain libc rlimit calls on a stack struct; no aliasing.
     unsafe {
-        let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let mut lim = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
         if libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) != 0 {
             return;
         }
@@ -4383,7 +4401,10 @@ fn raise_fd_limit() {
         let prev = lim.rlim_cur;
         lim.rlim_cur = target;
         if libc::setrlimit(libc::RLIMIT_NOFILE, &lim) != 0 {
-            tracing::warn!(soft = prev, "setrlimit(RLIMIT_NOFILE) failed; fd limit stays low");
+            tracing::warn!(
+                soft = prev,
+                "setrlimit(RLIMIT_NOFILE) failed; fd limit stays low"
+            );
         } else {
             tracing::info!(from = prev, to = target, "raised RLIMIT_NOFILE");
         }
@@ -5838,6 +5859,7 @@ pub fn run() {
             covenant_board::board_revoke,
             score_commands::score_set_current_session,
             score_commands::score_summary_filtered,
+            score_commands::score_skill_usage,
             score_commands::score_heatmap_filtered,
             score_commands::score_breakdown_repos,
             score_commands::score_breakdown_branches,
@@ -5973,11 +5995,28 @@ mod tests {
         );
         assert_eq!(
             super::parse_skills_ref("owner/repo --skill frontend-design").unwrap(),
-            vec!["--yes", "skills", "add", "owner/repo", "--skill", "frontend-design"]
+            vec![
+                "--yes",
+                "skills",
+                "add",
+                "owner/repo",
+                "--skill",
+                "frontend-design"
+            ]
         );
         assert_eq!(
-            super::parse_skills_ref("npx skills add vercel-labs/agent-skills --skill a --skill b").unwrap(),
-            vec!["--yes", "skills", "add", "vercel-labs/agent-skills", "--skill", "a", "--skill", "b"]
+            super::parse_skills_ref("npx skills add vercel-labs/agent-skills --skill a --skill b")
+                .unwrap(),
+            vec![
+                "--yes",
+                "skills",
+                "add",
+                "vercel-labs/agent-skills",
+                "--skill",
+                "a",
+                "--skill",
+                "b"
+            ]
         );
         // Rejects injection / traversal / stray flags.
         for bad in [
@@ -5995,7 +6034,10 @@ mod tests {
             "owner/repo --skill -x",
             "",
         ] {
-            assert!(super::parse_skills_ref(bad).is_err(), "must reject: {bad:?}");
+            assert!(
+                super::parse_skills_ref(bad).is_err(),
+                "must reject: {bad:?}"
+            );
         }
     }
 }

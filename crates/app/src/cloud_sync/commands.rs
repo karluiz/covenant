@@ -22,9 +22,7 @@ pub struct CloudSyncStatus {
 /// Calls `pull` to fetch `last_synced_ms` / `device` from the cloud.
 /// Tolerates offline or not-signed-in: fields become `None` in that case.
 #[tauri::command]
-pub async fn cloud_sync_status(
-    state: State<'_, AppState>,
-) -> Result<CloudSyncStatus, String> {
+pub async fn cloud_sync_status(state: State<'_, AppState>) -> Result<CloudSyncStatus, String> {
     let signed_in = auth::load_jwt().ok().flatten().is_some();
     let cfg = state.settings.lock().await.cloud_sync.clone();
 
@@ -62,9 +60,7 @@ pub async fn cloud_sync_set_config(
 /// frontend auto-push trigger; manual "Back up now" always works
 /// when signed in.
 #[tauri::command]
-pub async fn cloud_sync_push(
-    state: State<'_, AppState>,
-) -> Result<i64, String> {
+pub async fn cloud_sync_push(state: State<'_, AppState>) -> Result<i64, String> {
     // Build the envelope while holding the settings lock, then drop it
     // before the network call to avoid holding the lock across `.await`.
     let env = {
@@ -86,9 +82,7 @@ pub async fn cloud_sync_push(
 /// in-memory `AppState.settings` is updated so the UI reflects them
 /// without a restart.
 #[tauri::command]
-pub async fn cloud_sync_restore(
-    state: State<'_, AppState>,
-) -> Result<ApplySummary, String> {
+pub async fn cloud_sync_restore(state: State<'_, AppState>) -> Result<ApplySummary, String> {
     let env = pull()
         .await?
         .ok_or_else(|| "nothing in cloud yet".to_string())?;

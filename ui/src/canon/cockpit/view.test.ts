@@ -17,6 +17,7 @@ vi.mock("../../api", () => ({
   canonInstallRegistry: vi.fn().mockResolvedValue(undefined),
   canonInstallRegistryUnit: vi.fn(async () => undefined),
   scoreSummaryFiltered: vi.fn().mockResolvedValue({ total_tokens: 0, total_prompts: 0, total_specs: 0, total_commits: 0 }),
+  scoreSkillUsage: vi.fn().mockResolvedValue([]),
   canonEvalSummary: vi.fn().mockResolvedValue([]),
   operatorList: vi.fn(async () => [] as unknown[]),
   operatorDelete: vi.fn().mockResolvedValue(undefined),

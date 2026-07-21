@@ -44,8 +44,7 @@ pub fn render_skill_md(name: &str, findings: &[CompiledFinding]) -> String {
             out.push_str(&format!("\n### {}\n\n{}\n", f.title, f.body_md.trim()));
             if !f.evidence.is_empty() {
                 out.push_str("\nEvidence: ");
-                let refs: Vec<String> =
-                    f.evidence.iter().map(|e| format!("`{e}`")).collect();
+                let refs: Vec<String> = f.evidence.iter().map(|e| format!("`{e}`")).collect();
                 out.push_str(&refs.join(", "));
                 out.push('\n');
             }
@@ -62,7 +61,9 @@ pub fn write_skill_package(
     overwrite: bool,
 ) -> Result<PathBuf, CanonError> {
     if findings.is_empty() {
-        return Err(CanonError::InvalidPackage("no accepted findings to compile".into()));
+        return Err(CanonError::InvalidPackage(
+            "no accepted findings to compile".into(),
+        ));
     }
     if !valid_pkg_name(name) {
         return Err(CanonError::InvalidPackage(format!(
@@ -71,7 +72,9 @@ pub fn write_skill_package(
     }
     let dir = canon_dir(repo_root).join("skills").join(name);
     if dir.exists() && !overwrite {
-        return Err(CanonError::InvalidPackage(format!("skill '{name}' already exists")));
+        return Err(CanonError::InvalidPackage(format!(
+            "skill '{name}' already exists"
+        )));
     }
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("SKILL.md"), render_skill_md(name, findings))?;
@@ -185,10 +188,12 @@ mod tests {
 
     fn finding_k(cat: &str, title: &str, kind: &str) -> CompiledFinding {
         CompiledFinding {
-            category: cat.into(), title: title.into(),
+            category: cat.into(),
+            title: title.into(),
             body_md: format!("Always do {title}."),
             evidence: vec!["src/lib.rs:12".into()],
-            confidence: "high".into(), kind: kind.into(),
+            confidence: "high".into(),
+            kind: kind.into(),
         }
     }
 
@@ -202,11 +207,22 @@ mod tests {
     fn memory_writes_one_file_per_finding_with_description() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        let p1 = write_memory_entry(root, "pep-check", &finding_k("domain_rule", "PEP check", "memory")).unwrap();
-        let p2 = write_memory_entry(root, "kyc-term", &finding_k("glossary", "KYC term", "memory")).unwrap();
+        let p1 = write_memory_entry(
+            root,
+            "pep-check",
+            &finding_k("domain_rule", "PEP check", "memory"),
+        )
+        .unwrap();
+        let p2 = write_memory_entry(
+            root,
+            "kyc-term",
+            &finding_k("glossary", "KYC term", "memory"),
+        )
+        .unwrap();
         assert!(p1.ends_with("pep-check.md"));
         assert!(p2.ends_with("kyc-term.md"));
-        let pep = std::fs::read_to_string(root.join(".covenant/canon/memory/pep-check.md")).unwrap();
+        let pep =
+            std::fs::read_to_string(root.join(".covenant/canon/memory/pep-check.md")).unwrap();
         assert!(pep.contains("description: PEP check"), "frontmatter: {pep}");
         assert!(pep.contains("Always do PEP check."));
         assert!(root.join(".covenant/canon/memory/kyc-term.md").exists());
@@ -216,8 +232,18 @@ mod tests {
     fn command_and_subagent_write_to_their_dirs() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        write_command_entry(root, "run-tests", &finding_k("workflow", "Run tests", "command")).unwrap();
-        write_subagent_entry(root, "reviewer", &finding_k("convention", "Reviewer", "subagent")).unwrap();
+        write_command_entry(
+            root,
+            "run-tests",
+            &finding_k("workflow", "Run tests", "command"),
+        )
+        .unwrap();
+        write_subagent_entry(
+            root,
+            "reviewer",
+            &finding_k("convention", "Reviewer", "subagent"),
+        )
+        .unwrap();
         assert!(root.join(".covenant/canon/commands/run-tests.md").exists());
         assert!(root.join(".covenant/canon/agents/reviewer.md").exists());
     }
@@ -246,7 +272,10 @@ mod tests {
     #[test]
     fn render_includes_workflow_category() {
         let md = render_skill_md("s", &[finding_k("workflow", "run the suite", "skill")]);
-        assert!(md.contains("## Workflows"), "workflow heading present: {md}");
+        assert!(
+            md.contains("## Workflows"),
+            "workflow heading present: {md}"
+        );
         assert!(md.contains("### run the suite"));
     }
 
@@ -254,9 +283,14 @@ mod tests {
     fn write_creates_package_and_refuses_collision() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        let dir =
-            write_skill_package(root, "kyc-mined", Some("karluiz"), &[finding("domain_rule", "PEP check")], false)
-                .unwrap();
+        let dir = write_skill_package(
+            root,
+            "kyc-mined",
+            Some("karluiz"),
+            &[finding("domain_rule", "PEP check")],
+            false,
+        )
+        .unwrap();
         assert!(dir.join("SKILL.md").exists());
         let manifest: SkillManifest =
             toml::from_str(&std::fs::read_to_string(dir.join("skill.toml")).unwrap()).unwrap();
@@ -264,15 +298,27 @@ mod tests {
         assert_eq!(manifest.version, "1.0.0");
         assert_eq!(manifest.owner.as_deref(), Some("karluiz"));
         // Second write without overwrite errors; with overwrite succeeds.
-        assert!(write_skill_package(root, "kyc-mined", None, &[finding("pattern", "x")], false).is_err());
-        assert!(write_skill_package(root, "kyc-mined", None, &[finding("pattern", "x")], true).is_ok());
+        assert!(
+            write_skill_package(root, "kyc-mined", None, &[finding("pattern", "x")], false)
+                .is_err()
+        );
+        assert!(
+            write_skill_package(root, "kyc-mined", None, &[finding("pattern", "x")], true).is_ok()
+        );
     }
 
     #[test]
     fn write_rejects_empty_findings_and_bad_names() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(write_skill_package(tmp.path(), "ok-name", None, &[], false).is_err());
-        assert!(write_skill_package(tmp.path(), "Bad Name!", None, &[finding("pattern", "x")], false).is_err());
+        assert!(write_skill_package(
+            tmp.path(),
+            "Bad Name!",
+            None,
+            &[finding("pattern", "x")],
+            false
+        )
+        .is_err());
     }
 
     #[test]
@@ -285,7 +331,10 @@ mod tests {
         }
         let dir = tmp.join(".covenant/canon/memory");
         let n = std::fs::read_dir(&dir).unwrap().count();
-        assert_eq!(n, 1, "writing the same slug repeatedly must not accumulate -2/-3");
+        assert_eq!(
+            n, 1,
+            "writing the same slug repeatedly must not accumulate -2/-3"
+        );
         assert!(dir.join("use-tabs.md").exists());
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -308,7 +357,11 @@ mod tests {
     fn empty_slug_is_rejected_not_renamed() {
         let tmp = tempfile::tempdir().unwrap();
         let f = finding("convention", "Use tabs");
-        for w in [write_memory_entry, write_command_entry, write_subagent_entry] {
+        for w in [
+            write_memory_entry,
+            write_command_entry,
+            write_subagent_entry,
+        ] {
             assert!(w(tmp.path(), "", &f).is_err(), "empty slug must not write");
         }
         // Nothing was created on the way to the error.
@@ -322,6 +375,8 @@ mod tests {
     #[test]
     fn empty_skill_name_is_rejected() {
         let tmp = tempfile::tempdir().unwrap();
-        assert!(write_skill_package(tmp.path(), "", None, &[finding("pattern", "x")], true).is_err());
+        assert!(
+            write_skill_package(tmp.path(), "", None, &[finding("pattern", "x")], true).is_err()
+        );
     }
 }

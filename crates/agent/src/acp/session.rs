@@ -78,18 +78,13 @@ impl AcpSpawnOpts {
                     cwd,
                     program: None,
                     extra_args: Vec::new(),
-                    agent_args: Some(vec![
-                        "--acp".to_string(),
-                        "--add-dir".to_string(),
-                        cwd_arg,
-                    ]),
+                    agent_args: Some(vec!["--acp".to_string(), "--add-dir".to_string(), cwd_arg]),
                     env: Vec::new(),
                 })
             }
             "pi" => {
                 let path = augmented_path(std::env::var_os("PATH"));
-                let (program, extra_args) = match find_program_on_path("pi-acp", path.as_deref())
-                {
+                let (program, extra_args) = match find_program_on_path("pi-acp", path.as_deref()) {
                     Some(p) => (p, Vec::new()),
                     // ponytail: unpinned npx fallback — first run pays the
                     // package download; pin a version if that gets flaky.
@@ -342,14 +337,7 @@ impl AcpSession {
 
         let writer_handle = tokio::spawn(write_loop(stdin, stdin_rx, alive.clone()));
         let reader_handle = tokio::spawn(read_loop(
-            stdout,
-            events_tx,
-            pending,
-            stdin_tx,
-            resolver,
-            alive,
-            parked,
-            next_perm,
+            stdout, events_tx, pending, stdin_tx, resolver, alive, parked, next_perm,
         ));
         let stderr_handle = tokio::spawn(stderr_loop(stderr, stderr_buf));
         *session.writer.lock().await = Some(writer_handle);
@@ -430,10 +418,7 @@ impl AcpSession {
         let mut line = serde_json::to_vec(&frame)?;
         line.push(b'\n');
         debug_assert!(!line.is_empty()); // empty = write_loop close sentinel
-        self.stdin_tx
-            .send(line)
-            .await
-            .map_err(|_| AcpError::Closed)
+        self.stdin_tx.send(line).await.map_err(|_| AcpError::Closed)
     }
 
     /// Answer a permission request previously parked by
@@ -539,11 +524,8 @@ impl AcpSession {
         // if the queue is wedged or the writer is already gone, fall
         // through — the abort fallback (and ultimately the child kill)
         // still closes stdin.
-        let sentinel = tokio::time::timeout(
-            Duration::from_millis(500),
-            self.stdin_tx.send(Vec::new()),
-        )
-        .await;
+        let sentinel =
+            tokio::time::timeout(Duration::from_millis(500), self.stdin_tx.send(Vec::new())).await;
         if !matches!(sentinel, Ok(Ok(()))) {
             tracing::warn!(
                 timeout_ms = 500,
@@ -867,8 +849,8 @@ async fn handle_agent_request(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::protocol::SessionUpdate;
+    use super::*;
     use std::sync::Mutex as StdMutex;
 
     fn spawn_opts(script: &str) -> AcpSpawnOpts {
@@ -890,7 +872,11 @@ mod tests {
         let copilot_args = c.agent_args.expect("copilot profile is explicit");
         assert_eq!(
             copilot_args,
-            vec!["--acp".to_string(), "--add-dir".to_string(), cwd.to_string_lossy().into_owned()]
+            vec![
+                "--acp".to_string(),
+                "--add-dir".to_string(),
+                cwd.to_string_lossy().into_owned()
+            ]
         );
         assert!(
             !copilot_args.iter().any(|a| a == "--allow-all-tools"),
@@ -1007,7 +993,10 @@ case "$answer" in *'"id":77'*'allow_once'*) printf '{"jsonrpc":"2.0","method":"s
         .expect("request() must not hang once the session is dead");
 
         assert!(
-            matches!(result, Err(AcpError::Closed) | Err(AcpError::ResponseCancelled)),
+            matches!(
+                result,
+                Err(AcpError::Closed) | Err(AcpError::ResponseCancelled)
+            ),
             "unexpected result: {result:?}"
         );
 
@@ -1067,20 +1056,36 @@ read answer
 case "$answer" in *'"id":88'*'allow_once'*) printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"granted"}}}}\n';; esac
 "#;
         let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
-        let session = AcpSession::spawn(spawn_opts(script), resolver).await.expect("spawn");
+        let session = AcpSession::spawn(spawn_opts(script), resolver)
+            .await
+            .expect("spawn");
         let mut events = session.events();
-        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
+        let _ = session
+            .request("initialize", serde_json::json!({}))
+            .await
+            .expect("init");
 
         let pending = tokio::time::timeout(Duration::from_secs(3), events.recv())
-            .await.expect("timely").expect("recv");
-        let AcpSessionEvent::PermissionPending { request_key, request } = pending else {
+            .await
+            .expect("timely")
+            .expect("recv");
+        let AcpSessionEvent::PermissionPending {
+            request_key,
+            request,
+        } = pending
+        else {
             panic!("expected PermissionPending, got {pending:?}");
         };
         assert_eq!(request.tool_call.command(), Some("git push"));
 
-        session.respond_permission(&request_key, "allow_once").await.expect("respond");
+        session
+            .respond_permission(&request_key, "allow_once")
+            .await
+            .expect("respond");
         let after = tokio::time::timeout(Duration::from_secs(3), events.recv())
-            .await.expect("timely — answer never reached agent").expect("recv");
+            .await
+            .expect("timely — answer never reached agent")
+            .expect("recv");
         match after {
             AcpSessionEvent::Update(n) => match n.update {
                 SessionUpdate::AgentMessageChunk { content } => {
@@ -1104,15 +1109,29 @@ read answer
 case "$answer" in *'"cancelled"'*) printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"saw-cancel"}}}}\n';; esac
 "#;
         let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
-        let session = AcpSession::spawn(spawn_opts(script), resolver).await.expect("spawn");
+        let session = AcpSession::spawn(spawn_opts(script), resolver)
+            .await
+            .expect("spawn");
         let mut events = session.events();
-        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
+        let _ = session
+            .request("initialize", serde_json::json!({}))
+            .await
+            .expect("init");
         let pending = tokio::time::timeout(Duration::from_secs(3), events.recv())
-            .await.expect("timely").expect("recv");
-        let AcpSessionEvent::PermissionPending { request_key, .. } = pending else { panic!() };
-        session.respond_permission(&request_key, "").await.expect("respond");
+            .await
+            .expect("timely")
+            .expect("recv");
+        let AcpSessionEvent::PermissionPending { request_key, .. } = pending else {
+            panic!()
+        };
+        session
+            .respond_permission(&request_key, "")
+            .await
+            .expect("respond");
         let after = tokio::time::timeout(Duration::from_secs(3), events.recv())
-            .await.expect("timely").expect("recv");
+            .await
+            .expect("timely")
+            .expect("recv");
         assert!(matches!(after, AcpSessionEvent::Update(_)));
         session.shutdown(Duration::from_secs(2)).await;
     }
@@ -1124,9 +1143,16 @@ case "$answer" in *'"cancelled"'*) printf '{"jsonrpc":"2.0","method":"session/up
 printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
 sleep 5"#;
         let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
-        let session = AcpSession::spawn(spawn_opts(script), resolver).await.expect("spawn");
-        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
-        let err = session.respond_permission("perm-999", "allow_once").await
+        let session = AcpSession::spawn(spawn_opts(script), resolver)
+            .await
+            .expect("spawn");
+        let _ = session
+            .request("initialize", serde_json::json!({}))
+            .await
+            .expect("init");
+        let err = session
+            .respond_permission("perm-999", "allow_once")
+            .await
             .expect_err("unknown key must error");
         assert!(matches!(err, AcpError::Rpc(_)));
         session.shutdown(Duration::from_secs(2)).await;
@@ -1159,9 +1185,14 @@ case "$answer" in *cancelled*) : > "__MARKER__";; esac
         .replace("__MARKER__", &marker.display().to_string());
 
         let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
-        let session = AcpSession::spawn(spawn_opts(&script), resolver).await.expect("spawn");
+        let session = AcpSession::spawn(spawn_opts(&script), resolver)
+            .await
+            .expect("spawn");
         let mut events = session.events();
-        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
+        let _ = session
+            .request("initialize", serde_json::json!({}))
+            .await
+            .expect("init");
         let pending = tokio::time::timeout(Duration::from_secs(3), events.recv())
             .await
             .expect("timely")
@@ -1226,9 +1257,14 @@ printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
 printf '{"jsonrpc":"2.0","id":91,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"t1","kind":"execute","rawInput":{"command":"ls"}},"options":[{"optionId":"allow_once","kind":"allow_once"}]}}\n'
 "#;
         let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
-        let session = AcpSession::spawn(spawn_opts(script), resolver).await.expect("spawn");
+        let session = AcpSession::spawn(spawn_opts(script), resolver)
+            .await
+            .expect("spawn");
         let mut events = session.events();
-        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
+        let _ = session
+            .request("initialize", serde_json::json!({}))
+            .await
+            .expect("init");
         let pending = tokio::time::timeout(Duration::from_secs(3), events.recv())
             .await
             .expect("timely")

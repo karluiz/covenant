@@ -469,12 +469,19 @@ impl Settings {
     }
 
     pub fn acp_executor(&self, executor: &str) -> AcpExecutorConfig {
-        self.acp_executors.get(executor).cloned().unwrap_or_else(|| AcpExecutorConfig {
-            // Copilot ACP tabs have always launched --allow-all-tools;
-            // keep that status quo until the user says otherwise.
-            trust: if executor == "copilot" { AcpTrust::Yolo } else { AcpTrust::Balanced },
-            ..AcpExecutorConfig::default()
-        })
+        self.acp_executors
+            .get(executor)
+            .cloned()
+            .unwrap_or_else(|| AcpExecutorConfig {
+                // Copilot ACP tabs have always launched --allow-all-tools;
+                // keep that status quo until the user says otherwise.
+                trust: if executor == "copilot" {
+                    AcpTrust::Yolo
+                } else {
+                    AcpTrust::Balanced
+                },
+                ..AcpExecutorConfig::default()
+            })
     }
 }
 
@@ -1181,12 +1188,19 @@ mod tests {
 
     #[test]
     fn trial_adoption_wires_provider_and_all_routes() {
-        let s = build_trial_settings(Settings::default(), "https://forge.covenant.uno/", "jwt.abc");
+        let s = build_trial_settings(
+            Settings::default(),
+            "https://forge.covenant.uno/",
+            "jwt.abc",
+        );
         let p = s.providers.get(TRIAL_PROVIDER_ID).expect("trial provider");
         assert!(matches!(p.kind, ProviderKind::Anthropic));
         assert_eq!(p.api_key.as_deref(), Some("jwt.abc"));
         // Trailing slash trimmed; /trial appended (no double slash).
-        assert_eq!(p.base_url.as_deref(), Some("https://forge.covenant.uno/trial"));
+        assert_eq!(
+            p.base_url.as_deref(),
+            Some("https://forge.covenant.uno/trial")
+        );
         for role in [
             Role::Summary,
             Role::Chat,

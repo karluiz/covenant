@@ -201,3 +201,44 @@ fn summary_includes_tokens_and_specs() {
     assert_eq!(s.total_specs, 1);
     karl_score::clear_recorder_for_test();
 }
+
+#[test]
+fn skill_usage_counts_per_unit_strips_prefix_and_honors_group_filter() {
+    let d = tempfile::tempdir().unwrap();
+    let s = ScoreStore::open(d.path()).unwrap();
+    let t = 1_700_000_000_000;
+    let use_in = |group: &str, name: &str| {
+        s.append_with_context(
+            t,
+            EventKind::SkillUse,
+            &format!("skill:{name}"),
+            None,
+            &Context {
+                repo: None,
+                branch: None,
+                group_name: Some(group.into()),
+                workspace: None,
+            },
+        )
+        .unwrap()
+    };
+    use_in("a", "kyc");
+    use_in("a", "kyc");
+    use_in("a", "pty-conventions");
+    use_in("b", "kyc");
+    // A prompt must never leak into the usage breakdown.
+    seed(&s, t, EventKind::Prompt, "kt", "n", Some("a"));
+
+    let all = s.skill_usage(&ScoreFilter::default()).unwrap();
+    assert_eq!(all.len(), 2, "one row per unit, prompts excluded");
+    assert_eq!(all[0].skill, "kyc", "sorted most-used first");
+    assert_eq!(all[0].uses, 3);
+
+    let group_a = s
+        .skill_usage(&ScoreFilter {
+            group_name: Some("a".into()),
+            ..ScoreFilter::default()
+        })
+        .unwrap();
+    assert_eq!(group_a.iter().find(|r| r.skill == "kyc").unwrap().uses, 2);
+}

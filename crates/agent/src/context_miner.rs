@@ -9,8 +9,14 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const CATEGORIES: &[&str] =
-    &["convention", "pattern", "gotcha", "domain_rule", "glossary", "workflow"];
+pub const CATEGORIES: &[&str] = &[
+    "convention",
+    "pattern",
+    "gotcha",
+    "domain_rule",
+    "glossary",
+    "workflow",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -553,7 +559,10 @@ mod tests {
     }
 
     async fn run(turns: Vec<ModelTurn>) -> (Vec<CrawlUnit>, Vec<MinerEvent>) {
-        let d = Scripted { turns: Mutex::new(turns), calls: AtomicUsize::new(0) };
+        let d = Scripted {
+            turns: Mutex::new(turns),
+            calls: AtomicUsize::new(0),
+        };
         let sink = Collect(Mutex::new(vec![]));
         let cancel = AtomicBool::new(false);
         let out = run_miner(
@@ -580,14 +589,23 @@ mod tests {
                 text: String::new(),
                 emitted_spec: None,
             },
-            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+            ModelTurn {
+                tool_calls: vec![],
+                text: "done".into(),
+                emitted_spec: None,
+            },
         ])
         .await;
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].unit.kind, "skill");
         assert_eq!(units[0].findings.len(), 1);
-        assert_eq!(units[0].findings[0].kind, "skill", "finding inherits unit kind");
-        assert!(evs.iter().any(|e| matches!(e, MinerEvent::UnitProposed { .. })));
+        assert_eq!(
+            units[0].findings[0].kind, "skill",
+            "finding inherits unit kind"
+        );
+        assert!(evs
+            .iter()
+            .any(|e| matches!(e, MinerEvent::UnitProposed { .. })));
     }
 
     #[tokio::test]
@@ -598,7 +616,11 @@ mod tests {
                 text: String::new(),
                 emitted_spec: None,
             },
-            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+            ModelTurn {
+                tool_calls: vec![],
+                text: "done".into(),
+                emitted_spec: None,
+            },
         ])
         .await;
         assert!(units.is_empty());
@@ -622,7 +644,11 @@ mod tests {
                 text: String::new(),
                 emitted_spec: None,
             },
-            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+            ModelTurn {
+                tool_calls: vec![],
+                text: "done".into(),
+                emitted_spec: None,
+            },
         ])
         .await;
         assert_eq!(units.len(), 1);
@@ -647,7 +673,11 @@ mod tests {
                 text: String::new(),
                 emitted_spec: None,
             },
-            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+            ModelTurn {
+                tool_calls: vec![],
+                text: "done".into(),
+                emitted_spec: None,
+            },
         ])
         .await;
         assert_eq!(units.len(), 1);
@@ -669,13 +699,20 @@ mod tests {
                 text: String::new(),
                 emitted_spec: None,
             },
-            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+            ModelTurn {
+                tool_calls: vec![],
+                text: "done".into(),
+                emitted_spec: None,
+            },
         ])
         .await;
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].findings.len(), 1);
         assert_eq!(units[0].findings[0].title, "first");
-        assert_eq!(units[0].findings[0].kind, "memory", "finding inherits unit kind, not category default");
+        assert_eq!(
+            units[0].findings[0].kind, "memory",
+            "finding inherits unit kind, not category default"
+        );
     }
 
     /// A defect from Task 3: a name that is entirely punctuation (e.g. "!!!")
@@ -690,7 +727,11 @@ mod tests {
                 text: String::new(),
                 emitted_spec: None,
             },
-            ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+            ModelTurn {
+                tool_calls: vec![],
+                text: "done".into(),
+                emitted_spec: None,
+            },
         ])
         .await;
         assert!(units.is_empty());
@@ -716,8 +757,14 @@ mod tests {
 
     #[test]
     fn parse_unit_rejects_empty_name_or_summary() {
-        assert!(parse_unit(&serde_json::json!({ "kind": "skill", "name": "  ", "summary": "y" })).is_none());
-        assert!(parse_unit(&serde_json::json!({ "kind": "skill", "name": "x", "summary": " " })).is_none());
+        assert!(
+            parse_unit(&serde_json::json!({ "kind": "skill", "name": "  ", "summary": "y" }))
+                .is_none()
+        );
+        assert!(
+            parse_unit(&serde_json::json!({ "kind": "skill", "name": "x", "summary": " " }))
+                .is_none()
+        );
     }
 
     #[test]
@@ -742,17 +789,36 @@ mod tests {
         };
         let d = Scripted {
             turns: Mutex::new(vec![
-                ModelTurn { tool_calls: vec![bad], text: String::new(), emitted_spec: None },
-                ModelTurn { tool_calls: vec![], text: "done".into(), emitted_spec: None },
+                ModelTurn {
+                    tool_calls: vec![bad],
+                    text: String::new(),
+                    emitted_spec: None,
+                },
+                ModelTurn {
+                    tool_calls: vec![],
+                    text: "done".into(),
+                    emitted_spec: None,
+                },
             ]),
             calls: AtomicUsize::new(0),
         };
         let sink = Collect(Mutex::new(vec![]));
-        let out = run_miner(&d, std::env::temp_dir().as_path(), &MinerOpts::default_for("t"), &AtomicBool::new(false), &sink)
-            .await
-            .unwrap();
+        let out = run_miner(
+            &d,
+            std::env::temp_dir().as_path(),
+            &MinerOpts::default_for("t"),
+            &AtomicBool::new(false),
+            &sink,
+        )
+        .await
+        .unwrap();
         assert!(out.is_empty());
-        assert!(!sink.0.lock().unwrap().iter().any(|e| matches!(e, MinerEvent::Finding { .. })));
+        assert!(!sink
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e, MinerEvent::Finding { .. })));
     }
 
     #[tokio::test]
@@ -770,12 +836,25 @@ mod tests {
         // Flip cancel via the sink: after the first Finding event, cancel.
         // (Simplest deterministic hook: pre-set cancel and assert zero turns.)
         cancel.store(true, Ordering::SeqCst);
-        let out = run_miner(&d, std::env::temp_dir().as_path(), &MinerOpts::default_for("t"), &cancel, &sink)
-            .await
-            .unwrap();
+        let out = run_miner(
+            &d,
+            std::env::temp_dir().as_path(),
+            &MinerOpts::default_for("t"),
+            &cancel,
+            &sink,
+        )
+        .await
+        .unwrap();
         assert!(out.is_empty());
-        assert_eq!(d.calls.load(Ordering::SeqCst), 0, "cancel checked before first turn");
-        assert!(matches!(sink.0.lock().unwrap().last().unwrap(), MinerEvent::RunDone { stopped: true, .. }));
+        assert_eq!(
+            d.calls.load(Ordering::SeqCst),
+            0,
+            "cancel checked before first turn"
+        );
+        assert!(matches!(
+            sink.0.lock().unwrap().last().unwrap(),
+            MinerEvent::RunDone { stopped: true, .. }
+        ));
     }
 
     /// Always returns a turn with one INVALID emit_finding call, so neither
@@ -820,7 +899,10 @@ mod tests {
         assert!(out.is_empty());
         assert!(matches!(
             sink.0.lock().unwrap().last().unwrap(),
-            MinerEvent::RunDone { findings_total: 0, stopped: true }
+            MinerEvent::RunDone {
+                findings_total: 0,
+                stopped: true
+            }
         ));
     }
 
@@ -906,7 +988,10 @@ mod tests {
     async fn smoke_real_miner() {
         let key = match std::env::var("ANTHROPIC_API_KEY") {
             Ok(k) => k,
-            Err(_) => { eprintln!("no key; skipping"); return; }
+            Err(_) => {
+                eprintln!("no key; skipping");
+                return;
+            }
         };
         let dispatcher = crate::spec_author::stream::AnthropicStreamingDispatcher {
             api_key: key,
@@ -915,16 +1000,26 @@ mod tests {
         };
         struct Print;
         impl MinerSink for Print {
-            fn emit(&self, e: MinerEvent) { eprintln!("{e:?}"); }
+            fn emit(&self, e: MinerEvent) {
+                eprintln!("{e:?}");
+            }
         }
-        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf();
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
         let mut opts = MinerOpts::default_for("rust error-handling conventions");
         opts.max_findings = 5;
         opts.max_tool_calls = 20;
-        let out = run_miner(&dispatcher, &repo, &opts, &AtomicBool::new(false), &Print).await.unwrap();
+        let out = run_miner(&dispatcher, &repo, &opts, &AtomicBool::new(false), &Print)
+            .await
+            .unwrap();
         assert!(!out.is_empty(), "expected at least one unit");
         assert!(
-            out.iter().all(|u| u.findings.iter().all(|f| !f.evidence.is_empty())),
+            out.iter()
+                .all(|u| u.findings.iter().all(|f| !f.evidence.is_empty())),
             "findings must cite evidence"
         );
     }

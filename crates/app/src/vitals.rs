@@ -407,7 +407,12 @@ impl VitalsHandle {
         self.record_started_inner(session, model, true)
     }
 
-    fn record_started_inner(&self, session: SessionId, model: String, executor: bool) -> CallHandle {
+    fn record_started_inner(
+        &self,
+        session: SessionId,
+        model: String,
+        executor: bool,
+    ) -> CallHandle {
         let started = now_unix_ms();
         let _ = self.tx.send(VitalsEvent::CallStarted {
             session,

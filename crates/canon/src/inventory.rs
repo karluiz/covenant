@@ -135,7 +135,11 @@ mod tests {
         // file, and that must never be reported as `New`.
         let tmp = std::env::temp_dir().join(format!("canon-inv3-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        let blocked_dir = tmp.join(".covenant").join("canon").join("memory").join("blocked.md");
+        let blocked_dir = tmp
+            .join(".covenant")
+            .join("canon")
+            .join("memory")
+            .join("blocked.md");
         std::fs::create_dir_all(&blocked_dir).unwrap();
 
         assert_eq!(

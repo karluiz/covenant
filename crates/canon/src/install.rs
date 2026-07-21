@@ -175,13 +175,22 @@ pub fn read_skill_package(
 /// Raw source markdown for a single context unit. Path-traversal safe.
 pub fn read_source(repo_root: &Path, kind: ContextKind, name: &str) -> Result<String, CanonError> {
     if !valid_pkg_name(name) {
-        return Err(CanonError::InvalidPackage(format!("invalid name: {name:?}")));
+        return Err(CanonError::InvalidPackage(format!(
+            "invalid name: {name:?}"
+        )));
     }
     let path = match kind {
         ContextKind::Spec => repo_root.join("docs/specs").join(format!("{name}.md")),
-        ContextKind::Skill => canon_dir(repo_root).join(kind.dir()).join(name).join("SKILL.md"),
-        ContextKind::Mcp => canon_dir(repo_root).join(kind.dir()).join(format!("{name}.json")),
-        _ => canon_dir(repo_root).join(kind.dir()).join(format!("{name}.md")),
+        ContextKind::Skill => canon_dir(repo_root)
+            .join(kind.dir())
+            .join(name)
+            .join("SKILL.md"),
+        ContextKind::Mcp => canon_dir(repo_root)
+            .join(kind.dir())
+            .join(format!("{name}.json")),
+        _ => canon_dir(repo_root)
+            .join(kind.dir())
+            .join(format!("{name}.md")),
     };
     match std::fs::read_to_string(&path) {
         Ok(s) => Ok(s),
@@ -205,7 +214,9 @@ fn detected_path(repo_root: &Path, kind: ContextKind, name: &str) -> Option<std:
         ContextKind::Command => (COMMAND_DIRS, format!("{name}.md")),
         _ => return None,
     };
-    dirs.iter().map(|d| repo_root.join(d).join(&rel)).find(|p| p.is_file())
+    dirs.iter()
+        .map(|d| repo_root.join(d).join(&rel))
+        .find(|p| p.is_file())
 }
 
 fn write_lock(repo_root: &Path, m: &CanonManifest) -> Result<(), CanonError> {
@@ -224,7 +235,10 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
     let agents = units
         .iter()
         .filter(|u| u.kind == crate::ContextKind::Agent)
-        .map(|u| AgentRef { name: u.name.clone(), detected_in: u.detected_in.clone() })
+        .map(|u| AgentRef {
+            name: u.name.clone(),
+            detected_in: u.detected_in.clone(),
+        })
         .collect();
     let contexts = units
         .iter()
@@ -254,7 +268,10 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
         })
         .collect();
     // … plus detected MCP from list_context (avoids double-counting managed ones).
-    for u in units.iter().filter(|u| u.kind == crate::ContextKind::Mcp && u.detected_in.is_some()) {
+    for u in units
+        .iter()
+        .filter(|u| u.kind == crate::ContextKind::Mcp && u.detected_in.is_some())
+    {
         mcp.push(McpRef {
             name: u.name.clone(),
             description: u.summary.clone(),
@@ -313,7 +330,9 @@ pub fn install_unit(
     content: &str,
 ) -> Result<(), CanonError> {
     if !valid_pkg_name(name) {
-        return Err(CanonError::InvalidPackage(format!("invalid name: {name:?}")));
+        return Err(CanonError::InvalidPackage(format!(
+            "invalid name: {name:?}"
+        )));
     }
     let ext = match kind {
         ContextKind::Agent | ContextKind::Command | ContextKind::Context => "md",
@@ -341,17 +360,23 @@ pub fn install_unit(
 /// name is invalid or the skill isn't installed.
 pub fn uninstall_skill(repo_root: &Path, name: &str) -> Result<(), CanonError> {
     if !valid_pkg_name(name) {
-        return Err(CanonError::InvalidPackage(format!("invalid skill name: {name:?}")));
+        return Err(CanonError::InvalidPackage(format!(
+            "invalid skill name: {name:?}"
+        )));
     }
     let skills_root = canon_dir(repo_root).join("skills");
     let dest = skills_root.join(name);
     if !dest.starts_with(&skills_root) {
-        return Err(CanonError::InvalidPackage(format!("skill path escapes skills dir: {name:?}")));
+        return Err(CanonError::InvalidPackage(format!(
+            "skill path escapes skills dir: {name:?}"
+        )));
     }
     let mut manifest = read_manifest(repo_root)?;
     let had_entry = manifest.installed.iter().any(|i| i.name == name);
     if !dest.exists() && !had_entry {
-        return Err(CanonError::InvalidPackage(format!("skill not installed: {name}")));
+        return Err(CanonError::InvalidPackage(format!(
+            "skill not installed: {name}"
+        )));
     }
     if dest.exists() {
         std::fs::remove_dir_all(&dest)?;
@@ -430,9 +455,12 @@ pub fn adopt(repo_root: &Path, kind: ContextKind, name: &str) -> Result<(), Cano
             } else {
                 "0.0.0".to_string()
             };
-            std::fs::write(&toml_path, format!("name = \"{slug}\"\nversion = \"{version}\"\n"))?;
+            std::fs::write(
+                &toml_path,
+                format!("name = \"{slug}\"\nversion = \"{version}\"\n"),
+            )?;
             install_from_dir(repo_root, &foreign, "detected")?; // copies + manifest + project
-            // Remove the foreign un-prefixed dup in every skill dir.
+                                                                // Remove the foreign un-prefixed dup in every skill dir.
             for sdir in SKILL_DIRS {
                 let dup = repo_root.join(sdir).join(name);
                 if dup.exists() {
@@ -442,7 +470,9 @@ pub fn adopt(repo_root: &Path, kind: ContextKind, name: &str) -> Result<(), Cano
             project(repo_root)?;
         }
         ContextKind::Context | ContextKind::Spec | ContextKind::Memory => {
-            return Err(CanonError::InvalidPackage(format!("{kind:?} is not adoptable")));
+            return Err(CanonError::InvalidPackage(format!(
+                "{kind:?} is not adoptable"
+            )));
         }
     }
     Ok(())
@@ -597,7 +627,10 @@ mod tests {
         let s = status(root).unwrap();
         assert_eq!(s.commands.len(), 1);
         assert_eq!(s.commands[0].name, "review");
-        assert_eq!(s.commands[0].description.as_deref(), Some("Review the diff"));
+        assert_eq!(
+            s.commands[0].description.as_deref(),
+            Some("Review the diff")
+        );
     }
 
     #[test]
@@ -611,8 +644,14 @@ mod tests {
         std::fs::create_dir_all(canon.join("context")).unwrap();
         std::fs::write(canon.join("context/kyc.md"), "CTX BODY").unwrap();
 
-        assert_eq!(read_source(root, ContextKind::Agent, "reviewer").unwrap(), "PERSONA BODY");
-        assert_eq!(read_source(root, ContextKind::Context, "kyc").unwrap(), "CTX BODY");
+        assert_eq!(
+            read_source(root, ContextKind::Agent, "reviewer").unwrap(),
+            "PERSONA BODY"
+        );
+        assert_eq!(
+            read_source(root, ContextKind::Context, "kyc").unwrap(),
+            "CTX BODY"
+        );
         assert!(read_source(root, ContextKind::Agent, "../etc/passwd").is_err());
     }
 
@@ -657,7 +696,11 @@ mod tests {
         let root = tmp.path();
         let dir = root.join(".covenant/canon/mcp");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("ctx7.json"), r#"{"command":"npx","description":"C7"}"#).unwrap();
+        std::fs::write(
+            dir.join("ctx7.json"),
+            r#"{"command":"npx","description":"C7"}"#,
+        )
+        .unwrap();
         let s = status(root).unwrap();
         assert_eq!(s.mcp.len(), 1);
         assert_eq!(s.mcp[0].name, "ctx7");
@@ -683,7 +726,11 @@ mod tests {
         let root = tmp.path();
         let dir = root.join(".covenant/canon/memory");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("pref-z.md"), "---\ndescription: User prefers Z\n---\nbody\n").unwrap();
+        std::fs::write(
+            dir.join("pref-z.md"),
+            "---\ndescription: User prefers Z\n---\nbody\n",
+        )
+        .unwrap();
         let s = status(root).unwrap();
         assert_eq!(s.memory.len(), 1);
         assert_eq!(s.memory[0].name, "pref-z");
@@ -695,14 +742,29 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         std::fs::create_dir_all(root.join(".claude/agents")).unwrap();
-        std::fs::write(root.join(".claude/agents/foo.md"), "---\nname: foo\n---\nb\n").unwrap();
+        std::fs::write(
+            root.join(".claude/agents/foo.md"),
+            "---\nname: foo\n---\nb\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(root.join(".claude/skills/kyc")).unwrap();
-        std::fs::write(root.join(".claude/skills/kyc/SKILL.md"), "---\nname: kyc\n---\nb\n").unwrap();
+        std::fs::write(
+            root.join(".claude/skills/kyc/SKILL.md"),
+            "---\nname: kyc\n---\nb\n",
+        )
+        .unwrap();
 
         let st = status(root).unwrap();
-        let foo = st.agents.iter().find(|a| a.name == "foo").expect("detected agent listed");
+        let foo = st
+            .agents
+            .iter()
+            .find(|a| a.name == "foo")
+            .expect("detected agent listed");
         assert_eq!(foo.detected_in.as_deref(), Some(".claude/agents"));
-        assert!(st.detected_skills.iter().any(|s| s.name == "kyc"), "detected skill listed");
+        assert!(
+            st.detected_skills.iter().any(|s| s.name == "kyc"),
+            "detected skill listed"
+        );
     }
 
     #[test]
@@ -719,16 +781,32 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
-        install_unit(root, crate::ContextKind::Command, "deploy", "---\ndescription: d\n---\nbody\n").unwrap();
+        install_unit(
+            root,
+            crate::ContextKind::Command,
+            "deploy",
+            "---\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
         assert!(root.join(".covenant/canon/commands/deploy.md").exists());
 
-        install_unit(root, crate::ContextKind::Mcp, "ctx7", r#"{"command":"npx","env":{"K":""}}"#).unwrap();
+        install_unit(
+            root,
+            crate::ContextKind::Mcp,
+            "ctx7",
+            r#"{"command":"npx","env":{"K":""}}"#,
+        )
+        .unwrap();
         assert!(root.join(".covenant/canon/mcp/ctx7.json").exists());
 
         // Installed units appear in list_context.
         let units = crate::list_context(root).unwrap();
-        assert!(units.iter().any(|u| u.kind == crate::ContextKind::Command && u.name == "deploy"));
-        assert!(units.iter().any(|u| u.kind == crate::ContextKind::Mcp && u.name == "ctx7"));
+        assert!(units
+            .iter()
+            .any(|u| u.kind == crate::ContextKind::Command && u.name == "deploy"));
+        assert!(units
+            .iter()
+            .any(|u| u.kind == crate::ContextKind::Mcp && u.name == "ctx7"));
     }
 
     #[test]
@@ -749,7 +827,11 @@ mod tests {
         let root = tmp.path();
         let pkg = root.join("pkg");
         std::fs::create_dir_all(&pkg).unwrap();
-        std::fs::write(pkg.join("skill.toml"), "name = \"kyc\"\nversion = \"1.0.0\"\n").unwrap();
+        std::fs::write(
+            pkg.join("skill.toml"),
+            "name = \"kyc\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         std::fs::write(pkg.join("SKILL.md"), "---\nname: kyc\n---\nx\n").unwrap();
         install_from_dir(root, &pkg, "local:pkg").unwrap();
         assert!(root.join(".covenant/canon/skills/kyc").exists());
@@ -757,9 +839,22 @@ mod tests {
 
         uninstall_skill(root, "kyc").unwrap();
 
-        assert!(!root.join(".covenant/canon/skills/kyc").exists(), "source removed");
-        assert!(!root.join(".claude/skills/canon-kyc").exists(), "projection removed");
-        assert!(read_manifest(root).unwrap().installed.iter().all(|i| i.name != "kyc"), "manifest entry removed");
+        assert!(
+            !root.join(".covenant/canon/skills/kyc").exists(),
+            "source removed"
+        );
+        assert!(
+            !root.join(".claude/skills/canon-kyc").exists(),
+            "projection removed"
+        );
+        assert!(
+            read_manifest(root)
+                .unwrap()
+                .installed
+                .iter()
+                .all(|i| i.name != "kyc"),
+            "manifest entry removed"
+        );
     }
 
     #[test]
@@ -779,16 +874,32 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         std::fs::create_dir_all(root.join(".claude/agents")).unwrap();
-        std::fs::write(root.join(".claude/agents/foo.md"), "---\nname: foo\n---\nbody\n").unwrap();
+        std::fs::write(
+            root.join(".claude/agents/foo.md"),
+            "---\nname: foo\n---\nbody\n",
+        )
+        .unwrap();
 
         // Before: foo is detected.
-        assert!(crate::scan_detected(root).unwrap().iter().any(|u| u.name == "foo"));
+        assert!(crate::scan_detected(root)
+            .unwrap()
+            .iter()
+            .any(|u| u.name == "foo"));
 
         crate::adopt(root, crate::ContextKind::Agent, "foo").unwrap();
 
         // After: source exists, foo no longer detected (it has a source now).
-        assert!(root.join(".covenant/canon/agents/foo.md").exists(), "copied into source");
-        assert!(crate::scan_detected(root).unwrap().iter().all(|u| u.name != "foo"), "no longer foreign");
+        assert!(
+            root.join(".covenant/canon/agents/foo.md").exists(),
+            "copied into source"
+        );
+        assert!(
+            crate::scan_detected(root)
+                .unwrap()
+                .iter()
+                .all(|u| u.name != "foo"),
+            "no longer foreign"
+        );
     }
 
     #[test]
@@ -804,10 +915,23 @@ mod tests {
 
         crate::adopt(root, crate::ContextKind::Skill, "kyc").unwrap();
 
-        assert!(root.join(".covenant/canon/skills/kyc/SKILL.md").exists(), "in canon source");
-        assert!(read_manifest(root).unwrap().installed.iter().any(|i| i.name == "kyc" && i.source == "detected"));
-        assert!(root.join(".claude/skills/canon-kyc/SKILL.md").exists(), "projected as canon-kyc");
-        assert!(!root.join(".claude/skills/kyc").exists(), "foreign un-prefixed dup removed");
+        assert!(
+            root.join(".covenant/canon/skills/kyc/SKILL.md").exists(),
+            "in canon source"
+        );
+        assert!(read_manifest(root)
+            .unwrap()
+            .installed
+            .iter()
+            .any(|i| i.name == "kyc" && i.source == "detected"));
+        assert!(
+            root.join(".claude/skills/canon-kyc/SKILL.md").exists(),
+            "projected as canon-kyc"
+        );
+        assert!(
+            !root.join(".claude/skills/kyc").exists(),
+            "foreign un-prefixed dup removed"
+        );
     }
 
     #[test]
@@ -820,17 +944,27 @@ mod tests {
         )
         .unwrap();
         // sanity: detected before adopt
-        assert!(crate::scan_detected(root).unwrap().iter().any(|u| u.name == "ctx7"));
+        assert!(crate::scan_detected(root)
+            .unwrap()
+            .iter()
+            .any(|u| u.name == "ctx7"));
 
         crate::adopt(root, crate::ContextKind::Mcp, "ctx7").unwrap();
 
         // Canon source now owns it.
-        assert!(root.join(".covenant/canon/mcp/ctx7.json").exists(), "canon source written");
+        assert!(
+            root.join(".covenant/canon/mcp/ctx7.json").exists(),
+            "canon source written"
+        );
         // Executor config has canon-ctx7 and NOT the stale foreign ctx7.
         let v: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap()).unwrap();
+            serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap())
+                .unwrap();
         let servers = v.get("mcpServers").and_then(|m| m.as_object()).unwrap();
-        assert!(servers.contains_key("canon-ctx7"), "projected as canon-ctx7");
+        assert!(
+            servers.contains_key("canon-ctx7"),
+            "projected as canon-ctx7"
+        );
         assert!(!servers.contains_key("ctx7"), "stale foreign key removed");
     }
 
@@ -839,13 +973,29 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         std::fs::create_dir_all(root.join(".claude/agents")).unwrap();
-        std::fs::write(root.join(".claude/agents/MyAgent.md"), "---\nname: MyAgent\n---\nb\n").unwrap();
+        std::fs::write(
+            root.join(".claude/agents/MyAgent.md"),
+            "---\nname: MyAgent\n---\nb\n",
+        )
+        .unwrap();
         crate::adopt(root, crate::ContextKind::Agent, "MyAgent").unwrap();
         // slugify() kebabs on punctuation/whitespace boundaries only (not
         // camelCase transitions) — "MyAgent" -> "myagent", still != "MyAgent".
-        assert!(root.join(".covenant/canon/agents/myagent.md").exists(), "written under slug");
-        assert!(!root.join(".claude/agents/MyAgent.md").exists(), "foreign uppercase file removed");
-        assert!(crate::scan_detected(root).unwrap().iter().all(|u| u.name != "MyAgent"), "no longer detected");
+        assert!(
+            root.join(".covenant/canon/agents/myagent.md").exists(),
+            "written under slug"
+        );
+        assert!(
+            !root.join(".claude/agents/MyAgent.md").exists(),
+            "foreign uppercase file removed"
+        );
+        assert!(
+            crate::scan_detected(root)
+                .unwrap()
+                .iter()
+                .all(|u| u.name != "MyAgent"),
+            "no longer detected"
+        );
     }
 
     #[test]
@@ -854,36 +1004,82 @@ mod tests {
         let root = tmp.path();
         // Pre-existing foreign skill that is in `before` → must NOT be re-adopted.
         std::fs::create_dir_all(root.join(".claude/skills/old-skill")).unwrap();
-        std::fs::write(root.join(".claude/skills/old-skill/SKILL.md"), "---\nname: old-skill\n---\nb\n").unwrap();
-        let before: std::collections::HashSet<String> = ["old-skill".to_string()].into_iter().collect();
+        std::fs::write(
+            root.join(".claude/skills/old-skill/SKILL.md"),
+            "---\nname: old-skill\n---\nb\n",
+        )
+        .unwrap();
+        let before: std::collections::HashSet<String> =
+            ["old-skill".to_string()].into_iter().collect();
 
         // A new foreign skill (as if npx just added it) + one with an uppercase name.
         std::fs::create_dir_all(root.join(".claude/skills/pdf-tools")).unwrap();
-        std::fs::write(root.join(".claude/skills/pdf-tools/SKILL.md"), "---\nname: pdf-tools\n---\nb\n").unwrap();
+        std::fs::write(
+            root.join(".claude/skills/pdf-tools/SKILL.md"),
+            "---\nname: pdf-tools\n---\nb\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(root.join(".claude/skills/CoolTool")).unwrap();
-        std::fs::write(root.join(".claude/skills/CoolTool/SKILL.md"), "---\nname: CoolTool\n---\nb\n").unwrap();
+        std::fs::write(
+            root.join(".claude/skills/CoolTool/SKILL.md"),
+            "---\nname: CoolTool\n---\nb\n",
+        )
+        .unwrap();
 
         let mut adopted = crate::adopt_new_skills(root, &before).unwrap();
         adopted.sort();
-        assert_eq!(adopted, vec!["cooltool".to_string(), "pdf-tools".to_string()], "delta adopted, uppercase slugified");
-        assert!(root.join(".covenant/canon/skills/pdf-tools/SKILL.md").exists(), "new skill in canon source");
-        assert!(root.join(".covenant/canon/skills/cooltool/SKILL.md").exists(), "uppercase slugified into source");
+        assert_eq!(
+            adopted,
+            vec!["cooltool".to_string(), "pdf-tools".to_string()],
+            "delta adopted, uppercase slugified"
+        );
+        assert!(
+            root.join(".covenant/canon/skills/pdf-tools/SKILL.md")
+                .exists(),
+            "new skill in canon source"
+        );
+        assert!(
+            root.join(".covenant/canon/skills/cooltool/SKILL.md")
+                .exists(),
+            "uppercase slugified into source"
+        );
         // old-skill was in `before` → left foreign, not adopted.
-        assert!(!root.join(".covenant/canon/skills/old-skill").exists(), "before-set skill not re-adopted");
-        assert!(root.join(".claude/skills/old-skill").exists(), "before-set skill left in place");
+        assert!(
+            !root.join(".covenant/canon/skills/old-skill").exists(),
+            "before-set skill not re-adopted"
+        );
+        assert!(
+            root.join(".claude/skills/old-skill").exists(),
+            "before-set skill left in place"
+        );
     }
 
     #[test]
     fn adopt_mcp_slugifies_uppercase_key() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        std::fs::write(root.join(".mcp.json"), r#"{"mcpServers":{"Context7":{"command":"npx"}}}"#).unwrap();
+        std::fs::write(
+            root.join(".mcp.json"),
+            r#"{"mcpServers":{"Context7":{"command":"npx"}}}"#,
+        )
+        .unwrap();
         crate::adopt(root, crate::ContextKind::Mcp, "Context7").unwrap();
-        assert!(root.join(".covenant/canon/mcp/context7.json").exists(), "canon source under slug");
-        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap()).unwrap();
+        assert!(
+            root.join(".covenant/canon/mcp/context7.json").exists(),
+            "canon source under slug"
+        );
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join(".mcp.json")).unwrap())
+                .unwrap();
         let servers = v.get("mcpServers").and_then(|m| m.as_object()).unwrap();
-        assert!(servers.contains_key("canon-context7"), "projected as canon-context7");
-        assert!(!servers.contains_key("Context7"), "original uppercase key removed");
+        assert!(
+            servers.contains_key("canon-context7"),
+            "projected as canon-context7"
+        );
+        assert!(
+            !servers.contains_key("Context7"),
+            "original uppercase key removed"
+        );
     }
     #[test]
     fn read_source_falls_back_to_detected_skill_dir() {
