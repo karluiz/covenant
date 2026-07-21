@@ -1910,9 +1910,9 @@ export class TabManager {
   /// context menu's "Start agent" item.
   public runDefaultAgent: ((sessionId: SessionId) => void) | null = null;
 
-  /// Launches the default agent scoped to a group — reuses an idle tab in
-  /// the group, otherwise opens one inside it. Wired from main.ts; used by
-  /// the group context menu's "Start new agent".
+  /// Launches the default agent scoped to a group — always in a NEW tab
+  /// inside that group. Wired from main.ts; used by the group context
+  /// menu's "Start new agent".
   public runDefaultAgentInGroup: ((groupId: string) => void) | null = null;
 
   /// Returns the command line that launches the default agent/executor, or
@@ -3109,20 +3109,6 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab || tab.groupId !== groupId) return null;
     return activePane(tab).sessionId;
-  }
-
-  /// First session in `groupId` with no executor running in its active
-  /// pane — an idle seat a new agent can take instead of opening a tab.
-  /// Prefers the active tab so "start agent" lands where the user is
-  /// looking. Returns null when every tab in the group is busy.
-  idleSessionInGroup(groupId: string): SessionId | null {
-    const mine = this.tabs.filter((t) => t.groupId === groupId);
-    const ordered = [
-      ...mine.filter((t) => t.id === this.activeId),
-      ...mine.filter((t) => t.id !== this.activeId),
-    ];
-    const free = ordered.find((t) => !activePane(t).executor);
-    return free ? (activePane(free).sessionId as SessionId) : null;
   }
 
   /// Count of tabs that AOM is currently driving — operator-enabled
