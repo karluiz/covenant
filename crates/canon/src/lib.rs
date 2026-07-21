@@ -10,6 +10,7 @@ pub mod types;
 pub mod eval;
 pub mod kind;
 pub mod mcp;
+pub mod new_unit;
 
 pub use install::{install_from_dir, install_local, install_unit, uninstall_skill, read_skill_package, read_source, status, CanonStatus, content_version, adopt, adopt_new_skills};
 pub use manifest::{canon_dir, read_manifest, write_manifest};
@@ -22,6 +23,7 @@ pub use kind::{list_context, ContextKind, ContextUnit};
 pub use detect::scan_detected;
 pub use inventory::{detected_rows, resolve_state, UnitState};
 pub use mcp::{McpServer, blank_mcp_secrets};
+pub use new_unit::new_unit;
 
 use thiserror::Error;
 

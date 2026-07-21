@@ -1803,6 +1803,15 @@ export async function canonAdopt(cwd: string, kind: CanonPkgKind, name: string):
   return invoke<void>("canon_adopt", { cwd, kind, name });
 }
 
+/** Kinds that can be authored from the Canon cockpit. Specs go through the
+ *  Spec Creator and Context through the miner, so neither is listed here. */
+export type CanonNewKind = "agent" | "command" | "mcp" | "memory" | "skill";
+
+/** Create a new Canon unit; resolves to the absolute path to open in the editor. */
+export async function canonNewUnit(cwd: string, kind: CanonNewKind, name: string): Promise<string> {
+  return invoke<string>("canon_new_unit", { cwd, kind, name });
+}
+
 export async function canonImportSkill(cwd: string, skillRef: string): Promise<string[]> {
   return invoke<string[]>("canon_import_skill", { cwd, skillRef });
 }
