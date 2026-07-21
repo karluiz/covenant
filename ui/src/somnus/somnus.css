@@ -530,6 +530,14 @@ body.somnus-expanded #layout > #somnus-panel {
   border-left: none;
   z-index: 80;
 }
+/* Default top-tabbar mode auto-places #tabbar-host (no explicit grid-row). The
+   expanded panel above claims row 1 across every column, so the column-spanning
+   host has nowhere to land and grid auto-flow spills it into an implicit row
+   BELOW the status bar. Pin it back to row 1 (covered by the z-80 panel).
+   tabbar-left already pins the host explicitly, so scope this away from it. */
+body.somnus-expanded:not(.tabbar-left) #layout > #tabbar-host {
+  grid-row: 1;
+}
 /* Spec layout: DOM is header, tabsbar, composer, .rail-body(response, side)
    — tabsbar/composer are direct children of .rail-panel, and .rail-body
    dissolves via display:contents, so all five land as grid items. */

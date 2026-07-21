@@ -1136,6 +1136,11 @@ body.theme-light .canon-skill-row,
 body.theme-light .canon-search-result {
   background: #fff;
 }
+/* Full-saturation accent on the white cell reads as a harsh red — deepen it
+   toward ink so the hero number stays the standout without shouting. */
+body.theme-light .canon-stat.is-hero .canon-stat-val {
+  color: color-mix(in srgb, var(--canon-accent, var(--accent, #7aa2f7)) 62%, #1a1b1e);
+}
 
 /* Skill-row lift chip — actionable earning/not-earning/unmeasured verdict. */
 .canon-lift-badge {
