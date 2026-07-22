@@ -37,7 +37,9 @@ import {
   marketplacePublish,
   marketplaceSearch,
   marketplaceInstallCount,
+  marketplaceAdminUrl,
 } from "../../api";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
@@ -1422,6 +1424,22 @@ export class CanonCockpitView {
     go.className = "canon-cockpit-search-go";
     go.textContent = "Search";
 
+    // Operators publish into a moderated marketplace queue; approval lives in
+    // the forge admin page, so surface the door here instead of leaving it
+    // reachable only by hand-building the URL.
+    const review = document.createElement("button");
+    review.type = "button";
+    review.className = "canon-cockpit-search-go canon-reg-review";
+    review.innerHTML = `${Icons.externalLink({ size: 13 })}<span>Review queue</span>`;
+    attachTooltip(review, "Approve or reject operators pending review (opens the forge admin page)");
+    review.addEventListener("click", () => {
+      review.disabled = true;
+      void marketplaceAdminUrl()
+        .then((url) => openUrl(url))
+        .catch((e) => pushInfoToast({ message: this.friendlyError(e) }))
+        .finally(() => { review.disabled = false; });
+    });
+
     const errorEl = document.createElement("p");
     errorEl.className = "canon-cockpit-error";
     errorEl.hidden = true;
@@ -1549,13 +1567,14 @@ export class CanonCockpitView {
       input.placeholder = next.wire === null
         ? "Search operators…"
         : `Search ${initialActive.slug} ${next.wire === "mcp" ? "MCP" : next.label.toLowerCase()}…`;
+      review.hidden = next.wire !== null;
     };
     applyKindUI(REG_TABS[0]);
 
     go.addEventListener("click", runSearch);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
 
-    searchRow.append(input, go);
+    searchRow.append(input, go, review);
     el.append(toggleRow, searchRow, errorEl, results);
     return el;
   }

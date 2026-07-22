@@ -30,7 +30,10 @@ vi.mock("../../api", () => ({
   marketplacePublish: vi.fn().mockResolvedValue(undefined),
   marketplaceSearch: vi.fn(async () => [] as unknown[]),
   marketplaceInstallCount: vi.fn().mockResolvedValue(undefined),
+  marketplaceAdminUrl: vi.fn(async () => "https://forge.test/marketplace/admin?token=t"),
 }));
+
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => undefined) }));
 
 // The cockpit's "Create organization" button opens the immersive create
 // surface; mock it so we can capture and drive its onCreated callback.
@@ -171,6 +174,22 @@ describe("CanonCockpitView Registry section", () => {
       expect(v.element.textContent).toContain("Zeta");
     });
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("shows the Review queue door only on the Operators tab and opens the admin URL", async () => {
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    const review = v.element.querySelector(".canon-reg-review") as HTMLButtonElement;
+    expect(review.hidden).toBe(true); // Skills tab is the default
+    const toggle = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
+    toggle.click();
+    expect(review.hidden).toBe(false);
+    review.click();
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await vi.waitFor(() => {
+      expect(vi.mocked(openUrl)).toHaveBeenCalledWith("https://forge.test/marketplace/admin?token=t");
+    });
   });
 
   it("renders all six registry kind tabs", async () => {
