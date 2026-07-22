@@ -2097,6 +2097,15 @@ class MissionViewerModal {
   /// disk. Consumed on the first renderEditBody; any later re-render
   /// (conflict Reload, etc.) falls back to `content`.
   private editDraft: string | null = null;
+  /// True while "Convert to canonical" is streaming into the edit
+  /// textarea. Blocks save (a mid-stream ⌘S would persist a half-written
+  /// doc) and flips the textarea read-only until the rewrite settles.
+  private canonicalizing = false;
+  /// Monotonic id for the in-flight canonicalize stream. Cancel/close
+  /// bumps it; the orphaned stream's deltas and result are discarded on
+  /// arrival. The HTTP call itself is not aborted server-side.
+  private canonicalizeSeq = 0;
+  private convertTimer: number | null = null;
   private readonly shareMenu = new ContextMenu(document.body);
   /// Comments + verdict rail, mounted beside the spec body once `share`
   /// is non-null. Torn down (interval cleared) on revoke, on switching to
@@ -2187,6 +2196,7 @@ class MissionViewerModal {
 
   close(): void {
     if (!this.overlay) return;
+    this.abortCanonicalize();
     this.resetFind();
     this.pathTooltipDispose?.();
     this.pathTooltipDispose = null;
@@ -2615,22 +2625,114 @@ class MissionViewerModal {
     this.renderAll();
   }
 
-  /// "Convert to canonical" in the score popover — the LLM rewrites the
-  /// spec into the canonical section shape and the result opens in edit
-  /// mode as a draft; nothing touches disk until the user saves.
+  /// "Convert to canonical" in the score popover — enters edit mode
+  /// immediately and STREAMS the LLM rewrite into the textarea, with an
+  /// elapsed-time strip + Cancel above it. A 30–90 s rewrite must read
+  /// as progress, not a hang. Nothing touches disk until the user
+  /// reviews and saves.
   private async convertToCanonical(): Promise<void> {
     if (this.aomActive || this.sessionId === null) {
       throw new Error("Spec is locked — open it from a session to edit.");
     }
-    const converted = await specCanonicalize(this.content);
-    if (!converted) {
-      throw new Error("No summary model configured — add one in Settings → Inference");
-    }
-    this.editDraft = converted;
+    if (this.canonicalizing) return;
+    const seq = ++this.canonicalizeSeq;
+    const source = this.content;
+    this.canonicalizing = true;
+    this.editDraft = "";
     this.enterEdit();
+    const ta = this.overlay?.querySelector<HTMLTextAreaElement>(
+      ".mission-viewer-textarea",
+    );
+    if (ta) {
+      ta.readOnly = true;
+      ta.classList.add("mission-viewer-textarea--streaming");
+    }
+    this.mountConvertingStrip();
+    try {
+      const full = await specCanonicalize(source, (chunk) => {
+        if (seq !== this.canonicalizeSeq || !ta) return;
+        ta.value += chunk;
+        ta.scrollTop = ta.scrollHeight;
+      });
+      if (seq !== this.canonicalizeSeq) return; // canceled — discard
+      if (full === null) {
+        this.cancelEdit();
+        throw new Error(
+          "No summary model configured — add one in Settings → Inference",
+        );
+      }
+      if (ta) {
+        // Settle on the authoritative full text and hand it back to the
+        // user for review.
+        ta.value = full;
+        ta.focus();
+      }
+    } catch (err) {
+      if (seq !== this.canonicalizeSeq) return; // canceled mid-flight
+      if (this.mode === "edit") this.cancelEdit();
+      throw err;
+    } finally {
+      if (seq === this.canonicalizeSeq) this.finishCanonicalize(ta ?? null);
+    }
+  }
+
+  /// Tear down the streaming state: strip, timer, read-only textarea.
+  /// Idempotent — safe after cancelEdit already re-rendered the body.
+  private finishCanonicalize(ta: HTMLTextAreaElement | null): void {
+    this.canonicalizing = false;
+    this.clearConvertingStrip();
+    if (ta) {
+      ta.readOnly = false;
+      ta.classList.remove("mission-viewer-textarea--streaming");
+    }
+  }
+
+  /// Abandon an in-flight canonicalize stream: orphan its seq so late
+  /// deltas/result are discarded on arrival.
+  // ponytail: the HTTP call keeps generating server-side (no abort
+  // handle in LlmProvider); add one there if canceled-token spend
+  // ever matters.
+  private abortCanonicalize(): void {
+    if (!this.canonicalizing) return;
+    this.canonicalizeSeq++;
+    this.canonicalizing = false;
+    this.clearConvertingStrip();
+  }
+
+  private mountConvertingStrip(): void {
+    const body = this.bodyEl();
+    if (!body) return;
+    const strip = document.createElement("div");
+    strip.className = "mission-viewer-converting";
+    const msg = document.createElement("span");
+    msg.className = "mission-viewer-converting-msg";
+    msg.textContent = "Converting to canonical · 0:00";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "mission-viewer-converting-cancel";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => this.cancelEdit());
+    strip.append(msg, cancel);
+    body.prepend(strip);
+    const t0 = Date.now();
+    this.convertTimer = window.setInterval(() => {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      const mm = Math.floor(s / 60);
+      const ss = String(s % 60).padStart(2, "0");
+      msg.textContent = `Converting to canonical · ${mm}:${ss}`;
+    }, 1000);
+  }
+
+  private clearConvertingStrip(): void {
+    if (this.convertTimer !== null) {
+      window.clearInterval(this.convertTimer);
+      this.convertTimer = null;
+    }
+    this.overlay?.querySelector(".mission-viewer-converting")?.remove();
   }
 
   private cancelEdit(): void {
+    this.abortCanonicalize();
     this.mode = "view";
     this.renderAll();
   }
@@ -2641,6 +2743,8 @@ class MissionViewerModal {
   /// only Reload does.
   private async save(newContent: string, force = false): Promise<void> {
     if (!this.mission || !this.sessionId) return;
+    // Mid-stream save would persist a half-written rewrite.
+    if (this.canonicalizing) return;
     this.setStatus("saving…");
     let result: MissionSaveResult;
     try {

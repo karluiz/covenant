@@ -3157,8 +3157,16 @@ export async function specDeepScore(markdown: string): Promise<string | null> {
   return invoke<string | null>("spec_deep_score", { markdown });
 }
 
-export async function specCanonicalize(markdown: string): Promise<string | null> {
-  return invoke<string | null>("spec_canonicalize", { markdown });
+/// Streamed canonical rewrite: `onDelta` fires per text fragment as the
+/// model generates; the resolved value is the full authoritative text.
+/// Null when no summary route is configured.
+export async function specCanonicalize(
+  markdown: string,
+  onDelta: (chunk: string) => void,
+): Promise<string | null> {
+  const ch = new Channel<string>();
+  ch.onmessage = onDelta;
+  return invoke<string | null>("spec_canonicalize", { markdown, onDelta: ch });
 }
 
 /// A pasted image riding an ACP prompt: base64 payload (no `data:` URL

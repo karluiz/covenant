@@ -4400,13 +4400,19 @@ async fn spec_deep_score(
 }
 
 /// Rewrite a non-canonical spec into the canonical section shape via the
-/// Summary route. None when no route is configured.
+/// Summary route, streaming each delta over `on_delta` so the UI can
+/// render the rewrite as it generates. Returns the full text at the end
+/// (authoritative); None when no route is configured.
 #[tauri::command]
 async fn spec_canonicalize(
     state: tauri::State<'_, AppState>,
     markdown: String,
+    on_delta: Channel<String>,
 ) -> Result<Option<String>, String> {
-    summarizer::canonicalize_spec_oneshot(&state.settings, &markdown).await
+    summarizer::canonicalize_spec_stream(&state.settings, &markdown, move |t| {
+        let _ = on_delta.send(t);
+    })
+    .await
 }
 
 #[tauri::command]
