@@ -1856,7 +1856,11 @@ body:not(.tabbar-left) #new-group {
     from { opacity: 0; }
 }
 .tab-pane.pane-crosscut {
-    animation: pane-crosscut 90ms ease-out;
+    /* 45ms, not 90: this fade is the dominant latency of a tab switch —
+       a frame of rAF plus the animation, on an interaction the user
+       makes constantly. Still long enough to hide the cross-cut the
+       fade exists to smooth. */
+    animation: pane-crosscut 45ms ease-out;
     z-index: 5;
     /* The panes themselves are transparent — xterm's theme background
        is rgba(0,0,0,0) and the surface tint lives on #workspace, an
