@@ -450,6 +450,53 @@ miss: semantic ambiguity, contradictions between sections, acceptance criteria t
 sound testable but are not, goals that hide multiple goals. Findings are short, \
 concrete, and quote the offending text. No prose outside the JSON.";
 
+const CANONICALIZE_MAX_TOKENS: u32 = 4000;
+const CANONICALIZE_SYSTEM_PROMPT: &str = "\
+You restructure software specs into a canonical shape. Rewrite the given \
+document as markdown with exactly these H2 sections, in this order: \
+## Goal (1-5 sentences), ## Out of scope (bulleted exclusions), \
+## Acceptance criteria (2+ verifiable bullets), ## File boundaries (concrete \
+paths), ## Complexity (honest assessment with the why), ## Open questions. \
+Keep the document's H1 title if it has one. Preserve every requirement and \
+constraint from the source — reorganize and tighten, never invent scope or \
+drop content; fold unmapped material into the closest section. Keep the \
+source document's language. Move genuinely unresolved items to Open \
+questions. Return ONLY the rewritten markdown — no commentary, no code \
+fence around the document.";
+
+/// One-shot rewrite of a non-canonical spec into the canonical section
+/// shape. Ok(None) when no Summary route is configured — same contract as
+/// [`deep_score_oneshot`].
+pub async fn canonicalize_spec_oneshot(
+    settings: &Arc<Mutex<Settings>>,
+    markdown: &str,
+) -> Result<Option<String>, String> {
+    let text = markdown.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let resolved = {
+        let s = settings.lock().await;
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        }
+    };
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: CANONICALIZE_SYSTEM_PROMPT.to_string(),
+        user_message: format!("# Spec\n\n{text}"),
+        max_tokens: CANONICALIZE_MAX_TOKENS,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| crate::route_err("Summary", e))?;
+    Ok(Some(resp.text))
+}
+
 /// One-shot LLM judge for SpecScore's deep pass. Ok(None) when no Summary
 /// route is configured. Mirrors [`suggest_title_oneshot`], minus vitals —
 /// this call has no owning session.

@@ -37,6 +37,7 @@ import {
   gitSwitchBranch,
   getSessionPlanContent,
   setSessionMissionContent,
+  specCanonicalize,
   telegramStatus,
   type TelegramStatus,
   worktreeReclaim,
@@ -2091,6 +2092,11 @@ class MissionViewerModal {
   /// resolves, same tolerance as the AOM status fetch above).
   private share: ShareState | null = null;
   private specScoreBadge: ReturnType<typeof makeSpecScoreHoverBadge> | null = null;
+  /// One-shot seed for the edit textarea — set by "Convert to canonical"
+  /// so the LLM rewrite opens as a reviewable draft instead of saving to
+  /// disk. Consumed on the first renderEditBody; any later re-render
+  /// (conflict Reload, etc.) falls back to `content`.
+  private editDraft: string | null = null;
   private readonly shareMenu = new ContextMenu(document.body);
   /// Comments + verdict rail, mounted beside the spec body once `share`
   /// is non-null. Torn down (interval cleared) on revoke, on switching to
@@ -2260,7 +2266,9 @@ class MissionViewerModal {
 
     // Score chip lives beside the SPEC eyebrow; hover reveals the 7-dim
     // breakdown popover. One instance per overlay lifetime.
-    this.specScoreBadge = makeSpecScoreHoverBadge();
+    this.specScoreBadge = makeSpecScoreHoverBadge({
+      onCanonicalize: () => this.convertToCanonical(),
+    });
     card
       .querySelector(".mission-viewer-title-row")
       ?.appendChild(this.specScoreBadge.el);
@@ -2545,7 +2553,8 @@ class MissionViewerModal {
     body.innerHTML = "";
     const ta = document.createElement("textarea");
     ta.className = "mission-viewer-textarea";
-    ta.value = this.content;
+    ta.value = this.editDraft ?? this.content;
+    this.editDraft = null;
     ta.spellcheck = false;
     ta.autocapitalize = "off";
     ta.autocomplete = "off";
@@ -2604,6 +2613,21 @@ class MissionViewerModal {
     this.resetFind();
     this.mode = "edit";
     this.renderAll();
+  }
+
+  /// "Convert to canonical" in the score popover — the LLM rewrites the
+  /// spec into the canonical section shape and the result opens in edit
+  /// mode as a draft; nothing touches disk until the user saves.
+  private async convertToCanonical(): Promise<void> {
+    if (this.aomActive || this.sessionId === null) {
+      throw new Error("Spec is locked — open it from a session to edit.");
+    }
+    const converted = await specCanonicalize(this.content);
+    if (!converted) {
+      throw new Error("No summary model configured — add one in Settings → Inference");
+    }
+    this.editDraft = converted;
+    this.enterEdit();
   }
 
   private cancelEdit(): void {

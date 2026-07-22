@@ -109,3 +109,20 @@ describe('spec-score UI', () => {
     expect(err?.textContent).toContain('No summary model configured');
   });
 });
+
+describe('convert-to-canonical button', () => {
+  it('shows only for non-canonical specs (goal earns 0) with a handler', () => {
+    const noGoal = scoreSpec('## Problema\n\nAlgo pasa.\n');
+    const withGoal = scoreSpec('## Goal\n\nDo the thing well and completely.\n');
+    const onCanonicalize = async () => {};
+    const shown = renderBreakdown(noGoal, { onCanonicalize });
+    const btns = [...shown.querySelectorAll('button')].map((b) => b.textContent);
+    expect(btns).toContain('Convert to canonical');
+    const hiddenCanonical = renderBreakdown(withGoal, { onCanonicalize });
+    expect([...hiddenCanonical.querySelectorAll('button')].map((b) => b.textContent)).not.toContain(
+      'Convert to canonical',
+    );
+    const noHandler = renderBreakdown(noGoal);
+    expect(noHandler.querySelectorAll('button')).toHaveLength(0);
+  });
+});
