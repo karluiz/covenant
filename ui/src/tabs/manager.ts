@@ -3503,8 +3503,19 @@ export class TabManager {
     // injected command (it's written at the first prompt, before the
     // user can type). Echo bytes precede the OSC 133 C marker in the
     // stream, so by the time the event lands the preamble is already
-    // queued in xterm and the clear lands after it.
+    // queued in xterm and the clear lands after it. The preamble frames
+    // still render before the event arrives, so the terminal stays
+    // veiled (visibility, keeps layout for fit/measure) until the clear
+    // has been parsed — the tab reveals straight into the agent's UI.
     let scrubLaunchPending = opts?.scrubLaunch === true;
+    if (scrubLaunchPending) {
+      termHost.style.visibility = "hidden";
+      // No OSC 133 → no block_started → scrub never fires. Reveal the
+      // shell anyway; the scrub degrades to today's behavior.
+      setTimeout(() => {
+        termHost.style.visibility = "";
+      }, 4000);
+    }
     // Replay persisted scrollback into xterm BEFORE the live channel
     // attaches. Brand-new tabs see an empty array; reopened tabs see
     // the last ~2 MiB of bytes from their previous session.
@@ -3557,7 +3568,9 @@ export class TabManager {
               promptHint.reset();
               if (scrubLaunchPending) {
                 scrubLaunchPending = false;
-                term.write("\x1b[H\x1b[2J\x1b[3J");
+                term.write("\x1b[H\x1b[2J\x1b[3J", () => {
+                  termHost.style.visibility = "";
+                });
               }
               const next = detectExecutor(event.command);
               if (tabRef.current) {
