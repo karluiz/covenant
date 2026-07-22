@@ -44,12 +44,6 @@ function nowMs(): number {
   return Date.now();
 }
 
-// Workspace-switch overlay card (#workspace-switch-overlay): a full-bleed
-// card wearing the destination space's name + aura. It covers while the tab
-// rebuild runs, then lifts once the active tab is live. Held a minimum beat
-// so a warm (instant) restore still reads as a deliberate switch.
-const MIN_OVERLAY_MS = 420;
-
 function newId(): string {
   // crypto.randomUUID is available in the Tauri webview (Chromium ≥ 92).
   return crypto.randomUUID();
@@ -326,15 +320,10 @@ export class WorkspaceManager {
 
     this.suspendPersist = true;
 
-    // Show the switch overlay card wearing the destination space's name. It
-    // covers the whole viewport while the tab rebuild runs underneath, then
-    // lifts once the tab the user lands on is live. Always shown — even for a
-    // warm restore — so the switch reads as deliberate.
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const label = document.getElementById("workspace-switch-name");
-    if (label) label.textContent = target.name;
-    if (!reduce) document.body.classList.add("workspace-switching");
-    const overlayStart = nowMs();
+    // ponytail: no switch overlay — the card + its minimum hold read as a
+    // stall, not as motion. The switch is a hard cut; tabs appear as the
+    // active one goes live. Bring the overlay back only if a cold rebuild
+    // is shown to look torn without it.
 
     // Resolves once the tab the user lands on is live — the rest of the
     // workspace keeps spawning behind the reveal. On a cold workspace that
@@ -380,22 +369,11 @@ export class WorkspaceManager {
     // (see below) — only the reveal runs early.
     const rebuild = doRebuild();
     try {
-      if (reduce) {
-        await rebuild;
-      } else {
-        // Wait behind the card for the tab the user will look at — not for
-        // every PTY. A rebuild that throws rejects `rebuild`, so race against
-        // it too rather than hanging behind the card forever.
-        await Promise.race([activeTabLive, rebuild]);
-        // Hold the card a minimum beat so a near-instant warm restore still
-        // animates instead of flashing.
-        const elapsed = nowMs() - overlayStart;
-        if (elapsed < MIN_OVERLAY_MS) {
-          await new Promise((r) => setTimeout(r, MIN_OVERLAY_MS - elapsed));
-        }
-      }
+      // Return once the tab the user will look at is live — not once every
+      // PTY is. A rebuild that throws rejects `rebuild`, so race against it
+      // too rather than hanging forever.
+      await Promise.race([activeTabLive, rebuild]);
     } finally {
-      document.body.classList.remove("workspace-switching");
       this.suspendPersist = false;
     }
     // The remaining tabs hydrate after the card lifts, but saveAll (below)
