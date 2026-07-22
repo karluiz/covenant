@@ -234,29 +234,7 @@ body.theme-light {
     --surface-alpha: 1;
 }
 
-/* Group chips: dark mode mixes toward white for legibility on dark; light
-   mode must mix toward black for the same reason. Same applies to the
-   chip background — boost the group color so it actually reads. */
-body.theme-light .group-chip {
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 14%,
-        var(--tab-bg-rest)
-    ) !important;
-    color: color-mix(in srgb, var(--group-color, var(--muted)) 70%, #000 30%) !important;
-    border-color: color-mix(
-        in srgb,
-        var(--group-color, var(--border)) 32%,
-        var(--tab-border-hover)
-    ) !important;
-}
-body.theme-light .group-chip:hover {
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 22%,
-        var(--tab-bg-hover)
-    ) !important;
-}
+/* Group chips are ink-composed — no light-mode override needed. */
 
 html,
 body {
@@ -557,10 +535,9 @@ body.theme-special::after {
     height: var(--tab-h);
     max-width: 220px;
     min-width: 96px;
-    background: var(--tab-bg-rest);
-    border: 1px solid var(--tab-border-rest);
-    border-bottom: none;
-    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
     color: var(--tab-fg-rest);
     font-family:
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -602,106 +579,75 @@ body.theme-special::after {
 }
 
 .tab-btn:hover:not(.active) {
-    background: var(--tab-bg-hover);
-    border-color: var(--tab-border-hover);
+    background: rgb(var(--ink-rgb) / 0.04);
     color: var(--text-primary);
 }
 
-/* Active tab uses a slightly lighter "card" surface (not pure
-   workspace bg — too stark). Reads as elevated surface continuous
-   with the workspace below. */
 .tab-btn.active {
-    background: var(--tab-bg-active);
-    border-color: var(--tab-border-active);
+    background: rgb(var(--ink-rgb) / 0.06);
     color: var(--tab-fg-active);
     font-weight: 500;
 }
 
+/* Active underline — the tab connects to the terminal below it. */
 .tab-btn.active::before {
     content: "";
     position: absolute;
-    top: 0;
-    left: -1px;
-    right: -1px;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
     height: 2px;
     background: var(--tab-stripe, var(--accent));
-    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+    border-radius: 0;
 }
 
-/* AOM "driving this tab" indicator — animated gradient ring around
-   the pill border. Replaces the inner zap glyph (spec 2026-05-05).
-   Uses a pseudo-element with a mask trick so only the border-shaped
-   ring is painted, leaving the tab background and content untouched. */
-@property --tab-aom-a {
-    syntax: '<angle>';
-    inherits: false;
-    initial-value: 0deg;
-}
+/* AOM "driving this tab" — a breathing accent dot near the right edge.
+   Chassis-owned: identical across all tab styles. Sits left of the
+   close-× slot so hover-reveal doesn't collide. */
 .tab-btn.tab-aom-active::after {
     content: "";
     position: absolute;
-    inset: -1px;
-    border-radius: var(--tab-radius);
-    padding: 1.5px;
-    background: conic-gradient(
-        from var(--tab-aom-a),
-        transparent 0deg,
-        transparent 250deg,
-        #22d3ee 295deg,
-        #7c8cff 320deg,
-        #ffffff 340deg,
-        #7c8cff 355deg,
-        transparent 360deg
-    );
-    -webkit-mask:
-        linear-gradient(#000 0 0) content-box,
-        linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    animation: tab-aom-spin 3.2s linear infinite;
+    right: 24px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    margin-top: -3px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+    animation: tab-aom-breathe 2.4s ease-in-out infinite;
     pointer-events: none;
-    z-index: 0;
+    z-index: 2;
 }
-@keyframes tab-aom-spin { to { --tab-aom-a: 360deg; } }
-/* Fallback for engines without @property — animate a linear gradient
-   sweep instead, so the ring still pulses with motion. */
-@supports not (background: conic-gradient(from 0deg, red, red)) {
-    .tab-btn.tab-aom-active::after {
-        background: linear-gradient(
-            120deg,
-            #7c8cff 0%,
-            #8b5cf6 30%,
-            #22d3ee 55%,
-            #7c8cff 100%
-        );
-        background-size: 300% 300%;
-        animation: tab-aom-flow 4s linear infinite;
-    }
-    @keyframes tab-aom-flow {
-        0%   { background-position:   0% 50%; }
-        100% { background-position: 300% 50%; }
+@keyframes tab-aom-breathe {
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+        opacity: 0.75;
     }
 }
 @media (prefers-reduced-motion: reduce) {
     .tab-btn.tab-aom-active::after { animation: none; }
 }
 
-/* AOM "excluded" indicator — muted dashed ring. Same border-shaped
-   mask trick as .tab-aom-active so the pill content is untouched.
-   Conveys "operator is on but AOM is not driving this tab" purely
-   through the border (no inner glyph). */
+/* AOM excluded — hollow dot, dimmed row. */
 .tab-btn.tab-aom-excluded {
     opacity: 0.78;
 }
 .tab-btn.tab-aom-excluded::after {
     content: "";
     position: absolute;
-    inset: -1px;
-    border-radius: var(--tab-radius);
-    border: 1.5px dashed color-mix(in srgb, var(--fg) 35%, transparent);
+    right: 24px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    margin-top: -3px;
+    border-radius: 50%;
     background: transparent;
+    border: 1px solid rgb(var(--ink-rgb) / 0.35);
+    box-sizing: border-box;
     pointer-events: none;
-    z-index: 0;
+    z-index: 2;
 }
 .tab-btn.tab-aom-excluded .tab-label {
     color: color-mix(in srgb, var(--fg) 65%, transparent);
@@ -711,25 +657,15 @@ body.theme-special::after {
    color, regardless of active state. */
 .tab-colored {
     --tab-stripe: var(--tab-color);
-    background: color-mix(in srgb, var(--tab-color) 5%, var(--tab-bg-rest));
-    border-color: color-mix(
-        in srgb,
-        var(--tab-color) 18%,
-        var(--tab-border-rest)
-    );
+    background: color-mix(in srgb, var(--tab-color) 5%, transparent);
 }
 
 .tab-colored:hover:not(.active) {
-    background: color-mix(in srgb, var(--tab-color) 9%, var(--tab-bg-hover));
+    background: color-mix(in srgb, var(--tab-color) 9%, rgb(var(--ink-rgb) / 0.04));
 }
 
 .tab-colored.active {
-    background: color-mix(in srgb, var(--tab-color) 12%, var(--tab-bg-active));
-    border-color: color-mix(
-        in srgb,
-        var(--tab-color) 30%,
-        var(--tab-border-active)
-    );
+    background: color-mix(in srgb, var(--tab-color) 12%, rgb(var(--ink-rgb) / 0.06));
 }
 
 .tab-colored::before {
@@ -1412,47 +1348,47 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
-    height: var(--tab-h);
-    padding: 0 12px 0 4px;
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 8%,
-        var(--tab-bg-rest)
-    );
-    border: 1px solid
-        color-mix(
-            in srgb,
-            var(--group-color, var(--border)) 22%,
-            var(--tab-border-hover)
-        );
-    border-radius: var(--tab-radius);
-    color: color-mix(in srgb, var(--group-color, var(--muted)) 80%, #fff 20%);
-    font-family:
-        var(--ui-font);
+    gap: 7px;
+    height: 28px;
+    padding: 0 10px 0 4px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    color: var(--tab-fg-rest);
+    font-family: var(--ui-font);
     font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
+    font-weight: 500;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
     -webkit-user-drag: none;
-    user-select: none;
     user-select: none;
     cursor: grab;
     transition:
         background 0.12s ease-out,
-        border-color 0.12s ease-out;
+        color 0.12s ease-out;
 }
 
 .group-chip:hover {
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 14%,
-        var(--tab-bg-hover)
-    );
+    background: rgb(var(--ink-rgb) / 0.04);
+    color: var(--text-primary);
 }
 
 .group-chip:active {
     cursor: grabbing;
+}
+
+/* Color follows focus: the group holding the active tab lifts its label. */
+.tab-group-shell:has(.tab-btn.active) .group-chip-label {
+    color: var(--text-primary);
+}
+
+/* Empty groups recede one more tier. */
+.group-chip-empty .group-chip-label,
+.group-chip-empty .group-chip-count {
+    color: var(--text-tertiary);
+}
+.group-chip-empty .group-chip-dot {
+    opacity: 0.35;
 }
 
 /* ── Tab group shell — lateral stripe + body container ──
@@ -1464,21 +1400,14 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     display: flex;
     flex-direction: row;
     align-items: stretch;
-    gap: 4px;
+    gap: 2px;
     margin: 0 6px 0 0;
-}
-
-.tab-group-shell-colored .tab-group-stripe {
-    background: var(--group-color, var(--accent));
+    padding-left: 8px;
+    border-left: 1px solid rgb(var(--ink-rgb) / 0.07);
 }
 
 .tab-group-stripe {
-    width: 2px;
-    border-radius: 0;
-    background: color-mix(in srgb, var(--muted) 50%, transparent);
-    flex-shrink: 0;
-    align-self: stretch;
-    margin: 4px 0;
+    display: none;
 }
 
 .tab-group-body {
@@ -1536,12 +1465,11 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
 }
 
 .group-chip-dot {
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--group-color, var(--muted));
     flex-shrink: 0;
-    box-shadow: 0 0 0 1px rgb(var(--ink-rgb) / 0.04);
 }
 
 .group-chip-label {
@@ -1552,21 +1480,15 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
 }
 
 .group-chip-count {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     margin-left: auto;
-    padding: 0;
-    min-width: 14px;
-    height: 14px;
-    background: transparent;
-    border-radius: 0;
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-size: 10px;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0;
     text-transform: none;
     font-variant-numeric: tabular-nums;
-    color: rgb(var(--ink-rgb) / 0.42);
+    color: var(--text-tertiary);
     flex-shrink: 0;
 }
 
@@ -1623,57 +1545,14 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     border-color: var(--accent) !important;
 }
 
-/* Grouped tabs share visual chrome with their group chip. The active
-   member differentiates via deeper bg tint, NOT by adding an extra
-   active stripe (which would compete with the group's own stripe). */
+/* Grouped tabs: the group's color reaches them only through the active
+   underline (--tab-stripe). Rest/hover/active fills are the chassis inks. */
 .tab-grouped {
     --tab-stripe: var(--group-color, var(--accent));
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 5%,
-        var(--tab-bg-rest)
-    );
 }
 
-.tab-grouped:hover:not(.active) {
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 9%,
-        var(--tab-bg-hover)
-    );
-}
-
-.tab-grouped.active {
-    background: color-mix(
-        in srgb,
-        var(--group-color, var(--accent)) 16%,
-        var(--tab-bg-active)
-    );
-    border-color: color-mix(
-        in srgb,
-        var(--group-color, transparent) 30%,
-        var(--tab-border-active)
-    );
-}
-
-.tab-grouped.active::before {
-    display: none; /* group ::after stripe owns the top edge */
-}
-
-/* Chip + first member fusion. In horizontal mode the chip's right edge
-   bleeds into the first member tab's left edge. In vertical mode the
-   bottom edge fuses with the first member below (handled in the
-   `body.tabbar-left` block). */
-.group-chip-has-members {
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
-    border-right-color: transparent;
-}
-
-body.tabbar-left .group-chip-has-members {
-    border-top-right-radius: 6px;
-    border-right-color: inherit;
-}
+/* Chips no longer have borders to fuse — chassis rules below own
+   `.group-chip-has-members` for the vertical sidebar only. */
 
 .tab-label {
     font-family:
@@ -10619,13 +10498,13 @@ body.tabbar-left .tab-btn {
     box-sizing: border-box;
     max-width: none;
     min-width: 0;
-    height: 32px;
+    height: 26px;
     padding: 0 24px 0 10px;
     border-radius: 0;
-    /* AOM ring inherits this so the gradient border matches the pill. */
-    --tab-radius: 6px;
-    border: 1px solid var(--tab-border-rest);
-    border-bottom: 1px solid var(--tab-border-rest);
+    /* The AOM indicator (a dot, not a ring) inherits this for shape parity. */
+    --tab-radius: 0px;
+    border: none;
+    background: transparent;
     /* Switch the fold animation axis from width → height. */
     transition:
         background 0.12s ease-out,
@@ -10638,6 +10517,18 @@ body.tabbar-left .tab-btn {
         margin-bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1),
         border-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
         opacity 0.22s ease-out;
+}
+
+body.tabbar-left .tab-btn:hover:not(.active) {
+    background: rgb(var(--ink-rgb) / 0.04);
+    border-color: transparent;
+    color: var(--text-primary);
+}
+
+body.tabbar-left .tab-btn.active {
+    background: rgb(var(--ink-rgb) / 0.06);
+    border-color: transparent;
+    color: var(--tab-fg-active);
 }
 
 body.tabbar-left .tab-btn.tab-pill-folded,
@@ -10659,71 +10550,54 @@ body.tabbar-left .tab-group-body > .tab-grouped.tab-pill-folded {
     border-right-width: 1px;
 }
 
-/* Active-tab left accent stripe removed — the pill's own background +
-   border-color already signal selection clearly enough, and the stripe
-   was visually competing with the operator avatar / XP ring that now
-   sits at the same left edge. */
+/* Vertical spine: 2px group/tab color on the active row's left edge.
+   Suppressed on operator rows — the avatar owns that edge. */
 body.tabbar-left .tab-btn.active::before {
     display: none;
 }
+body.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before {
+    display: block;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    width: 2px;
+    height: auto;
+    border-radius: 0;
+    background: var(--tab-stripe, var(--accent));
+}
 
-/* Group member indent so the hierarchy reads at a glance. Flat chrome
-   in rest (no border, no bg) — the colored stripe on .tab-group-shell
-   carries the hierarchy; pills only "appear" on hover/active.
-   Children sit deeper than the header label so the eye reads them as
-   nested under it. Row height is shorter than the default .tab-btn so
-   sibling spacing reads tight. */
 body.tabbar-left .tab-group-body > .tab-grouped {
-    /* Children sit ~8px to the right of the tree-line (which lives at
-       left:14px on the body), so the line and the pill don't collide. */
-    margin-left: 26px;
-    width: calc(100% - 30px);
+    margin-left: 22px;
+    width: calc(100% - 26px);
     padding-left: 12px;
-    height: 28px;
-    min-height: 28px;
+    height: 26px;
+    min-height: 26px;
     border-radius: 0;
     background: transparent;
     border-color: transparent;
-    color: color-mix(in srgb, var(--tab-fg-rest) 75%, transparent);
-}
-body.tabbar-left .tab-grouped:hover:not(.active) {
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 14%,
-        rgb(var(--ink-rgb) / 0.04)
-    );
-    border-color: transparent;
     color: var(--tab-fg-rest);
 }
-/* Ribbon active state: no enclosing border (would echo the group's
-   own outline). Instead a soft left-to-right fade plus a glowing
-   accent ribbon flush against the tree-line. Reads as emphasis, not
-   as a second container. */
-body.tabbar-left .tab-grouped.active {
-    background: linear-gradient(
-        90deg,
-        color-mix(in srgb, var(--group-color, var(--accent)) 18%, transparent) 0%,
-        transparent 75%
-    );
+body.tabbar-left .tab-grouped:hover:not(.active) {
+    background: rgb(var(--ink-rgb) / 0.04);
     border-color: transparent;
-    color: #fff;
+    color: var(--text-primary);
 }
-/* Active-tab left stripe (grouped variant) removed — the pill's own
-   background already conveys selection, and the stripe collides with
-   the operator avatar / XP ring at the same left edge. */
-body.tabbar-left .tab-grouped.active::before {
-    display: none;
+body.tabbar-left .tab-grouped.active {
+    background: rgb(var(--ink-rgb) / 0.06);
+    border-color: transparent;
+    color: var(--tab-fg-active);
 }
+/* Grouped rows inherit the same spine as ungrouped. */
 
-/* Restore vertical-stack body for sidebar (horizontal default uses row). */
+/* Restore vertical-stack body for sidebar (horizontal default uses row).
+   Also reset the horizontal chassis's segment hairline — vertical groups
+   use the tree-line + header border-left below instead. */
 body.tabbar-left .tab-group-shell {
     margin: 0;
     gap: 8px;
-}
-/* External stripe replaced by: header border-left + body::before
-   tree-line through the children area only. */
-body.tabbar-left .tab-group-stripe {
-    display: none;
+    border-left: none;
+    padding-left: 0;
 }
 body.tabbar-left .tab-group-body {
     flex-direction: column;
@@ -10737,38 +10611,24 @@ body.tabbar-left .tab-group-shell:not(.tab-group-shell-collapsed)
     position: absolute;
     /* Sits at the same x as the header's colored border-left, so the
        header bar visually continues straight down through the kids. */
-    left: 14px;
-    top: 34px; /* chip margin-top (2) + height (28) + 4 breathing room */
+    left: 11px;
+    top: 32px; /* chip margin-top (2) + height (28) + 2 breathing room */
     bottom: 4px;
-    width: 2px;
+    width: 1px;
     border-radius: 0;
-    background: color-mix(
-        in srgb,
-        var(--group-color, var(--muted)) 70%,
-        transparent
-    );
+    background: rgb(var(--ink-rgb) / 0.08);
     pointer-events: none;
 }
 body.tabbar-left .tab-group-body > * + * {
     margin-top: 1px;
 }
 
-/* The "(" bracket comes for free from a thick colored border-left
-   plus a generous border-radius — the rounded corners curve the
-   colored stroke into a parenthesis shape automatically. */
 body.tabbar-left .group-chip {
     width: 100%;
     box-sizing: border-box;
     height: 28px;
-    border-radius: 0;
-    border: 1px solid
-        color-mix(
-            in srgb,
-            var(--group-color, var(--border)) 22%,
-            var(--tab-border-hover)
-        );
-    border-left: 3px solid var(--group-color, var(--border));
-    padding: 0 12px 0 8px;
+    min-height: 28px;
+    padding: 0 12px 0 6px;
     margin-top: 2px;
 }
 
@@ -10777,93 +10637,12 @@ body.tabbar-left .tab-group-shell {
 }
 
 body.tabbar-left .group-chip-has-members {
-    /* Sidebar chips keep their full pill shape whether expanded or
-       collapsed — the tree-line below is what signals expansion, not
-       a fused border. */
     border-radius: 0;
-    border-bottom-color: color-mix(
-        in srgb,
-        var(--group-color, var(--border)) 22%,
-        var(--tab-border-hover)
-    );
     margin-bottom: 0;
 }
 
-/* Dark sidebar should read as stacked project cards, not bare bracket
-   glyphs. Keep the left color rail, but bring back the tinted card fill
-   + full outline from the intended mockup. Light mode keeps its softer
-   overrides further down. */
 body.tabbar-left:not(.theme-light) #tabbar-host {
     background: var(--sidebar-bg);
-}
-
-body.tabbar-left:not(.theme-light) .group-chip {
-    height: 34px;
-    min-height: 34px;
-    border-radius: 0;
-    border-color: color-mix(
-        in srgb,
-        var(--group-color, var(--border)) 42%,
-        rgba(255, 255, 255, 0.08)
-    );
-    border-left-width: 4px;
-    border-left-color: var(--group-color, var(--accent));
-    background: color-mix(
-        in srgb,
-        var(--group-color, var(--accent)) 10%,
-        #1b2028
-    );
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.035),
-        0 1px 0 rgba(0, 0, 0, 0.22);
-}
-
-body.tabbar-left:not(.theme-light) .group-chip:hover {
-    background: color-mix(
-        in srgb,
-        var(--group-color, var(--accent)) 15%,
-        #202631
-    );
-    border-color: color-mix(
-        in srgb,
-        var(--group-color, var(--border)) 52%,
-        rgba(255, 255, 255, 0.12)
-    );
-}
-
-body.tabbar-left:not(.theme-light) .group-chip-count {
-    background: transparent;
-    color: rgb(var(--ink-rgb) / 0.38);
-}
-
-body.tabbar-left:not(.theme-light)
-    .tab-group-shell:not(.tab-group-shell-collapsed)
-    .tab-group-body::before {
-    top: 42px;
-    background: color-mix(
-        in srgb,
-        var(--group-color, var(--muted)) 76%,
-        transparent
-    );
-}
-
-body.tabbar-left:not(.theme-light) .tab-grouped.active {
-    background: linear-gradient(
-        90deg,
-        color-mix(in srgb, var(--group-color, var(--accent)) 20%, #1b2030) 0%,
-        rgba(25, 30, 43, 0.92) 48%,
-        rgba(20, 24, 34, 0.34) 100%
-    );
-    border-color: rgba(255, 255, 255, 0.04);
-    color: #fff;
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.045),
-        0 8px 22px rgba(0, 0, 0, 0.16);
-}
-
-body.tabbar-left:not(.theme-light) .tab-grouped.active .tab-close {
-    color: rgba(255, 255, 255, 0.64);
-    opacity: 0.72;
 }
 
 body.tabbar-left .tab-btn .tab-close {
@@ -11610,8 +11389,7 @@ body.tabbar-rail-labels #tabbar-rail {
 
 /* Light: the raw group pastels are tuned for dark surfaces and wash
    out on a light one — pull text toward ink and deepen the seg fills
-   (DESIGN.md "text via color-mix toward #fff/#000 for contrast",
-   same pattern as body.theme-light .group-chip). */
+   (DESIGN.md "text via color-mix toward #fff/#000 for contrast"). */
 body.theme-light .tabbar-rail-glyph-badge,
 body.theme-light .tabbar-rail-labels-head,
 body.theme-light .tabbar-rail-spine-mono {
@@ -12705,6 +12483,14 @@ body.tabbar-left .tab-grouped .tab-op-avatar-wrap {
 
 body.tabbar-left .tab-btn:not(.tab-grouped).active:has(.tab-op-chip-leading)::before {
   display: block;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: 2px;
+  height: auto;
+  border-radius: 0;
+  background: var(--tab-stripe, var(--accent));
 }
 
 body.tabbar-left .tab-btn:not(.tab-grouped).active
@@ -16198,20 +15984,7 @@ body.theme-light .modal-actions button.btn-cancel:hover {
     border-color: color-mix(in srgb, var(--border) 75%, var(--text-primary));
 }
 
-/* ── Group count badges on collapsed group cards ──────────── */
-body.theme-light .group-chip .count,
-body.theme-light .group-chip__count,
-body.theme-light .tab-group-shell .count {
-    background: rgba(0, 0, 0, 0.12);
-    color: var(--text-primary);
-}
-
-/* ── Active tab pill in vertical sidebar ──────────────────── */
-body.theme-light .tab-btn.active,
-body.theme-light .tab-btn[aria-selected="true"] {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--text-primary);
-}
+/* Active tab is ink-composed by the chassis — no light-mode override needed. */
 
 /* ── File tree rows: hardcoded `#c4c8cf` was invisible on light ── */
 body.theme-light .structure-name {
@@ -16272,12 +16045,6 @@ body.theme-light .ck-tooltip__hint {
 body.theme-light .ck-tooltip__hint kbd {
     background: rgba(0, 0, 0, 0.06);
     border-color: var(--border);
-}
-
-/* ── Group count badges: dark filled circles in light mode → soft tint ─ */
-body.theme-light .group-chip-count {
-    background: transparent !important;
-    color: rgba(0, 0, 0, 0.4) !important;
 }
 
 /* ── Editor host + previews: kill the dark backplate ─────────── */

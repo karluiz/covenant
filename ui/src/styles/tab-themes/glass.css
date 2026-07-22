@@ -1,133 +1,52 @@
 /* ═══ TAB STYLE: GLASS (body.tab-style-glass) ═══
-   Frosted capsules + one sliding indicator. Group = tinted glass trough.
-   AOM = breathing color aura. Repurposes no base pseudo-elements for the
-   active highlight; that is the JS-positioned .tab-glass-indicator. */
+   One signature on the chassis: a hairline glass capsule that springs
+   between tabs (positioned by tabs/glass-indicator.ts). The motion is
+   the signature — the capsule itself is quiet: ink fill + hairline +
+   a faint top bevel tinted by the tab's color. */
 
-/* The sliding indicator (created/positioned in tabs/glass-indicator.ts). */
+/* The indicator computes its rect relative to #tabs (its host) — #tabs
+   must be its containing block in both layouts, or the capsule paints
+   offset against whatever ancestor happens to be positioned. */
+body.tab-style-glass #tabs {
+    position: relative;
+}
+
 .tab-glass-indicator {
-  position: absolute;
-  border-radius: 11px;
-  background: linear-gradient(180deg,
-    color-mix(in srgb, var(--gi-color, var(--accent)) 22%, rgb(var(--ink-rgb) / 0.10)),
-    rgb(var(--ink-rgb) / 0.04));
-  box-shadow: 0 6px 18px -6px rgba(0,0,0,0.6),
-    inset 0 1px 0 rgb(var(--ink-rgb) / 0.18), 0 0 0 1px rgb(var(--ink-rgb) / 0.06);
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0;
-  transition: top 0.42s cubic-bezier(0.22,1.2,0.36,1),
-    left 0.42s cubic-bezier(0.22,1.2,0.36,1),
-    width 0.42s cubic-bezier(0.22,1.2,0.36,1),
-    height 0.42s cubic-bezier(0.22,1.2,0.36,1),
-    background 0.4s, opacity 0.2s;
+    position: absolute;
+    border-radius: 7px;
+    background: rgb(var(--ink-rgb) / 0.06);
+    box-shadow:
+        inset 0 0 0 1px rgb(var(--ink-rgb) / 0.09),
+        inset 0 1px 0 color-mix(in srgb, var(--gi-color, var(--accent)) 18%, rgb(var(--ink-rgb) / 0.07));
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0;
+    transition:
+        top 0.42s cubic-bezier(0.22, 1.2, 0.36, 1),
+        left 0.42s cubic-bezier(0.22, 1.2, 0.36, 1),
+        width 0.42s cubic-bezier(0.22, 1.2, 0.36, 1),
+        height 0.42s cubic-bezier(0.22, 1.2, 0.36, 1),
+        opacity 0.2s;
 }
 @media (prefers-reduced-motion: reduce) {
-  .tab-glass-indicator { transition: opacity 0.1s; }
+    .tab-glass-indicator { transition: opacity 0.1s; }
 }
 
-/* ── GLASS · shared pill treatment ── */
+/* The capsule replaces the chassis fill + edge on the active tab. */
 body.tab-style-glass .tab-btn {
-  position: relative;
-  z-index: 1;
-  border: none;
-  border-radius: 11px;
-  background: transparent;
-  color: var(--tab-fg-rest);
-  transition: color 0.3s, transform 0.3s cubic-bezier(0.22,1.2,0.36,1),
-    max-width 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease-out;
+    position: relative;
+    z-index: 1;
 }
-body.tab-style-glass .tab-btn:hover:not(.active) { color: var(--text-primary); }
-body.tab-style-glass .tab-btn.active { color: var(--tab-fg-active); }
-/* base active ::before seam is redundant under the indicator — hide it. */
-body.tab-style-glass .tab-btn.active::before { display: none; }
-
-/* AOM = breathing aura behind the capsule (repurpose ::after). */
-body.tab-style-glass .tab-btn.tab-aom-active::after {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: 13px;
-  z-index: -1;
-  background: conic-gradient(from 0deg,
-    var(--accent), var(--accent-3, #bb9af7), var(--accent-2, #22d3ee), var(--accent));
-  filter: blur(7px);
-  opacity: 0.5;
-  -webkit-mask: none; mask: none; /* override base ring masking */
-  animation: glass-breathe 3.2s ease-in-out infinite;
+body.tab-style-glass .tab-btn.active {
+    background: transparent;
 }
-@keyframes glass-breathe { 50% { opacity: 0.8; filter: blur(10px); } }
-@media (prefers-reduced-motion: reduce) {
-  body.tab-style-glass .tab-btn.tab-aom-active::after { animation: none; opacity: 0.6; }
+body.tab-style-glass .tab-btn.active::before {
+    display: none;
 }
-body.tab-style-glass .tab-btn.tab-aom-excluded::after {
-  inset: -1px; border-radius: 12px; opacity: 0.78;
-}
-
-/* Group treatment. */
-body.tab-style-glass .tab-group-stripe { display: none; }
-/* HORIZONTAL: a tinted glass trough the capsules float inside — reads well
-   when a few groups sit side by side. */
-body.tab-style-glass:not(.tabbar-left) .tab-group-shell {
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--group-color, var(--accent)) 9%, rgb(var(--ink-rgb) / 0.015));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--accent)) 20%, transparent);
-  padding: 4px;
-}
-/* VERTICAL: a stack of bordered troughs reads as a wall of fat buttons. Drop
-   the box entirely — a soft left accent bar carries the grouping, and the
-   sliding pill is the theme's real signature. */
-body.tab-style-glass.tabbar-left .tab-group-shell {
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 0 0 0 1px;
-  border-left: 2px solid color-mix(in srgb, var(--group-color, var(--accent)) 32%, transparent);
-  margin: 1px 0;
-}
-body.tab-style-glass .group-chip {
-  border: none;
-  border-radius: 9px;
-  background: transparent;
-  color: color-mix(in srgb, var(--group-color, var(--accent)) 60%, var(--text-primary));
-}
-/* VERTICAL: the base sheet paints tinted "project cards" on the chip
-   (body.tabbar-left:not(.theme-light) .group-chip, specificity 0,3,1) — must
-   match that specificity to flatten it. The left accent bar on the shell
-   carries the grouping instead. */
-body.tab-style-glass.tabbar-left .group-chip {
-  height: 30px;
-  min-height: 30px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  box-shadow: none;
-}
-body.tab-style-glass.tabbar-left .group-chip:hover {
-  background: color-mix(in srgb, var(--group-color, var(--accent)) 10%, transparent);
-  border: none;
-  box-shadow: none;
-}
-body.tab-style-glass .group-chip-dot {
-  box-shadow: 0 0 8px var(--group-color, var(--accent));
-}
-/* Collapsed-group member count. Base flings it to the far edge (margin-left:
-   auto) and dims it to 0.38 white — orphaned and invisible on a flat row.
-   Pull it next to the label as a small group-tinted badge. */
-body.tab-style-glass.tabbar-left .group-chip-count {
-  margin-left: auto;
-  margin-right: 0;
-  padding: 0 5px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--group-color, var(--accent)) 16%, transparent);
-  color: color-mix(in srgb, var(--group-color, var(--accent)) 82%, var(--text-primary));
-}
-
-/* ── GLASS · HORIZONTAL ── */
-body.tab-style-glass:not(.tabbar-left) #tabs { gap: 6px; padding: 0 8px; position: relative; }
-body.tab-style-glass:not(.tabbar-left) .tab-btn:hover:not(.active) { transform: translateY(-1px); }
-
-/* ── GLASS · VERTICAL ── */
-body.tab-style-glass.tabbar-left #tabs { position: relative; }
-body.tab-style-glass.tabbar-left .tab-btn:hover:not(.active):not(:has(.tab-op-chip-leading)) {
-  transform: translateX(2px);
+/* The chassis re-enables the vertical spine at higher specificity
+   (body.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before,
+   0,4,2) — match it here so glass's capsule stays the only signature
+   in the left rail too. */
+body.tab-style-glass.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before {
+    display: none;
 }

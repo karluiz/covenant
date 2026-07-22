@@ -524,3 +524,19 @@ describe("activate() reveals a hidden pane even when it is already active", () =
     expect(pane.hidden).toBe(false);
   });
 });
+
+describe("group chip chassis hooks", () => {
+  it("renders a dot span and marks empty groups with group-chip-empty", () => {
+    const m = makeManager();
+    m.createEmptyGroup();
+    const chip = document.querySelector<HTMLElement>(".group-chip");
+    expect(chip).not.toBeNull();
+    expect(chip!.querySelector(".group-chip-dot")).not.toBeNull();
+    // dot sits after the chevron, before the label
+    const children = Array.from(chip!.children).map((c) => c.className);
+    expect(children.indexOf("group-chip-dot")).toBeGreaterThan(
+      children.findIndex((c) => c.includes("group-chip-chev")),
+    );
+    expect(chip!.classList.contains("group-chip-empty")).toBe(true);
+  });
+});
