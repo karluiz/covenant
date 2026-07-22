@@ -841,6 +841,13 @@
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
+/* File-tree drag-drop target: reuses structure-drop-target class applied
+   by the tree's pointer-drag. Mirrors the :focus-within ring but slightly
+   brighter so the drop affordance reads as distinct from keyboard focus. */
+.acp-composer.structure-drop-target {
+  border-color: var(--accent, #7aa2f7);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #7aa2f7) 22%, transparent);
+}
 /* "Jump to present" — floats above the composer while the transcript is
    scrolled away from the live edge. */
 .acp-jump-present {

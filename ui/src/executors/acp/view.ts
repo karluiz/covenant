@@ -629,6 +629,18 @@ export class AcpChatView {
     this.closeModelMenu();
     this.closeTrustMenu();
   };
+  /// Bound to `window` on mount — receives `covenant:acp-file-drop` from
+  /// the file-tree pointer drag and injects the file as a `@-mention` in
+  /// the composer. Checks `detail.target` containment so only the view
+  /// whose composer the user dropped onto reacts (handles multiple panels).
+  private readonly onFileDrop = (e: Event): void => {
+    if (this.destroyed) return;
+    const { path, target } = (e as CustomEvent<{ path: string; target: Element | null }>).detail;
+    const composer = this.host.querySelector(".acp-composer");
+    if (!composer || !target || !composer.contains(target)) return;
+    this.injectFileDrop(path);
+  };
+
   private readonly closeResumeMenuOnOutsideClick = (e: MouseEvent): void => {
     if (e.target instanceof Node && this.resumeMenuEl.contains(e.target)) return;
     this.closeResumeMenu();
@@ -724,6 +736,7 @@ export class AcpChatView {
     this.onRename = opts.onRename;
     this.mount();
     void this.subscribe();
+    window.addEventListener("covenant:acp-file-drop", this.onFileDrop);
   }
 
   /// Tear down DOM + event subscription. Idempotent.
@@ -734,6 +747,7 @@ export class AcpChatView {
       window.clearInterval(this.liveStripTimer);
       this.liveStripTimer = null;
     }
+    window.removeEventListener("covenant:acp-file-drop", this.onFileDrop);
     document.removeEventListener("mousedown", this.closeModelMenuOnOutsideClick);
     document.removeEventListener("mousedown", this.closeResumeMenuOnOutsideClick);
     if (this.unlisten) {
@@ -1228,6 +1242,25 @@ export class AcpChatView {
     this.mentionItems = [];
     this.mentionSel = 0;
     this.mentionFrag = null;
+  }
+
+  /// Inject an absolute path dragged from the file tree as a `@-mention`
+  /// attachment. The path must be inside the session cwd — if it's from a
+  /// different project we silently ignore the drop (no path traversal out
+  /// of the jail). Appends `@rel/path ` to whatever is already in the
+  /// composer so the user can keep typing or drop multiple files.
+  private injectFileDrop(absPath: string): void {
+    if (!this.cwd) return;
+    const prefix = this.cwd.endsWith("/") ? this.cwd : `${this.cwd}/`;
+    if (!absPath.startsWith(prefix)) return;
+    const rel = absPath.slice(prefix.length);
+    if (!rel) return;
+    const existing = this.inputEl.value;
+    const sep = existing.length > 0 && !existing.endsWith(" ") ? " " : "";
+    this.inputEl.value = `${existing}${sep}@${rel} `;
+    this.syncComposer();
+    this.mentions.add(rel);
+    this.inputEl.focus();
   }
 
   /// Header meta — plain textContent, wire/user strings never hit
