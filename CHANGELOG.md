@@ -6,6 +6,74 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.57 — Native webview zoom fixes selection, menus and banding
+
+### Changed
+
+- **UI zoom is the webview's native page zoom**: `zoom.ts` used CSS `zoom`
+  on `<html>`, which WebKit paints but does not report through
+  `getBoundingClientRect()` — rects came back in layout px while
+  `MouseEvent` coords were visual px. Every floating surface carried a
+  `/ zoom` fudge to bridge the two, and xterm.js could not be bridged at
+  all: the counter-zoom on `.tab-terminal` corrected the cell size but not
+  the host's origin, so terminal selections landed a constant
+  `paneTop × (zoom − 1)` below the pointer — visible in some workspaces and
+  not others purely because the pane started at a different height. Zoom now
+  goes through `getCurrentWebview().setZoom()`, which scales the whole CSS
+  pixel grid, so every coordinate space agrees again. That deletes the
+  counter-zooms on the terminal and the CodeMirror editor (`styles.css`),
+  the `/ z` clamps in the pane menu and submenu (`ui/src/tabs/manager.ts`),
+  the context menu (`ui/src/menu/context-menu.ts`), tooltips
+  (`ui/src/tooltip/tooltip.ts`), the spawns popover (`ui/src/spawns/chip.ts`)
+  and the Tasker date picker (`ui/src/tasker/panel.ts`), plus the
+  `fontSize × zoom` scaling on the terminal — whose fractional cell heights
+  were what banded diff backgrounds half a row off at high zoom. Requires
+  `core:webview:allow-set-webview-zoom`
+  (`crates/app/capabilities/default.json`). `browser/pane.ts` keeps its
+  `rect × z`: the child webview is placed in window-logical px, and under
+  page zoom 1 CSS px is still `z` logical px.
+
+- **Workspace switching is a hard cut**: the full-bleed card naming the
+  destination space, and its 420ms minimum hold, read as a stall rather than
+  as motion. Switching now returns as soon as the active tab is live
+  (`ui/src/workspaces/manager.ts`). The overlay markup and CSS stay —
+  `restoreFromManifest` still uses the workspace-switching class as a boot
+  cover.
+
+- **Operator footer matches the Settings primary**: the create/edit footer
+  now uses the same primary button as Config — short label ("Save" /
+  "Create") plus the ⌘S chord chip — and ⌘S / Ctrl+S saves the modal
+  alongside the existing ⌘Enter (`ui/src/operator/creator.ts`).
+
+- **Executor picker entries read as "harness"**: matches the naming used
+  everywhere else (`ui/src/settings/spawns.ts`, `ui/src/spawns/chip.ts`).
+
+### Fixed
+
+- **Background tab spawns no longer blank the workspace**: `createTab()`
+  calls `hideAllPanes()` before its async setup, so on boot restore every
+  tab spawning in parallel behind the active one re-hid the pane the user
+  was looking at; `restoreFromManifest`'s closing
+  `activate(active, { skipIfSame: true })` then hit the early return and
+  revealed nothing — a fully black workspace, recoverable only by clicking
+  another tab. `activate()`'s skipIfSame shortcut now also requires the pane
+  to be visible, and `createTab` / `createPiTab` / `createAcpTab` only hide
+  the other panes when the new tab is actually taking over the screen
+  (`ui/src/tabs/manager.ts`).
+
+- **JSON unit sources render as code**: opening an MCP server full-screen
+  ran its JSON config through the markdown renderer, producing one wrapped
+  paragraph. The reader and the inline preview now pretty-print JSON into a
+  fenced block (`ui/src/canon/panel.ts`); markdown is unchanged.
+
+- **Board note dot → note icon**: the anonymous 6px dot on a Tasker board
+  card meant "has description" but read as nothing. It now uses the same
+  note icon the list view already uses (`ui/src/tasker/board.ts`,
+  `ui/src/tasker/board.css`).
+
+- **Telegram glyph loses its box**: dropped the framed container around the
+  Settings Telegram icon (`ui/src/styles.css`).
+
 ## v0.9.56 — Faster tab spawn and switch, shared worktree history
 
 ### Added
