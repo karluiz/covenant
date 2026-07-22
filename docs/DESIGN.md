@@ -122,7 +122,7 @@ Rules:
 ## Layout & chrome
 
 - App shell is a CSS grid: `38px` titlebar row / `1fr` workspace / `auto` status bar (`--statusbar-h`: 50px two-row, 26px single-row).
-- **Tabs are square** (`--tab-radius: 0`), 30px tall, monospace, top-corners-only radius slot kept as a token in case a theme rounds them.
+- **Tabs are square** (`--tab-radius: 0`). Horizontal rows are 30px; vertical sidebar rows are 26px (28px group chips). The tab chassis is monochrome at rest — group identity lives in a 6px dot; the group color appears only on the active tab's 2px edge (left in vertical, bottom underline in horizontal) and the focused group's lifted label. Tab styles (Forge/Glass/CRT/Custom) are single-signature overlays on this chassis; the AOM indicator (breathing accent dot) is chassis-owned and theme-proof.
 - Left tabbar expanded width `--tabbar-w-expanded: 232px`; right rail `--right-sidebar-w: 240px`.
 
 ### Rail design system (`.rail-*`)

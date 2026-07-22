@@ -743,28 +743,28 @@ export class SettingsPanel {
               <input type="radio" name="tab_style" value="classic" />
               <span class="settings-radio-body">
                 <span class="settings-radio-title">Classic <span class="settings-badge">default</span></span>
-                <span class="settings-radio-hint">Flat pills with a top accent stripe. The shipped look.</span>
+                <span class="settings-radio-hint">The chassis pure — flat rows, monochrome groups, a 2px group-color edge on the active tab.</span>
               </span>
             </label>
             <label class="settings-radio">
               <input type="radio" name="tab_style" value="forge" />
               <span class="settings-radio-body">
                 <span class="settings-radio-title">Forge</span>
-                <span class="settings-radio-hint">Angled, mechanical tabs — the active one rises and lights a hot seam. Works in both top and left layouts.</span>
+                <span class="settings-radio-hint">The active edge becomes a heated seam — ember gradient with a minimal glow. Both layouts.</span>
               </span>
             </label>
             <label class="settings-radio">
               <input type="radio" name="tab_style" value="glass" />
               <span class="settings-radio-body">
                 <span class="settings-radio-title">Glass</span>
-                <span class="settings-radio-hint">Frosted capsules with a single indicator that springs between tabs. Calm, premium. Both layouts.</span>
+                <span class="settings-radio-hint">A hairline glass capsule springs between tabs. The motion is the signature. Both layouts.</span>
               </span>
             </label>
             <label class="settings-radio">
               <input type="radio" name="tab_style" value="crt" />
               <span class="settings-radio-body">
                 <span class="settings-radio-title">CRT</span>
-                <span class="settings-radio-hint">Terminal-brutalist — blinking caret, scanline glow, ASCII group headers. The screenshot magnet. Both layouts.</span>
+                <span class="settings-radio-hint">Blinking caret + scanlines on the active row; everything monospace. The screenshot magnet.</span>
               </span>
             </label>
             <label class="settings-radio">
