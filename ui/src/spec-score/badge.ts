@@ -48,7 +48,9 @@ export function makeSpecScoreBadge(s: SpecScore): HTMLSpanElement {
  *  for read-only surfaces (doc viewer header) where a click-to-expand panel
  *  has nowhere to live. A short grace timer keeps the popover open while the
  *  pointer travels from badge to popover. */
-export function makeSpecScoreHoverBadge(): {
+export function makeSpecScoreHoverBadge(opts?: {
+  onCanonicalize?: () => Promise<void>;
+}): {
   el: HTMLSpanElement;
   update(s: SpecScore | null): void;
 } {
@@ -72,7 +74,7 @@ export function makeSpecScoreHoverBadge(): {
     if (pop || !score) return;
     pop = document.createElement('div');
     pop.className = 'spec-score-pop';
-    pop.append(renderBreakdown(score));
+    pop.append(renderBreakdown(score, opts));
     pop.addEventListener('mouseenter', () => clearTimeout(hideTimer));
     pop.addEventListener('mouseleave', scheduleHide);
     document.body.append(pop);
@@ -98,13 +100,61 @@ export function makeSpecScoreHoverBadge(): {
       el.dataset.grade = s.grade;
       el.textContent = `${s.score} ${s.grade}`;
       if (pop) {
-        pop.replaceChildren(renderBreakdown(s));
+        pop.replaceChildren(renderBreakdown(s, opts));
       }
     },
   };
 }
 
-export function renderBreakdown(s: SpecScore, opts?: { onDeep?: () => Promise<void> }): HTMLElement {
+/** Action button with the shared oneshot-LLM lifecycle: busy label while
+ *  running, "Open Providers" door when the route has no key, inline error
+ *  otherwise. On success the caller re-renders the breakdown, so the
+ *  button only survives — and needs re-enabling — on failure. */
+function oneshotButton(label: string, busy: string, run: () => Promise<void>): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'spec-score-deep-btn';
+  btn.textContent = label;
+  btn.addEventListener('click', () => {
+    btn.parentElement?.querySelector('.spec-score-deep-error')?.remove();
+    btn.disabled = true;
+    btn.textContent = busy;
+    void run()
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        // An unconfigured route is an empty state, not a failure — same
+        // convention as Changes: drop the red and offer the door.
+        if (msg.includes('Settings → Providers')) {
+          const note = document.createElement('div');
+          note.className = 'spec-score-deep-note';
+          note.textContent = 'The Summary route has no API key.';
+          const door = document.createElement('button');
+          door.type = 'button';
+          door.className = 'spec-score-deep-btn spec-score-deep-door';
+          door.textContent = 'Open Providers';
+          door.addEventListener('click', () =>
+            document.dispatchEvent(new CustomEvent('covenant:open-providers')),
+          );
+          btn.replaceWith(note, door);
+          return;
+        }
+        const line = document.createElement('div');
+        line.className = 'spec-score-deep-error';
+        line.textContent = msg;
+        btn.after(line);
+      })
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = label;
+      });
+  });
+  return btn;
+}
+
+export function renderBreakdown(
+  s: SpecScore,
+  opts?: { onDeep?: () => Promise<void>; onCanonicalize?: () => Promise<void> },
+): HTMLElement {
   const root = document.createElement('div');
   root.className = 'spec-score-breakdown';
   for (const d of s.dimensions) {
@@ -135,53 +185,18 @@ export function renderBreakdown(s: SpecScore, opts?: { onDeep?: () => Promise<vo
     }
     root.append(row);
   }
+  // Non-canonical spec (no ## Goal → the goal dimension earns 0): offer the
+  // LLM rewrite into the canonical shape.
+  if (opts?.onCanonicalize && s.dimensions.some((d) => d.key === 'goal' && d.earned === 0)) {
+    root.append(oneshotButton('Convert to canonical', 'Converting…', opts.onCanonicalize));
+  }
   if (s.deep) {
     const note = document.createElement('div');
     note.className = 'spec-score-deep-note';
     note.textContent = 'Deep score applied';
     root.append(note);
   } else if (opts?.onDeep) {
-    const onDeep = opts.onDeep;
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'spec-score-deep-btn';
-    btn.textContent = 'Deep score';
-    btn.addEventListener('click', () => {
-      root.querySelector('.spec-score-deep-error')?.remove();
-      btn.disabled = true;
-      btn.textContent = 'Scoring…';
-      void onDeep()
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          // An unconfigured route is an empty state, not a failure — same
-          // convention as Changes: drop the red and offer the door.
-          if (msg.includes('Settings → Providers')) {
-            const note = document.createElement('div');
-            note.className = 'spec-score-deep-note';
-            note.textContent = 'The Summary route has no API key.';
-            const door = document.createElement('button');
-            door.type = 'button';
-            door.className = 'spec-score-deep-btn spec-score-deep-door';
-            door.textContent = 'Open Providers';
-            door.addEventListener('click', () =>
-              document.dispatchEvent(new CustomEvent('covenant:open-providers')),
-            );
-            btn.replaceWith(note, door);
-            return;
-          }
-          const line = document.createElement('div');
-          line.className = 'spec-score-deep-error';
-          line.textContent = msg;
-          btn.after(line);
-        })
-        .finally(() => {
-          // On success the caller re-renders the breakdown (deep:true → note),
-          // so this button only survives — and needs re-enabling — on failure.
-          btn.disabled = false;
-          btn.textContent = 'Deep score';
-        });
-    });
-    root.append(btn);
+    root.append(oneshotButton('Deep score', 'Scoring…', opts.onDeep));
   }
   return root;
 }

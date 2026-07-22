@@ -4399,6 +4399,16 @@ async fn spec_deep_score(
     summarizer::deep_score_oneshot(&state.settings, &markdown).await
 }
 
+/// Rewrite a non-canonical spec into the canonical section shape via the
+/// Summary route. None when no route is configured.
+#[tauri::command]
+async fn spec_canonicalize(
+    state: tauri::State<'_, AppState>,
+    markdown: String,
+) -> Result<Option<String>, String> {
+    summarizer::canonicalize_spec_oneshot(&state.settings, &markdown).await
+}
+
 #[tauri::command]
 async fn search_session_files(
     state: tauri::State<'_, AppState>,
@@ -5904,6 +5914,7 @@ pub fn run() {
             score_sync_commands::score_profile_preview,
             score_sync_commands::score_profile_share_url,
             spec_deep_score,
+            spec_canonicalize,
             covenant_review::review_get_share,
             covenant_review::review_publish_spec,
             covenant_review::review_republish_spec,
