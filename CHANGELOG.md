@@ -6,6 +6,29 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.59 — Glass capsule fix for folded tab groups
+
+### Changed
+
+- **Canon executor projections**: refreshed the Canon-generated executor
+  config surface — `.codex/config.toml`, `.opencode/` agents and commands,
+  `.github/copilot-instructions.md`, shared `.mcp.json`/`opencode.json`
+  MCP config, expanded `.pi/prompts/horizon.md`, and new `green` /
+  `verify-live` prompts; retired the `canon-kyc-peru` and `canon-sdd-bian`
+  skills.
+
+### Fixed
+
+- **Glass capsule stale rect on group fold**: with the Glass tab style in
+  the vertical sidebar, folding the group that held the active tab left
+  the sliding capsule floating over the group header with a stale rect —
+  the fold's `max-height` goes `none → 0`, which is not interpolable, so
+  the `transitionend` safety net never fired. `toggleGroupCollapsed` in
+  `ui/src/tabs/manager.ts` now repositions the indicator explicitly, and
+  `ui/src/tabs/glass-indicator.ts` retargets a folded active pill's
+  capsule onto its `.group-chip`, so the capsule springs onto the group
+  header instead of orphaning below it.
+
 ## v0.9.58 — Tab chassis redesign + ⌘Q quit confirm fix
 
 ### Added
