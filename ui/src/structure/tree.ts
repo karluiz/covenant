@@ -302,11 +302,15 @@ export class StructureTree {
       if (this.dragGhost) {
         this.dragGhost.style.transform = `translate(${ev.clientX + 12}px, ${ev.clientY + 6}px)`;
       }
-      const target = this.resolveDropTarget(
-        document.elementFromPoint(ev.clientX, ev.clientY),
-      );
-      if (target) this.setDragHighlight(target.highlight);
-      else this.clearDragHighlight();
+      const elemAtPoint = document.elementFromPoint(ev.clientX, ev.clientY);
+      const acpComposer = elemAtPoint?.closest<HTMLElement>(".acp-composer");
+      if (acpComposer) {
+        this.setDragHighlight(acpComposer);
+      } else {
+        const target = this.resolveDropTarget(elemAtPoint);
+        if (target) this.setDragHighlight(target.highlight);
+        else this.clearDragHighlight();
+      }
     };
 
     const onUp = (ev: PointerEvent): void => {
@@ -333,9 +337,17 @@ export class StructureTree {
       window.addEventListener("click", swallow, true);
       setTimeout(() => window.removeEventListener("click", swallow, true), 0);
 
-      const target = this.resolveDropTarget(
-        document.elementFromPoint(ev.clientX, ev.clientY),
-      );
+      const elemAtPoint = document.elementFromPoint(ev.clientX, ev.clientY);
+      const acpComposer = elemAtPoint?.closest<HTMLElement>(".acp-composer");
+      if (src && acpComposer) {
+        window.dispatchEvent(
+          new CustomEvent("covenant:acp-file-drop", {
+            detail: { path: src, target: elemAtPoint },
+          }),
+        );
+        return;
+      }
+      const target = this.resolveDropTarget(elemAtPoint);
       if (src && target) void this.moveEntry(src, target.dir);
     };
 
