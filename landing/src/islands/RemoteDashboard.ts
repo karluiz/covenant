@@ -1,5 +1,25 @@
-import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, closeTabFrame, focusTabFrame, openTabFrame, mirrorStartFrame, mirrorStopFrame, parseMirrorFrame, type DashState, type TabInfo } from "../remote/protocol";
-import { sortTabs, resolveSelection, mirrorTransition } from "../remote/view-model";
+import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, sendKeysFrame, closeTabFrame, focusTabFrame, openTabFrame, mirrorStartFrame, mirrorStopFrame, parseMirrorFrame, type DashState, type TabInfo } from "../remote/protocol";
+import { resolveSelection, mirrorTransition, groupTabs, splitTitle, phaseLabel, attentionSummary } from "../remote/view-model";
+
+// The quick-key row: the tokens the desktop whitelists (rc_agent::key_bytes),
+// with their labels and severity tone. What a stopped agent asks for from a
+// phone is a key, not a command.
+const QUICK_KEYS: Array<{ key: string; label: string; cls?: string }> = [
+  { key: "enter", label: "⏎" },
+  { key: "y", label: "y" },
+  { key: "n", label: "n" },
+  { key: "1", label: "1" },
+  { key: "2", label: "2" },
+  { key: "3", label: "3" },
+  { key: "up", label: "↑" },
+  { key: "down", label: "↓" },
+  { key: "esc", label: "esc", cls: "warn" },
+  { key: "shift-tab", label: "⇧⇥", cls: "warn" },
+  { key: "ctrl-c", label: "^C", cls: "stop" },
+];
+
+// Groups the viewer has manually folded. Not persisted — a session thing.
+const foldedGroups = new Set<string>();
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -24,7 +44,11 @@ export function mountRemoteDashboard(doc: Document = document): void {
   const mirrorTermEl = doc.getElementById("rc-mirror-term");
   const newTabBtn = doc.getElementById("rc-new-tab") as HTMLButtonElement | null;
   const openErrEl = doc.getElementById("rc-open-error");
+  const filterEl = doc.getElementById("rc-filter") as HTMLInputElement | null;
+  const bodyEl = doc.getElementById("rc-body");
   if (!tokenInput || !connectBtn || !statusEl || !listEl || !detailEl || !detailInfoEl) return;
+
+  let filterText = "";
 
   let state: DashState = initialState();
   let conn: Conn = "idle";
@@ -88,7 +112,7 @@ export function mountRemoteDashboard(doc: Document = document): void {
     mirroredSid = null;
     srcCols = srcRows = 0;
     if (term) { try { term.reset(); } catch { /* ignore */ } }
-    if (mirrorWrapEl) { mirrorWrapEl.classList.add("hidden"); mirrorWrapEl.classList.remove("flex"); }
+    if (mirrorWrapEl) { mirrorWrapEl.classList.add("hidden"); }
   };
 
   const syncMirror = () => {
@@ -104,7 +128,7 @@ export function mountRemoteDashboard(doc: Document = document): void {
     if (intent.start && open) {
       ensureTerm();
       if (term) { try { term.reset(); } catch { /* ignore */ } }
-      if (mirrorWrapEl) { mirrorWrapEl.classList.remove("hidden"); mirrorWrapEl.classList.add("flex"); }
+      if (mirrorWrapEl) { mirrorWrapEl.classList.remove("hidden"); }
       try { fit?.fit(); } catch { /* ignore */ }  // provisional; the screen frame's cols/rows win
       ws!.send(mirrorStartFrame(intent.start));
       mirroredSid = intent.start;
@@ -114,32 +138,78 @@ export function mountRemoteDashboard(doc: Document = document): void {
   const saved = localStorage.getItem(TOKEN_KEY);
   if (saved) tokenInput.value = saved;
 
+  const matchesFilter = (t: TabInfo): boolean => {
+    if (!filterText) return true;
+    const q = filterText.toLowerCase();
+    return t.title.toLowerCase().includes(q)
+      || (t.executor ?? "shell").toLowerCase().includes(q)
+      || t.phase.toLowerCase().includes(q);
+  };
+
+  const renderList = () => {
+    const tabs = state.tabs.filter(matchesFilter);
+    if (tabs.length === 0) {
+      listEl.innerHTML = `<p class="rc-empty">${state.tabs.length === 0 ? "No tabs." : "No tabs match."}</p>`;
+      return;
+    }
+    // A single ungrouped bucket needs no header row; only decorate real groups.
+    const groups = groupTabs(tabs);
+    const showHeaders = groups.length > 1 || (groups[0] && groups[0].key !== "");
+    listEl.innerHTML = groups.map((g) => {
+      const folded = foldedGroups.has(g.key);
+      const head = (showHeaders && g.key !== "")
+        ? `<button class="rc-group-head" data-group="${escapeAttr(g.key)}">
+             <span class="rc-caret">${folded ? "▸" : "▾"}</span>
+             <span>${escapeHtml(g.key)}</span>
+             <span class="rc-count">${g.tabs.length}${g.active ? ` · ${g.active} active` : ""}</span>
+           </button>`
+        : "";
+      const rows = folded ? "" : g.tabs.map((t) => {
+        const sid = escapeAttr(t.session_id);
+        const { leaf } = splitTitle(t.title);
+        const { text, tone } = phaseLabel(t.phase);
+        const selCls = t.session_id === selectedSid ? " sel" : "";
+        return `<button class="rc-row${t.armed ? " armed" : ""}${selCls}" data-sid="${sid}">
+          <span class="rc-dot">${t.armed ? "●" : "○"}</span>
+          <span class="rc-leaf">${escapeHtml(leaf)}</span>
+          <span class="rc-phase tone-${tone}">${escapeHtml(text)}</span>
+        </button>`;
+      }).join("");
+      return head + rows;
+    }).join("");
+  };
+
   const render = () => {
     // Defer any innerHTML rebuild while composing (CJK/accents/dictation):
     // rebuilding would destroy the composition node and lose input. State is
     // already updated; compositionend replays a single render().
     if (composing) { pendingRender = true; return; }
-    const map: Record<Conn, [string, string]> = {
-      idle: ["○ not connected", "text-zinc-500 text-sm"],
-      connecting: ["… connecting", "text-amber-400 text-sm"],
-      online: ["● desktop online", "text-emerald-400 text-sm"],
-      retrying: ["○ disconnected — retrying", "text-zinc-500 text-sm"],
-    };
+    // Status: the header answers "should I have opened this?" — when online,
+    // that's the attention summary (2 waiting · 3 active · 15 idle), not a
+    // bare "online". State drives the dot color/shape via a data attribute.
     let statusText: string;
-    let statusCls: string;
+    let statusState: "off" | "connecting" | "online" | "partial" | "warn";
     if (conn === "online" && state.desktopOnline) {
-      [statusText, statusCls] = map.online;
+      statusText = attentionSummary(state.tabs);
+      statusState = "online";
     } else if (conn === "online" && !state.desktopOnline) {
-      statusText = "● connected · desktop offline";
-      statusCls = "text-amber-400 text-sm";
+      statusText = "connected · desktop offline";
+      statusState = "partial";
     } else if (conn === "retrying" && failedHandshakes >= 2) {
-      statusText = "○ token rejected — expired? Copy a fresh one: Covenant → File → Copy Remote Pairing Token";
-      statusCls = "text-amber-400 text-sm";
+      statusText = "token rejected — expired? File → Copy Remote Pairing Token";
+      statusState = "warn";
+    } else if (conn === "connecting") {
+      statusText = "connecting";
+      statusState = "connecting";
+    } else if (conn === "retrying") {
+      statusText = "disconnected — retrying";
+      statusState = "off";
     } else {
-      [statusText, statusCls] = map[conn];
+      statusText = "not connected";
+      statusState = "off";
     }
     statusEl.textContent = statusText;
-    statusEl.className = statusCls;
+    statusEl.setAttribute("data-state", statusState);
     if (openErrEl) openErrEl.textContent = state.rejections[""] ?? "";
 
     // Token row collapses once paired; "change token" re-expands it.
@@ -147,31 +217,15 @@ export function mountRemoteDashboard(doc: Document = document): void {
     tokenRow?.classList.toggle("hidden", collapsed);
     tokenToggle?.classList.toggle("hidden", !collapsed);
 
-    // Mobile pane switching (md: classes keep both visible on desktop).
-    listEl.classList.toggle("hidden", mobileView === "detail");
-    detailEl.classList.toggle("hidden", mobileView === "list");
+    // Filter appears once the list is long enough to need it.
+    filterEl?.classList.toggle("hidden", state.tabs.length < 10);
 
-    // --- list pane
-    if (state.tabs.length === 0) {
-      listEl.innerHTML = `<p class="text-zinc-500 text-sm">No tabs.</p>`;
-    } else {
-      listEl.innerHTML = sortTabs(state.tabs).map((t) => {
-        const sid = escapeAttr(t.session_id);
-        const selCls = t.session_id === selectedSid
-          ? "bg-emerald-900/30 border border-emerald-800"
-          : "border border-transparent hover:bg-zinc-800/40";
-        const dot = t.armed
-          ? `<span class="text-emerald-400">●</span>`
-          : `<span class="text-zinc-600">○</span>`;
-        const titleCls = t.armed ? "text-emerald-300" : "text-zinc-400";
-        return `
-        <button class="rc-row w-full text-left flex items-center gap-2 rounded px-2 py-1.5 text-sm ${selCls}" data-sid="${sid}">
-          ${dot}
-          <span class="flex-1 truncate ${titleCls}">${escapeHtml(t.title)}</span>
-          <span class="text-xs text-zinc-500 shrink-0">${escapeHtml(t.executor ?? "shell")} · ${escapeHtml(t.phase)}</span>
-        </button>`;
-      }).join("");
-    }
+    // Mobile pane switching via data-view (a media query keeps both panes
+    // visible on desktop, so this only bites below 768px).
+    bodyEl?.setAttribute("data-view", mobileView);
+
+    // --- list pane: attention-ordered, folded by group
+    renderList();
 
     // --- detail pane (focus preservation across the innerHTML rebuild)
     const active = doc.activeElement as HTMLInputElement | null;
@@ -309,8 +363,14 @@ export function mountRemoteDashboard(doc: Document = document): void {
     }
   });
 
-  // List: row click selects (and enters detail view on mobile).
+  // List: a group header folds/unfolds; a row selects (and enters detail on mobile).
   listEl.addEventListener("click", (e) => {
+    const head = (e.target as HTMLElement).closest("button.rc-group-head") as HTMLElement | null;
+    if (head) {
+      const g = head.getAttribute("data-group");
+      if (g !== null) { foldedGroups.has(g) ? foldedGroups.delete(g) : foldedGroups.add(g); render(); }
+      return;
+    }
     const row = (e.target as HTMLElement).closest("button.rc-row") as HTMLElement | null;
     if (!row) return;
     const sid = row.getAttribute("data-sid");
@@ -321,6 +381,14 @@ export function mountRemoteDashboard(doc: Document = document): void {
     syncMirror();
   });
 
+  // Filter box: refilter on input; Enter jumps to the first waiting/armed tab.
+  filterEl?.addEventListener("input", () => { filterText = filterEl.value.trim(); render(); });
+  filterEl?.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key !== "Enter") return;
+    const target = groupTabs(state.tabs.filter(matchesFilter)).flatMap((g) => g.tabs)[0];
+    if (target) { selectedSid = target.session_id; if (!isDesktop()) mobileView = "detail"; render(); syncMirror(); }
+  });
+
   // Detail: event delegation, attached once.
   detailEl.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
@@ -328,6 +396,13 @@ export function mountRemoteDashboard(doc: Document = document): void {
       mobileView = "list";
       render();
       syncMirror();
+      return;
+    }
+    const keyBtn = target.closest("button.rc-key") as HTMLElement | null;
+    if (keyBtn) {
+      const sid = keyBtn.getAttribute("data-sid");
+      const key = keyBtn.getAttribute("data-key");
+      if (sid && key && ws && ws.readyState === WebSocket.OPEN) ws.send(sendKeysFrame(sid, key));
       return;
     }
     const sendBtn = target.closest("button.rc-send") as HTMLElement | null;
@@ -382,32 +457,38 @@ function renderDetailInfo(sel: TabInfo | null, state: DashState): string {
     const msg = state.tabs.length === 0
       ? "No tabs."
       : "No tabs armed — arm one on the desktop to control it.";
-    return `<p class="text-zinc-500 text-sm">${msg}</p>`;
+    return `<p class="rc-empty">${msg}</p>`;
   }
   const sid = escapeAttr(sel.session_id);
-  const back = `<button id="rc-back" class="md:hidden mb-2 rounded border border-zinc-700 bg-zinc-800/40 px-2 py-1 text-xs text-zinc-300">← tabs</button>`;
+  const { text: phText, tone } = phaseLabel(sel.phase);
+  const back = `<button id="rc-back" class="rc-back rc-btn rc-btn-ghost" style="margin-bottom:0.5rem">← tabs</button>`;
   const badge = sel.armed
-    ? `<span class="text-xs text-emerald-400">● armed</span>`
-    : `<span class="text-xs text-zinc-500">○ not armed</span>`;
+    ? `<div class="rc-badge armed">● armed</div>`
+    : `<div class="rc-badge unarmed">○ not armed</div>`;
   const rejection = state.rejections[sel.session_id];
-  const rejLine = rejection
-    ? `<div class="mt-1 text-xs text-red-400">✗ ${escapeHtml(rejection)}</div>`
-    : "";
+  const rejLine = rejection ? `<div class="rc-rej">✗ ${escapeHtml(rejection)}</div>` : "";
+
+  // Quick keys first — the common case is one tap, not a typed command.
+  const keys = QUICK_KEYS.map((k) =>
+    `<button class="rc-key${k.cls ? " " + k.cls : ""}" data-sid="${sid}" data-key="${k.key}">${escapeHtml(k.label)}</button>`
+  ).join("");
   const controls = sel.armed
-    ? `<div class="mt-2 flex gap-2 flex-wrap">
-        <input class="rc-cmd flex-1 min-w-32 rounded border border-emerald-900/50 bg-black/40 px-2 py-1 text-sm text-emerald-100" data-sid="${sid}" placeholder="command…" />
-        <button class="rc-send rounded border border-emerald-700 bg-emerald-900/40 px-3 py-1 text-sm text-emerald-200" data-sid="${sid}">Send</button>
-        <button data-sid="${sid}" class="rc-focus rounded border border-zinc-700 bg-zinc-800/40 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700/50">Focus</button>
-        <button data-sid="${sid}" class="rc-close rounded border border-red-800 bg-red-900/20 px-2 py-1 text-xs text-red-300 hover:bg-red-900/40">Close</button>
-      </div>`
-    : `<div class="mt-2 text-xs text-zinc-500">Arm this tab on the desktop to control it.</div>`;
+    ? `<div class="rc-keys">${keys}</div>
+       <div class="rc-cmd-row">
+         <input class="rc-cmd" data-sid="${sid}" placeholder="type a command…" />
+         <button class="rc-send rc-btn rc-btn-accent" data-sid="${sid}">Send</button>
+         <button class="rc-focus rc-btn rc-btn-ghost" data-sid="${sid}">Focus</button>
+         <button class="rc-close rc-btn" data-sid="${sid}">Close</button>
+       </div>`
+    : `<div class="rc-arm-hint">Arm this tab on the desktop to control it.</div>`;
+
   return `${back}
-    <div class="flex items-center justify-between">
-      <span class="text-emerald-300">${escapeHtml(sel.title)}</span>
-      <span class="text-xs text-zinc-400">${escapeHtml(sel.executor ?? "shell")} · ${escapeHtml(sel.phase)}</span>
+    <div class="rc-detail-title">
+      <span class="rc-t${sel.armed ? " armed" : ""}">${escapeHtml(splitTitle(sel.title).leaf)}</span>
+      <span class="rc-detail-meta">${escapeHtml(sel.executor ?? "shell")} · <span class="rc-phase tone-${tone}">${escapeHtml(phText)}</span></span>
     </div>
-    <div class="text-xs text-zinc-500">${escapeHtml(sel.cwd)}</div>
-    <div class="mt-1">${badge}</div>
+    <div class="rc-cwd">${escapeHtml(sel.cwd)}</div>
+    ${badge}
     ${controls}
     ${rejLine}`;
 }

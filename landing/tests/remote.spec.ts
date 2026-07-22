@@ -27,12 +27,12 @@ test("renders sorted tab list (armed first) and presence", async ({ page }) => {
   await page.goto("/remote");
   await page.fill("#rc-token", "fake.jwt.token");
   await page.click("#rc-connect");
-  await expect(page.locator("#rc-status")).toHaveText("● desktop online");
+  await expect(page.locator("#rc-status")).toHaveText("1 active · 1 idle");
   const rows = page.locator("#rc-list button.rc-row");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toHaveAttribute("data-sid", "s2"); // armed first
   await expect(rows.nth(1)).toHaveAttribute("data-sid", "s1");
-  await expect(rows.nth(0)).toContainText("claude · running");
+  await expect(rows.nth(0)).toContainText("running"); // phase tone, executor dropped from the row
 });
 
 test("reconnect hygiene: repeated Connect doesn't stack sockets; close surfaces retrying", async ({ page }) => {
@@ -72,10 +72,10 @@ test("reconnect hygiene: repeated Connect doesn't stack sockets; close surfaces 
   await page.click("#rc-connect");
   await page.click("#rc-connect");
 
-  await expect(page.locator("#rc-status")).toHaveText("● desktop online");
+  await expect(page.locator("#rc-status")).toHaveText("no tabs");
 
   await page.evaluate(() => (window as any).__wsCloseCurrent());
-  await expect(page.locator("#rc-status")).toHaveText("○ disconnected — retrying");
+  await expect(page.locator("#rc-status")).toHaveText("disconnected — retrying");
 
   const afterClose = await page.evaluate(() => (window as any).__wsCount());
   await page.waitForTimeout(500);
@@ -304,7 +304,7 @@ test("New Tab button sends open_tab and shows open_not_allowed rejection", async
   await page.goto("/remote");
   await page.fill("#rc-token", "fake.jwt.token");
   await page.click("#rc-connect");
-  await expect(page.locator("#rc-status")).toHaveText("● desktop online");
+  await expect(page.locator("#rc-status")).toHaveText("no tabs");
 
   await page.click("#rc-new-tab");
   const sent = await page.evaluate(() => (window as any).__sent as string[]);
@@ -391,7 +391,7 @@ test("token row collapses when online and 'change token' re-expands it", async (
   await page.goto("/remote");
   await page.fill("#rc-token", "fake.jwt.token");
   await page.click("#rc-connect");
-  await expect(page.locator("#rc-status")).toHaveText("● desktop online");
+  await expect(page.locator("#rc-status")).toHaveText("no tabs");
 
   await expect(page.locator("#rc-token-row")).toHaveClass(/hidden/);
   await expect(page.locator("#rc-token-toggle")).toBeVisible();
@@ -545,4 +545,103 @@ test("a token the relay refuses (handshake never opens) is named, not hidden beh
   await expect(page.locator("#rc-status")).toHaveText(/token rejected/, { timeout: 10_000 });
   // And a refused token is never persisted.
   expect(await page.evaluate(() => localStorage.getItem("covenant_rc_token"))).toBeNull();
+});
+
+// ---- redesign: quick keys, group folding, filter ----
+
+function armedTabsScript() {
+  (window as any).__sent = [];
+  class FakeWS {
+    static last: FakeWS | null = null;
+    onopen: (() => void) | null = null;
+    onmessage: ((e: { data: string }) => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    readyState = 1;
+    constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+    send(data: string) {
+      (window as any).__sent.push(data);
+      if (JSON.parse(data).t === "list_tabs") setTimeout(() => {
+        this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+        this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
+          { session_id: "s1", title: "COVENANT › agent-alpha", cwd: "~/a", executor: "claude", phase: "waiting", armed: true },
+          { session_id: "s2", title: "COVENANT › agent-beta", cwd: "~/b", executor: "claude", phase: "running", armed: false },
+          { session_id: "d1", title: "DRAMA › damn", cwd: "~/d", executor: null, phase: "idle", armed: false }] }) });
+      }, 0);
+    }
+    close() { this.onclose && this.onclose(); }
+  }
+  // @ts-ignore
+  window.WebSocket = FakeWS; // @ts-ignore
+  window.WebSocket.OPEN = 1;
+}
+
+test("quick-key row sends whitelisted keystrokes as send_keys, never a command", async ({ page }) => {
+  await page.addInitScript(armedTabsScript);
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+  // s1 (waiting, armed) auto-selects; its quick keys are shown.
+  await expect(page.locator('button.rc-key[data-key="y"][data-sid="s1"]')).toBeVisible();
+  await page.click('button.rc-key[data-key="y"][data-sid="s1"]');
+  await page.click('button.rc-key[data-key="esc"][data-sid="s1"]');
+  await page.click('button.rc-key[data-key="ctrl-c"][data-sid="s1"]');
+  const sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "send_keys", session_id: "s1", data: "y" }));
+  expect(sent).toContain(JSON.stringify({ t: "send_keys", session_id: "s1", data: "esc" }));
+  expect(sent).toContain(JSON.stringify({ t: "send_keys", session_id: "s1", data: "ctrl-c" }));
+  // No send_input ever fired from a key press.
+  expect(sent.every((s) => !s.includes('"send_input"'))).toBe(true);
+});
+
+test("groups fold and unfold; ordering floats the group with the waiting tab up", async ({ page }) => {
+  await page.addInitScript(armedTabsScript);
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+  // COVENANT holds the waiting tab, so its header comes before DRAMA.
+  const heads = page.locator("#rc-list button.rc-group-head");
+  await expect(heads.nth(0)).toContainText("COVENANT");
+  await expect(heads.nth(1)).toContainText("DRAMA");
+  // Three rows visible.
+  await expect(page.locator("#rc-list button.rc-row")).toHaveCount(3);
+  // Fold COVENANT: its two rows disappear (only DRAMA's remains).
+  await page.click('button.rc-group-head[data-group="COVENANT"]');
+  await expect(page.locator("#rc-list button.rc-row")).toHaveCount(1);
+});
+
+test("filter narrows the list by leaf/group/executor", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__sent = [];
+    class FakeWS {
+      static last: FakeWS | null = null;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null; onerror: (() => void) | null = null;
+      readyState = 1;
+      constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        (window as any).__sent.push(data);
+        if (JSON.parse(data).t === "list_tabs") setTimeout(() => {
+          this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+          const tabs = Array.from({ length: 12 }, (_, i) => ({
+            session_id: "s" + i, title: (i === 0 ? "DRAMA › damn" : "COVENANT › agent-" + i),
+            cwd: "~/x", executor: null, phase: "idle", armed: false }));
+          this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs }) });
+        }, 0);
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS; // @ts-ignore
+    window.WebSocket.OPEN = 1;
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+  // 12 tabs -> filter is shown.
+  await expect(page.locator("#rc-filter")).toBeVisible();
+  await expect(page.locator("#rc-list button.rc-row")).toHaveCount(12);
+  await page.fill("#rc-filter", "damn");
+  await expect(page.locator("#rc-list button.rc-row")).toHaveCount(1);
 });

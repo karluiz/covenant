@@ -20,6 +20,13 @@ enum InFrame {
         session_id: String,
         data: String,
     },
+    /// Literal keystrokes — Esc, ^C, an arrow, a bare `y`. What a stopped
+    /// agent actually asks for is a key, not a command, and `SendInput`
+    /// can't express one: it always normalizes to a submit.
+    SendKeys {
+        session_id: String,
+        data: String,
+    },
     WebPresence {
         web_count: u32,
     },
@@ -217,6 +224,11 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                 }
                 Ok(InFrame::SendInput { session_id, data }) => {
                     if let Some(rej) = handle_send_input(app, &session_id, &data).await {
+                        let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?));
+                    }
+                }
+                Ok(InFrame::SendKeys { session_id, data }) => {
+                    if let Some(rej) = handle_send_keys(app, &session_id, &data).await {
                         let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?));
                     }
                 }
@@ -543,6 +555,75 @@ async fn handle_send_input(app: &AppHandle, session_id: &str, data: &str) -> Opt
     }
 }
 
+/// The keys the quick-key row may send, mapped to the bytes a PTY expects.
+/// A closed whitelist, not a passthrough: a remote client can press Esc or
+/// ^C, never inject an arbitrary control sequence. Everything the desktop
+/// terminal reads as one keystroke lives here.
+fn key_bytes(token: &str) -> Option<&'static [u8]> {
+    Some(match token {
+        "enter" => b"\r",
+        "esc" => b"\x1b",
+        "ctrl-c" => b"\x03",
+        "tab" => b"\t",
+        "shift-tab" => b"\x1b[Z",
+        "up" => b"\x1b[A",
+        "down" => b"\x1b[B",
+        "left" => b"\x1b[D",
+        "right" => b"\x1b[C",
+        "space" => b" ",
+        "backspace" => b"\x7f",
+        "y" => b"y",
+        "n" => b"n",
+        "1" => b"1",
+        "2" => b"2",
+        "3" => b"3",
+        _ => return None,
+    })
+}
+
+/// Send a single whitelisted keystroke. Same arming gate as `send_input`,
+/// but the payload is a fixed byte string from [`key_bytes`] — never
+/// caller-supplied bytes — and it is written raw, not normalized into a
+/// submit. Blocklist doesn't apply: a lone key can't be a dangerous command.
+async fn handle_send_keys(app: &AppHandle, session_id: &str, token: &str) -> Option<OutFrame> {
+    let make_reject = |reason: &'static str, message: String| {
+        Some(OutFrame::Rejected {
+            session_id: session_id.to_string(),
+            reason,
+            message,
+        })
+    };
+    let Some(bytes) = key_bytes(token) else {
+        return make_reject("unknown_key", format!("unknown key '{token}'"));
+    };
+    let id = match ulid::Ulid::from_str(session_id) {
+        Ok(u) => karl_session::SessionId(u),
+        Err(_) => return make_reject("no_such_tab", "invalid session id".into()),
+    };
+    let state = app.try_state::<crate::AppState>()?;
+    let armed: Option<bool> = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .get(&id)
+            .map(|m| m.armed.load(std::sync::atomic::Ordering::Relaxed))
+    };
+    // A key is never dangerous on its own, so gate on arming only (danger=false).
+    match gate(armed, false) {
+        Gate::Reject(reason) => {
+            let (code, message) = reject_payload(reason, None);
+            make_reject(code, message)
+        }
+        Gate::Inject => {
+            if let Err(e) = crate::operator::inject_to_session(app, id, bytes).await {
+                tracing::warn!(target: "rc_agent", error=%e, "key inject failed");
+                return make_reject("inject_failed", e);
+            }
+            tracing::info!(target: "rc_agent", session=%id, key=%token, "remote key injected");
+            None
+        }
+    }
+}
+
 async fn agent_loop(app: AppHandle, device_id: String) {
     let mut backoff = Duration::from_secs(1);
     loop {
@@ -610,6 +691,29 @@ mod tests {
     #[test]
     fn gate_injects_when_armed_and_clean() {
         assert_eq!(gate(Some(true), false), Gate::Inject);
+    }
+    #[test]
+    fn key_bytes_maps_control_keys() {
+        assert_eq!(key_bytes("esc"), Some(&b"\x1b"[..]));
+        assert_eq!(key_bytes("ctrl-c"), Some(&b"\x03"[..]));
+        assert_eq!(key_bytes("shift-tab"), Some(&b"\x1b[Z"[..]));
+        assert_eq!(key_bytes("enter"), Some(&b"\r"[..]));
+        assert_eq!(key_bytes("y"), Some(&b"y"[..]));
+    }
+    #[test]
+    fn key_bytes_rejects_anything_not_whitelisted() {
+        // The whole point: a remote client can't smuggle arbitrary bytes
+        // through the key path.
+        assert_eq!(key_bytes("rm -rf /"), None);
+        assert_eq!(key_bytes("\x1b]0;title\x07"), None);
+        assert_eq!(key_bytes("Y"), None);
+        assert_eq!(key_bytes(""), None);
+    }
+    #[test]
+    fn send_keys_frame_parses() {
+        let f: InFrame =
+            serde_json::from_str(r#"{"t":"send_keys","session_id":"s1","data":"esc"}"#).unwrap();
+        assert!(matches!(f, InFrame::SendKeys { .. }));
     }
     #[test]
     fn normalize_submit_turns_trailing_lf_into_cr() {

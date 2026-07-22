@@ -43,6 +43,12 @@ export function sendInputFrame(sessionId: string, text: string): string {
   return JSON.stringify({ t: "send_input", session_id: sessionId, data });
 }
 
+// A single whitelisted keystroke (Esc, ^C, a bare `y`, …). The desktop maps
+// the token to raw PTY bytes; the set of valid tokens lives in QUICK_KEYS.
+export function sendKeysFrame(sessionId: string, key: string): string {
+  return JSON.stringify({ t: "send_keys", session_id: sessionId, data: key });
+}
+
 export function closeTabFrame(sessionId: string): string { return JSON.stringify({ t: "close_tab", session_id: sessionId }); }
 export function focusTabFrame(sessionId: string): string { return JSON.stringify({ t: "focus_tab", session_id: sessionId }); }
 
