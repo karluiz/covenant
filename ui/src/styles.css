@@ -3923,6 +3923,60 @@ body.tabbar-left.sidebar-view-somnus #layout:has(> #capabilities-page:not([hidde
     border-bottom: none;
 }
 
+/* Appearance sub-groups: native <details> folds (same pattern as
+   mission-page-section). Summary = chevron + uppercase title + muted
+   content hint; hint hides while the fold is open. */
+details.settings-fold {
+    margin: 0;
+    border-top: 1px solid rgb(var(--ink-rgb) / 0.06);
+}
+details.settings-fold:first-of-type {
+    border-top: none;
+}
+details.settings-fold > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    padding: 10px 2px;
+    color: var(--fg-dim);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+}
+details.settings-fold > summary::-webkit-details-marker {
+    display: none;
+}
+details.settings-fold > summary:hover {
+    color: var(--text-primary, var(--fg));
+}
+.settings-fold-chevron {
+    display: inline-flex;
+    color: var(--fg-dim);
+    transition: transform 0.15s ease-out;
+    flex: 0 0 auto;
+}
+details.settings-fold[open] > summary .settings-fold-chevron {
+    transform: rotate(90deg);
+}
+.settings-fold-hint {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    color: var(--text-tertiary, var(--muted));
+}
+details.settings-fold[open] > summary .settings-fold-hint {
+    display: none;
+}
+details.settings-fold > :not(summary) {
+    margin: 0 0 20px;
+}
+
 .settings-section-title {
     margin: 0 0 16px;
     padding: 0;

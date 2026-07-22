@@ -532,6 +532,12 @@ export class SettingsPanel {
               Reset defaults
             </button>
           </h3>
+          <details class="settings-fold" open>
+          <summary>
+            <span class="settings-fold-chevron" aria-hidden="true">${Icons.chevronRight({ size: 12 })}</span>
+            <span class="settings-fold-title">Theme</span>
+            <span class="settings-fold-hint">theme · special themes · window background</span>
+          </summary>
           <fieldset class="settings-field settings-radio-group">
             <legend class="settings-label">Theme</legend>
             <label class="settings-radio">
@@ -617,6 +623,13 @@ export class SettingsPanel {
               </span>
             </label>
           </fieldset>
+          </details>
+          <details class="settings-fold">
+          <summary>
+            <span class="settings-fold-chevron" aria-hidden="true">${Icons.chevronRight({ size: 12 })}</span>
+            <span class="settings-fold-title">Window chrome</span>
+            <span class="settings-fold-hint">status bar · zen icons · indicators</span>
+          </summary>
           <label class="settings-field">
             <span class="settings-label">Status bar</span>
             <span class="settings-checkbox-row">
@@ -638,6 +651,24 @@ export class SettingsPanel {
               while the pointer is over the titlebar.
             </small>
           </label>
+          <label class="settings-field">
+            <span class="settings-label">Indicators</span>
+            <div class="settings-indicator-list">
+              ${renderIndicatorChecklist()}
+            </div>
+            <small class="settings-hint">
+              Uncheck an indicator to hide it from the titlebar, status
+              bar, or left toolbar. Hidden indicators stop rendering; the
+              features themselves keep working.
+            </small>
+          </label>
+          </details>
+          <details class="settings-fold">
+          <summary>
+            <span class="settings-fold-chevron" aria-hidden="true">${Icons.chevronRight({ size: 12 })}</span>
+            <span class="settings-fold-title">Executor HUD</span>
+            <span class="settings-fold-hint">notch · position · done chime</span>
+          </summary>
           <label class="settings-field">
             <span class="settings-label">Executor notch</span>
             <span class="settings-checkbox-row">
@@ -677,17 +708,13 @@ export class SettingsPanel {
               markers.
             </small>
           </label>
-          <label class="settings-field">
-            <span class="settings-label">Indicators</span>
-            <div class="settings-indicator-list">
-              ${renderIndicatorChecklist()}
-            </div>
-            <small class="settings-hint">
-              Uncheck an indicator to hide it from the titlebar, status
-              bar, or left toolbar. Hidden indicators stop rendering; the
-              features themselves keep working.
-            </small>
-          </label>
+          </details>
+          <details class="settings-fold">
+          <summary>
+            <span class="settings-fold-chevron" aria-hidden="true">${Icons.chevronRight({ size: 12 })}</span>
+            <span class="settings-fold-title">Tabs</span>
+            <span class="settings-fold-hint">position · folded sidebar · tab style</span>
+          </summary>
           <fieldset class="settings-field settings-radio-group">
             <span class="settings-label">Tabbar position</span>
             <label class="settings-radio">
@@ -991,6 +1018,13 @@ export class SettingsPanel {
               </span>
             </label>
           </fieldset>
+          </details>
+          <details class="settings-fold">
+          <summary>
+            <span class="settings-fold-chevron" aria-hidden="true">${Icons.chevronRight({ size: 12 })}</span>
+            <span class="settings-fold-title">Type &amp; scale</span>
+            <span class="settings-fold-hint">ui font · ui size</span>
+          </summary>
           <label class="settings-field">
             <span class="settings-label">UI font</span>
             <input
@@ -1018,6 +1052,7 @@ export class SettingsPanel {
               immediately and persists on its own; Save is not needed.
             </small>
           </label>
+          </details>
         </section>
         <section class="settings-section" id="sec-terminal">
           <h3 class="settings-section-title">Terminal</h3>
@@ -2274,6 +2309,15 @@ export class SettingsPanel {
       }
       if (empty) empty.hidden = firstMatch !== null;
       if (firstMatch && !activeStillShown) goTo(firstMatch);
+      // Open Appearance folds whose content matches so hits aren't hidden.
+      if (terms.length) {
+        body
+          .querySelectorAll<HTMLDetailsElement>("#sec-appearance details.settings-fold")
+          .forEach((d) => {
+            const hay = (d.textContent ?? "").toLowerCase();
+            if (terms.every((t) => hay.includes(t))) d.open = true;
+          });
+      }
     });
     // Esc clears the filter (before the panel-close handler swallows it).
     search?.addEventListener("keydown", (e) => {
