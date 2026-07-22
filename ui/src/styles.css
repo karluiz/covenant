@@ -7821,15 +7821,15 @@ button.status-segment.status-aom.status-aom-warn:hover {
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    padding-top: 60px;
+    padding-top: 44px;
     z-index: 1150;
     animation: settings-fade 0.1s ease-out;
 }
 
 .mission-viewer-card {
-    width: 820px;
+    width: 960px;
     max-width: calc(100vw - 64px);
-    max-height: calc(100vh - 120px);
+    max-height: calc(100vh - 88px);
     background: var(--bg-overlay);
     border: 1px solid var(--border);
     border-radius: 0;
@@ -7856,6 +7856,41 @@ button.status-segment.status-aom.status-aom-warn:hover {
     flex-direction: column;
     gap: 4px;
     min-width: 0;
+}
+
+/* Eyebrow + score chip on one row — keeps the chip from becoming a
+   stretched third row of the titles column. */
+.mission-viewer-title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.mission-viewer-title-row .spec-score-badge {
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px 2px 7px;
+    font-size: 10.5px;
+    font-weight: 650;
+    color: var(--fg, #d6d8db);
+}
+.mission-viewer-title-row .spec-score-badge::before {
+    content: "Score";
+    text-transform: uppercase;
+    font-size: 8.5px;
+    font-weight: 500;
+    letter-spacing: 0.09em;
+    color: var(--muted);
+}
+.mission-viewer-title-row .spec-score-badge[data-grade="S"],
+.mission-viewer-title-row .spec-score-badge[data-grade="A"] {
+    color: var(--accent, #7aa2f7);
+    border-color: color-mix(in srgb, var(--accent, #7aa2f7) 45%, transparent);
+}
+.mission-viewer-title-row .spec-score-badge[data-grade="C"] {
+    border-color: color-mix(in srgb, var(--running, #e0af68) 45%, transparent);
+}
+.mission-viewer-title-row .spec-score-badge[data-grade="D"] {
+    border-color: color-mix(in srgb, var(--danger, #e85a5a) 45%, transparent);
 }
 
 /* Eyebrow, not a heading — the human title lives in the spec's own
