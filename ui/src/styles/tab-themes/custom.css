@@ -135,6 +135,7 @@ body.tabbar-left.tab-style-custom[data-tab-indicator="glow"] .tab-btn.active {
 
 /* Border — colored outline on the active pill */
 body.tab-style-custom[data-tab-indicator="border"] .tab-btn.active {
+  border-style: solid;
   border-color: var(--tab-stripe, var(--accent));
   border-width: 1px;
 }

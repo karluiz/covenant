@@ -36,3 +36,10 @@ body.tab-style-glass .tab-btn.active {
 body.tab-style-glass .tab-btn.active::before {
     display: none;
 }
+/* The chassis re-enables the vertical spine at higher specificity
+   (body.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before,
+   0,4,2) — match it here so glass's capsule stays the only signature
+   in the left rail too. */
+body.tab-style-glass.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before {
+    display: none;
+}
