@@ -73,6 +73,25 @@ function stripFrontmatter(md: string): string {
   return md.replace(/^﻿?\s*---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "");
 }
 
+/** Not every unit's source is markdown — an MCP server is a JSON object, and
+ *  rendering it as prose gives one unreadable wrapped paragraph. Pretty-print
+ *  JSON into a fenced block so it reads as code; everything else stays markdown. */
+export function asDoc(src: string): string {
+  const t = stripFrontmatter(src).trim();
+  const json = prettyJson(t);
+  return json ? "```json\n" + json + "\n```" : t;
+}
+
+/** Pretty-printed JSON, or null when the text isn't JSON. */
+export function prettyJson(t: string): string | null {
+  if (!t.startsWith("{") && !t.startsWith("[")) return null;
+  try {
+    return JSON.stringify(JSON.parse(t), null, 2);
+  } catch {
+    return null;
+  }
+}
+
 /** Full-screen rendered-markdown reader for a SKILL.md — same vibe as the
  *  spec preview. renderMarkdown HTML-escapes every segment, so the untrusted
  *  registry content is safe to innerHTML here. Esc / backdrop / esc button closes. */
@@ -109,7 +128,7 @@ export function openMarkdownReader(
 
   document.body.appendChild(overlay);
   void fetchMd()
-    .then((md) => { body.innerHTML = renderMarkdown(stripFrontmatter(md).trim() || "(empty)"); })
+    .then((md) => { body.innerHTML = renderMarkdown(asDoc(md) || "(empty)"); })
     .catch((e) => { body.textContent = `Failed to load: ${String(e)}`; });
 }
 
@@ -179,7 +198,7 @@ export function skillCard(opts: {
       loaded = true;
       pre.textContent = "Loading…";
       void opts.fetchPreview()
-        .then((md) => { pre.textContent = md.trim() || "(empty)"; })
+        .then((md) => { const t = md.trim(); pre.textContent = prettyJson(t) ?? (t || "(empty)"); })
         .catch((e) => { pre.textContent = `Failed to load: ${String(e)}`; loaded = false; });
     }
   });
