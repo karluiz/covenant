@@ -898,34 +898,6 @@ impl Default for WindowBackground {
     }
 }
 
-/// Which xterm renderer backs a terminal.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum TerminalRenderer {
-    /// Default. One DOM node per cell — slower under a full-screen TUI
-    /// repainting at speed, but visually correct everywhere.
-    Dom,
-    /// Opt-in GPU texture atlas. Faster in principle, but measurably worse
-    /// to live with, which is why it is not the default:
-    ///
-    /// - On a translucent surface it paints black boxes behind underlined
-    ///   cells (the addon returns NULL_COLOR for backgrounds when
-    ///   `allowTransparency` is on). The frontend refuses WebGL there
-    ///   outright, so this setting cannot reach that state.
-    /// - Even on an opaque surface the grid flickers whenever the terminal
-    ///   is resized — opening or closing a rail is enough — because the
-    ///   atlas revalidates. Observed, not theoretical.
-    ///
-    /// Worth it only if you run heavy TUIs and never resize.
-    Webgl,
-}
-
-impl Default for TerminalRenderer {
-    fn default() -> Self {
-        Self::Dom
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalConfig {
     #[serde(default = "default_font_family")]
@@ -949,10 +921,6 @@ pub struct TerminalConfig {
     /// Code etc. flip it on.
     #[serde(default)]
     pub ligatures: bool,
-    /// Renderer backing every terminal. `ligatures` overrides this: the
-    /// shaping pass needs the canvas renderer either way.
-    #[serde(default)]
-    pub renderer: TerminalRenderer,
 }
 
 impl Default for TerminalConfig {
@@ -963,7 +931,6 @@ impl Default for TerminalConfig {
             letter_spacing: 0,
             line_height: default_line_height(),
             ligatures: false,
-            renderer: TerminalRenderer::default(),
         }
     }
 }
@@ -1298,35 +1265,6 @@ mod tests {
         }"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert!(!s.experimental.statusbar_two_row);
-    }
-
-    /// Every config.json written before the renderer setting existed
-    /// lacks the field entirely — it must land on the DOM renderer, not
-    /// fail to parse and reset the user's whole terminal config.
-    #[test]
-    fn terminal_renderer_missing_in_json_defaults_to_dom() {
-        let json = r#"{
-            "terminal": { "font_size": 15, "ligatures": true }
-        }"#;
-        let s: Settings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.terminal.renderer, TerminalRenderer::Dom);
-        // Neighbouring fields still round-trip.
-        assert_eq!(s.terminal.font_size, 15);
-        assert!(s.terminal.ligatures);
-    }
-
-    #[test]
-    fn terminal_renderer_round_trips_both_variants() {
-        for (raw, want) in [
-            ("dom", TerminalRenderer::Dom),
-            ("webgl", TerminalRenderer::Webgl),
-        ] {
-            let json = format!(r#"{{ "terminal": {{ "renderer": "{raw}" }} }}"#);
-            let s: Settings = serde_json::from_str(&json).unwrap();
-            assert_eq!(s.terminal.renderer, want);
-            let back = serde_json::to_value(s.terminal.renderer).unwrap();
-            assert_eq!(back, serde_json::json!(raw));
-        }
     }
 
     #[test]

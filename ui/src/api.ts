@@ -1150,17 +1150,12 @@ export function listMonospaceFonts(): Promise<string[]> {
   return invoke<string[]>("list_monospace_fonts", {});
 }
 
-/// Which xterm renderer backs a terminal. `ligatures` overrides this —
-/// the shaping pass needs the canvas renderer either way.
-export type TerminalRenderer = "webgl" | "dom";
-
 export interface TerminalConfig {
   font_family: string;
   font_size: number;
   letter_spacing: number;
   line_height: number;
   ligatures: boolean;
-  renderer: TerminalRenderer;
 }
 
 export type WindowBackground = "solid" | "vibrant" | "translucent";
