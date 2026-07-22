@@ -4501,6 +4501,13 @@ fn install_crash_logger() {
 fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
+    // Custom Quit — the predefined item fires the native `terminate:`
+    // selector, which tao never intercepts (it has no
+    // `applicationShouldTerminate` handler), so the app dies before
+    // `RunEvent::ExitRequested` can veto it. Routing ⌘Q through
+    // `on_menu_event` puts the confirm toast back in the path. Dock → Quit
+    // still sends `terminate:` directly and remains unguarded.
+    let quit = MenuItem::with_id(app, "quit", "Quit Covenant", true, Some("CmdOrCtrl+Q"))?;
     let app_menu = Submenu::with_items(
         app,
         "Covenant",
@@ -4514,7 +4521,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
             &PredefinedMenuItem::hide_others(app, None)?,
             &PredefinedMenuItem::show_all(app, None)?,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, None)?,
+            &quit,
         ],
     )?;
 
@@ -4631,6 +4638,9 @@ pub fn run() {
             match event.id().as_ref() {
                 "close-tab" => {
                     let _ = app.emit("menu://close-tab", ());
+                }
+                "quit" => {
+                    let _ = app.emit("menu://quit-request", ());
                 }
                 "new-tab" => {
                     let _ = app.emit("menu://new-tab", ());
@@ -5950,13 +5960,15 @@ pub fn run() {
                 cli_open::queue_and_notify(app, paths);
             }
 
-            // Confirm-before-quit. User-initiated exit (⌘Q, red traffic
-            // light on the last window, dock → Quit) arrives with
+            // Confirm-before-quit, window path: closing the last window
+            // (red traffic light / last-tab close) arrives with
             // `code = None`; we veto it and ask the webview to raise a
             // confirmation toast. When the user confirms, the frontend calls
             // `process.exit(0)`, which re-enters here with `code = Some(0)`
             // and passes straight through. No guard flag needed — the code
-            // field distinguishes the two.
+            // field distinguishes the two. ⌘Q never reaches this event: the
+            // menu item routes it through `on_menu_event` instead (see
+            // build_app_menu).
             if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
                 if code.is_none() {
                     api.prevent_exit();
