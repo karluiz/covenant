@@ -259,6 +259,23 @@ impl ScoreStore {
                  PRAGMA user_version = 8;",
             )?;
         }
+        // v9: purge spec rows that were recorded from agent worktree paths.
+        // Before f279a245 the spec scanner walked into .covenant/worktrees/*
+        // and recorded every spec file in every worktree separately, inflating
+        // the count by (N_worktrees - 1) × N_specs_per_repo. The scanner was
+        // fixed to prune .covenant, but old rows linger in existing stores.
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
+        if v < 9 {
+            conn.execute_batch(
+                "DELETE FROM specs WHERE
+                    path LIKE '%/.covenant/%'
+                    OR path LIKE '%/.claude/worktrees/%'
+                    OR path LIKE '%/.worktrees/%';
+                 PRAGMA user_version = 9;",
+            )?;
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path,
@@ -538,7 +555,7 @@ impl ScoreStore {
         let (current_streak, longest_streak) = compute_streaks(&cells, &today);
         let mut fcopy = f.clone();
         fcopy.agent = None;
-        let w_st = crate::filter::build_where(&fcopy);
+        let w_st = crate::filter::build_where_ts(&fcopy, "ts_ms");
         let tokens_sql = format!(
             "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM llm_calls WHERE {}",
             w_st.sql
@@ -847,7 +864,7 @@ impl ScoreStore {
         f: &crate::ScoreFilter,
         source: crate::ModelSource,
     ) -> Result<Vec<crate::ModelCell>> {
-        let w = crate::filter::build_where(f);
+        let w = crate::filter::build_where_ts(f, "ts_ms");
         let src = match source {
             crate::ModelSource::Internal => "internal",
             crate::ModelSource::External => "external",
@@ -943,7 +960,7 @@ impl ScoreStore {
     pub fn breakdown_specs(&self, f: &crate::ScoreFilter) -> Result<crate::SpecBreakdown> {
         let mut fcopy = f.clone();
         fcopy.agent = None;
-        let w = crate::filter::build_where(&fcopy);
+        let w = crate::filter::build_where_ts(&fcopy, "ts_ms");
 
         let count_sql = format!("SELECT COUNT(*) FROM specs WHERE {}", w.sql);
         let recent_sql = format!(
