@@ -50,7 +50,7 @@ import { highlightMatches, clearMarks } from "./find-highlight";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { draftsApi } from "../drafts/api";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
-import { makeSpecScoreBadge } from "../spec-score/badge";
+import { makeSpecScoreHoverBadge } from "../spec-score/badge";
 import { scoreSpec } from "../spec-score/engine";
 import { attachTooltip } from "../tooltip/tooltip";
 import { VitalsCluster } from "./vitals";
@@ -2090,6 +2090,7 @@ class MissionViewerModal {
   /// header just doesn't render a share affordance until the fetch
   /// resolves, same tolerance as the AOM status fetch above).
   private share: ShareState | null = null;
+  private specScoreBadge: ReturnType<typeof makeSpecScoreHoverBadge> | null = null;
   private readonly shareMenu = new ContextMenu(document.body);
   /// Comments + verdict rail, mounted beside the spec body once `share`
   /// is non-null. Torn down (interval cleared) on revoke, on switching to
@@ -2184,6 +2185,8 @@ class MissionViewerModal {
     this.pathTooltipDispose?.();
     this.pathTooltipDispose = null;
     this.unmountReviewPanel();
+    this.specScoreBadge?.update(null); // closes any open breakdown popover
+    this.specScoreBadge = null;
     this.overlay.remove();
     this.overlay = null;
     this.mission = null;
@@ -2239,7 +2242,9 @@ class MissionViewerModal {
     card.innerHTML = `
       <header class="mission-viewer-header">
         <div class="mission-viewer-titles">
-          <h2 class="mission-viewer-title">Spec</h2>
+          <div class="mission-viewer-title-row">
+            <h2 class="mission-viewer-title">Spec</h2>
+          </div>
           <code class="mission-viewer-path"></code>
         </div>
         <div class="mission-viewer-actions"></div>
@@ -2252,6 +2257,13 @@ class MissionViewerModal {
     overlay.appendChild(card);
     this.mountHost.appendChild(overlay);
     this.overlay = overlay;
+
+    // Score chip lives beside the SPEC eyebrow; hover reveals the 7-dim
+    // breakdown popover. One instance per overlay lifetime.
+    this.specScoreBadge = makeSpecScoreHoverBadge();
+    card
+      .querySelector(".mission-viewer-title-row")
+      ?.appendChild(this.specScoreBadge.el);
 
     document.addEventListener("keydown", this.escListener);
     document.addEventListener("keydown", this.findKeyListener);
@@ -2266,14 +2278,10 @@ class MissionViewerModal {
 
   private renderHeader(): void {
     if (!this.overlay || !this.mission) return;
-    // SpecScore badge beside the title — only for canonical specs.
-    const titles = this.overlay.querySelector<HTMLElement>(".mission-viewer-titles");
-    if (titles) {
-      titles.querySelector(".spec-score-badge")?.remove();
-      if (/^##\s+Goal\s*$/m.test(this.content)) {
-        titles.appendChild(makeSpecScoreBadge(scoreSpec(this.content)));
-      }
-    }
+    // SpecScore chip beside the eyebrow — only for canonical specs.
+    this.specScoreBadge?.update(
+      /^##\s+Goal\s*$/m.test(this.content) ? scoreSpec(this.content) : null,
+    );
     const pathEl = this.overlay.querySelector<HTMLElement>(".mission-viewer-path");
     if (pathEl) {
       // Compact breadcrumb: last few segments, filename emphasized. The
