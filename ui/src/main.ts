@@ -1175,10 +1175,11 @@ async function boot(): Promise<void> {
   void listen("menu://new-tab", () => {
     void manager.createTab();
   });
-  // ⌘Q / red-X / dock → Quit are intercepted in Rust (RunEvent::ExitRequested,
-  // prevent_exit) so the user can't kill the terminal by a fat-fingered ⌘Q.
-  // Confirm here; on Quit, exit(0) does a programmatic exit (code = Some),
-  // which the Rust guard lets through.
+  // ⌘Q arrives via the custom menu item (on_menu_event); red-X / last-tab
+  // close arrive via RunEvent::ExitRequested + prevent_exit. Both funnel
+  // here so a fat-fingered ⌘Q can't kill the terminal. On Quit, exit(0)
+  // does a programmatic exit (code = Some), which the Rust guard lets
+  // through. Dock → Quit is native terminate: and stays unguarded.
   void listen("menu://quit-request", () => {
     pushConfirmToast({
       message: "Quit Covenant? Running terminals and operators will stop.",
