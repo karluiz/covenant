@@ -1,0 +1,14 @@
+{
+  "mcp": {
+    "canon-context7": {
+      "command": [
+        "npx",
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "enabled": true,
+      "environment": {},
+      "type": "local"
+    }
+  }
+}
