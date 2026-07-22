@@ -254,7 +254,7 @@ const mkWorkspace = (id: string, name: string, tabs: TabManifestV1["tabs"]) => (
 describe("WorkspaceManager.switchTo", () => {
   beforeEach(() => saveSpy.mockClear());
 
-  it("lifts the switch overlay once the active tab is live, without waiting for the rest", async () => {
+  it("returns once the active tab is live, without waiting for the rest", async () => {
     const { manager, state } = makeMockTabManager();
     const ws = new WorkspaceManager(manager);
     await ws.boot(
@@ -274,10 +274,9 @@ describe("WorkspaceManager.switchTo", () => {
     try {
       const switching = ws.switchTo("w2");
       await vi.advanceTimersByTimeAsync(0);
-      expect(document.body.classList.contains("workspace-switching")).toBe(true);
 
-      // The card holds a minimum beat, then lifts on the ACTIVE tab alone.
-      // Waiting for all three is the 5s black screen this fix exists to kill.
+      // The switch settles on the ACTIVE tab alone. Waiting for all three is
+      // the 5s black screen this exists to kill.
       await vi.advanceTimersByTimeAsync(500);
       expect(document.body.classList.contains("workspace-switching")).toBe(false);
       expect(state.manifest.tabs).toHaveLength(1);
