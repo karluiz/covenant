@@ -454,7 +454,8 @@ describe("CanonCockpitView Operators section", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelector(".op-card-grid")).toBeTruthy();
       expect(v.element.textContent).toContain("Zeta");
-      expect(v.element.querySelector("[data-role='op-new']")).toBeTruthy();
+      // Same head action as every other kind, not a floating bar in the body.
+      expect(v.element.querySelector(".canon-cockpit-sec-head .canon-sec-head-action")).toBeTruthy();
     });
   });
 

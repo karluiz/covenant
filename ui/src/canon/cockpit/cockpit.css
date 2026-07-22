@@ -639,12 +639,6 @@ body.tabbar-left.canon-cockpit-open .canon-reader {
 .canon-cockpit-section.is-operators {
   max-width: none;
 }
-.canon-cockpit-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 14px;
-}
-
 /* ── Context section ───────────────────────────────────────────────── */
 
 .canon-cockpit-context-list {

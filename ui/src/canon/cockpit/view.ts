@@ -229,6 +229,15 @@ export class CanonCockpitView {
       btn.innerHTML = Icons.plus({ size: 14 }) + "<span>New</span>";
       // Toggles the create bar (wired by the section's newUnitBar).
       headAction = btn;
+    } else if (key === "operators" && this.canCreate()) {
+      // Same head action as every other kind; the click opens the immersive
+      // creator instead of an inline name bar (an operator is more than a name).
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "canon-sec-head-action";
+      btn.innerHTML = Icons.plus({ size: 14 }) + "<span>New</span>";
+      btn.addEventListener("click", () => this.openNewOperator());
+      headAction = btn;
     } else if (key === "spec" && this.opts.groupRootDir && this.opts.onNewSpec && this.canCreate()) {
       const root = this.opts.groupRootDir;
       const btn = document.createElement("button");
@@ -800,13 +809,6 @@ export class CanonCockpitView {
   private renderOperatorsSection(): HTMLElement {
     const el = document.createElement("div");
     el.className = "canon-cockpit-section is-operators";
-
-    const bar = document.createElement("div");
-    bar.className = "canon-cockpit-actions";
-    const newBtn = iconButton(Icons.plus({ size: 15 }), "New operator", () => this.openNewOperator());
-    newBtn.dataset.role = "op-new";
-    bar.appendChild(newBtn);
-    el.appendChild(bar);
 
     const list = document.createElement("div");
     list.appendChild(this.note("Loading…"));
