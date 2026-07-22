@@ -2278,9 +2278,11 @@ class MissionViewerModal {
 
   private renderHeader(): void {
     if (!this.overlay || !this.mission) return;
-    // SpecScore chip beside the eyebrow — only for canonical specs.
+    // SpecScore chip beside the eyebrow. Non-canonical specs score low on
+    // purpose — the breakdown's findings name the missing canonical
+    // sections, nudging the doc toward the canonical shape.
     this.specScoreBadge?.update(
-      /^##\s+Goal\s*$/m.test(this.content) ? scoreSpec(this.content) : null,
+      this.content.trim() ? scoreSpec(this.content) : null,
     );
     const pathEl = this.overlay.querySelector<HTMLElement>(".mission-viewer-path");
     if (pathEl) {
