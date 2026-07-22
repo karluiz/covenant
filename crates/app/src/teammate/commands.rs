@@ -8,6 +8,24 @@ use crate::operator_registry::OperatorId;
 use crate::storage::Storage;
 use crate::teammate::types::{MessageContent, MessageId, Role, TaskMessage};
 
+/// Id of the spawn marked `default`, restricted to the executors the
+/// `propose_task` schema actually accepts — a custom spawn id would be
+/// rejected by the enum, so naming it in the prompt only invites an
+/// invalid tool call.
+fn default_executor_id(app: &tauri::AppHandle) -> Option<String> {
+    use tauri::Manager;
+    let specs = app
+        .try_state::<crate::spawns_commands::SpawnsState>()?
+        .0
+        .list()
+        .ok()?;
+    specs
+        .into_iter()
+        .find(|s| s.default)
+        .map(|s| s.id)
+        .filter(|id| matches!(id.as_str(), "claude" | "codex" | "copilot" | "pi" | "hermes"))
+}
+
 #[tauri::command]
 pub async fn teammate_list_messages_for_operator(
     storage: State<'_, Arc<Storage>>,
@@ -240,6 +258,21 @@ pub async fn teammate_send_text_message(
                 world_context_str.push_str("\n\n");
             }
             world_context_str.push_str(&active_tasks_md);
+        }
+        // The spawn marked `default` in spawns.json. Without it the operator
+        // picks from the catalog blurbs alone — and every blurb that mentions
+        // "codebase edits" points at `claude`, so the user's configured
+        // default was unreachable from the prompt.
+        if let Some(id) = default_executor_id(&app_bg) {
+            if !world_context_str.is_empty() {
+                world_context_str.push_str("\n\n");
+            }
+            world_context_str.push_str(&format!(
+                "# Default executor\n\nThe user's configured default executor is \
+                 `{id}`. Use it as the `executor` on `propose_task` unless the task \
+                 specifically needs a different one — when you deviate, say why in \
+                 `rationale`.\n"
+            ));
         }
         let world_context_opt: Option<&str> = if world_context_str.trim().is_empty() {
             None

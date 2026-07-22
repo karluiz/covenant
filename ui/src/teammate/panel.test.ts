@@ -583,6 +583,10 @@ describe("TeammatePanel spawn+prime ordering", () => {
     // runAllTimersAsync to avoid triggering the ActivityView setInterval loop.
     for (let i = 0; i < 20; i++) await Promise.resolve();
 
+    // The spawn carries the executor so the worktree branch is named after
+    // it (agent/<executor>-MMDD-xxx) instead of the generic "operator".
+    expect(spawnTabForTask.mock.calls[0]?.[1]).toHaveProperty("executor");
+
     // primeSpawnedTab must have been called (awaited inline, before the timer).
     expect(ApiModule.primeSpawnedTab).toHaveBeenCalledWith(
       "S-SPAWNED",
