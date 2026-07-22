@@ -602,80 +602,52 @@ body.theme-special::after {
     border-radius: 0;
 }
 
-/* AOM "driving this tab" indicator — animated gradient ring around
-   the pill border. Replaces the inner zap glyph (spec 2026-05-05).
-   Uses a pseudo-element with a mask trick so only the border-shaped
-   ring is painted, leaving the tab background and content untouched. */
-@property --tab-aom-a {
-    syntax: '<angle>';
-    inherits: false;
-    initial-value: 0deg;
-}
+/* AOM "driving this tab" — a breathing accent dot near the right edge.
+   Chassis-owned: identical across all tab styles. Sits left of the
+   close-× slot so hover-reveal doesn't collide. */
 .tab-btn.tab-aom-active::after {
     content: "";
     position: absolute;
-    inset: -1px;
-    border-radius: var(--tab-radius);
-    padding: 1.5px;
-    background: conic-gradient(
-        from var(--tab-aom-a),
-        transparent 0deg,
-        transparent 250deg,
-        #22d3ee 295deg,
-        #7c8cff 320deg,
-        #ffffff 340deg,
-        #7c8cff 355deg,
-        transparent 360deg
-    );
-    -webkit-mask:
-        linear-gradient(#000 0 0) content-box,
-        linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    animation: tab-aom-spin 3.2s linear infinite;
+    right: 24px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    margin-top: -3px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+    animation: tab-aom-breathe 2.4s ease-in-out infinite;
     pointer-events: none;
-    z-index: 0;
+    z-index: 2;
 }
-@keyframes tab-aom-spin { to { --tab-aom-a: 360deg; } }
-/* Fallback for engines without @property — animate a linear gradient
-   sweep instead, so the ring still pulses with motion. */
-@supports not (background: conic-gradient(from 0deg, red, red)) {
-    .tab-btn.tab-aom-active::after {
-        background: linear-gradient(
-            120deg,
-            #7c8cff 0%,
-            #8b5cf6 30%,
-            #22d3ee 55%,
-            #7c8cff 100%
-        );
-        background-size: 300% 300%;
-        animation: tab-aom-flow 4s linear infinite;
-    }
-    @keyframes tab-aom-flow {
-        0%   { background-position:   0% 50%; }
-        100% { background-position: 300% 50%; }
+@keyframes tab-aom-breathe {
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+        opacity: 0.75;
     }
 }
 @media (prefers-reduced-motion: reduce) {
     .tab-btn.tab-aom-active::after { animation: none; }
 }
 
-/* AOM "excluded" indicator — muted dashed ring. Same border-shaped
-   mask trick as .tab-aom-active so the pill content is untouched.
-   Conveys "operator is on but AOM is not driving this tab" purely
-   through the border (no inner glyph). */
+/* AOM excluded — hollow dot, dimmed row. */
 .tab-btn.tab-aom-excluded {
     opacity: 0.78;
 }
 .tab-btn.tab-aom-excluded::after {
     content: "";
     position: absolute;
-    inset: -1px;
-    border-radius: var(--tab-radius);
-    border: 1.5px dashed color-mix(in srgb, var(--fg) 35%, transparent);
+    right: 24px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    margin-top: -3px;
+    border-radius: 50%;
     background: transparent;
+    border: 1px solid rgb(var(--ink-rgb) / 0.35);
+    box-sizing: border-box;
     pointer-events: none;
-    z-index: 0;
+    z-index: 2;
 }
 .tab-btn.tab-aom-excluded .tab-label {
     color: color-mix(in srgb, var(--fg) 65%, transparent);
