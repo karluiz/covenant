@@ -64,7 +64,7 @@ Each theme file shrinks to ONE move on the active tab + minimal supporting rules
 | **Forge** | Hot seam: the active edge becomes a heated-metal gradient (`#ffd9a0 → #ff8f5e → group color`) with a minimal glow (`box-shadow` halo) and a heat-tint fading across the fill | Vertical: left seam; horizontal: bottom seam with upward glow. |
 | **Glass** | The sliding indicator (existing `tabs/glass-indicator.ts` JS, re-skinned): hairline capsule — `ink 0.06` fill, `inset 0 0 0 1px ink/0.09` border, tiny top bevel. **No bright gradient, no drop shadow.** Motion (0.42s spring) is the signature | Indicator inset 1–2px within the row. |
 | **CRT** | Blinking block caret before the active label + scanline texture (`repeating-linear-gradient`) on the active row only; whole tabbar switches to the mono stack | Caret in group color. `prefers-reduced-motion`: caret solid. |
-| **Custom** | The knobs, remapped to chassis primitives: **indicator** (spine · capsule · underline · none), **fill** (none · ink · tint), **height** (24 · 26 · 30), **gap** (0 · 2 · 4), **radius** (0 · 4 · full) | Defaults reproduce Classic. Existing persistence keys migrate where they map; unmappable old values fall back to defaults. |
+| **Custom** | Implementation kept the existing knob schema, re-based on the chassis instead of remapped: **indicator** (stripe · underline · left-bar · dot · glow · border), background mode (solid · translucent · off · gradient), **height** (26 · 30 · 36), **gap**, **shape/radius** | Defaults reproduce Classic (rest = transparent, chassis fill/edge). TS mapper (`tabs/custom-style.ts`) untouched — zero migration, no persistence-key changes. |
 
 ## Out of scope
 
