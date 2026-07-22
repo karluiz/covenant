@@ -535,10 +535,9 @@ body.theme-special::after {
     height: var(--tab-h);
     max-width: 220px;
     min-width: 96px;
-    background: var(--tab-bg-rest);
-    border: 1px solid var(--tab-border-rest);
-    border-bottom: none;
-    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
     color: var(--tab-fg-rest);
     font-family:
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -580,30 +579,27 @@ body.theme-special::after {
 }
 
 .tab-btn:hover:not(.active) {
-    background: var(--tab-bg-hover);
-    border-color: var(--tab-border-hover);
+    background: rgb(var(--ink-rgb) / 0.04);
     color: var(--text-primary);
 }
 
-/* Active tab uses a slightly lighter "card" surface (not pure
-   workspace bg — too stark). Reads as elevated surface continuous
-   with the workspace below. */
 .tab-btn.active {
-    background: var(--tab-bg-active);
-    border-color: var(--tab-border-active);
+    background: rgb(var(--ink-rgb) / 0.06);
     color: var(--tab-fg-active);
     font-weight: 500;
 }
 
+/* Active underline — the tab connects to the terminal below it. */
 .tab-btn.active::before {
     content: "";
     position: absolute;
-    top: 0;
-    left: -1px;
-    right: -1px;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
     height: 2px;
     background: var(--tab-stripe, var(--accent));
-    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+    border-radius: 0;
 }
 
 /* AOM "driving this tab" indicator — animated gradient ring around
@@ -689,12 +685,7 @@ body.theme-special::after {
    color, regardless of active state. */
 .tab-colored {
     --tab-stripe: var(--tab-color);
-    background: color-mix(in srgb, var(--tab-color) 5%, var(--tab-bg-rest));
-    border-color: color-mix(
-        in srgb,
-        var(--tab-color) 18%,
-        var(--tab-border-rest)
-    );
+    background: color-mix(in srgb, var(--tab-color) 5%, transparent);
 }
 
 .tab-colored:hover:not(.active) {
@@ -1442,21 +1433,14 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     display: flex;
     flex-direction: row;
     align-items: stretch;
-    gap: 4px;
+    gap: 2px;
     margin: 0 6px 0 0;
-}
-
-.tab-group-shell-colored .tab-group-stripe {
-    background: var(--group-color, var(--accent));
+    padding-left: 8px;
+    border-left: 1px solid rgb(var(--ink-rgb) / 0.07);
 }
 
 .tab-group-stripe {
-    width: 2px;
-    border-radius: 0;
-    background: color-mix(in srgb, var(--muted) 50%, transparent);
-    flex-shrink: 0;
-    align-self: stretch;
-    margin: 4px 0;
+    display: none;
 }
 
 .tab-group-body {
@@ -1594,41 +1578,10 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     border-color: var(--accent) !important;
 }
 
-/* Grouped tabs share visual chrome with their group chip. The active
-   member differentiates via deeper bg tint, NOT by adding an extra
-   active stripe (which would compete with the group's own stripe). */
+/* Grouped tabs: the group's color reaches them only through the active
+   underline (--tab-stripe). Rest/hover/active fills are the chassis inks. */
 .tab-grouped {
     --tab-stripe: var(--group-color, var(--accent));
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 5%,
-        var(--tab-bg-rest)
-    );
-}
-
-.tab-grouped:hover:not(.active) {
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 9%,
-        var(--tab-bg-hover)
-    );
-}
-
-.tab-grouped.active {
-    background: color-mix(
-        in srgb,
-        var(--group-color, var(--accent)) 16%,
-        var(--tab-bg-active)
-    );
-    border-color: color-mix(
-        in srgb,
-        var(--group-color, transparent) 30%,
-        var(--tab-border-active)
-    );
-}
-
-.tab-grouped.active::before {
-    display: none; /* group ::after stripe owns the top edge */
 }
 
 /* Chips no longer have borders to fuse — chassis rules below own
@@ -10668,18 +10621,16 @@ body.tabbar-left .tab-grouped.active {
     border-color: transparent;
     color: var(--tab-fg-active);
 }
-/* Grouped rows inherit the same spine as ungrouped (delete the old
-   display:none override at 10714-10716 so the shared rule applies). */
+/* Grouped rows inherit the same spine as ungrouped. */
 
-/* Restore vertical-stack body for sidebar (horizontal default uses row). */
+/* Restore vertical-stack body for sidebar (horizontal default uses row).
+   Also reset the horizontal chassis's segment hairline — vertical groups
+   use the tree-line + header border-left below instead. */
 body.tabbar-left .tab-group-shell {
     margin: 0;
     gap: 8px;
-}
-/* External stripe replaced by: header border-left + body::before
-   tree-line through the children area only. */
-body.tabbar-left .tab-group-stripe {
-    display: none;
+    border-left: none;
+    padding-left: 0;
 }
 body.tabbar-left .tab-group-body {
     flex-direction: column;
