@@ -1149,13 +1149,22 @@ async fn close_session(
 
 /// Return the last ~2 MiB of persisted PTY bytes for a tab, in order
 /// so the frontend can replay them into xterm before live output
-/// starts. Empty vec for unknown keys.
+/// starts. Empty body for unknown keys.
+///
+/// Returns `ipc::Response` (a RAW body) rather than `Vec<u8>`: a plain
+/// `Vec<u8>` is serialized as a JSON array of numbers, so a full 2 MiB
+/// tail crosses the IPC boundary as ~7 MB of text and is JSON-parsed on
+/// the UI thread before the tab can even be revealed. The raw body
+/// arrives in JS as an `ArrayBuffer` with no parse step.
 #[tauri::command]
 async fn replay_scrollback(
     state: State<'_, AppState>,
     replay_key: String,
-) -> Result<Vec<u8>, String> {
-    Ok(scrollback::read_tail(&state.data_dir, &replay_key))
+) -> Result<tauri::ipc::Response, String> {
+    Ok(tauri::ipc::Response::new(scrollback::read_tail(
+        &state.data_dir,
+        &replay_key,
+    )))
 }
 
 /// Drop the scrollback log for a closed tab. Best-effort; missing

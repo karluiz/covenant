@@ -4385,10 +4385,16 @@ export class TabManager {
     // (true if AOM is running, so the new tab is born manual) and the
     // manifest restore path (later, in restoreFromManifest) overwrites
     // with the persisted value for tabs being re-spawned at boot.
-    const operatorEnabled = await isOperatorEnabled(sessionId).catch(() => false);
-    const operatorLive = await isOperatorLive(sessionId).catch(() => false);
-    const aomExcluded = await isAomExcluded(sessionId).catch(() => false);
-    const mission = await getSessionMission(sessionId).catch(() => null);
+    // Four independent reads of the same fresh session — issued together,
+    // not one round-trip after another. Sequential awaits here cost three
+    // extra IPC latencies on every spawn, all of them before the tab is
+    // pushed and revealed.
+    const [operatorEnabled, operatorLive, aomExcluded, mission] = await Promise.all([
+      isOperatorEnabled(sessionId).catch(() => false),
+      isOperatorLive(sessionId).catch(() => false),
+      isAomExcluded(sessionId).catch(() => false),
+      getSessionMission(sessionId).catch(() => null),
+    ]);
 
     const tab: Tab = {
       id,
