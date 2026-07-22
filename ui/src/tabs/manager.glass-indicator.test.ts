@@ -40,6 +40,41 @@ describe("positionGlassIndicator", () => {
     expect(h.querySelector(".tab-glass-indicator")).toBeNull();
   });
 
+  it("targets the group chip when the active pill is folded", () => {
+    document.body.classList.add("tab-style-glass");
+    const h = document.createElement("div");
+    const shell = document.createElement("div");
+    shell.className = "tab-group-shell";
+    const chip = document.createElement("div");
+    chip.className = "group-chip";
+    chip.getBoundingClientRect = () =>
+      ({ top: 40, left: 4, width: 200, height: 28 }) as DOMRect;
+    const pill = document.createElement("div");
+    pill.className = "tab-btn active tab-pill-folded";
+    pill.getBoundingClientRect = () =>
+      ({ top: 68, left: 4, width: 200, height: 0 }) as DOMRect;
+    shell.append(chip, pill);
+    h.appendChild(shell);
+    document.body.appendChild(h);
+    positionGlassIndicator(h);
+    const ind = h.querySelector<HTMLElement>(".tab-glass-indicator")!;
+    expect(ind.style.opacity).toBe("1");
+    expect(ind.style.top).toBe("40px");
+    expect(ind.style.height).toBe("28px");
+  });
+
+  it("hides when the folded active pill has no group chip", () => {
+    document.body.classList.add("tab-style-glass");
+    const h = document.createElement("div");
+    const pill = document.createElement("div");
+    pill.className = "tab-btn active tab-pill-folded";
+    h.appendChild(pill);
+    document.body.appendChild(h);
+    positionGlassIndicator(h);
+    const ind = h.querySelector<HTMLElement>(".tab-glass-indicator")!;
+    expect(ind.style.opacity).toBe("0");
+  });
+
   it("reuses the same indicator element across calls", () => {
     document.body.classList.add("tab-style-glass");
     const h = host(0);

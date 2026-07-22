@@ -6808,6 +6808,10 @@ export class TabManager {
     // Sync snapshot so the next full renderTabbar() doesn't think a
     // transition is pending.
     this.lastCollapsed.set(groupId, g.collapsed);
+    // Reslide the glass capsule: in the vertical sidebar the fold never
+    // fires the max-height transitionend safety net (none → 0 is not
+    // interpolable), so without this the capsule keeps its stale rect.
+    positionGlassIndicator(this.tabbarHost);
     this.scheduleSave();
   }
 

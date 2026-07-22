@@ -14,8 +14,16 @@ export function positionGlassIndicator(host: HTMLElement): void {
   }
   const active = host.querySelector<HTMLElement>(".tab-btn.active");
   if (!active) { ind.style.opacity = "0"; return; }
+  // Folded group member: the pill is a zero-size sliver, so the capsule
+  // springs onto the group chip that now represents the active tab.
+  const target = active.classList.contains("tab-pill-folded")
+    ? (active
+        .closest(".tab-group-shell")
+        ?.querySelector<HTMLElement>(".group-chip") ?? null)
+    : active;
+  if (!target) { ind.style.opacity = "0"; return; }
   const hr = host.getBoundingClientRect();
-  const ar = active.getBoundingClientRect();
+  const ar = target.getBoundingClientRect();
   const color = getComputedStyle(active).getPropertyValue("--tab-color").trim() || "var(--accent)";
   ind.style.setProperty("--gi-color", color);
   ind.style.top = `${ar.top - hr.top + host.scrollTop}px`;
