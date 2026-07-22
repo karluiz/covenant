@@ -661,16 +661,11 @@ body.theme-special::after {
 }
 
 .tab-colored:hover:not(.active) {
-    background: color-mix(in srgb, var(--tab-color) 9%, var(--tab-bg-hover));
+    background: color-mix(in srgb, var(--tab-color) 9%, rgb(var(--ink-rgb) / 0.04));
 }
 
 .tab-colored.active {
-    background: color-mix(in srgb, var(--tab-color) 12%, var(--tab-bg-active));
-    border-color: color-mix(
-        in srgb,
-        var(--tab-color) 30%,
-        var(--tab-border-active)
-    );
+    background: color-mix(in srgb, var(--tab-color) 12%, rgb(var(--ink-rgb) / 0.06));
 }
 
 .tab-colored::before {
@@ -12489,6 +12484,14 @@ body.tabbar-left .tab-grouped .tab-op-avatar-wrap {
 
 body.tabbar-left .tab-btn:not(.tab-grouped).active:has(.tab-op-chip-leading)::before {
   display: block;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: 2px;
+  height: auto;
+  border-radius: 0;
+  background: var(--tab-stripe, var(--accent));
 }
 
 body.tabbar-left .tab-btn:not(.tab-grouped).active
@@ -15982,12 +15985,7 @@ body.theme-light .modal-actions button.btn-cancel:hover {
     border-color: color-mix(in srgb, var(--border) 75%, var(--text-primary));
 }
 
-/* ── Active tab pill in vertical sidebar ──────────────────── */
-body.theme-light .tab-btn.active,
-body.theme-light .tab-btn[aria-selected="true"] {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--text-primary);
-}
+/* Active tab is ink-composed by the chassis — no light-mode override needed. */
 
 /* ── File tree rows: hardcoded `#c4c8cf` was invisible on light ── */
 body.theme-light .structure-name {
