@@ -290,7 +290,7 @@ export function decideTerminalSurface(
 /// and translucent themes keep the slower, correct DOM renderer.
 export function wantsWebgl(cfg: TerminalConfig | null): boolean {
   if (cfg?.ligatures) return false;
-  if ((cfg?.renderer ?? "webgl") !== "webgl") return false;
+  if ((cfg?.renderer ?? "dom") !== "webgl") return false;
   return !termSurface().allowTransparency;
 }
 

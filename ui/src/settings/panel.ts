@@ -369,7 +369,7 @@ export class SettingsPanel {
           letter_spacing: 0,
           line_height: 1.2,
           ligatures: false,
-          renderer: "webgl",
+          renderer: "dom",
         },
         window: { background: "vibrant" },
         aom: { default_budget_usd: 10 },
@@ -1075,12 +1075,13 @@ export class SettingsPanel {
             <span class="settings-label">Renderer</span>
             <span data-role="term-renderer-select"></span>
             <small class="settings-hint">
-              GPU draws the terminal from a texture atlas instead of one DOM
-              node per cell — the difference shows when an agent repaints a
-              full-screen TUI. Used only on an opaque background: on a
-              translucent one the GPU path paints black boxes behind
-              underlined text, so those themes stay on DOM regardless.
-              Ligatures also force DOM (they need the canvas renderer).
+              DOM is the default and is visually correct everywhere. GPU
+              draws from a texture atlas instead of one node per cell and
+              is faster under a full-screen TUI, but the grid flickers
+              every time the terminal resizes — opening or closing a rail
+              is enough. It is also refused on translucent backgrounds,
+              where it paints black boxes behind underlined text, and
+              while ligatures are on (those need the canvas renderer).
             </small>
           </label>
         </section>
@@ -1409,10 +1410,10 @@ export class SettingsPanel {
     const termRenderer = new CustomSelect({
       className: "settings-select",
       ariaLabel: "Terminal renderer",
-      value: this.current.terminal.renderer ?? "webgl",
+      value: this.current.terminal.renderer ?? "dom",
       options: [
-        { value: "webgl", label: "GPU (WebGL)" },
         { value: "dom", label: "DOM" },
+        { value: "webgl", label: "GPU (WebGL)" },
       ],
     });
     termRendererHost.replaceWith(termRenderer.element);
@@ -1593,7 +1594,7 @@ export class SettingsPanel {
     termLetterSpacing.value = String(this.current.terminal.letter_spacing);
     termLineHeight.value = String(this.current.terminal.line_height);
     termLigatures.checked = !!this.current.terminal.ligatures;
-    termRenderer.value = this.current.terminal.renderer ?? "webgl";
+    termRenderer.value = this.current.terminal.renderer ?? "dom";
     splitPanesInput.checked = !!this.current.experimental?.split_panes;
     statusbarTwoRowInput.checked =
       this.current.experimental?.statusbar_two_row ?? true;

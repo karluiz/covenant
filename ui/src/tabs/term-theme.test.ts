@@ -118,7 +118,7 @@ describe("wantsWebgl", () => {
     letter_spacing: 0,
     line_height: 1.2,
     ligatures: false,
-    renderer: "webgl" as const,
+    renderer: "dom" as const,
   };
   // termSurface() reads #workspace's painted background; jsdom returns
   // whatever inline style we set, which is enough to drive the decision.
@@ -138,25 +138,30 @@ describe("wantsWebgl", () => {
     setActiveSpecialTermTheme(null);
   });
 
-  it("enables WebGL on an opaque surface", () => {
+  const OPTED_IN = { ...CFG, renderer: "webgl" as const };
+
+  it("stays on DOM by default, even on an opaque surface", () => {
+    // WebGL flickers the grid on every resize (opening a rail is enough),
+    // so it is opt-in rather than the default.
     surface("rgb(0, 0, 0)"); // true_dark
-    expect(wantsWebgl(CFG)).toBe(true);
-  });
-
-  it("refuses WebGL on a translucent surface", () => {
-    // The reported bug: under a Special Theme (alpha 0.72) the GPU atlas
-    // bakes NULL_COLOR as opaque black behind underlined cells.
-    surface("rgba(250, 251, 252, 0.72)");
     expect(wantsWebgl(CFG)).toBe(false);
+    expect(wantsWebgl({ ...CFG, renderer: undefined as never })).toBe(false);
   });
 
-  it("refuses WebGL when the user forced DOM", () => {
+  it("enables WebGL when opted in on an opaque surface", () => {
     surface("rgb(0, 0, 0)");
-    expect(wantsWebgl({ ...CFG, renderer: "dom" })).toBe(false);
+    expect(wantsWebgl(OPTED_IN)).toBe(true);
+  });
+
+  it("refuses WebGL on a translucent surface even when opted in", () => {
+    // Under a Special Theme (alpha 0.72) the GPU atlas bakes NULL_COLOR
+    // as opaque black behind underlined cells.
+    surface("rgba(250, 251, 252, 0.72)");
+    expect(wantsWebgl(OPTED_IN)).toBe(false);
   });
 
   it("refuses WebGL when ligatures need the canvas renderer", () => {
     surface("rgb(0, 0, 0)");
-    expect(wantsWebgl({ ...CFG, ligatures: true })).toBe(false);
+    expect(wantsWebgl({ ...OPTED_IN, ligatures: true })).toBe(false);
   });
 });

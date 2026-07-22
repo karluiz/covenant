@@ -902,21 +902,27 @@ impl Default for WindowBackground {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalRenderer {
-    /// Default. GPU texture atlas — one draw call per frame instead of a
-    /// DOM node per cell. The DOM renderer starves the main thread when
-    /// a full-screen TUI (an agentic executor, say) repaints at speed,
-    /// which shows up as lag everywhere else in the app.
-    Webgl,
-    /// Escape hatch. Slower, but immune to the texture-atlas rendering
-    /// artifacts WebGL/canvas can show when `allowTransparency` is on
-    /// (which vibrancy window backgrounds require). Flip here if glyphs
-    /// look wrong on your theme.
+    /// Default. One DOM node per cell — slower under a full-screen TUI
+    /// repainting at speed, but visually correct everywhere.
     Dom,
+    /// Opt-in GPU texture atlas. Faster in principle, but measurably worse
+    /// to live with, which is why it is not the default:
+    ///
+    /// - On a translucent surface it paints black boxes behind underlined
+    ///   cells (the addon returns NULL_COLOR for backgrounds when
+    ///   `allowTransparency` is on). The frontend refuses WebGL there
+    ///   outright, so this setting cannot reach that state.
+    /// - Even on an opaque surface the grid flickers whenever the terminal
+    ///   is resized — opening or closing a rail is enough — because the
+    ///   atlas revalidates. Observed, not theoretical.
+    ///
+    /// Worth it only if you run heavy TUIs and never resize.
+    Webgl,
 }
 
 impl Default for TerminalRenderer {
     fn default() -> Self {
-        Self::Webgl
+        Self::Dom
     }
 }
 
@@ -1295,15 +1301,15 @@ mod tests {
     }
 
     /// Every config.json written before the renderer setting existed
-    /// lacks the field entirely — it must land on WebGL, not fail to
-    /// parse and reset the user's whole terminal config.
+    /// lacks the field entirely — it must land on the DOM renderer, not
+    /// fail to parse and reset the user's whole terminal config.
     #[test]
-    fn terminal_renderer_missing_in_json_defaults_to_webgl() {
+    fn terminal_renderer_missing_in_json_defaults_to_dom() {
         let json = r#"{
             "terminal": { "font_size": 15, "ligatures": true }
         }"#;
         let s: Settings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.terminal.renderer, TerminalRenderer::Webgl);
+        assert_eq!(s.terminal.renderer, TerminalRenderer::Dom);
         // Neighbouring fields still round-trip.
         assert_eq!(s.terminal.font_size, 15);
         assert!(s.terminal.ligatures);
