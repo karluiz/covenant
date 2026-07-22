@@ -31,6 +31,7 @@ import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { CustomSelect } from "../ui/select";
+import { formatChord } from "../platform";
 import "./operator-creator.css";
 
 /// Blank SOUL.md template seeded into the editor when the user starts
@@ -1305,7 +1306,14 @@ function renderFooter(h: ModalHandle): HTMLElement {
   const save = document.createElement("button");
   save.type = "button";
   save.className = "op-modal-save settings-save";
-  save.textContent = h.state.mode === "edit" ? "Save changes" : "Create operator";
+  // Same primary button as Settings: short label + the ⌘S chord chip.
+  save.append(
+    h.state.mode === "edit" ? "Save" : "Create",
+    Object.assign(document.createElement("kbd"), {
+      className: "settings-save-kbd",
+      textContent: formatChord(["mod", "S"]),
+    }),
+  );
   // SOUL.md is now the source of truth; gate save on the raw text being
   // non-empty rather than the (vestigial) draft name. Backend
   // `operator_*_from_soul` does the authoritative validation.
@@ -1410,7 +1418,9 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
   handle.el.addEventListener("click", (ev) => {
     const target = ev.target as HTMLElement | null;
     if (!target) return;
-    if (target.classList.contains("op-modal-save")) {
+    // `closest` (not classList) — the button now wraps a <kbd> chip that
+    // can be the click target.
+    if (target.closest(".op-modal-save")) {
       ev.stopImmediatePropagation();
       ev.preventDefault();
       const errOut = handle.el.querySelector<HTMLElement>(".op-modal-footer-error");
@@ -1506,7 +1516,13 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
     if (!document.body.contains(handle.el)) return;
     if (e.key === "Escape") {
       requestClose(handle);
-    } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    } else if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      (e.key === "Enter" || e.key === "s" || e.key === "S")
+    ) {
+      e.preventDefault();
       const save = handle.el.querySelector<HTMLButtonElement>(".op-modal-save");
       if (save && !save.disabled) save.click();
     }
