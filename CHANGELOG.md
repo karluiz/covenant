@@ -6,6 +6,88 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.56 — Faster tab spawn and switch, shared worktree history
+
+### Added
+
+- **Worktrees share one Claude Code history**: Claude Code indexes
+  conversation history by a slug of the session cwd, so every freshly cut
+  worktree started with an empty `/resume` — the executor had no way to know
+  it was standing in the same repo. `create_worktree` now symlinks the new
+  worktree's `~/.claude/projects/<slug>` at the main worktree's
+  (`crates/app/src/git_tools.rs`), so all worktrees of a repo share one past
+  and new sessions land back in that shared directory. Best-effort: a failure
+  costs history, not correctness, and never fails worktree creation. Unix
+  only — codex records cwd inside each session file and filters on it, so a
+  directory symlink buys it nothing.
+
+### Changed
+
+- **Spawn latency**: two costs sat between "user asks for a tab" and "tab is
+  visible". `replay_scrollback` returned `Vec<u8>`, which Tauri serializes as
+  a JSON array of numbers — with the 2 MiB scrollback cap that is ~7 MB of
+  text parsed on the UI thread per tab; it now returns `tauri::ipc::Response`,
+  which arrives in JS as an `ArrayBuffer` with no parse. And four independent
+  reads of the freshly spawned session (`is_operator_enabled` /
+  `is_operator_live` / `is_aom_excluded` / `get_session_mission`) were awaited
+  one after another, costing three extra IPC round-trips per spawn; they now
+  go out together (`crates/app/src/lib.rs`, `ui/src/api.ts`,
+  `ui/src/tabs/manager.ts`). Worst case measured locally: 36 of 162 scrollback
+  logs sit at the cap, so a workspace restore was parsing hundreds of MB of
+  JSON.
+
+- **Tab-switch crossfade halved to 45ms**: the pane cross-cut fade was ~106ms
+  of deliberate delay (a rAF plus a 90ms animation) on one of the app's most
+  frequent interactions, and it read as slowness rather than polish
+  (`ui/src/styles.css`). 45ms still covers the cut it exists to smooth; the
+  rAF stays, since removing it lets a stale frame paint.
+
+- **Canon Operators gets the same head action as every other kind**: the
+  Operators section rendered its own floating "+" bar inside the content
+  column while every other kind puts "+ New" in the section header. Moved to
+  the header — click still opens the immersive creator, since an operator
+  carries a soul/model/avatar the inline name-only bar would lose
+  (`ui/src/canon/cockpit/view.ts`, `cockpit.css`).
+
+### Fixed
+
+- **Operator honors the default executor and hands out a worktree**: the
+  system prompt never named the configured default executor, so the operator
+  picked from catalog blurbs alone — and every blurb mentioning code edits
+  points at `claude`. The spawn marked `default` in `spawns.json` now lands in
+  the operator's context. Separately, `spawnTabForTask` created the tab
+  straight at the group root, so an operator-dispatched executor edited the
+  real checkout on whatever branch was current; it now goes through
+  `isolateCwd` like the spawns path (`crates/app/src/teammate/commands.rs`,
+  `ui/src/main.ts`, `ui/src/teammate/panel.ts`).
+
+- **Score no longer counts worktree-inflated specs**: `spec_scanner` walked
+  `.covenant/worktrees/*` before it was pruned, and existing DBs kept those
+  ghost rows — 3k+ specs. Migration v9 deletes any specs row under
+  `/.covenant/`, `/.claude/worktrees/` or `/.worktrees/`. Also, `build_where`
+  emitted `timestamp_ms >= ?` while the `specs` and `llm_calls` tables use
+  `ts_ms`, so last7d/last30d filters were silently dead for
+  `breakdown_specs` and `breakdown_models` (`crates/score/src/filter.rs`,
+  `store.rs`).
+
+- **Tasks executor strip shows the brand icon**: it rendered a colored emoji
+  square per executor; now the real brand SVG tinted with `BRAND_COLORS`,
+  falling back to `Icons.bot` for executors with no logo
+  (`ui/src/teammate/panel.ts`, `ui/src/spawns/chip.ts`).
+
+- **Beacon finds sub-repos in ancestor dirs**: standing inside a worktree of a
+  remote-less umbrella dir left Beacon at "No GitHub remote in this folder" —
+  origin lookup fails and the sub-repo fallback only scanned the cwd's own
+  children, while the real repos sit levels up. `scan_subrepos_upward` walks
+  cwd plus 3 ancestors, stopping at the first level with sub-repos and never
+  past `$HOME` (`crates/app/src/beacon.rs`).
+
+- **YAML highlighting in the editor**: `@lezer/yaml` tags keys as
+  `definition(propertyName)` and scalars as `content`, neither of which had a
+  rule in the shared `HighlightStyle`, so `.yml` files rendered nearly plain
+  (`ui/src/structure/theme.ts`). Also benefits TOML and any language using the
+  same tags.
+
 ## v0.9.55 — Pulse heatmap plots prompts, commits, or both
 
 ### Added
