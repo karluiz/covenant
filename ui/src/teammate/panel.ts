@@ -14,6 +14,8 @@ import {
   type BlockExcerpt, type SessionExcerpt,
 } from "../api";
 import { Icons } from "../icons";
+import { brandIconSvg } from "../icons/brands";
+import { BRAND_COLORS } from "../spawns/chip";
 import { EMOTION_LABEL, renderAvatarHtml, type Emotion } from "../operator/avatars";
 import { attachTooltip } from "../tooltip/tooltip";
 import { ComposerInput } from "./composer-input";
@@ -1246,7 +1248,9 @@ export class TeammatePanel {
     strip.className = "exec-strip";
     const logo = document.createElement("span");
     logo.className = "exec-strip__logo";
-    logo.textContent = executorGlyph(executor);
+    const glyph = executorGlyph(executor);
+    logo.innerHTML = glyph.html;
+    logo.style.color = glyph.color;
     const name = document.createElement("span");
     name.className = "exec-strip__name";
     name.textContent = executor;
@@ -2287,15 +2291,14 @@ function decisionsBreakdown(rows: OperatorDecisionRow[]): string {
   return parts.join(" · ") || "—";
 }
 
-function executorGlyph(name: string): string {
-  switch (name.toLowerCase()) {
-    case "claude":  return "🟧";
-    case "codex":   return "🟩";
-    case "copilot": return "🟦";
-    case "pi":      return "🟠";
-    case "hermes":  return "🟢";
-    default:        return "▣";
-  }
+/// Brand mark for an executor, tinted with its brand color. Falls back to
+/// the generic bot icon for executors we have no logo for.
+function executorGlyph(name: string): { html: string; color: string } {
+  const key = name.toLowerCase();
+  return {
+    html: brandIconSvg(key, 13) ?? Icons.bot({ size: 13 }),
+    color: BRAND_COLORS[key] ?? "var(--text-dim, #8a8f98)",
+  };
 }
 
 function renderDecision(d: OperatorDecisionRow): HTMLElement {
