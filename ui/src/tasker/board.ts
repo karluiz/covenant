@@ -1,4 +1,5 @@
 import "./board.css";
+import { Icons } from "../icons";
 import type { TaskStorage } from "./storage";
 import type { Task, TaskPriority, TaskStatus } from "./types";
 
@@ -89,7 +90,9 @@ export class BoardView {
       .slice(0, 2)
       .map((t) => `<span class="kb-badge kb-tag">${escapeHtml(t)}</span>`)
       .join("");
-    const note = task.description?.trim() ? `<span class="kb-note" aria-label="Has notes"></span>` : "";
+    const note = task.description?.trim()
+      ? `<span class="kb-note" aria-label="Has description">${Icons.noteText({ size: 12 })}</span>`
+      : "";
     const meta = due || tags || note ? `<div class="kb-card-meta">${due}${tags}${note}</div>` : "";
     return `
       <article class="kb-card kb-prio-${task.priority}${done ? " kb-card-done" : ""}${sel}"

@@ -124,7 +124,7 @@ body.theme-true-dark .kb-card { background: #141416; }
 }
 .kb-due { color: #f0a868; border-color: color-mix(in srgb, #f0a868 30%, transparent); }
 .kb-tag { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
-.kb-note { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.kb-note { width: 12px; height: 12px; color: var(--muted); display: inline-flex; flex: none; }
 
 .kb-add {
   font: 600 11.5px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
