@@ -61,8 +61,32 @@ export function mountRemoteDashboard(doc: Document = document): void {
     term.open(mirrorTermEl);
   };
 
+  // A mirror is a copy of someone else's grid, not a terminal of our own:
+  // fitting it to this pane re-wraps every line the source already wrapped
+  // and puts every absolute cursor move in the wrong column. So adopt the
+  // source's cols/rows verbatim and shrink the whole thing with a transform
+  // until it fits. Kept in sync on pane resize by `scaleMirror`.
+  let srcCols = 0, srcRows = 0;
+  const scaleMirror = () => {
+    const el = mirrorTermEl?.querySelector(".xterm") as HTMLElement | null;
+    if (!el || !mirrorTermEl || !srcCols) return;
+    el.style.transformOrigin = "top left";
+    el.style.transform = "";                       // measure unscaled
+    const w = el.offsetWidth, h = el.offsetHeight;
+    if (!w || !h) return;
+    const s = Math.min(1, mirrorTermEl.clientWidth / w, mirrorTermEl.clientHeight / h);
+    if (s < 1) el.style.transform = `scale(${s})`;
+  };
+  const matchSourceGrid = (cols: number, rows: number) => {
+    if (!term || (cols === srcCols && rows === srcRows)) { scaleMirror(); return; }
+    srcCols = cols; srcRows = rows;
+    try { term.resize(cols, rows); } catch { /* ignore */ }
+    scaleMirror();
+  };
+
   const hideMirror = () => {
     mirroredSid = null;
+    srcCols = srcRows = 0;
     if (term) { try { term.reset(); } catch { /* ignore */ } }
     if (mirrorWrapEl) { mirrorWrapEl.classList.add("hidden"); mirrorWrapEl.classList.remove("flex"); }
   };
@@ -81,7 +105,7 @@ export function mountRemoteDashboard(doc: Document = document): void {
       ensureTerm();
       if (term) { try { term.reset(); } catch { /* ignore */ } }
       if (mirrorWrapEl) { mirrorWrapEl.classList.remove("hidden"); mirrorWrapEl.classList.add("flex"); }
-      try { fit?.fit(); } catch { /* ignore */ }
+      try { fit?.fit(); } catch { /* ignore */ }  // provisional; the screen frame's cols/rows win
       ws!.send(mirrorStartFrame(intent.start));
       mirroredSid = intent.start;
     }
@@ -235,7 +259,11 @@ export function mountRemoteDashboard(doc: Document = document): void {
       const mm = parseMirrorFrame(text);
       if (mm) {
         if (term && mm.sessionId === mirroredSid) {
-          if (mm.kind === "screen") { term.reset(); term.write(mm.text.replace(/\n/g, "\r\n")); }
+          if (mm.kind === "screen") {
+            if (mm.cols && mm.rows) matchSourceGrid(mm.cols, mm.rows);
+            term.reset();
+            term.write(mm.text.replace(/\n/g, "\r\n"));
+          }
           else { term.write(mm.bytes); }
         }
         return;
@@ -339,7 +367,11 @@ export function mountRemoteDashboard(doc: Document = document): void {
 
   // Crossing the breakpoint changes detail visibility (mobile list view hides it).
   mq.addEventListener("change", () => { render(); syncMirror(); });
-  window.addEventListener("resize", () => { if (mirroredSid) { try { fit?.fit(); } catch { /* ignore */ } } });
+  window.addEventListener("resize", () => {
+    if (!mirroredSid) return;
+    if (srcCols) scaleMirror();                        // source grid known: rescale, never refit
+    else try { fit?.fit(); } catch { /* ignore */ }
+  });
 
   render();
   if (saved) connect();

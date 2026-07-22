@@ -526,6 +526,14 @@ impl Session {
         self.screen.clone()
     }
 
+    /// Shared handle to the live PTY dimensions. The remote mirror holds
+    /// this so it can notice a resize mid-stream: a viewer whose grid is
+    /// narrower than the source lands every wrapped line in the wrong
+    /// column, so the width has to travel with the bytes.
+    pub fn dims_handle(&self) -> Arc<AtomicU32> {
+        self.dims.clone()
+    }
+
     /// Snapshot of the current rendered screen (for tests / callers that
     /// want the value, not the handle).
     pub fn screen_snapshot(&self) -> String {
@@ -734,7 +742,7 @@ fn pack_dims(cols: u16, rows: u16) -> u32 {
 }
 
 /// Inverse of [`pack_dims`]; returns (cols, rows).
-fn unpack_dims(packed: u32) -> (u16, u16) {
+pub fn unpack_dims(packed: u32) -> (u16, u16) {
     (((packed >> 16) & 0xffff) as u16, (packed & 0xffff) as u16)
 }
 

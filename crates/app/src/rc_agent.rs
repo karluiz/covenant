@@ -68,6 +68,11 @@ enum OutFrame {
     MirrorScreen {
         session_id: String,
         screen: String,
+        /// Source PTY grid. The web viewer resizes to match — without it
+        /// the mirror re-wraps at the browser's width and every line the
+        /// desktop already wrapped breaks again in the wrong place.
+        cols: u16,
+        rows: u16,
     },
     MirrorData {
         session_id: String,
@@ -289,26 +294,57 @@ async fn start_mirror(
     let Some(state) = app.try_state::<crate::AppState>() else {
         return;
     };
-    let (mut rx, snapshot) = {
+    let (mut rx, screen, dims) = {
         let sessions = state.sessions.lock().await;
         let Some(m) = sessions.get(&id) else {
             return;
         };
-        (m.session.subscribe_raw_bytes(), m.session.screen_snapshot())
+        (
+            m.session.subscribe_raw_bytes(),
+            m.session.screen_handle(),
+            m.session.dims_handle(),
+        )
     };
-    if let Ok(j) = serde_json::to_string(&OutFrame::MirrorScreen {
-        session_id: session_id.to_string(),
-        screen: snapshot,
-    }) {
+    let sid = session_id.to_string();
+    // The viewer's grid must match the source's or every wrapped line and
+    // every absolute cursor move lands in the wrong column. Ship the
+    // dimensions with the snapshot, and again whenever they change.
+    let sid_frame = sid.clone();
+    let screen_frame = move |cols: u16, rows: u16| {
+        serde_json::to_string(&OutFrame::MirrorScreen {
+            session_id: sid_frame.clone(),
+            screen: screen.lock().map(|g| g.clone()).unwrap_or_default(),
+            cols,
+            rows,
+        })
+        .ok()
+    };
+    let (mut last_cols, mut last_rows) =
+        karl_session::unpack_dims(dims.load(std::sync::atomic::Ordering::Relaxed));
+    if let Some(j) = screen_frame(last_cols, last_rows) {
         let _ = out_tx.send(Message::Text(j));
     }
-    let sid = session_id.to_string();
     let tx = out_tx.clone();
     let handle = tokio::spawn(async move {
         use base64::Engine;
         loop {
             match rx.recv().await {
                 Ok(bytes) => {
+                    // A desktop-side resize emits no bytes of its own, so
+                    // check before forwarding: a stale width garbles
+                    // everything after it.
+                    let (cols, rows) = karl_session::unpack_dims(
+                        dims.load(std::sync::atomic::Ordering::Relaxed),
+                    );
+                    if (cols, rows) != (last_cols, last_rows) {
+                        last_cols = cols;
+                        last_rows = rows;
+                        if let Some(j) = screen_frame(cols, rows) {
+                            if tx.send(Message::Text(j)).is_err() {
+                                break;
+                            }
+                        }
+                    }
                     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
                     if let Ok(j) = serde_json::to_string(&OutFrame::MirrorData {
                         session_id: sid.clone(),

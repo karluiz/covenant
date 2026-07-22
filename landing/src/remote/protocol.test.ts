@@ -91,3 +91,14 @@ describe("mirror frames", () => {
     expect(parseMirrorFrame("garbage")).toBeNull();
   });
 });
+
+describe("mirror_screen carries the source grid", () => {
+  it("keeps cols/rows so the viewer can match the source instead of re-wrapping", () => {
+    expect(parseMirrorFrame(JSON.stringify({ t: "mirror_screen", session_id: "s1", screen: "hi", cols: 213, rows: 47 })))
+      .toEqual({ kind: "screen", sessionId: "s1", text: "hi", cols: 213, rows: 47 });
+  });
+  it("drops a nonsense grid rather than resizing the viewer to nothing", () => {
+    const m = parseMirrorFrame(JSON.stringify({ t: "mirror_screen", session_id: "s1", screen: "hi", cols: 0, rows: 0 }));
+    expect(m).toEqual({ kind: "screen", sessionId: "s1", text: "hi" });
+  });
+});
