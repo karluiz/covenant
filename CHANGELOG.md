@@ -6,6 +6,42 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.58 — Tab chassis redesign + ⌘Q quit confirm fix
+
+### Added
+
+- **Tab chassis redesign**: tabs now share one monochrome chassis — 26px
+  flat vertical rows with ink fills and a group-color spine, flat
+  horizontal segments with hairline group separators and an active
+  underline, and monochrome group chips that keep color in a dot until
+  focused. The five tab styles become single-signature accents on that
+  chassis: `glass` is a quiet hairline capsule with motion as its
+  signature, `forge` a hot seam, `crt` a caret plus scanlines on a mono
+  stack, and AOM activity a breathing accent dot replacing the old
+  per-theme auras. Custom knobs sit on the chassis; the group/AOM knobs
+  are retired (`ui/src/styles.css`, tab settings + DESIGN.md grammar).
+
+- **File tree → ACP composer drag**: dragging a file from the Files tree
+  into an ACP chat composer inserts it as an `@`-mention; drops from
+  outside the session jail are ignored (`ui/src/structure/tree.ts`,
+  `ui/src/executors/acp/view.ts`).
+
+### Changed
+
+- **Appearance settings folds**: the Appearance tab folds into five
+  collapsible groups so the long scroll becomes scannable
+  (`ui/src/settings/panel.ts`, `ui/src/styles.css`).
+
+### Fixed
+
+- **⌘Q asks before quitting**: the confirm-before-quit guard never fired
+  for ⌘Q — the predefined Quit menu item sends the native `terminate:`
+  selector, which tao never intercepts, so the app died before
+  `RunEvent::ExitRequested` could veto it. ⌘Q is now a custom menu item
+  routed through `on_menu_event` → `menu://quit-request` → the existing
+  confirm toast (`crates/app/src/lib.rs`, `ui/src/main.ts`). Dock → Quit
+  stays native and unguarded.
+
 ## v0.9.57 — Native webview zoom fixes selection, menus and banding
 
 ### Changed
