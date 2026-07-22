@@ -1077,9 +1077,10 @@ export class SettingsPanel {
             <small class="settings-hint">
               GPU draws the terminal from a texture atlas instead of one DOM
               node per cell — the difference shows when an agent repaints a
-              full-screen TUI. Switch to DOM if glyphs look wrong on a
-              translucent background. Ignored while ligatures are on (those
-              need the canvas renderer).
+              full-screen TUI. Used only on an opaque background: on a
+              translucent one the GPU path paints black boxes behind
+              underlined text, so those themes stay on DOM regardless.
+              Ligatures also force DOM (they need the canvas renderer).
             </small>
           </label>
         </section>

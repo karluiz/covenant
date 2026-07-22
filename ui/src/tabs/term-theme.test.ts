@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { termTheme, setActiveSpecialTermTheme, decideTerminalSurface } from "./manager";
+import {
+  termTheme,
+  setActiveSpecialTermTheme,
+  decideTerminalSurface,
+  wantsWebgl,
+} from "./manager";
 import { SPECIAL_THEMES } from "../theme/special";
 
 describe("termTheme", () => {
@@ -103,5 +108,55 @@ describe("decideTerminalSurface", () => {
     expect(decideTerminalSurface(INHERITS, "transparent").allowTransparency).toBe(true);
     expect(decideTerminalSurface(INHERITS, null).allowTransparency).toBe(true);
     expect(decideTerminalSurface(undefined, "rgb(0, 0, 0)").allowTransparency).toBe(true);
+  });
+});
+
+describe("wantsWebgl", () => {
+  const CFG = {
+    font_family: "monospace",
+    font_size: 13,
+    letter_spacing: 0,
+    line_height: 1.2,
+    ligatures: false,
+    renderer: "webgl" as const,
+  };
+  // termSurface() reads #workspace's painted background; jsdom returns
+  // whatever inline style we set, which is enough to drive the decision.
+  const surface = (css: string): void => {
+    let el = document.getElementById("workspace");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "workspace";
+      document.body.appendChild(el);
+    }
+    el.style.backgroundColor = css;
+  };
+
+  afterEach(() => {
+    document.getElementById("workspace")?.remove();
+    document.body.className = "";
+    setActiveSpecialTermTheme(null);
+  });
+
+  it("enables WebGL on an opaque surface", () => {
+    surface("rgb(0, 0, 0)"); // true_dark
+    expect(wantsWebgl(CFG)).toBe(true);
+  });
+
+  it("refuses WebGL on a translucent surface", () => {
+    // The reported bug: under a Special Theme (alpha 0.72) the GPU atlas
+    // bakes NULL_COLOR as opaque black behind underlined cells.
+    surface("rgba(250, 251, 252, 0.72)");
+    expect(wantsWebgl(CFG)).toBe(false);
+  });
+
+  it("refuses WebGL when the user forced DOM", () => {
+    surface("rgb(0, 0, 0)");
+    expect(wantsWebgl({ ...CFG, renderer: "dom" })).toBe(false);
+  });
+
+  it("refuses WebGL when ligatures need the canvas renderer", () => {
+    surface("rgb(0, 0, 0)");
+    expect(wantsWebgl({ ...CFG, ligatures: true })).toBe(false);
   });
 });

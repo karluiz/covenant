@@ -265,6 +265,35 @@ export function decideTerminalSurface(
   };
 }
 
+/// Is the WebGL renderer safe and wanted right now?
+///
+/// Three conditions, all necessary:
+///
+/// - the user hasn't forced the DOM renderer;
+/// - ligatures are off (the shaping pass needs the canvas renderer, and
+///   two renderer addons on one Terminal is undefined behavior);
+/// - the surface behind the grid is OPAQUE.
+///
+/// That last one is not a preference, it is a correctness bound. With
+/// `allowTransparency` on, the WebGL addon's `_getBackgroundColor` returns
+/// NULL_COLOR — `rgba(0, 0, 0, 0)` — and cells carrying attributes that
+/// route through the atlas background path (underline, notably) bake that
+/// as OPAQUE BLACK. `eza`'s underlined "immediate" files render with a
+/// black box behind them; the same path also makes the grid flicker as the
+/// atlas revalidates on resize. This is the artifact the original
+/// hard-disable warned about, and it is unfixable from our side.
+///
+/// Opaque surfaces never take that path: decideTerminalSurface hands xterm
+/// a real background color and turns `allowTransparency` off, so
+/// backgrounds bake correctly. So WebGL is enabled exactly where it is
+/// known-good — `true_dark`, or any theme on a `Solid` window background —
+/// and translucent themes keep the slower, correct DOM renderer.
+export function wantsWebgl(cfg: TerminalConfig | null): boolean {
+  if (cfg?.ligatures) return false;
+  if ((cfg?.renderer ?? "webgl") !== "webgl") return false;
+  return !termSurface().allowTransparency;
+}
+
 /// Terminal theme + the transparency flag that must travel with it, read
 /// off what `#workspace` actually paints. Thin DOM wrapper around
 /// decideTerminalSurface.
@@ -2977,7 +3006,45 @@ export class TabManager {
   ///   3. Clear the WebGL texture atlas if the addon exposes it.
   ///   4. Refit (recomputes cols/rows from new cell dims).
   ///   5. Resync the backend PTY.
+  /// Last applied terminal settings. Retained so a theme change — which
+  /// can flip the surface between opaque and translucent, and therefore
+  /// whether WebGL is safe — can re-run the renderer decision without
+  /// re-fetching settings.
+  private lastTerminalCfg: TerminalConfig | null = null;
+
+  /// Dispose any existing WebGL addon on `tab` and load a fresh one.
+  /// Callers decide whether WebGL is wanted (see wantsWebgl); this only
+  /// performs the swap. Recreating rather than reusing is deliberate —
+  /// clearTextureAtlas() is a silent no-op in xterm 5.x once the font
+  /// changed after open().
+  private reloadWebgl(tab: Tab): void {
+    if (!tab.term) return;
+    try {
+      tab.webgl?.dispose();
+    } catch {
+      /* ignore */
+    }
+    try {
+      const next = new WebglAddon();
+      next.onContextLoss(() => {
+        try {
+          next.dispose();
+        } catch {
+          /* ignore */
+        }
+        if (tab.webgl === next) tab.webgl = null;
+      });
+      tab.term.loadAddon(next);
+      tab.webgl = next;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("WebGL load failed; falling back to DOM renderer", err);
+      tab.webgl = null;
+    }
+  }
+
   applyTerminalSettings(cfg: TerminalConfig): void {
+    this.lastTerminalCfg = cfg;
     const family = cfg.font_family || DEFAULT_FONT_FAMILY;
     const baseSize = cfg.font_size || DEFAULT_FONT_SIZE;
     const size = baseSize * zoom.level();
@@ -3021,7 +3088,7 @@ export class TabManager {
           // Ligatures pipeline: canvas renderer + custom font-ligatures
           // joiner. Both must be installed/disposed together.
           const wantLigaturesLive = !!cfg.ligatures;
-          const wantWebgl = !wantLigaturesLive && (cfg.renderer ?? "webgl") === "webgl";
+          const wantWebgl = wantsWebgl(cfg);
           // Drop an unwanted WebGL addon BEFORE the canvas branch below
           // can load its renderer. WebglAddon.dispose() restores xterm's
           // default DOM renderer, so disposing after would silently
@@ -3074,33 +3141,7 @@ export class TabManager {
           // silent no-op in xterm 5.x once the font changes after
           // open(), and the dispose-and-recreate dance is what forces a
           // full atlas rebuild against the new font metrics.
-          if (wantWebgl) {
-            try {
-              tab.webgl?.dispose();
-            } catch {
-              /* ignore */
-            }
-            try {
-              const next = new WebglAddon();
-              next.onContextLoss(() => {
-                try {
-                  next.dispose();
-                } catch {
-                  /* ignore */
-                }
-                if (tab.webgl === next) tab.webgl = null;
-              });
-              tab.term.loadAddon(next);
-              tab.webgl = next;
-            } catch (err) {
-              // eslint-disable-next-line no-console
-              console.warn(
-                "WebGL recreate failed; falling back to DOM renderer",
-                err,
-              );
-              tab.webgl = null;
-            }
-          }
+          if (wantWebgl) this.reloadWebgl(tab);
 
           requestAnimationFrame(() => {
             try {
@@ -3552,15 +3593,11 @@ export class TabManager {
     // atlas ignoring live fontFamily changes) is handled: both
     // applyTerminalSettings and rebuildWebglAtlases dispose the addon and
     // load a fresh one, which forces a full atlas rebuild. The second
-    // (artifacts under allowTransparency, which vibrancy needs) can only
-    // be judged on screen — hence settings.terminal.renderer, which falls
-    // back to DOM without a rebuild.
-    //
-    // Ligatures win over both: the shaping pass needs the canvas
-    // renderer, and loading two renderer addons on one Terminal is
-    // undefined behavior in xterm.
+    // (artifacts under allowTransparency) is real — see wantsWebgl, which
+    // is why this is gated on an opaque surface rather than on the setting
+    // alone.
     let webgl: WebglAddon | null = null;
-    if (!termCfg?.ligatures && (termCfg?.renderer ?? "webgl") === "webgl") {
+    if (wantsWebgl(termCfg)) {
       try {
         const w = new WebglAddon();
         // A lost GL context (GPU reset, driver sleep, too many live
@@ -7310,10 +7347,28 @@ export class TabManager {
     // theme alone would leave a terminal painting an opaque background
     // over a now-translucent surface, or vice versa.
     const { theme, allowTransparency } = termSurface();
+    // A theme change can flip the surface, and WebGL is only correct on an
+    // opaque one (see wantsWebgl). Going translucent must therefore DROP
+    // the addon, not just re-theme it — otherwise switching to a Special
+    // Theme leaves underlined cells painting black boxes.
+    const keepWebgl = wantsWebgl(this.lastTerminalCfg);
     for (const tab of this.tabs) {
       if (tab.kind !== "shell" || !tab.term) continue;
       tab.term.options.allowTransparency = allowTransparency;
       tab.term.options.theme = theme;
+      if (tab.webgl && !keepWebgl) {
+        try {
+          tab.webgl.dispose();
+        } catch {
+          /* ignore */
+        }
+        tab.webgl = null;
+      } else if (!tab.webgl && keepWebgl) {
+        // Opposite direction: a translucent theme had dropped the addon
+        // and we're back on an opaque surface. Without this the terminal
+        // would stay on the DOM renderer until the next settings save.
+        this.reloadWebgl(tab);
+      }
       // The WebGL texture atlas caches glyphs against the old
       // transparency/background pair; without an explicit clear the old
       // cells keep their stale ground until they happen to be rewritten.
