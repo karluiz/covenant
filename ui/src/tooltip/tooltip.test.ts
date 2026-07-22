@@ -121,36 +121,27 @@ describe("computeTooltipPos", () => {
   });
 
   test("centers above the target at zoom 1", () => {
-    const p = computeTooltipPos(rect(500, 300, 40, 20), 100, 30, 1, 1200, 800);
+    const p = computeTooltipPos(rect(500, 300, 40, 20), 100, 30, 1200, 800);
     expect(p.below).toBe(false);
     expect(p.left).toBe(500 + 20 - 50); // target center minus half tooltip
     expect(p.top).toBe(300 - 30 - 8);
   });
 
   test("flips below when there is no room above", () => {
-    const p = computeTooltipPos(rect(500, 10, 40, 20), 100, 30, 1, 1200, 800);
+    const p = computeTooltipPos(rect(500, 10, 40, 20), 100, 30, 1200, 800);
     expect(p.below).toBe(true);
     expect(p.top).toBe(30 + 8);
   });
 
   test("clamps to the right edge at zoom 1", () => {
-    const p = computeTooltipPos(rect(1180, 300, 20, 20), 120, 30, 1, 1200, 800);
+    const p = computeTooltipPos(rect(1180, 300, 20, 20), 120, 30, 1200, 800);
     expect(p.left + 120).toBeLessThanOrEqual(1200 - 8);
   });
 
-  test("clamps to the LAYOUT viewport under zoom > 1", () => {
-    // Visual viewport 1200px at zoom 1.5 → layout viewport is 800px.
-    // A target hugging the layout right edge (rects are layout px).
-    const p = computeTooltipPos(rect(760, 300, 30, 20), 120, 30, 1.5, 1200, 800);
-    // Tooltip must fit inside the 800px layout viewport, not the 1200px visual one.
-    expect(p.left + 120).toBeLessThanOrEqual(1200 / 1.5 - 8);
-    expect(p.left).toBeGreaterThanOrEqual(8);
-  });
-
-  test("stays glued to a bottom status-bar badge under zoom > 1", () => {
-    // Regression: rects are layout px already — dividing them by z floated
-    // the tooltip ~10% up/left of the badge at zoom 1.1.
-    const p = computeTooltipPos(rect(700, 880, 60, 24), 200, 30, 1.1, 1000, 1000);
+  test("stays glued to a bottom status-bar badge", () => {
+    // Native page zoom keeps rects and the viewport in one CSS-px space,
+    // so the tooltip sits directly on the badge at any zoom level.
+    const p = computeTooltipPos(rect(700, 880, 60, 24), 200, 30, 1000, 1000);
     expect(p.below).toBe(false);
     expect(p.top).toBe(880 - 30 - 8); // directly above the badge, layout px
     expect(p.left).toBe(700 + 30 - 100); // centered on the badge

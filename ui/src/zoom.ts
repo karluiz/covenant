@@ -1,14 +1,20 @@
 // Global UI zoom — Cmd+= / Cmd+- / Cmd+0.
 //
-// Implementation: CSS `zoom` on the <html> element. WebKit (which the
-// Tauri macOS bundle runs on) supports this and scales every rendered
-// pixel — DOM, font sizes, padding, even canvases. xterm.js's renderer
-// keeps measuring its cell metrics from the rendered DOM, so a refit
-// after zoom is enough to keep the prompt aligned.
+// Implementation: the webview's NATIVE page zoom (WKWebView pageZoom via
+// Tauri). This used to be CSS `zoom` on <html>, which WebKit applies to
+// painting but NOT to `getBoundingClientRect()` — rects come back in
+// layout px while MouseEvent client coords are visual px. Every floating
+// surface then needed a `/ zoom` fudge, and xterm.js was unfixable: a
+// counter-zoom on the terminal host corrected the cell size but not the
+// host's origin, so selections landed a constant few rows off (worse the
+// further down the pane started). Native zoom scales the whole CSS pixel
+// grid, so every coordinate space agrees again and all of that goes away.
 //
 // State persists in localStorage so the next launch matches the last
 // zoom — terminals are tools, not browser tabs; the user expects the
 // chrome to stay where they left it.
+
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 const KEY = "covenant.ui-zoom";
 const MIN = 0.6;
@@ -84,16 +90,12 @@ class ZoomController {
   }
 
   private apply(): void {
-    // CSS `zoom` is non-standard but well-supported in WebKit. Setting
-    // it as a string on the element style is the way to set it from JS;
-    // there's no typed property on CSSStyleDeclaration in TS DOM lib.
-    (document.documentElement.style as unknown as Record<string, string>).zoom =
-      String(this.current);
-    // Expose the zoom as a CSS variable so subtrees that need to opt
-    // OUT of zoom (e.g. CodeMirror, whose `caretPositionFromPoint`
-    // hit-testing breaks under CSS `zoom`) can counter-scale via
-    // `zoom: calc(1 / var(--ui-zoom))` and resize via font-size.
-    document.documentElement.style.setProperty("--ui-zoom", String(this.current));
+    // Async IPC — a boot at zoom != 1 paints one frame at 100% before it
+    // lands. The splash covers it; not worth plumbing the value through
+    // Rust window setup to save a frame.
+    void getCurrentWebview()
+      .setZoom(this.current)
+      .catch((err) => console.error("setZoom failed", err));
   }
 }
 

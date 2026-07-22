@@ -112,7 +112,6 @@ import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
 import { Familiars } from "../familiars/api";
 import { setFamiliarFor } from "../familiars/registry";
-import { zoom } from "../zoom";
 import { attachTooltip } from "../tooltip/tooltip";
 import type { Pane, TabLayout, SplitOrientation } from "./pane";
 import { activePane, assertLayoutValid } from "./pane";
@@ -245,7 +244,7 @@ function buildTerminalOptions(font: TerminalConfig | null): Record<string, unkno
   const baseSize = font?.font_size || DEFAULT_FONT_SIZE;
   return {
     fontFamily: font?.font_family || DEFAULT_FONT_FAMILY,
-    fontSize: baseSize * zoom.level(),
+    fontSize: baseSize,
     lineHeight: font?.line_height ?? 1.2,
     letterSpacing: scaledLetterSpacing(font?.letter_spacing ?? 0),
     cursorBlink: true,
@@ -1522,11 +1521,6 @@ export class TabManager {
     const menu = document.createElement("div");
     menu.className = "pane-context-menu";
     menu.style.position = "fixed";
-    // The app applies CSS `zoom` to <html>. WebKit reports MouseEvent
-    // client coords in visual (zoomed) px, but a fixed element's left/top
-    // are local px scaled by zoom — so we must divide the click position by
-    // the zoom level, else the menu lands `x * zoom` to the right/down.
-    const z = zoom.level();
     // Position is set after append (below) once the menu is measurable.
 
     // Only one submenu flyout open at a time; tracked so dismiss + the
@@ -1636,13 +1630,10 @@ export class TabManager {
         sub.style.position = "fixed";
         document.body.appendChild(sub);
         flyout = sub;
-        // Anchor to the parent menu in LAYOUT px — the same space the menu is
-        // positioned in (offsetLeft/Top and style.left share one coord system).
-        const zf = zoom.level();
         const sw = sub.offsetWidth;
         const sh = sub.offsetHeight;
-        const vwf = window.innerWidth / zf;
-        const vhf = window.innerHeight / zf;
+        const vwf = window.innerWidth;
+        const vhf = window.innerHeight;
         const menuLeft = menu.offsetLeft;
         let sleft = menuLeft + menu.offsetWidth;
         if (sleft + sw + 8 > vwf) sleft = menuLeft - sw;
@@ -1818,25 +1809,17 @@ export class TabManager {
 
     document.body.appendChild(menu);
 
-    // Position + flip-into-viewport entirely in LAYOUT px. The app applies CSS
-    // `zoom` to <html>; offsetWidth/Height are layout px, and the click (x,y)
-    // converts to layout via `/ z`. For the viewport, window.inner* is defined
-    // on the viewport itself (never scaled by element zoom), so `inner* / z`
-    // is the layout-px viewport under ANY WebKit zoom semantics —
-    // documentElement.client* is NOT (it reported visual px here, which made
-    // the clamp/maxHeight oversized at zoom > 1 and the menu clipped at the
-    // bottom).
     const margin = 8;
-    const vw = window.innerWidth / z;
-    const vh = window.innerHeight / z;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
     // Cap height BEFORE measuring so a long menu scrolls internally instead
     // of overflowing past the clamp below.
     menu.style.maxHeight = `${vh - 2 * margin}px`;
     menu.style.overflowY = "auto";
     const w = menu.offsetWidth;
     const h = menu.offsetHeight;
-    const top = Math.max(margin, Math.min(y / z, vh - margin - h));
-    const left = Math.max(margin, Math.min(x / z, vw - margin - w));
+    const top = Math.max(margin, Math.min(y, vh - margin - h));
+    const left = Math.max(margin, Math.min(x, vw - margin - w));
     menu.style.top = `${top}px`;
     menu.style.left = `${left}px`;
 
@@ -2904,7 +2887,9 @@ export class TabManager {
   applyTerminalSettings(cfg: TerminalConfig): void {
     const family = cfg.font_family || DEFAULT_FONT_FAMILY;
     const baseSize = cfg.font_size || DEFAULT_FONT_SIZE;
-    const size = baseSize * zoom.level();
+    // Native page zoom scales the terminal with the rest of the app —
+    // fontSize stays the raw setting.
+    const size = baseSize;
 
     void document.fonts.ready.then(() => {
       // Secondary split panes keep their own xterm on pane.xterm; the

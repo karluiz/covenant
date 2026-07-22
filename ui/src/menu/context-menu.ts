@@ -6,14 +6,6 @@
 
 import { Icons } from "../icons";
 
-/// Current global UI zoom from <html>'s --ui-zoom var (set by ZoomController).
-/// Returns 1 when unset so callers can divide without guarding.
-function uiZoom(): number {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue("--ui-zoom");
-  const n = parseFloat(raw);
-  return Number.isFinite(n) && n > 0 ? n : 1;
-}
-
 export interface MenuItem {
   label?: string;
   /// Optional leading SVG icon (trusted HTML — pass `Icons.foo()`).
@@ -118,14 +110,8 @@ export class ContextMenu {
     if (top + rect.height + PAD > window.innerHeight - SAFE_BOTTOM) {
       top = Math.max(PAD, window.innerHeight - rect.height - SAFE_BOTTOM);
     }
-    // Counter-scale by the UI zoom. CSS `zoom` on <html> cascades into
-    // every descendant including position:fixed children — so a fixed
-    // element styled with `left: 100px` visually lands at `100 * zoom`.
-    // The cursor coordinates we got from clientX/Y are already in
-    // visual viewport space, so we divide to compensate.
-    const z = uiZoom();
-    menu.style.left = `${left / z}px`;
-    menu.style.top = `${top / z}px`;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
 
     this.el = menu;
     ContextMenu.openInstances.add(this);
@@ -221,9 +207,8 @@ export class ContextMenu {
       top = Math.max(PAD, window.innerHeight - subRect.height - SAFE_BOTTOM);
     }
 
-    const z = uiZoom();
-    sub.style.left = `${left / z}px`;
-    sub.style.top = `${top / z}px`;
+    sub.style.left = `${left}px`;
+    sub.style.top = `${top}px`;
     this.submenuEl = sub;
     ContextMenu.notify();
   }
