@@ -11,7 +11,7 @@ const escHtml = (s: string): string =>
 /// Brand color per executor. Matched by spec.id first, then by the
 /// command's basename (so a custom "claude-2" spawn still gets the
 /// Claude tint). Fallback is the generic green dot.
-const BRAND_COLORS: Record<string, string> = {
+export const BRAND_COLORS: Record<string, string> = {
   claude: "#e98b6c",
   codex: "#10a37f",
   copilot: "#79c0ff",
