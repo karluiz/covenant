@@ -1,146 +1,71 @@
 /* ═══ TAB STYLE: CRT (body.tab-style-crt) ═══
-   Terminal-brutalist. Active = scanline glow + phosphor text (repurposes
-   ::before as the left scanline rail, ::after for AOM flicker). Group =
-   ASCII header with a glowing left bar. */
+   One signature on the chassis: blinking caret + scanlines on the
+   active row; the whole tabbar drops to the mono stack. $ prompt leads
+   and ASCII tree connectors survive. Groups/AOM stay chassis. */
 
-body.tab-style-crt #tabs { font-family: "JetBrains Mono", ui-monospace, monospace; }
-
-body.tab-style-crt .tab-btn {
-  position: relative;
-  border: 1px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--tab-fg-rest);
-  letter-spacing: 0.02em;
-  transition: color 0.15s, background 0.15s, border-color 0.15s,
-    max-width 0.32s ease, max-height 0.32s ease, opacity 0.22s;
-}
-body.tab-style-crt .tab-btn:hover:not(.active) {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
+body.tab-style-crt #tabs,
+body.tab-style-crt .group-chip {
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.05em;
 }
 
-/* Active: phosphor text + faint scanline texture across the row + a blinking
-   caret-rail on the left edge. The scanlines + pulse are what separate CRT
-   from Forge's static accent. */
+/* Active row: faint phosphor tint + scanlines; the chassis edge
+   (spine/underline) stays and blinks like a caret-rail. */
 body.tab-style-crt .tab-btn.active {
-  color: var(--tab-fg-active);
-  background:
-    linear-gradient(90deg,
-      color-mix(in srgb, var(--tab-stripe, var(--accent)) 16%, transparent), transparent 78%),
-    repeating-linear-gradient(0deg,
-      rgb(var(--ink-rgb) / 0.05) 0 1px, transparent 1px 3px);
-  text-shadow:
-    0 0 6px color-mix(in srgb, var(--tab-stripe, var(--accent)) 75%, transparent),
-    0 0 13px color-mix(in srgb, var(--tab-stripe, var(--accent)) 38%, transparent);
+    background:
+        linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--tab-stripe, var(--accent)) 12%, transparent),
+            transparent 78%
+        ),
+        repeating-linear-gradient(
+            0deg,
+            rgb(var(--ink-rgb) / 0.05) 0 1px,
+            transparent 1px 3px
+        );
 }
 body.tab-style-crt .tab-btn.active::before {
-  left: 0; right: auto; top: 0; bottom: 0;
-  width: 2px; height: auto;
-  border-radius: 0; clip-path: none;
-  background: var(--tab-stripe, var(--accent));
-  filter: none;
-  box-shadow: 0 0 8px var(--tab-stripe, var(--accent)), 0 0 16px var(--tab-stripe, var(--accent));
-  animation: crt-caret 1.06s steps(2, jump-none) infinite;
+    animation: crt-caret 1.06s steps(2, jump-none) infinite;
 }
 @keyframes crt-caret { 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) {
-  body.tab-style-crt .tab-btn.active::before { animation: none; }
+    body.tab-style-crt .tab-btn.active::before { animation: none; }
 }
-/* Base hides the vertical active ::before (avatar competition). Re-enable the
-   CRT scanline rail only on rows without a pinned operator. */
-body.tab-style-crt.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before {
-  display: block;
-}
-
-/* AOM = flicker rail (repurpose ::after as a thin flickering border). */
-body.tab-style-crt .tab-btn.tab-aom-active::after {
-  content: "";
-  inset: 0;
-  border-radius: 0;
-  clip-path: none;
-  -webkit-mask: none; mask: none;
-  background: none;
-  border: 1px solid color-mix(in srgb, var(--accent-2, #22d3ee) 45%, transparent);
-  animation: crt-flicker 0.13s steps(2) infinite;
-}
-@keyframes crt-flicker { 50% { border-color: color-mix(in srgb, var(--accent-2, #22d3ee) 80%, transparent); } }
-@media (prefers-reduced-motion: reduce) {
-  body.tab-style-crt .tab-btn.tab-aom-active::after { animation: none; }
-}
-body.tab-style-crt .tab-btn.tab-aom-excluded::after {
-  inset: 0; border: 1px dashed color-mix(in srgb, var(--text-primary) 35%, transparent);
-  background: none; -webkit-mask: none; mask: none;
-}
-
-/* Group = ASCII header with glowing left bar. */
-body.tab-style-crt .tab-group-stripe { display: none; }
-body.tab-style-crt .group-chip {
-  border: none;
-  border-radius: 0;
-  border-left: 3px solid var(--group-color, var(--accent));
-  background: linear-gradient(90deg,
-    color-mix(in srgb, var(--group-color, var(--accent)) 12%, transparent), transparent);
-  color: var(--group-color, var(--accent));
-  text-shadow: 0 0 8px color-mix(in srgb, var(--group-color, var(--accent)) 50%, transparent);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-body.tab-style-crt .group-chip-count {
-  color: color-mix(in srgb, var(--group-color, var(--accent)) 70%, var(--text-primary));
-}
-/* VERTICAL: match the base 0,3,1 chip rule so CRT's sharp ASCII header wins
-   over the base "project card" fill (rounded tinted box). */
-body.tab-style-crt.tabbar-left .group-chip {
-  height: 28px;
-  min-height: 28px;
-  border: none;
-  border-left: 3px solid var(--group-color, var(--accent));
-  border-radius: 0;
-  background: linear-gradient(90deg,
-    color-mix(in srgb, var(--group-color, var(--accent)) 12%, transparent), transparent);
-  box-shadow: none;
-}
-
-/* Vertical: tree feel — indent members slightly under the ASCII header. */
-body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn { padding-left: 12px; }
 
 /* ── Terminal prompt · tree connectors · blinking caret ──
-   These light the theme-agnostic .tab-lead / .tab-caret slots the tab
-   renderer emits. Hidden globally by default (only CRT shows them). */
-.tab-lead, .tab-caret { display: none; }
+   Light the theme-agnostic .tab-lead / .tab-caret slots the renderer
+   emits. Hidden globally by default (only CRT shows them). */
+.tab-lead,
+.tab-caret {
+    display: none;
+}
 
 body.tab-style-crt .tab-lead {
-  display: inline-block;
-  margin-right: 6px;
-  font-weight: 700;
-  color: color-mix(in srgb, var(--accent) 50%, var(--tab-fg-rest));
-  opacity: 0.6;
+    display: inline-block;
+    margin-right: 6px;
+    font-weight: 700;
+    color: color-mix(in srgb, var(--accent) 50%, var(--tab-fg-rest));
+    opacity: 0.6;
 }
 body.tab-style-crt .tab-lead::before { content: "$"; }
 body.tab-style-crt .tab-btn.active .tab-lead {
-  color: var(--tab-stripe, var(--accent));
-  opacity: 1;
-  text-shadow: 0 0 6px color-mix(in srgb, var(--tab-stripe, var(--accent)) 60%, transparent);
-}
-/* Grouped members hang off ASCII tree connectors (vertical only). */
-body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn .tab-lead {
-  color: color-mix(in srgb, var(--group-color, var(--accent)) 55%, var(--tab-fg-rest));
+    color: var(--tab-stripe, var(--accent));
+    opacity: 1;
 }
 body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn .tab-lead::before { content: "├─"; }
 body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn:last-child .tab-lead::before { content: "└─"; }
 
-/* Blinking phosphor caret trailing the active row's label. */
+/* Blinking block caret trailing the active label. */
 body.tab-style-crt .tab-btn.active .tab-caret {
-  display: inline-block;
-  width: 7px;
-  height: 1.05em;
-  margin-left: 4px;
-  vertical-align: text-bottom;
-  background: var(--tab-stripe, var(--accent));
-  box-shadow: 0 0 6px var(--tab-stripe, var(--accent));
-  animation: crt-caret 1.06s steps(2, jump-none) infinite;
+    display: inline-block;
+    width: 7px;
+    height: 1.05em;
+    margin-left: 4px;
+    vertical-align: text-bottom;
+    background: var(--tab-stripe, var(--accent));
+    animation: crt-caret 1.06s steps(2, jump-none) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  body.tab-style-crt .tab-btn.active .tab-caret { animation: none; }
+    body.tab-style-crt .tab-btn.active .tab-caret { animation: none; }
 }
