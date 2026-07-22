@@ -140,6 +140,46 @@ pub async fn marketplace_install_count(id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// The curator's review queue (submissions with status = pending).
+/// Non-curators get a 403 from the server.
+#[tauri::command]
+pub async fn marketplace_pending() -> Result<Vec<MarketplaceListing>, String> {
+    send_authed(|j| {
+        client()
+            .get(format!(
+                "{}/marketplace/operators/pending",
+                auth::backend_url()
+            ))
+            .bearer_auth(j)
+    })
+    .await?
+    .error_for_status()
+    .map_err(|e| e.to_string())?
+    .json::<Vec<MarketplaceListing>>()
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Approve or reject a pending submission. Curator only.
+#[tauri::command]
+pub async fn marketplace_review(id: String, approve: bool) -> Result<(), String> {
+    let verb = if approve { "approve" } else { "reject" };
+    send_authed(|j| {
+        client()
+            .post(format!(
+                "{}/marketplace/operators/{}/{}",
+                auth::backend_url(),
+                id,
+                verb
+            ))
+            .bearer_auth(j)
+    })
+    .await?
+    .error_for_status()
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn marketplace_admin_url() -> Result<String, String> {
     let token = jwt().await?;

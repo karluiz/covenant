@@ -5933,6 +5933,8 @@ pub fn run() {
             marketplace::marketplace_publish,
             marketplace::marketplace_install_count,
             marketplace::marketplace_admin_url,
+            marketplace::marketplace_pending,
+            marketplace::marketplace_review,
             lsp_commands::lsp_server_status,
             lsp_commands::lsp_download_server,
             lsp_commands::lsp_start,
