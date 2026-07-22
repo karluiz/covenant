@@ -20756,11 +20756,9 @@ body.theme-light .rail-search input { background: none; border: 0; }
 .tg { display: flex; flex-direction: column; gap: 18px; max-width: 620px; }
 .tg-head { display: flex; align-items: center; gap: 12px; }
 .tg-glyph {
-    width: 34px; height: 34px; flex: 0 0 auto;
+    width: 22px; height: 22px; flex: 0 0 auto;
     display: inline-flex; align-items: center; justify-content: center;
     color: #26a5e1; /* Telegram brand blue — identity only */
-    background: color-mix(in srgb, #26a5e1 14%, transparent);
-    border: 1px solid color-mix(in srgb, #26a5e1 28%, transparent);
 }
 .tg-subtitle { font-size: 12px; color: var(--muted); flex: 1 1 auto; min-width: 0; }
 
