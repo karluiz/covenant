@@ -3,7 +3,6 @@
 // is positioned above the hovered target, with a 350ms open delay so
 // it never gets in the way of a quick mouse-by.
 
-import { zoom } from "../zoom";
 
 export type TooltipContent =
   | string
@@ -82,26 +81,20 @@ function renderContent(content: TooltipContent): string {
   return parts.join("");
 }
 
-/// Pure clamp math in LAYOUT px. In this WKWebView getBoundingClientRect()
-/// reports LAYOUT px under CSS zoom — the same space as the fixed tooltip's
-/// left/top and offset* (dividing it by z was the regression that floated
-/// status-bar tooltips way above their badges at zoom > 1). Only
-/// window.inner* is visual px, so just the viewport converts via `/ z`
-/// (same rationale as the pane-menu fix, manager.ts / 970e45b).
+/// Pure clamp math. UI zoom is the webview's native page zoom, so rects,
+/// window.inner* and the fixed tooltip's left/top all share one CSS-px
+/// space — no zoom compensation anywhere.
 export function computeTooltipPos(
   rect: { top: number; bottom: number; left: number; width: number },
   tw: number,
   th: number,
-  z: number,
-  visualVw: number,
-  visualVh: number,
+  vw: number,
+  vh: number,
 ): { top: number; left: number; below: boolean } {
   const rTop = rect.top;
   const rBottom = rect.bottom;
   const rLeft = rect.left;
   const rWidth = rect.width;
-  const vw = visualVw / z;
-  const vh = visualVh / z;
   // Prefer above; flip below if not enough room
   const below = rTop < th + EDGE_PAD + 8;
   let top = below ? rBottom + 8 : rTop - th - 8;
@@ -121,7 +114,7 @@ function position(target: HTMLElement): void {
   el.style.display = "block";
   const tw = el.offsetWidth;
   const th = el.offsetHeight;
-  const pos = computeTooltipPos(rect, tw, th, zoom.level(), window.innerWidth, window.innerHeight);
+  const pos = computeTooltipPos(rect, tw, th, window.innerWidth, window.innerHeight);
   el.style.top = `${Math.round(pos.top)}px`;
   el.style.left = `${Math.round(pos.left)}px`;
   el.classList.toggle("ck-tooltip--below", pos.below);

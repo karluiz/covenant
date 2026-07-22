@@ -86,10 +86,9 @@ export class BrowserPane {
   }
 
   private bounds(): BrowserBounds {
-    // The native child webview is positioned in window-logical coordinates,
-    // which are unaffected by the global CSS `zoom` on <html>. WebKit reports
-    // getBoundingClientRect() in unzoomed layout space, so scale by the active
-    // zoom factor to land the webview on top of its visually-zoomed pane.
+    // The native child webview is positioned in window-logical coordinates.
+    // Under the webview's page zoom, 1 CSS px (what the rect is in) is `z`
+    // logical px — scale up or the child lands short of its pane.
     const r = this.viewport().getBoundingClientRect();
     const z = zoom.level();
     return { x: r.left * z, y: r.top * z, width: r.width * z, height: r.height * z };

@@ -8962,23 +8962,9 @@ body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])
    classes/IDs CM6 emits live on its rendered DOM; this wrapper just
    needs to grow to fit the flex parent and let CM6 measure.
 
-   IMPORTANT — CSS `zoom` interaction: WebKit's `zoom` property
-   scales layout AND mouse coordinates, but `caretPositionFromPoint`
-   (used by CM6 to map clicks to character positions) doesn't always
-   account for it correctly. Result: at zoom != 1.0 the cursor lands
-   on a wrong character on click. We counter-zoom the editor so CM6
-   internally sees zoom: 1 (hit-testing works) and re-scale visually
-   via font-size, which CM6 measures from on every layout. */
-/* Counter-zoom the terminal host for the same reason as CodeMirror:
-   xterm.js computes pointer→cell coords from getBoundingClientRect()
-   in CSS-pixel space. Under CSS `zoom`, those rects scale but xterm's
-   internal cell metrics don't, so click/selection lands in the wrong
-   cell. We undo the html-level zoom on the terminal subtree and
-   instead scale the cell size by rescaling `fontSize` in JS (see
-   TabManager.buildTerminalOptions / applyTerminalSettings). */
-.tab-terminal {
-    zoom: calc(1 / var(--ui-zoom, 1));
-}
+   The counter-zoom hacks that used to live here (and on .tab-terminal)
+   are gone: UI zoom is the webview's native page zoom now, so CM6 and
+   xterm hit-test correctly with no compensation. See ui/src/zoom.ts. */
 
 .structure-editor-cm {
     flex: 1;
@@ -8988,14 +8974,10 @@ body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])
     min-height: 0;
     overflow: hidden;
     position: relative;
-    zoom: calc(1 / var(--ui-zoom, 1));
 }
 .structure-editor-cm .cm-editor {
     height: 100%;
-    /* Compensate the counter-zoom: a 12.5px theme baseline scaled by
-       the UI zoom keeps the editor visually matched to the rest of
-       the app even though its internal zoom is 1. */
-    font-size: calc(12.5px * var(--ui-zoom, 1));
+    font-size: 12.5px;
 }
 .structure-editor-cm .cm-scroller {
     /* Match the .structure-host font preference so editor + tree feel

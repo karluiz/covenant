@@ -6,7 +6,6 @@ import { Icons } from "../icons";
 import { BoardView } from "./board";
 import { MarkdownEditor } from "../ui/markdown-editor";
 import { attachTooltip } from "../tooltip/tooltip";
-import { zoom } from "../zoom";
 import { pushInfoToast } from "../notifications/toast";
 import {
   BOARD_SHARES_EVENT,
@@ -1175,21 +1174,17 @@ export class TaskerPanel {
   }
 
   private positionDateMenu(anchor: HTMLElement, cal: HTMLElement): void {
-    // All math in LAYOUT px: rects and window.inner* are visual px under the
-    // app's CSS zoom on <html>, so divide by z; offsetWidth/Height are already
-    // layout px (same fix as the pane context menu, 970e45b).
-    const z = zoom.level();
     const r = anchor.getBoundingClientRect();
     const margin = 8;
     const calW = cal.offsetWidth || 232;
     const calH = cal.offsetHeight || 280;
-    const vw = window.innerWidth / z;
-    const vh = window.innerHeight / z;
-    let left = r.right / z - calW;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = r.right - calW;
     if (left + calW > vw - margin) left = vw - margin - calW;
-    if (left < margin) left = Math.min(r.left / z, Math.max(margin, vw - margin - calW));
-    let top = r.bottom / z + 4;
-    if (top + calH > vh - margin) top = Math.max(margin, r.top / z - 4 - calH);
+    if (left < margin) left = Math.min(r.left, Math.max(margin, vw - margin - calW));
+    let top = r.bottom + 4;
+    if (top + calH > vh - margin) top = Math.max(margin, r.top - 4 - calH);
     cal.style.left = `${Math.round(left)}px`;
     cal.style.top = `${Math.round(top)}px`;
   }
