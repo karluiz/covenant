@@ -536,6 +536,17 @@ body.tabbar-left .canon-cockpit {
   flex: 1;
   min-width: 0;
 }
+.canon-reg-review {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.canon-reg-review[hidden] { display: none; }
+.canon-reg-review.is-active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 
 .canon-cockpit-search-results {
   display: flex;

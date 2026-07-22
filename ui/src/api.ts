@@ -519,6 +519,15 @@ export async function marketplaceAdminUrl(): Promise<string> {
   return invoke<string>("marketplace_admin_url");
 }
 
+/** Curator-only review queue (server 403s everyone else). */
+export async function marketplacePending(): Promise<MarketplaceListing[]> {
+  return invoke<MarketplaceListing[]>("marketplace_pending");
+}
+
+export async function marketplaceReview(id: string, approve: boolean): Promise<void> {
+  return invoke<void>("marketplace_review", { id, approve });
+}
+
 // ── Teammate (Phase 1) ───────────────────────────────────────────────
 
 export type TeammateRole = "user" | "operator" | "system";

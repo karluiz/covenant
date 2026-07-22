@@ -30,6 +30,8 @@ vi.mock("../../api", () => ({
   marketplacePublish: vi.fn().mockResolvedValue(undefined),
   marketplaceSearch: vi.fn(async () => [] as unknown[]),
   marketplaceInstallCount: vi.fn().mockResolvedValue(undefined),
+  marketplacePending: vi.fn(async () => [] as unknown[]),
+  marketplaceReview: vi.fn(async () => undefined),
 }));
 
 // The cockpit's "Create organization" button opens the immersive create
@@ -38,7 +40,7 @@ vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
 import {
   canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
-  operatorList, marketplaceSearch, operatorCreateFromSoul, operatorSetOrg, canonPublish, canonUninstallSkill,
+  operatorList, marketplaceSearch, marketplacePending, marketplaceReview, operatorCreateFromSoul, operatorSetOrg, canonPublish, canonUninstallSkill,
   canonNewUnit, canonImportSkill,
   type Operator, type MarketplaceListing,
 } from "../../api";
@@ -171,6 +173,41 @@ describe("CanonCockpitView Registry section", () => {
       expect(v.element.textContent).toContain("Zeta");
     });
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("shows the Review queue toggle only on the Operators tab and lists the pending queue", async () => {
+    vi.mocked(marketplacePending).mockResolvedValue([LISTING_FIXTURE]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    const review = v.element.querySelector(".canon-reg-review") as HTMLButtonElement;
+    expect(review.hidden).toBe(true); // Skills tab is the default
+    const toggle = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
+    toggle.click();
+    expect(review.hidden).toBe(false);
+    review.click();
+    await vi.waitFor(() => {
+      expect(review.textContent).toContain("Review queue (1)");
+      expect(v.element.textContent).toContain("Zeta");
+    });
+  });
+
+  it("approving a pending operator calls marketplace_review and drops the card", async () => {
+    vi.mocked(marketplacePending).mockResolvedValue([LISTING_FIXTURE]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    const opsTab = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
+    opsTab.click();
+    (v.element.querySelector(".canon-reg-review") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(v.element.textContent).toContain("Zeta"));
+    const approve = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-search-result .canon-icon-btn")]
+      .find((b) => b.getAttribute("aria-label") === "Approve")!;
+    approve.click();
+    await vi.waitFor(() => {
+      expect(vi.mocked(marketplaceReview)).toHaveBeenCalledWith("listing-1", true);
+      expect(v.element.textContent).toContain("No operators pending review.");
+    });
   });
 
   it("renders all six registry kind tabs", async () => {

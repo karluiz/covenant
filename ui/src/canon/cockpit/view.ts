@@ -37,6 +37,8 @@ import {
   marketplacePublish,
   marketplaceSearch,
   marketplaceInstallCount,
+  marketplacePending,
+  marketplaceReview,
 } from "../../api";
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
@@ -1422,6 +1424,79 @@ export class CanonCockpitView {
     go.className = "canon-cockpit-search-go";
     go.textContent = "Search";
 
+    // Operators publish into a moderated marketplace queue; the curator
+    // approves right here — the button swaps the results list for the
+    // pending queue (server 403s everyone else, same as the admin page).
+    let queueMode = false;
+    const review = document.createElement("button");
+    review.type = "button";
+    review.className = "canon-cockpit-search-go canon-reg-review";
+    const reviewLabel = (n?: number): void => {
+      review.innerHTML = `${Icons.clipboard({ size: 13 })}<span>Review queue${n == null ? "" : ` (${n})`}</span>`;
+    };
+    reviewLabel();
+    attachTooltip(review, "Approve or reject operators pending marketplace review");
+
+    const runPendingQueue = (): void => {
+      results.replaceChildren(this.note("Loading queue…"));
+      void marketplacePending()
+        .then((rows: MarketplaceListing[]) => {
+          let n = rows.length;
+          reviewLabel(n);
+          results.replaceChildren();
+          if (n === 0) {
+            results.appendChild(this.note("No operators pending review."));
+            return;
+          }
+          for (const r of rows) {
+            const decide = (approve: boolean): void => {
+              ok.disabled = true;
+              no.disabled = true;
+              void marketplaceReview(r.id, approve)
+                .then(() => {
+                  card.remove();
+                  n -= 1;
+                  reviewLabel(n);
+                  if (n === 0) results.appendChild(this.note("No operators pending review."));
+                })
+                .catch((e) => {
+                  ok.disabled = false;
+                  no.disabled = false;
+                  errorEl.hidden = false;
+                  errorEl.textContent = this.friendlyError(e);
+                });
+            };
+            const ok = iconButton(Icons.check({ size: 15 }), "Approve", () => decide(true));
+            const no = iconButton(Icons.x({ size: 15 }), "Reject", () => decide(false));
+            const card = skillCard({
+              name: r.name,
+              meta: `@${r.author_login}`,
+              description: r.tagline,
+              className: "canon-search-result",
+              fetchPreview: () => Promise.resolve(r.soul_md),
+              actions: [ok, no],
+            });
+            results.appendChild(card);
+          }
+        })
+        .catch((e) => {
+          queueMode = false;
+          review.classList.remove("is-active");
+          reviewLabel();
+          results.replaceChildren();
+          errorEl.hidden = false;
+          errorEl.textContent = this.friendlyError(e);
+        });
+    };
+
+    review.addEventListener("click", () => {
+      queueMode = !queueMode;
+      review.classList.toggle("is-active", queueMode);
+      errorEl.hidden = true;
+      if (queueMode) runPendingQueue();
+      else { reviewLabel(); runSearch(); }
+    });
+
     const errorEl = document.createElement("p");
     errorEl.className = "canon-cockpit-error";
     errorEl.hidden = true;
@@ -1525,6 +1600,8 @@ export class CanonCockpitView {
 
     const runSearch = (): void => {
       errorEl.hidden = true;
+      queueMode = false;
+      review.classList.remove("is-active");
       if (tab.wire === null) {
         runOperatorsSearch();
         return;
@@ -1549,13 +1626,17 @@ export class CanonCockpitView {
       input.placeholder = next.wire === null
         ? "Search operators…"
         : `Search ${initialActive.slug} ${next.wire === "mcp" ? "MCP" : next.label.toLowerCase()}…`;
+      review.hidden = next.wire !== null;
+      queueMode = false;
+      review.classList.remove("is-active");
+      reviewLabel();
     };
     applyKindUI(REG_TABS[0]);
 
     go.addEventListener("click", runSearch);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
 
-    searchRow.append(input, go);
+    searchRow.append(input, go, review);
     el.append(toggleRow, searchRow, errorEl, results);
     return el;
   }
