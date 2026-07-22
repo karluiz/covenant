@@ -3293,6 +3293,11 @@ export class TabManager {
     groupId?: string | null;
     cwd?: string | null;
     initialCommand?: string | null;
+    /// Agent-launch tabs: wipe the shell preamble (prompt + echoed
+    /// command) from xterm when the injected command starts, so the
+    /// first thing visible is the agent's own UI. View-only — the PTY
+    /// stream, blocks and world-model keep the real bytes.
+    scrubLaunch?: boolean;
     // Restore path uses this when spawning many tabs in parallel: each
     // createTab still self-pushes/wires, but activation + tabbar render
     // are deferred to the caller so they happen ONCE in manifest order.
@@ -3494,6 +3499,12 @@ export class TabManager {
     // write the command on the FIRST prompt_start (i.e. once the
     // shell has finished its rc-file work and shown a usable prompt).
     let initialCmdPending: string | null = opts?.initialCommand ?? null;
+    // One-shot: the first block_started on a scrubLaunch tab is the
+    // injected command (it's written at the first prompt, before the
+    // user can type). Echo bytes precede the OSC 133 C marker in the
+    // stream, so by the time the event lands the preamble is already
+    // queued in xterm and the clear lands after it.
+    let scrubLaunchPending = opts?.scrubLaunch === true;
     // Replay persisted scrollback into xterm BEFORE the live channel
     // attaches. Brand-new tabs see an empty array; reopened tabs see
     // the last ~2 MiB of bytes from their previous session.
@@ -3544,6 +3555,10 @@ export class TabManager {
             if (event.kind === "block_started") {
               atPrompt = false;
               promptHint.reset();
+              if (scrubLaunchPending) {
+                scrubLaunchPending = false;
+                term.write("\x1b[H\x1b[2J\x1b[3J");
+              }
               const next = detectExecutor(event.command);
               if (tabRef.current) {
                 const p = tabRef.current.panes[0];

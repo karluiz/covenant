@@ -1412,6 +1412,7 @@ async function boot(): Promise<void> {
             manager.createTab({
               cwd: launchCwd,
               initialCommand: cmdline,
+              scrubLaunch: true,
               groupId: group?.id ?? null,
               color: group?.color ?? null,
             }),
@@ -1429,6 +1430,7 @@ async function boot(): Promise<void> {
             manager.createTab({
               cwd: launchCwd,
               initialCommand: cmdline,
+              scrubLaunch: true,
               groupId: group?.id ?? null,
               color: group?.color ?? null,
             }),
