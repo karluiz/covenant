@@ -61,6 +61,7 @@ mod project_ref;
 mod prompts;
 pub mod provider_resolve;
 mod providers_cmd;
+mod pty_perception;
 mod rc_agent;
 mod resources;
 mod safety;
@@ -349,6 +350,19 @@ pub(crate) struct AppState {
     /// remote `open_tab` frames are honored and emit `rc://tab/open`.
     /// Not persisted (resets to off on every app launch).
     allow_remote_open: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl AppState {
+    /// Write raw bytes into a PTY session. `ManagedSession` is private to
+    /// this module, so out-of-module tasks (PTY Perception) go through
+    /// here. Returns false if the session is gone or the write failed.
+    pub(crate) async fn write_pty(&self, id: SessionId, bytes: &[u8]) -> bool {
+        let mut sessions = self.sessions.lock().await;
+        match sessions.get_mut(&id) {
+            Some(ms) => ms.session.write(bytes).is_ok(),
+            None => false,
+        }
+    }
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -917,6 +931,20 @@ async fn spawn_session(
         state.notifier.clone(),
         state.email_notifier.clone(),
         state.settings.clone(),
+    );
+
+    // PTY Perception: auto-answer trivial safe Claude Code permission
+    // prompts in this tab when the session's effective operator has
+    // Perception enabled. Same decision core as the ACP path.
+    let _ = pty_perception::spawn(
+        id,
+        session.subscribe(),
+        session.screen_handle(),
+        app.state::<std::sync::Arc<crate::operator_registry::OperatorRegistry>>()
+            .inner()
+            .clone(),
+        state.settings.clone(),
+        app.clone(),
     );
 
     // Cross-session watcher: forwards this session's bus into the
