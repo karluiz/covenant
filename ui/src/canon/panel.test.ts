@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, type Mock } from "vitest";
-import { CanonPanel, liftBadgeEl, slugify } from "./panel";
+import { CanonPanel, asDoc, liftBadgeEl, slugify } from "./panel";
 import { liftClass } from "./cockpit/lift";
 import type { Operator } from "../api";
 
@@ -412,5 +412,19 @@ describe("liftBadgeEl", () => {
     const el = liftBadgeEl(liftClass({ skill: "x", passed: 8, total: 10, baseline_passed: 6, baseline_total: 10 }));
     expect(el.className).toContain("lift-earning");
     expect(el.textContent).toContain("+20");
+  });
+});
+
+describe("asDoc", () => {
+  it("fences JSON sources (MCP servers) instead of rendering them as prose", () => {
+    expect(asDoc('{"type":"stdio","command":"npx"}')).toBe(
+      '```json\n{\n  "type": "stdio",\n  "command": "npx"\n}\n```',
+    );
+  });
+  it("leaves markdown alone and drops its frontmatter", () => {
+    expect(asDoc("---\nname: x\n---\n# Hi")).toBe("# Hi");
+  });
+  it("falls back to raw text when a brace-leading source isn't JSON", () => {
+    expect(asDoc("{ not json")).toBe("{ not json");
   });
 });
