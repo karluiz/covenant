@@ -60,7 +60,7 @@ import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
 import { MissionPage } from "./mission/page";
-import { pushConfirmToast, pushInfoToast, setSharedToastHost, ToastHost } from "./notifications/toast";
+import { pushConfirmToast, pushInfoToast, pushPerceptionToast, setSharedToastHost, ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
 import { ReleasePanel } from "./release/panel";
@@ -2166,6 +2166,27 @@ async function boot(): Promise<void> {
   });
   await toasts.start();
   setSharedToastHost(toasts);
+
+  // PTY Perception signature: every auto-answered Claude Code prompt
+  // arrives signed — WHO (effective operator), what option, on which
+  // command. Also materializes the operator's attenuated chip on the
+  // tab at first act. Click routes to the answered tab.
+  void listen<{
+    sessionId: string;
+    operatorId: string;
+    operatorName: string;
+    optionLabel: string;
+    subject: string;
+  }>("perception:pty-auto-answer", (e) => {
+    const p = e.payload;
+    const tabId = manager.onPtyPerceptionAnswer(p.sessionId, p.operatorId);
+    pushPerceptionToast({
+      operatorName: p.operatorName || "Default",
+      optionLabel: p.optionLabel,
+      subject: p.subject,
+      onClick: tabId ? () => manager.activate(tabId) : undefined,
+    });
+  });
 
   // One-shot zsh-autosuggestions hint. Recall (sidebar) covers the
   // "search past commands" case; autosuggestions covers inline ghost

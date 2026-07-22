@@ -3215,6 +3215,29 @@ export class TabManager {
     return null;
   }
 
+  /// PTY Perception auto-answered a prompt in `sessionId`. Marks the
+  /// pane with the acting operator so the attenuated chip materializes
+  /// ("presence at first act" — only while no operator is pinned), and
+  /// returns the owning tab's id so the toast can route a click there.
+  /// Null when the session belongs to no open tab.
+  onPtyPerceptionAnswer(sessionId: string, operatorId: string): string | null {
+    const tab = this.tabs.find((t) =>
+      t.panes.some((p) => p.sessionId === sessionId),
+    );
+    if (!tab) return null;
+    const pane = tab.panes.find((p) => p.sessionId === sessionId);
+    if (
+      pane &&
+      operatorId &&
+      !pane.operator &&
+      pane.perceptionOperator !== operatorId
+    ) {
+      pane.perceptionOperator = operatorId;
+      this.renderTabbar();
+    }
+    return tab.id;
+  }
+
   /// Stamp `short → name` in the cache. Idempotent; called on tab
   /// create, rename, and just before close so the most current name
   /// survives the session.
@@ -7432,9 +7455,20 @@ export class TabManager {
     // ring + level badge; observers stack behind it, smaller and faded,
     // overlapping ~50%. Beyond MAX_VISIBLE we collapse to a "+N" pill so
     // the tab name never gets pushed out.
+    // Perception "presence at first act": the Default (or whichever
+    // effective operator) materializes on the tab the first time it
+    // auto-answers here — attenuated + dashed, visually distinct from a
+    // pinned mandate. A pin supersedes it entirely.
+    const perceptionId =
+      !pillPane.operator &&
+      pillPane.perceptionOperator &&
+      !pillPane.observer_ids.includes(pillPane.perceptionOperator)
+        ? pillPane.perceptionOperator
+        : null;
     const stackedIds: string[] = [
       ...(pillPane.operator ? [pillPane.operator] : []),
       ...pillPane.observer_ids,
+      ...(perceptionId ? [perceptionId] : []),
     ];
     if (stackedIds.length > 0) {
       const MAX_VISIBLE = 3;
@@ -7447,9 +7481,15 @@ export class TabManager {
         const op = this.operatorCache.get(id) ?? null;
         if (!op) continue;
         const isDriver = pillPane.operator === id;
+        const isPerception = perceptionId === id;
         const chip = document.createElement("span");
         chip.className =
-          "tab-op-chip " + (isDriver ? "tab-op-chip--driver" : "tab-op-chip--observer");
+          "tab-op-chip " +
+          (isDriver
+            ? "tab-op-chip--driver"
+            : isPerception
+              ? "tab-op-chip--perception"
+              : "tab-op-chip--observer");
         const xp = op.xp ?? 0;
         const level = operatorLevelFromXp(xp);
         const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
@@ -7476,7 +7516,9 @@ export class TabManager {
           chip,
           isDriver
             ? `${op.name} — driving · Lv ${level} · ${xp} XP`
-            : `${op.name} — observing`,
+            : isPerception
+              ? `${op.name} — Perception answered a prompt here`
+              : `${op.name} — observing`,
         );
         stack.appendChild(chip);
       }

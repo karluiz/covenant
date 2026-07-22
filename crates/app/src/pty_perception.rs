@@ -74,6 +74,16 @@ pub fn spawn(
                                 consecutive = 0;
                                 continue;
                             }
+                            // Signature fields for the UI: WHO answered (the
+                            // effective operator — pin, else Default), the
+                            // human-readable option, and what it was about.
+                            let (op_id, op_name) = registry
+                                .pinned(session_id)
+                                .and_then(|oid| registry.get(oid))
+                                .or_else(|| registry.default())
+                                .map(|o| (o.id.0.to_string(), o.name))
+                                .unwrap_or_default();
+                            let (option_label, subject) = toast_fields(&req, &option_id);
                             let state = app.state::<crate::AppState>();
                             if state.write_pty(session_id, option_id.as_bytes()).await {
                                 consecutive += 1;
@@ -89,6 +99,10 @@ pub fn spawn(
                                         "sessionId": session_id.to_string(),
                                         "optionId": option_id,
                                         "reason": reason,
+                                        "operatorId": op_id,
+                                        "operatorName": op_name,
+                                        "optionLabel": option_label,
+                                        "subject": subject,
                                     }),
                                 );
                             } else {
@@ -111,9 +125,51 @@ fn fingerprint(req: &karl_agent::acp::PermissionRequest) -> String {
     serde_json::to_string(req).unwrap_or_default()
 }
 
+/// Toast copy: ("1. Yes", "git status"). The subject is the command's
+/// first line (the parsed block may carry Claude's description line
+/// below it) or the tool kind for edit/read prompts.
+fn toast_fields(req: &karl_agent::acp::PermissionRequest, option_id: &str) -> (String, String) {
+    let label = req
+        .options
+        .iter()
+        .find(|o| o.option_id == option_id)
+        .and_then(|o| o.name.clone())
+        .map(|n| format!("{option_id}. {n}"))
+        .unwrap_or_else(|| option_id.to_string());
+    let subject = req
+        .tool_call
+        .command()
+        .and_then(|c| c.lines().next())
+        .map(str::to_string)
+        .or_else(|| req.tool_call.kind.clone())
+        .unwrap_or_default();
+    (label, subject)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toast_fields_label_and_first_command_line() {
+        let req = karl_agent::pty_prompt::parse_claude_prompt(
+            "│ Bash command\n│   git status\n│   Show tree status\n│ Do you want to proceed?\n│ ❯ 1. Yes\n│   2. No (esc)",
+        )
+        .unwrap();
+        let (label, subject) = toast_fields(&req, "1");
+        assert_eq!(label, "1. Yes");
+        assert_eq!(subject, "git status");
+    }
+
+    #[test]
+    fn toast_fields_fall_back_to_kind() {
+        let req = karl_agent::pty_prompt::parse_claude_prompt(
+            "Do you want to make this edit to a.rs?\n❯ 1. Yes\n  2. No (esc)",
+        )
+        .unwrap();
+        let (_label, subject) = toast_fields(&req, "1");
+        assert_eq!(subject, "edit");
+    }
 
     #[test]
     fn fingerprint_detects_prompt_drift() {

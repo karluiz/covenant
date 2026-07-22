@@ -47,6 +47,11 @@ export interface Pane {
   operatorSolo?: boolean;
   aomExcluded: boolean;
   observer_ids: string[];
+  /// Operator that auto-answered a prompt here via PTY Perception while
+  /// no operator was pinned — "presence at first act". Runtime only,
+  /// never persisted: the punteado chip reflects live activity, not
+  /// history. Cleared when an operator is pinned (the pin supersedes).
+  perceptionOperator?: string | null;
   spawn_id: string | null;
   idleAgent: IdleAgentState | null;
   busyProc: string | null;

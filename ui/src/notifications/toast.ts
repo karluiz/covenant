@@ -27,6 +27,28 @@ export interface InfoToast {
   onClick?: () => void | boolean;
 }
 
+export interface PerceptionToast {
+  /// WHO answered — the effective operator's name ("Default", "Raven").
+  operatorName: string;
+  /// The option as rendered in the prompt, e.g. `1. Yes`.
+  optionLabel: string;
+  /// What it was about — command first line, or the tool kind.
+  subject: string;
+  /// Click → jump to the tab that was answered.
+  onClick?: () => void | boolean;
+}
+
+/// Pure formatter so the signature copy is testable: the WHO is rendered
+/// separately (uppercase, accented); this builds the rest.
+export function formatPerceptionToast(t: PerceptionToast): string {
+  const subject = t.subject ? ` · ${t.subject}` : "";
+  return ` answered "${t.optionLabel}"${subject}`;
+}
+
+export function pushPerceptionToast(toast: PerceptionToast): void {
+  SHARED?.pushPerception(toast);
+}
+
 export interface ConfirmToast {
   message: string;
   confirmLabel?: string;
@@ -103,6 +125,59 @@ export class ToastHost {
       <span class="toast-close" aria-label="dismiss">${Icons.x({ size: 12 })}</span>
     `;
     card.querySelector<HTMLElement>(".toast-msg")!.textContent = toast.message;
+
+    let dismissTimer: number | undefined;
+    const dismiss = (): void => {
+      if (dismissTimer !== undefined) {
+        window.clearTimeout(dismissTimer);
+        dismissTimer = undefined;
+      }
+      card.classList.add("toast-leaving");
+      window.setTimeout(() => card.remove(), 180);
+    };
+    const armDismiss = (): void => {
+      dismissTimer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
+    };
+
+    card.addEventListener("mouseenter", () => {
+      if (dismissTimer !== undefined) {
+        window.clearTimeout(dismissTimer);
+        dismissTimer = undefined;
+      }
+    });
+    card.addEventListener("mouseleave", armDismiss);
+    card.querySelector<HTMLElement>(".toast-close")!.addEventListener(
+      "click",
+      (e) => {
+        e.stopPropagation();
+        dismiss();
+      },
+    );
+    card.addEventListener("click", () => {
+      const result = toast.onClick?.();
+      if (result !== false) dismiss();
+    });
+
+    this.container.appendChild(card);
+    armDismiss();
+  }
+
+  /// Render a Perception signature toast: WHO answered, what, and on
+  /// which command. The operator name leads — the whole point is that
+  /// every auto-answer arrives signed by the authority that made it.
+  pushPerception(toast: PerceptionToast): void {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "toast toast-perception";
+    card.innerHTML = `
+      <span class="toast-icon">${Icons.headphones({ size: 14 })}</span>
+      <span class="toast-msg"><span class="toast-perception-who"></span><span class="toast-perception-what"></span></span>
+      <span class="toast-close" aria-label="dismiss">${Icons.x({ size: 12 })}</span>
+    `;
+    card.querySelector<HTMLElement>(".toast-perception-who")!.textContent =
+      toast.operatorName;
+    card.querySelector<HTMLElement>(".toast-perception-what")!.textContent =
+      formatPerceptionToast(toast);
 
     let dismissTimer: number | undefined;
     const dismiss = (): void => {
