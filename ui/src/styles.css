@@ -16066,14 +16066,6 @@ body.theme-light .modal-actions button.btn-cancel:hover {
     border-color: color-mix(in srgb, var(--border) 75%, var(--text-primary));
 }
 
-/* ── Group count badges on collapsed group cards ──────────── */
-body.theme-light .group-chip .count,
-body.theme-light .group-chip__count,
-body.theme-light .tab-group-shell .count {
-    background: rgba(0, 0, 0, 0.12);
-    color: var(--text-primary);
-}
-
 /* ── Active tab pill in vertical sidebar ──────────────────── */
 body.theme-light .tab-btn.active,
 body.theme-light .tab-btn[aria-selected="true"] {
@@ -16140,12 +16132,6 @@ body.theme-light .ck-tooltip__hint {
 body.theme-light .ck-tooltip__hint kbd {
     background: rgba(0, 0, 0, 0.06);
     border-color: var(--border);
-}
-
-/* ── Group count badges: dark filled circles in light mode → soft tint ─ */
-body.theme-light .group-chip-count {
-    background: transparent !important;
-    color: rgba(0, 0, 0, 0.4) !important;
 }
 
 /* ── Editor host + previews: kill the dark backplate ─────────── */
