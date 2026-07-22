@@ -490,10 +490,16 @@ pub fn create_worktree(cwd: &Path, slug: &str, base: Option<&str>) -> Result<Str
 #[cfg(unix)]
 fn link_executor_history(main_root: &Path, worktree: &Path) {
     let Some(home) = dirs::home_dir() else { return };
-    let projects = home.join(".claude/projects");
+    link_executor_history_in(&home.join(".claude/projects"), main_root, worktree);
+}
 
+#[cfg(unix)]
+fn link_executor_history_in(projects: &Path, main_root: &Path, worktree: &Path) {
     let target = projects.join(history_slug(main_root));
-    if !target.is_dir() {
+    // Worktree-first repos may never have run claude at the main root, so the
+    // shared dir won't exist yet — create it; bailing here left every worktree
+    // an island with a permanently empty /resume.
+    if std::fs::create_dir_all(&target).is_err() {
         return;
     }
     let link = projects.join(history_slug(worktree));
@@ -3208,6 +3214,44 @@ index e69de29..0cfbf08 100644
                 "/Users/carlosgallardoarenas/Sources/karlTerminal/.covenant/worktrees/agent-claude-0721-v1d"
             )),
             "-Users-carlosgallardoarenas-Sources-karlTerminal--covenant-worktrees-agent-claude-0721-v1d"
+        );
+    }
+
+    /// Worktree-first repos never run claude at the main root, so the main
+    /// history dir doesn't exist yet — the link must create it, not bail,
+    /// or every worktree stays an island and /resume is always empty.
+    #[cfg(unix)]
+    #[test]
+    fn link_executor_history_creates_missing_main_history_dir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let projects = tmp.path();
+        let main_root = Path::new("/repo/main");
+        let worktree = Path::new("/repo/main/.covenant/worktrees/agent-x");
+
+        link_executor_history_in(projects, main_root, worktree);
+
+        let target = projects.join(history_slug(main_root));
+        let link = projects.join(history_slug(worktree));
+        assert!(target.is_dir(), "main history dir should be created");
+        assert_eq!(std::fs::read_link(&link).unwrap(), target);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn link_executor_history_leaves_existing_real_dir_alone() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let projects = tmp.path();
+        let main_root = Path::new("/repo/main");
+        let worktree = Path::new("/repo/main/.covenant/worktrees/agent-x");
+        let link = projects.join(history_slug(worktree));
+        std::fs::create_dir_all(&link).unwrap();
+
+        link_executor_history_in(projects, main_root, worktree);
+
+        assert!(link.symlink_metadata().unwrap().is_dir());
+        assert!(
+            std::fs::read_link(&link).is_err(),
+            "must not replace a real dir"
         );
     }
 
