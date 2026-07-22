@@ -24,12 +24,7 @@ body.tab-style-custom[data-tab-bg="translucent"] .tab-btn {
 body.tab-style-custom[data-tab-bg="off"] .tab-btn {
   background: transparent !important;
 }
-/* Off promises "just text and indicator" — drop the rest-state border
-   too. The active tab keeps its border so the Border indicator and
-   active emphasis still work. */
-body.tab-style-custom[data-tab-bg="off"] .tab-btn:not(.active) {
-  border-color: transparent;
-}
+/* chassis has no rest border — off mode needs no border reset */
 body.tab-style-custom[data-tab-bg="gradient"] .tab-btn {
   background: linear-gradient(
     135deg,
@@ -172,13 +167,13 @@ body.tab-style-custom[data-tab-bg="gradient"][data-tab-indicator="underline"] .t
    on, the user's knobs win. .tab-pill-folded is excluded so the
    group-collapse animation (height → 0) keeps working. */
 body.tabbar-left.tab-style-custom .tab-btn:not(.tab-pill-folded) {
-  height: var(--tab-custom-h, 30px);
+  height: var(--tab-custom-h, 26px);
   border-radius: var(--tab-custom-radius, 0px);
   --tab-radius: var(--tab-custom-radius, 0px);
 }
 body.tab-style-custom .tab-group-body > .tab-btn.tab-grouped:not(.tab-pill-folded) {
-  height: var(--tab-custom-h, 30px);
-  min-height: var(--tab-custom-h, 30px);
+  height: var(--tab-custom-h, 26px);
+  min-height: var(--tab-custom-h, 26px);
   border-radius: var(--tab-custom-radius, 0px);
   --tab-radius: var(--tab-custom-radius, 0px);
 }
@@ -193,24 +188,4 @@ body.tab-style-custom[data-tab-bg="translucent"] .tab-group-body > .tab-btn.tab-
   background: color-mix(in srgb, rgb(var(--ink-rgb)) 5%, transparent);
 }
 
-/* ── CUSTOM · group header chip ──
-   [data-tab-group-bg] is always present while custom mode is on, so
-   these selectors carry enough specificity (0,3,0) to beat the dark
-   sidebar preset (`body.tabbar-left:not(.theme-light) .group-chip`).
-   The colored left stripe stays — it carries group identity. */
-body.tab-style-custom[data-tab-group-bg] .group-chip {
-  border-radius: var(--tab-custom-group-radius, 10px);
-}
-body.tab-style-custom[data-tab-group-bg="solid"] .group-chip {
-  background: color-mix(in srgb, rgb(var(--ink-rgb)) 12%, transparent);
-}
-body.tab-style-custom[data-tab-group-bg="off"] .group-chip {
-  background: transparent;
-  box-shadow: none;
-}
-
-/* ── CUSTOM · AOM indicator ── */
-body.tab-style-custom .tab-btn.tab-aom-active::after {
-  inset: -2px;
-  border-radius: calc(var(--tab-custom-radius, 0px) + 2px);
-}
+/* group chips are chassis-owned — group knobs are inert on the new base */
