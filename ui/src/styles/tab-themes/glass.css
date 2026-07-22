@@ -4,6 +4,13 @@
    the signature — the capsule itself is quiet: ink fill + hairline +
    a faint top bevel tinted by the tab's color. */
 
+/* The indicator computes its rect relative to #tabs (its host) — #tabs
+   must be its containing block in both layouts, or the capsule paints
+   offset against whatever ancestor happens to be positioned. */
+body.tab-style-glass #tabs {
+    position: relative;
+}
+
 .tab-glass-indicator {
     position: absolute;
     border-radius: 7px;
