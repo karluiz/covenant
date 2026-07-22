@@ -1,13 +1,13 @@
 /* ═══ TAB STYLE: CUSTOM (body.tab-style-custom) ═══
    Atomic tab styling driven by CSS custom properties set from
    Settings → Experimental. Each knob maps to a --tab-custom-*
-   variable; default values mirror the "classic" preset so the
+   variable; default values mirror the chassis baseline so the
    custom class works even without explicit overrides. */
 
 /* ── CUSTOM · pill treatment ── */
 body.tab-style-custom .tab-btn {
   border-radius: var(--tab-custom-radius, 0px);
-  background: var(--tab-custom-bg, var(--tab-bg-rest));
+  background: var(--tab-custom-bg, transparent);
   height: var(--tab-custom-h, 30px);
 }
 
@@ -81,6 +81,7 @@ body.tab-style-custom[data-tab-indicator="left-bar"] .tab-btn.active::before {
   left: 0;
   bottom: 4px;
   width: 3px;
+  height: auto;
   background: var(--tab-stripe, var(--accent));
   border-radius: 0 2px 2px 0;
 }

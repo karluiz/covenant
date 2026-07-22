@@ -10501,7 +10501,7 @@ body.tabbar-left .tab-btn {
     height: 26px;
     padding: 0 24px 0 10px;
     border-radius: 0;
-    /* AOM ring inherits this so the gradient border matches the pill. */
+    /* The AOM indicator (a dot, not a ring) inherits this for shape parity. */
     --tab-radius: 0px;
     border: none;
     background: transparent;
@@ -11389,8 +11389,7 @@ body.tabbar-rail-labels #tabbar-rail {
 
 /* Light: the raw group pastels are tuned for dark surfaces and wash
    out on a light one — pull text toward ink and deepen the seg fills
-   (DESIGN.md "text via color-mix toward #fff/#000 for contrast",
-   same pattern as body.theme-light .group-chip). */
+   (DESIGN.md "text via color-mix toward #fff/#000 for contrast"). */
 body.theme-light .tabbar-rail-glyph-badge,
 body.theme-light .tabbar-rail-labels-head,
 body.theme-light .tabbar-rail-spine-mono {
