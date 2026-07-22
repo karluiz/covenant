@@ -3372,7 +3372,11 @@ export class TabManager {
     // this the freshly appended pane would be visible during the ~hundreds
     // of ms of async setup below.
     pane.hidden = true;
-    this.hideAllPanes();
+    // Only blank the workspace when this tab is going to take it over.
+    // Restore spawns every non-active tab with skipActivate — hiding the
+    // freshly-activated pane there left the whole workspace black until
+    // the user clicked another tab.
+    if (!opts?.skipActivate) this.hideAllPanes();
     this.workspace.appendChild(pane);
 
     // Read terminal font/size from settings each spawn so a Save in
@@ -4670,7 +4674,9 @@ export class TabManager {
     pane.className = "tab-pane tab-pane-pi";
     pane.dataset.tabId = id;
     pane.hidden = true;
-    this.hideAllPanes();
+    // See createTab: a background (skipActivate) spawn must not blank
+    // the pane the user is looking at.
+    if (!opts?.skipActivate) this.hideAllPanes();
     this.workspace.appendChild(pane);
 
     const piTerminalBlock = document.createElement("div");
@@ -4821,7 +4827,9 @@ export class TabManager {
     pane.className = "tab-pane tab-pane-acp";
     pane.dataset.tabId = id;
     pane.hidden = true;
-    this.hideAllPanes();
+    // See createTab: a background (skipActivate) spawn must not blank
+    // the pane the user is looking at.
+    if (!opts?.skipActivate) this.hideAllPanes();
     this.workspace.appendChild(pane);
 
     const acpTerminalBlock = document.createElement("div");
@@ -6355,7 +6363,14 @@ export class TabManager {
       } catch {
         /* ignore */
       }
-      if (opts.skipIfSame !== false) return;
+      // ...but only when the pane is actually on screen. A background
+      // createTab (skipActivate) calls hideAllPanes() and never reveals
+      // anything, so the active tab's pane can be hidden while activeId
+      // still points at it — the restore path's final
+      // `activate(active, { skipIfSame: true })` then early-returned and
+      // left a fully black workspace. Re-entering the reveal path is
+      // idempotent, so gate the shortcut on the pane being visible.
+      if (opts.skipIfSame !== false && !tab.pane.hidden) return;
     }
 
     // Anti-flicker activation. The old sequence revealed the pane first

@@ -493,3 +493,34 @@ describe("inferred title -> branch rename", () => {
     expect(t.defaultTitle).toBe("No cwd");
   });
 });
+
+describe("activate() reveals a hidden pane even when it is already active", () => {
+  // Background tab creation (skipActivate) calls hideAllPanes(), which can
+  // hide the pane of the tab activeId already points at. The restore path
+  // then finishes with activate(active, { skipIfSame: true }) — if that
+  // early-returns, the workspace stays black with no way back except
+  // clicking another tab.
+  it("un-hides the active tab's pane on a skipIfSame activate", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      activeId: string | null;
+    };
+    const pane = document.createElement("div");
+    priv.tabs.push({
+      id: "a",
+      groupId: null,
+      kind: "shell",
+      pane,
+      panes: [{ kind: "shell", sessionId: null, cwd: "/tmp", el: null, xterm: null, operator: null, observer_ids: [] }],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    });
+    priv.activeId = "a";
+    pane.hidden = true; // as left by a background createTab
+
+    m.activate("a"); // default opts → skipIfSame: true
+
+    expect(pane.hidden).toBe(false);
+  });
+});
