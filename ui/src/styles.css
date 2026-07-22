@@ -10578,13 +10578,13 @@ body.tabbar-left .tab-btn {
     box-sizing: border-box;
     max-width: none;
     min-width: 0;
-    height: 32px;
+    height: 26px;
     padding: 0 24px 0 10px;
     border-radius: 0;
     /* AOM ring inherits this so the gradient border matches the pill. */
-    --tab-radius: 6px;
-    border: 1px solid var(--tab-border-rest);
-    border-bottom: 1px solid var(--tab-border-rest);
+    --tab-radius: 0px;
+    border: none;
+    background: transparent;
     /* Switch the fold animation axis from width → height. */
     transition:
         background 0.12s ease-out,
@@ -10597,6 +10597,18 @@ body.tabbar-left .tab-btn {
         margin-bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1),
         border-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
         opacity 0.22s ease-out;
+}
+
+body.tabbar-left .tab-btn:hover:not(.active) {
+    background: rgb(var(--ink-rgb) / 0.04);
+    border-color: transparent;
+    color: var(--text-primary);
+}
+
+body.tabbar-left .tab-btn.active {
+    background: rgb(var(--ink-rgb) / 0.06);
+    border-color: transparent;
+    color: var(--tab-fg-active);
 }
 
 body.tabbar-left .tab-btn.tab-pill-folded,
@@ -10618,61 +10630,46 @@ body.tabbar-left .tab-group-body > .tab-grouped.tab-pill-folded {
     border-right-width: 1px;
 }
 
-/* Active-tab left accent stripe removed — the pill's own background +
-   border-color already signal selection clearly enough, and the stripe
-   was visually competing with the operator avatar / XP ring that now
-   sits at the same left edge. */
+/* Vertical spine: 2px group/tab color on the active row's left edge.
+   Suppressed on operator rows — the avatar owns that edge. */
 body.tabbar-left .tab-btn.active::before {
     display: none;
 }
+body.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before {
+    display: block;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    width: 2px;
+    height: auto;
+    border-radius: 0;
+    background: var(--tab-stripe, var(--accent));
+}
 
-/* Group member indent so the hierarchy reads at a glance. Flat chrome
-   in rest (no border, no bg) — the colored stripe on .tab-group-shell
-   carries the hierarchy; pills only "appear" on hover/active.
-   Children sit deeper than the header label so the eye reads them as
-   nested under it. Row height is shorter than the default .tab-btn so
-   sibling spacing reads tight. */
 body.tabbar-left .tab-group-body > .tab-grouped {
-    /* Children sit ~8px to the right of the tree-line (which lives at
-       left:14px on the body), so the line and the pill don't collide. */
-    margin-left: 26px;
-    width: calc(100% - 30px);
+    margin-left: 22px;
+    width: calc(100% - 26px);
     padding-left: 12px;
-    height: 28px;
-    min-height: 28px;
+    height: 26px;
+    min-height: 26px;
     border-radius: 0;
     background: transparent;
     border-color: transparent;
-    color: color-mix(in srgb, var(--tab-fg-rest) 75%, transparent);
-}
-body.tabbar-left .tab-grouped:hover:not(.active) {
-    background: color-mix(
-        in srgb,
-        var(--group-color, transparent) 14%,
-        rgb(var(--ink-rgb) / 0.04)
-    );
-    border-color: transparent;
     color: var(--tab-fg-rest);
 }
-/* Ribbon active state: no enclosing border (would echo the group's
-   own outline). Instead a soft left-to-right fade plus a glowing
-   accent ribbon flush against the tree-line. Reads as emphasis, not
-   as a second container. */
-body.tabbar-left .tab-grouped.active {
-    background: linear-gradient(
-        90deg,
-        color-mix(in srgb, var(--group-color, var(--accent)) 18%, transparent) 0%,
-        transparent 75%
-    );
+body.tabbar-left .tab-grouped:hover:not(.active) {
+    background: rgb(var(--ink-rgb) / 0.04);
     border-color: transparent;
-    color: #fff;
+    color: var(--text-primary);
 }
-/* Active-tab left stripe (grouped variant) removed — the pill's own
-   background already conveys selection, and the stripe collides with
-   the operator avatar / XP ring at the same left edge. */
-body.tabbar-left .tab-grouped.active::before {
-    display: none;
+body.tabbar-left .tab-grouped.active {
+    background: rgb(var(--ink-rgb) / 0.06);
+    border-color: transparent;
+    color: var(--tab-fg-active);
 }
+/* Grouped rows inherit the same spine as ungrouped (delete the old
+   display:none override at 10714-10716 so the shared rule applies). */
 
 /* Restore vertical-stack body for sidebar (horizontal default uses row). */
 body.tabbar-left .tab-group-shell {
@@ -10696,16 +10693,12 @@ body.tabbar-left .tab-group-shell:not(.tab-group-shell-collapsed)
     position: absolute;
     /* Sits at the same x as the header's colored border-left, so the
        header bar visually continues straight down through the kids. */
-    left: 14px;
-    top: 34px; /* chip margin-top (2) + height (28) + 4 breathing room */
+    left: 11px;
+    top: 32px; /* chip margin-top (2) + height (28) + 2 breathing room */
     bottom: 4px;
-    width: 2px;
+    width: 1px;
     border-radius: 0;
-    background: color-mix(
-        in srgb,
-        var(--group-color, var(--muted)) 70%,
-        transparent
-    );
+    background: rgb(var(--ink-rgb) / 0.08);
     pointer-events: none;
 }
 body.tabbar-left .tab-group-body > * + * {
