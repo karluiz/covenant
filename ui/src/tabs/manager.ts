@@ -6778,6 +6778,7 @@ export class TabManager {
       }
       const countEl = chip.querySelector<HTMLElement>(".group-chip-count");
       if (countEl) countEl.textContent = String(memberCount);
+      chip.classList.toggle("group-chip-empty", memberCount === 0);
     }
     for (const idx of this.memberIndices(groupId)) {
       const tab = this.tabs[idx];
@@ -7278,6 +7279,7 @@ export class TabManager {
     if (this.dragging?.kind === "group" && this.dragging.id === group.id) {
       chip.classList.add("group-chip-dragging");
     }
+    chip.classList.toggle("group-chip-empty", memberCount === 0);
 
     // Chevron — opt-in click target for fold toggle. CSS draws a
     // triangle pseudo-element that rotates between collapsed/expanded.
@@ -7295,6 +7297,11 @@ export class TabManager {
       this.toggleGroupCollapsed(group.id);
     });
     chip.appendChild(chevron);
+
+    // Group identity dot — the ONLY color the chip carries at rest.
+    const dot = document.createElement("span");
+    dot.className = "group-chip-dot";
+    chip.appendChild(dot);
 
     if (this.isRenamingGroup(group.id)) {
       const input = document.createElement("input");
