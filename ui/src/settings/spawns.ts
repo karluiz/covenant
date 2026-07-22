@@ -470,7 +470,7 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
     const addBtn = document.createElement("button");
     addBtn.type = "button";
     addBtn.className = "spawns-md-add";
-    addBtn.textContent = "+ Add executor";
+    addBtn.textContent = "+ Add harness";
     addBtn.addEventListener("click", () => {
       void (async () => {
         const draft = emptySpec();

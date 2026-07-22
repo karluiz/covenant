@@ -175,7 +175,7 @@ export class SpawnsChip {
         )
         .join("") +
       `<div class="spawns-popover__sep"></div>
-       <button class="spawns-popover__add" type="button">+ add executor…</button>`;
+       <button class="spawns-popover__add" type="button">+ add harness…</button>`;
     pop.addEventListener("click", (e) => {
       const item = (e.target as HTMLElement).closest("[data-id]") as HTMLElement | null;
       if (item?.dataset["id"]) {
