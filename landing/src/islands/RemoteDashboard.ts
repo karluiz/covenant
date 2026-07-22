@@ -35,6 +35,12 @@ export function mountRemoteDashboard(doc: Document = document): void {
   let reconnectTimer: number | undefined;
   let backoff = 3000;
   let gen = 0; // epoch: increments every (re)connect; stale handlers no-op
+  // Consecutive attempts that died before the socket ever opened. The relay
+  // answers a bad/expired token with a plain 401 (no upgrade), which the
+  // WebSocket API surfaces as an indistinguishable error+close — so two
+  // handshakes in a row that never opened is our only signal that the token,
+  // not the network, is the problem. Reset on any successful open.
+  let failedHandshakes = 0;
   let composing = false;     // true while the .rc-cmd input is mid-IME-composition
   let pendingRender = false; // a render was deferred during composition
 
@@ -101,6 +107,9 @@ export function mountRemoteDashboard(doc: Document = document): void {
       [statusText, statusCls] = map.online;
     } else if (conn === "online" && !state.desktopOnline) {
       statusText = "● connected · desktop offline";
+      statusCls = "text-amber-400 text-sm";
+    } else if (conn === "retrying" && failedHandshakes >= 2) {
+      statusText = "○ token rejected — expired? Copy a fresh one: Covenant → File → Copy Remote Pairing Token";
       statusCls = "text-amber-400 text-sm";
     } else {
       [statusText, statusCls] = map[conn];
@@ -206,10 +215,13 @@ export function mountRemoteDashboard(doc: Document = document): void {
     conn = "connecting";
     render();
 
+    let opened = false;
     const sock = new WebSocket(wsUrl(RELAY_BASE, token));
     ws = sock;
     sock.onopen = () => {
       if (myGen !== gen) return;     // superseded
+      opened = true;
+      failedHandshakes = 0;
       localStorage.setItem(TOKEN_KEY, token); // persist only after a real open
       backoff = 3000;                // reset backoff on success
       conn = "online";
@@ -237,12 +249,14 @@ export function mountRemoteDashboard(doc: Document = document): void {
     };
     sock.onclose = () => {
       if (myGen !== gen) return;     // a replaced socket: do nothing
+      if (!opened) failedHandshakes++;
       hideMirror();                  // socket gone; nothing to stop remotely
       state = { ...state, desktopOnline: false };
       scheduleReconnect();
     };
     sock.onerror = () => {
       if (myGen !== gen) return;
+      if (!opened) failedHandshakes++;
       teardown(sock);                // routes to no handler (detached); we drive reconnect
       scheduleReconnect();
     };

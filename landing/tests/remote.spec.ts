@@ -519,3 +519,30 @@ test("desktop offline→online cycle restarts mirror without reselect", async ({
   const restartsSent = sent.slice(countBeforeOnline);
   expect(restartsSent).toContain(JSON.stringify({ t: "mirror_start", session_id: "s1" }));
 });
+
+test("a token the relay refuses (handshake never opens) is named, not hidden behind 'retrying'", async ({ page }) => {
+  await page.addInitScript(() => {
+    // A 401 from the relay: the browser errors + closes without ever opening.
+    class FakeWS {
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 3;
+      constructor(public url: string) { setTimeout(() => this.onclose && this.onclose(), 0); }
+      send(_: string) {}
+      close() {}
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "expired.jwt.token");
+  await page.click("#rc-connect");
+  // First failure is indistinguishable from a network blip; the second names it.
+  await expect(page.locator("#rc-status")).toHaveText(/token rejected/, { timeout: 10_000 });
+  // And a refused token is never persisted.
+  expect(await page.evaluate(() => localStorage.getItem("covenant_rc_token"))).toBeNull();
+});
