@@ -6,6 +6,48 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.61 — Worktree awareness, cross-platform zoom + tab/theme fixes
+
+### Added
+
+- **Live-worktree awareness**: the tab whose PTY is rooted in the currently
+  live worktree now carries a green running dot, and the file-tree header
+  shows the rooted branch. A new `dev_live_worktree_root` Tauri command
+  marks the live root; the tab logic lives in `ui/src/tabs/live-worktree.ts`
+  (with `live-worktree.test.ts`), wired through `ui/src/tabs/manager.ts`,
+  and the branch chip is rendered by `ui/src/structure/tree.ts`.
+
+- **Transient zoom-level indicator**: zooming now surfaces a brief pill
+  showing the current zoom level, pinned bottom-right above the status bar
+  (`ui/src/styles.css`).
+
+### Changed
+
+- **Zoom/worktree specs and plans**: added implementation specs and plans
+  for cross-platform zoom and worktree awareness under `docs/`.
+
+### Fixed
+
+- **Stale terminal colors after theme switch**: switching theme left
+  terminals half old/half new because the xterm WebGL atlas was not
+  invalidated. `ui/src/tabs/manager.ts` now repaints the atlas on theme
+  change.
+
+- **Cross-platform zoom bindings**: `Ctrl` `+`/`-`/`0` now bind on
+  Linux/Windows via a `modHeld` predicate (`ui/src/zoom.ts`, `main.ts`),
+  and the zoom indicator no longer clips trailing status-bar chrome at
+  extreme zoom levels.
+
+- **Instant tab reveal**: clean tab switches now reveal immediately instead
+  of flickering (`ui/src/tabs/manager.ts`).
+
+- **Right-click no longer selects the tab title**: `.tab-btn` was missing
+  `-webkit-user-select: none`, which WKWebView requires, so the title
+  highlighted behind the context menu (`ui/src/styles.css`).
+
+- **Remote mirror overflow**: the wide RC mirror no longer shoves the detail
+  pane off-screen (`landing/src/pages/remote.astro`).
+
 ## v0.9.60 — Attention-first remote dashboard + PTY Perception + clean agent launches
 
 ### Added
