@@ -778,6 +778,10 @@ export class BeaconPanel {
       state,
       (path) => {
         this.selectedPath = path;
+        // Drilling in refetches the sub-repo's runs (a slow GH round-trip).
+        // Clear the picker rows so fetch()'s own guard shows the loader —
+        // otherwise the panel sits frozen on the picker for seconds.
+        renderLoading(this.body);
         void this.fetch();
       },
       { onRetry: () => this.render(), onReconnect: this.opts.onReconnect },

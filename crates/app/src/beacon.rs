@@ -423,47 +423,55 @@ pub async fn load_workflow_runs(cwd: String) -> BeaconState {
         })
         .unwrap_or_default();
 
-    // 4. latest run per workflow.
-    let mut runs = Vec::with_capacity(workflows.len());
-    for (id, name) in workflows {
-        let runs_url = format!("{api}/repos/{owner}/{repo}/actions/workflows/{id}/runs?per_page=1");
-        let body = match gh_get(&client, &token, &runs_url).await {
-            Ok(v) => v,
-            Err(e) => return BeaconState::Error { message: e },
-        };
-        let latest = body
-            .get("workflow_runs")
-            .and_then(|a| a.as_array())
-            .and_then(|a| a.first());
-        let Some(r) = latest else { continue }; // workflow with no runs yet
-        let status = r.get("status").and_then(|x| x.as_str()).unwrap_or("");
-        let conclusion = r.get("conclusion").and_then(|x| x.as_str());
-        runs.push(WorkflowRun {
-            id: r.get("id").and_then(|x| x.as_u64()).unwrap_or(0),
-            name,
-            state: run_state(status, conclusion),
-            run_number: r.get("run_number").and_then(|x| x.as_u64()).unwrap_or(0),
-            branch: r
-                .get("head_branch")
-                .and_then(|x| x.as_str())
-                .map(|s| s.to_string()),
-            sha: short_sha(r.get("head_sha").and_then(|x| x.as_str()).unwrap_or("")),
-            actor: r
-                .get("actor")
-                .and_then(|a| a.get("login"))
-                .and_then(|l| l.as_str())
-                .map(|s| s.to_string()),
-            url: r
-                .get("html_url")
-                .and_then(|x| x.as_str())
-                .map(|s| s.to_string()),
-            updated_at: r
-                .get("updated_at")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string(),
-        });
-    }
+    // 4. latest run per workflow — fetched concurrently. Serial `.await` here
+    // was the whole latency: ~25 round-trips to api.github.com at ~1.5s each
+    // stacked to 30-40s of frozen panel. join_all collapses them to ~one RTT.
+    let fetches = workflows.into_iter().map(|(id, name)| {
+        let client = &client;
+        let token = &token;
+        let (owner, repo) = (&owner, &repo);
+        async move {
+            let runs_url =
+                format!("{api}/repos/{owner}/{repo}/actions/workflows/{id}/runs?per_page=1");
+            let body = gh_get(client, token, &runs_url).await.ok()?;
+            let r = body
+                .get("workflow_runs")
+                .and_then(|a| a.as_array())
+                .and_then(|a| a.first())?; // no runs yet, or fetch failed → skip
+            let status = r.get("status").and_then(|x| x.as_str()).unwrap_or("");
+            let conclusion = r.get("conclusion").and_then(|x| x.as_str());
+            Some(WorkflowRun {
+                id: r.get("id").and_then(|x| x.as_u64()).unwrap_or(0),
+                name,
+                state: run_state(status, conclusion),
+                run_number: r.get("run_number").and_then(|x| x.as_u64()).unwrap_or(0),
+                branch: r
+                    .get("head_branch")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string()),
+                sha: short_sha(r.get("head_sha").and_then(|x| x.as_str()).unwrap_or("")),
+                actor: r
+                    .get("actor")
+                    .and_then(|a| a.get("login"))
+                    .and_then(|l| l.as_str())
+                    .map(|s| s.to_string()),
+                url: r
+                    .get("html_url")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string()),
+                updated_at: r
+                    .get("updated_at")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            })
+        }
+    });
+    let mut runs: Vec<WorkflowRun> = futures_util::future::join_all(fetches)
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
 
     // Most recently updated first.
     runs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
