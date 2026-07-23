@@ -57,3 +57,14 @@ body.worktrees-fullscreen { overflow: hidden; }
 .wt-bar-fill { display: block; height: 100%; background: var(--accent, #6b9fff); }
 .wt-row-size { grid-area: size; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
 .wt-row-badge { grid-area: badge; font-size: 11px; color: var(--fg-dim, #888); }
+
+.wt-d-title { font-size: 15px; font-weight: 600; }
+.wt-d-path { font-size: 11px; color: var(--fg-dim, #888); margin-bottom: 14px; }
+.wt-d-summary { margin-bottom: 14px; }
+.wt-d-subject { font-style: italic; }
+.wt-d-meta { font-size: 12px; color: var(--fg-dim, #888); margin-top: 2px; }
+.wt-d-files { font-family: var(--mono, monospace); font-size: 12px; margin-bottom: 14px; }
+.wt-d-file { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-d-more { color: var(--fg-dim, #888); }
+.wt-d-disk { font-size: 12px; color: var(--fg-dim, #aaa); margin-bottom: 14px; font-variant-numeric: tabular-nums; }
+.wt-d-actions { display: flex; flex-wrap: wrap; gap: 8px; }

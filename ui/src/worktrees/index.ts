@@ -1,4 +1,4 @@
-import { gitRepoSummary, worktreeSizes, type GitRepoSummary, type GitWorktreeSummary } from "../api";
+import { gitRepoSummary, worktreeSizes, worktreeDetail, gitChanges, type GitRepoSummary, type GitWorktreeSummary } from "../api";
 import { worktreeStateClass, worktreeStateLabel } from "../status/worktree-state";
 import { worktreeLabel, compactPath, humanSize } from "./format";
 import { splitSizes, sizeRequestPaths } from "./sizes";
@@ -12,6 +12,7 @@ export class WorktreesSurface {
   private repoRoot = "";
   private summary: GitRepoSummary | null = null;
   private sizes = new Map<string, { total: number; target: number }>();
+  private detail = new Map<string, { subject: string | null; ins: number; del: number; files: string[] }>();
   private selected: string | null = null;
 
   private onKey = (e: KeyboardEvent): void => {
@@ -38,6 +39,8 @@ export class WorktreesSurface {
     document.removeEventListener("keydown", this.onKey, true);
     document.body.classList.remove("worktrees-fullscreen");
     this.host.innerHTML = "";
+    this.sizes.clear();
+    this.detail.clear();
   }
 
   private async refresh(): Promise<void> {
@@ -154,6 +157,82 @@ export class WorktreesSurface {
     if (this.open_) this.render();
   }
 
-  // Task 6 replaces this with the real detail pane.
-  private renderDetail(_host: HTMLElement): void {}
+  private async loadDetail(path: string): Promise<void> {
+    if (this.detail.has(path)) return;
+    try {
+      const [d, changes] = await Promise.all([worktreeDetail(path), gitChanges(path)]);
+      const files = [...changes.unstaged, ...changes.staged].map((f) => `${f.status[0].toUpperCase()} ${f.path}`);
+      this.detail.set(path, { subject: d.last_subject, ins: d.insertions, del: d.deletions, files });
+    } catch {
+      this.detail.set(path, { subject: null, ins: 0, del: 0, files: [] });
+    }
+    if (this.open_ && this.selected === path) this.render();
+  }
+
+  private renderDetail(host: HTMLElement): void {
+    host.innerHTML = "";
+    const wt = this.summary?.worktrees.find((w) => w.path === this.selected);
+    if (!wt) { host.textContent = "Select a worktree."; return; }
+
+    const d = this.detail.get(wt.path);
+    if (!d) void this.loadDetail(wt.path);
+    const size = this.sizes.get(wt.path);
+
+    const title = document.createElement("div");
+    title.className = "wt-d-title";
+    title.textContent = worktreeLabel(wt);
+    const path = document.createElement("div");
+    path.className = "wt-d-path";
+    path.textContent = compactPath(wt.path);
+
+    const summary = document.createElement("div");
+    summary.className = "wt-d-summary";
+    const when = wt.last_commit_unix ? relativeTime(wt.last_commit_unix) : "no commits";
+    const subj = d ? (d.subject ?? "(no commit yet)") : "…";
+    const stat = d ? `${wt.dirty_count} changed · +${d.ins} / -${d.del}` : "…";
+    summary.innerHTML = `<div class="wt-d-subject">${escapeHtml(subj)}</div>` +
+      `<div class="wt-d-meta">${escapeHtml(when)} · ${escapeHtml(stat)}</div>`;
+
+    const files = document.createElement("div");
+    files.className = "wt-d-files";
+    if (d && d.files.length) {
+      for (const f of d.files.slice(0, 40)) {
+        const row = document.createElement("div");
+        row.className = "wt-d-file";
+        row.textContent = f;
+        files.appendChild(row);
+      }
+      if (d.files.length > 40) {
+        const more = document.createElement("div");
+        more.className = "wt-d-file wt-d-more";
+        more.textContent = `+${d.files.length - 40} more`;
+        files.appendChild(more);
+      }
+    }
+
+    const disk = document.createElement("div");
+    disk.className = "wt-d-disk";
+    if (size) {
+      disk.textContent = size.target > 0
+        ? `disk ${humanSize(size.total)} · target/ ${humanSize(size.target)} reclaimable`
+        : `disk ${humanSize(size.total)}`;
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "wt-d-actions"; // filled in Task 7
+
+    host.append(title, path, summary, files, disk, actions);
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+}
+
+/// Coarse relative time for the detail panel ("3m ago", "2h ago", "5d ago").
+function relativeTime(unixSecs: number): string {
+  const secs = Math.max(0, Math.floor(Date.now() / 1000) - unixSecs);
+  if (secs < 3600) return `${Math.max(1, Math.floor(secs / 60))}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
 }
