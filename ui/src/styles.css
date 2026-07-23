@@ -20658,13 +20658,12 @@ body.theme-light .tg-btn { background: var(--bg-overlay); border-color: rgba(0,0
 body.theme-light .tg-section { background: rgb(var(--ink-rgb) / 0.04); border-color: rgba(0,0,0,0.06); }
 
 /* Transient zoom-level readout — fades in on any zoom change, out after
-   the timer in main.ts clears .visible. Pointer-inert; centered near the
-   bottom so it never sits under the toolbar icons. */
+   the timer in main.ts clears .visible. Pointer-inert; pinned to the
+   bottom-right, resting just above the status bar so it never floats. */
 #zoom-indicator {
     position: fixed;
-    left: 50%;
-    bottom: 64px;
-    transform: translateX(-50%);
+    right: 12px;
+    bottom: calc(var(--statusbar-h) + 10px);
     padding: 6px 14px;
     background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
     border: 1px solid var(--border);
