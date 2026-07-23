@@ -60,21 +60,61 @@ body.worktrees-fullscreen { overflow: hidden; }
 .wt-row-size { grid-area: size; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
 .wt-row-badge { grid-area: badge; font-size: 11px; color: var(--fg-dim, #888); }
 
+.wt-d-head { display: flex; align-items: baseline; gap: 10px; }
 .wt-d-title { font-size: 15px; font-weight: 600; }
-.wt-d-path { font-size: 11px; color: var(--fg-dim, #888); margin-bottom: 14px; }
-.wt-d-summary { margin-bottom: 14px; }
-.wt-d-subject { font-style: italic; }
-.wt-d-meta { font-size: 12px; color: var(--fg-dim, #888); margin-top: 2px; }
-.wt-d-files { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; margin-bottom: 14px; }
+.wt-d-state {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--fg-dim, #888);
+}
+.wt-d-state .wt-dot { width: 7px; height: 7px; }
+.wt-d-here { color: var(--muted); letter-spacing: 0.06em; }
+.wt-d-path { font-size: 11px; color: var(--fg-dim, #888); margin: 2px 0 14px; }
+.wt-d-subject { font-style: italic; margin-bottom: 14px; }
+
+/* Aligned key/value facts — labels in a dimmed column, values tabular. */
+.wt-d-facts {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 4px 18px; margin-bottom: 16px; font-size: 12px;
+}
+.wt-d-fact { display: contents; }
+.wt-d-fact-k { color: var(--fg-dim, #888); }
+.wt-d-fact-v { font-variant-numeric: tabular-nums; }
+
+.wt-d-files { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; margin-bottom: 16px; }
 .wt-d-file { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wt-d-more { color: var(--fg-dim, #888); }
-.wt-d-disk { font-size: 12px; color: var(--fg-dim, #aaa); margin-bottom: 14px; font-variant-numeric: tabular-nums; }
-.wt-d-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
+.wt-d-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+/* Ghost buttons: transparent at rest with a hairline, subtle fill on hover.
+   Icon + label, sharp corners (house rule). Lighter than the old filled
+   boxes so the bar reads as a toolbar, not a stack of gray blocks. */
 .wt-act {
-  padding: 6px 12px; font-size: 12px; cursor: pointer;
-  background: rgb(var(--ink-rgb) / 0.05); color: inherit;
-  border: 1px solid var(--border, #333); border-radius: 0;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; font-size: 12px; line-height: 1; cursor: pointer;
+  background: transparent; color: var(--text-primary);
+  border: 1px solid rgb(var(--ink-rgb) / 0.14); border-radius: 0;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
-.wt-act:hover { background: rgb(var(--ink-rgb) / 0.1); }
-.wt-act-danger { border-color: var(--danger, #a33); }
+.wt-act svg { opacity: 0.6; flex: 0 0 auto; }
+.wt-act:hover { background: rgb(var(--ink-rgb) / 0.07); border-color: rgb(var(--ink-rgb) / 0.24); }
+.wt-act:hover svg { opacity: 0.9; }
+
+/* Agent — the one primary verb. Inverted fill (ink on panel) reads as the
+   clear default without an accent hue, keeping the flat monochrome language. */
+.wt-act-primary {
+  background: var(--text-primary); color: var(--bg-overlay);
+  border-color: var(--text-primary); font-weight: 600;
+}
+.wt-act-primary svg { opacity: 0.85; }
+.wt-act-primary:hover { background: var(--text-primary); border-color: var(--text-primary); opacity: 0.88; }
+
+/* Destructive lifecycle verb — quiet until hover, then danger. */
+.wt-act-danger { color: var(--danger, #c0483f); }
+.wt-act-danger:hover {
+  background: rgb(var(--danger-rgb, 192 72 63) / 0.1);
+  border-color: rgb(var(--danger-rgb, 192 72 63) / 0.45);
+}
+
+/* Hairline separating the workflow verbs from the lone lifecycle verb. */
+.wt-act-sep { width: 1px; align-self: stretch; margin: 3px 3px; background: rgb(var(--ink-rgb) / 0.12); }

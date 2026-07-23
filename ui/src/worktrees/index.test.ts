@@ -18,7 +18,7 @@ describe("WorktreesSurface", () => {
   it("opens, mounts a frame, toggles the body class, and closes on Escape", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
-    const surface = new WorktreesSurface(host, { onOpenTab: () => {}, getOccupiedCwds: () => new Set() });
+    const surface = new WorktreesSurface(host, { onOpenTab: () => {}, onResumeAgent: () => {}, getOccupiedCwds: () => new Set() });
 
     expect(surface.isOpen).toBe(false);
     await surface.open("/r");

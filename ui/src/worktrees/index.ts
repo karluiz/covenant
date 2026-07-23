@@ -3,13 +3,18 @@ import {
   worktreeCleanTarget, worktreeReclaim, worktreeRelocate,
   type GitRepoSummary, type GitWorktreeSummary,
 } from "../api";
-import { worktreeStateClass, worktreeStateLabel, worktreeDefaultAction } from "../status/worktree-state";
+import { worktreeStateClass, worktreeStateLabel, worktreeDefaultAction, STATE_HELP, ACTION_HELP } from "../status/worktree-state";
+import { attachTooltip } from "../tooltip/tooltip";
+import { Icons } from "../icons";
 import { worktreeLabel, compactPath, humanSize } from "./format";
 import { splitSizes, sizeRequestPaths, subtractNested } from "./sizes";
 import { pushConfirmToast, pushInfoToast } from "../notifications/toast";
 
 interface WorktreesOpts {
   onOpenTab: (path: string, label: string) => void;
+  // Launch the default spawn IN this worktree (skips resolveLaunch — reuses the
+  // existing checkout). Same path as the git popover's "Agent" row action.
+  onResumeAgent: (path: string, label: string) => void;
   getOccupiedCwds: () => ReadonlySet<string>;
 }
 
@@ -131,6 +136,7 @@ export class WorktreesSurface {
 
       const dot = document.createElement("span");
       dot.className = `wt-dot ${worktreeStateClass(wt.state)}`;
+      attachTooltip(dot, STATE_HELP[wt.state]);
       const label = document.createElement("span");
       label.className = "wt-row-label";
       label.textContent = worktreeLabel(wt);
@@ -191,20 +197,52 @@ export class WorktreesSurface {
     if (!d) void this.loadDetail(wt.path);
     const size = this.sizes.get(wt.path);
 
+    // Title row — name + state pill, so the detail echoes the row you clicked
+    // and explains the verb the action buttons expose.
+    const head = document.createElement("div");
+    head.className = "wt-d-head";
     const title = document.createElement("div");
     title.className = "wt-d-title";
     title.textContent = worktreeLabel(wt);
+    head.appendChild(title);
+    if (wt.current) {
+      const here = document.createElement("span");
+      here.className = "wt-d-state wt-d-here";
+      here.textContent = "HERE";
+      head.appendChild(here);
+    } else {
+      const pill = document.createElement("span");
+      pill.className = "wt-d-state";
+      const dot = document.createElement("span");
+      dot.className = `wt-dot ${worktreeStateClass(wt.state)}`;
+      const lbl = document.createElement("span");
+      lbl.textContent = worktreeStateLabel(wt.state);
+      pill.append(dot, lbl);
+      attachTooltip(pill, STATE_HELP[wt.state]);
+      head.appendChild(pill);
+    }
+
     const path = document.createElement("div");
     path.className = "wt-d-path";
     path.textContent = compactPath(wt.path);
 
-    const summary = document.createElement("div");
-    summary.className = "wt-d-summary";
+    const subject = document.createElement("div");
+    subject.className = "wt-d-subject";
+    subject.textContent = d ? (d.subject ?? "(no commit yet)") : "…";
+
+    // Facts — aligned key/value grid, replaces the run-on meta + stray disk line.
+    const facts = document.createElement("div");
+    facts.className = "wt-d-facts";
     const when = wt.last_commit_unix ? relativeTime(wt.last_commit_unix) : "no commits";
-    const subj = d ? (d.subject ?? "(no commit yet)") : "…";
-    const stat = d ? `${wt.dirty_count} changed · +${d.ins} / -${d.del}` : "…";
-    summary.innerHTML = `<div class="wt-d-subject">${escapeHtml(subj)}</div>` +
-      `<div class="wt-d-meta">${escapeHtml(when)} · ${escapeHtml(stat)}</div>`;
+    const tree = d
+      ? (wt.dirty_count === 0 ? "clean" : `${wt.dirty_count} changed · +${d.ins} / −${d.del}`)
+      : "…";
+    const disk = size
+      ? (size.target > 0
+          ? `${humanSize(size.total)} · ${humanSize(size.target)} in target/ reclaimable`
+          : humanSize(size.total))
+      : "…";
+    facts.append(fact("Last commit", when), fact("Working tree", tree), fact("Disk", disk));
 
     const files = document.createElement("div");
     files.className = "wt-d-files";
@@ -223,37 +261,42 @@ export class WorktreesSurface {
       }
     }
 
-    const disk = document.createElement("div");
-    disk.className = "wt-d-disk";
-    if (size) {
-      disk.textContent = size.target > 0
-        ? `disk ${humanSize(size.total)} · target/ ${humanSize(size.target)} reclaimable`
-        : `disk ${humanSize(size.total)}`;
-    }
-
     const actions = this.renderActions(wt, size);
 
-    host.append(title, path, summary, files, disk, actions);
+    host.append(head, path, subject, facts, files, actions);
   }
 
   private renderActions(wt: GitWorktreeSummary, size?: { total: number; target: number }): HTMLElement {
     const row = document.createElement("div");
     row.className = "wt-d-actions";
-    const btn = (text: string, cls: string, fn: () => void): HTMLButtonElement => {
+    // One left-aligned cluster: workflow verbs, then a hairline divider before
+    // the single lifecycle verb (reclaim/prune/relocate) so it reads as a
+    // separate category without floating off to the panel's far edge.
+    const btn = (text: string, icon: string, cls: string, fn: () => void): HTMLButtonElement => {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = `wt-act ${cls}`;
-      b.textContent = text;
+      b.className = `wt-act ${cls}`.trim();
+      b.innerHTML = `${icon}<span>${text}</span>`;
       b.addEventListener("click", fn);
       row.appendChild(b);
       return b;
     };
+    const divider = (): void => {
+      const s = document.createElement("span");
+      s.className = "wt-act-sep";
+      row.appendChild(s);
+    };
 
     if (!wt.current && !wt.is_main) {
-      btn("Open tab", "wt-act-open", () => { this.opts.onOpenTab(wt.path, worktreeLabel(wt)); this.close(); });
+      // Agent is the primary workflow verb — resume the default spawn in place.
+      btn("Agent", Icons.sparkles({ size: 14 }), "wt-act-primary", () => {
+        this.opts.onResumeAgent(wt.path, worktreeLabel(wt));
+        this.close();
+      });
+      btn("Open tab", Icons.terminalSquare({ size: 14 }), "", () => { this.opts.onOpenTab(wt.path, worktreeLabel(wt)); this.close(); });
     }
-    btn("View diff", "wt-act-diff", () => {
-      window.dispatchEvent(new CustomEvent("covenant:open-changes", { detail: { cwd: wt.path } }));
+    btn("View diff", Icons.gitCompare({ size: 14 }), "", () => {
+      window.dispatchEvent(new CustomEvent("covenant:open-changes", { detail: { cwd: wt.path, backTo: "worktrees" } }));
       this.close();
     });
 
@@ -262,7 +305,7 @@ export class WorktreesSurface {
     const hasTarget = size ? size.target > 0 : false;
     if (hasTarget) {
       const freed = size ? ` (${humanSize(size.target)})` : "";
-      btn("Clean build artifacts" + freed, "wt-act-clean", () => {
+      btn("Clean target/" + freed, Icons.folderMinus({ size: 14 }), "", () => {
         const warn = isLive
           ? " This worktree built the running app — cleaning target/ mid-run can crash the dev build."
           : "";
@@ -284,8 +327,10 @@ export class WorktreesSurface {
     // State action — reuse the popover's verdict. Only wt.path (a real
     // gitRepoSummary worktree) is ever passed to these destructive commands.
     const act = worktreeDefaultAction(wt, this.opts.getOccupiedCwds());
+    const help = ACTION_HELP[act];
     if (act === "prune" || act === "reclaim") {
-      btn(act === "prune" ? "Prune" : "Reclaim", "wt-act-danger", () => {
+      divider();
+      const b = btn(act === "prune" ? "Prune" : "Reclaim", Icons.trash({ size: 14 }), "wt-act-danger", () => {
         pushConfirmToast({
           message: `Remove worktree ${worktreeLabel(wt)}? This deletes the checkout and any untracked/ignored files in it.`,
           confirmLabel: act === "prune" ? "Prune" : "Reclaim",
@@ -304,19 +349,33 @@ export class WorktreesSurface {
           },
         });
       });
+      if (help) attachTooltip(b, help);
     } else if (act === "relocate") {
-      btn("Relocate", "wt-act", () => {
+      divider();
+      const b = btn("Relocate", Icons.arrowRight({ size: 14 }), "", () => {
         void worktreeRelocate(this.repoRoot, wt.path)
           .then(() => void this.refresh())
           .catch((e) => pushInfoToast({ message: `Relocate failed: ${String(e)}` }));
       });
+      if (help) attachTooltip(b, help);
     }
     return row;
   }
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+/// One aligned key/value row in the detail facts grid (display:contents, so
+/// the two spans land directly in the parent grid's columns).
+function fact(label: string, value: string): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "wt-d-fact";
+  const k = document.createElement("span");
+  k.className = "wt-d-fact-k";
+  k.textContent = label;
+  const v = document.createElement("span");
+  v.className = "wt-d-fact-v";
+  v.textContent = value;
+  row.append(k, v);
+  return row;
 }
 
 /// Coarse relative time for the detail panel ("3m ago", "2h ago", "5d ago").
