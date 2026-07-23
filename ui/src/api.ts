@@ -1368,6 +1368,12 @@ export async function getDirContext(cwd: string): Promise<DirContext> {
   return invoke<DirContext>("get_dir_context", { cwd });
 }
 
+/// Dev-only: the worktree root the running app was launched from, or null
+/// in a release build. Used to mark that worktree's tab "live".
+export async function devLiveWorktreeRoot(): Promise<string | null> {
+  return invoke<string | null>("dev_live_worktree_root");
+}
+
 export interface GitBranchSummary {
   name: string;
   current: boolean;
