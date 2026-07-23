@@ -22,10 +22,10 @@ pub use inventory::{detected_rows, resolve_state, UnitState};
 pub use kind::{list_context, ContextKind, ContextUnit};
 pub use manifest::{canon_dir, read_manifest, write_manifest};
 pub use mcp::{blank_mcp_secrets, McpServer};
+pub use new_unit::new_unit;
 pub use project::{
     project, project_with_active, projection_status, ExecutorStatus, ProjState, ProjectionStatus,
 };
-pub use new_unit::new_unit;
 pub use types::{CanonManifest, InstalledRef, SkillManifest};
 
 use thiserror::Error;

@@ -345,9 +345,8 @@ async fn start_mirror(
                     // A desktop-side resize emits no bytes of its own, so
                     // check before forwarding: a stale width garbles
                     // everything after it.
-                    let (cols, rows) = karl_session::unpack_dims(
-                        dims.load(std::sync::atomic::Ordering::Relaxed),
-                    );
+                    let (cols, rows) =
+                        karl_session::unpack_dims(dims.load(std::sync::atomic::Ordering::Relaxed));
                     if (cols, rows) != (last_cols, last_rows) {
                         last_cols = cols;
                         last_rows = rows;

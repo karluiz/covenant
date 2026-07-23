@@ -101,7 +101,10 @@ pub fn new_unit(repo_root: &Path, kind: ContextKind, name: &str) -> Result<PathB
                 owner: None,
                 deps: Vec::new(),
             };
-            std::fs::write(staging.join("skill.toml"), toml::to_string_pretty(&manifest)?)?;
+            std::fs::write(
+                staging.join("skill.toml"),
+                toml::to_string_pretty(&manifest)?,
+            )?;
             let installed = install_from_dir(repo_root, &staging, "new");
             let _ = std::fs::remove_dir_all(&staging);
             installed?;
@@ -124,7 +127,10 @@ mod tests {
             (ContextKind::Command, ".covenant/canon/commands/reviewer.md"),
             (ContextKind::Memory, ".covenant/canon/memory/reviewer.md"),
             (ContextKind::Mcp, ".covenant/canon/mcp/reviewer.json"),
-            (ContextKind::Skill, ".covenant/canon/skills/reviewer/SKILL.md"),
+            (
+                ContextKind::Skill,
+                ".covenant/canon/skills/reviewer/SKILL.md",
+            ),
         ];
         for (kind, rel) in cases {
             let path = new_unit(root, kind, "reviewer").unwrap();
@@ -152,7 +158,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         new_unit(tmp.path(), ContextKind::Mcp, "ctx7").unwrap();
         let projected = std::fs::read_to_string(tmp.path().join(".mcp.json")).unwrap();
-        assert!(projected.contains("canon-ctx7"), "not projected: {projected}");
+        assert!(
+            projected.contains("canon-ctx7"),
+            "not projected: {projected}"
+        );
     }
 
     #[test]

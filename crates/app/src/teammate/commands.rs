@@ -23,7 +23,12 @@ fn default_executor_id(app: &tauri::AppHandle) -> Option<String> {
         .into_iter()
         .find(|s| s.default)
         .map(|s| s.id)
-        .filter(|id| matches!(id.as_str(), "claude" | "codex" | "copilot" | "pi" | "hermes"))
+        .filter(|id| {
+            matches!(
+                id.as_str(),
+                "claude" | "codex" | "copilot" | "pi" | "hermes"
+            )
+        })
 }
 
 #[tauri::command]
