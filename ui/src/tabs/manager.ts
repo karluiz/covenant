@@ -7305,7 +7305,39 @@ export class TabManager {
     const theme = termTheme();
     for (const tab of this.tabs) {
       if (tab.kind !== "shell" || !tab.term) continue;
+      // Swap the palette on every xterm in the tab (main + any split panes).
+      for (const pane of tab.panes) {
+        if (pane.xterm) pane.xterm.options.theme = theme;
+      }
       tab.term.options.theme = theme;
+
+      // The WebGL renderer caches glyphs keyed by fg/bg color; a bare
+      // options.theme swap leaves the old colors in the texture atlas, so
+      // the grid renders half old / half new palette on theme switch. Same
+      // dispose-and-recreate dance applyTerminalSettings uses for fonts —
+      // clearTextureAtlas() alone is a silent no-op in xterm 5.x.
+      if (tab.webgl) {
+        try {
+          tab.webgl.dispose();
+        } catch {
+          /* ignore */
+        }
+        try {
+          const next = new WebglAddon();
+          tab.term.loadAddon(next);
+          tab.webgl = next;
+        } catch {
+          tab.webgl = null;
+        }
+      }
+      const term = tab.term;
+      requestAnimationFrame(() => {
+        try {
+          term.refresh(0, term.rows - 1);
+        } catch {
+          /* ignore */
+        }
+      });
     }
   }
 
