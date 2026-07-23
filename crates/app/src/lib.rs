@@ -6194,7 +6194,12 @@ mod live_worktree_tests {
         let dir = std::env::temp_dir().join(format!("covenant-wt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        Command::new("git").arg("-C").arg(&dir).arg("init").output().unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .arg("init")
+            .output()
+            .unwrap();
 
         let top = git_toplevel(&dir).expect("toplevel in a repo");
         // git resolves symlinks (e.g. /var → /private/var on macOS), so

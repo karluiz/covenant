@@ -1216,7 +1216,11 @@ pub fn worktree_detail(path: &Path) -> WorktreeDetail {
         .ok()
         .map(|s| parse_shortstat(&s))
         .unwrap_or((0, 0));
-    WorktreeDetail { last_subject, insertions, deletions }
+    WorktreeDetail {
+        last_subject,
+        insertions,
+        deletions,
+    }
 }
 
 /// Parse `git --shortstat`: " 3 files changed, 240 insertions(+), 12 deletions(-)".
@@ -4004,7 +4008,12 @@ index e69de29..0cfbf08 100644
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path();
         let run = |args: &[&str]| {
-            std::process::Command::new("git").arg("-C").arg(p).args(args).output().unwrap();
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(p)
+                .args(args)
+                .output()
+                .unwrap();
         };
         run(&["init", "-q"]);
         run(&["config", "user.email", "t@t"]);
@@ -4022,7 +4031,12 @@ index e69de29..0cfbf08 100644
     #[test]
     fn worktree_detail_empty_repo_has_no_subject() {
         let dir = tempfile::tempdir().unwrap();
-        std::process::Command::new("git").arg("-C").arg(dir.path()).args(["init", "-q"]).output().unwrap();
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["init", "-q"])
+            .output()
+            .unwrap();
         let d = worktree_detail(dir.path());
         assert_eq!(d.last_subject, None);
         assert_eq!((d.insertions, d.deletions), (0, 0));
@@ -4043,8 +4057,13 @@ index e69de29..0cfbf08 100644
         let freed = clean_target(p).unwrap();
         assert!(!p.join("target").exists(), "target should be gone");
         assert!(p.join("keep.rs").exists(), "source must survive");
-        assert!(std::fs::symlink_metadata(p.join("node_modules")).unwrap().file_type().is_symlink(),
-            "node_modules symlink must survive");
+        assert!(
+            std::fs::symlink_metadata(p.join("node_modules"))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "node_modules symlink must survive"
+        );
         let _ = freed; // KB may round to 0 on tiny dirs; deletion is what matters.
     }
 
@@ -4058,8 +4077,13 @@ index e69de29..0cfbf08 100644
 
         let err = clean_target(p).unwrap_err();
         assert!(err.contains("symlink"), "got: {err}");
-        assert!(std::fs::symlink_metadata(p.join("target")).unwrap().file_type().is_symlink(),
-            "symlinked target must be untouched");
+        assert!(
+            std::fs::symlink_metadata(p.join("target"))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "symlinked target must be untouched"
+        );
     }
 
     #[test]
@@ -4072,7 +4096,10 @@ index e69de29..0cfbf08 100644
 
         let err = clean_target(p).unwrap_err();
         assert!(err.contains("not a git worktree"), "got: {err}");
-        assert!(p.join("target").exists(), "target must be untouched when not a worktree");
+        assert!(
+            p.join("target").exists(),
+            "target must be untouched when not a worktree"
+        );
     }
 
     #[test]
@@ -4085,6 +4112,9 @@ index e69de29..0cfbf08 100644
 
         let err = clean_target(p).unwrap_err();
         assert!(err.contains("not a directory"), "got: {err}");
-        assert!(p.join("target").exists(), "non-directory target must be untouched");
+        assert!(
+            p.join("target").exists(),
+            "non-directory target must be untouched"
+        );
     }
 }
