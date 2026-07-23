@@ -1170,6 +1170,42 @@ pub fn worktree_sizes(paths: Vec<String>) -> Vec<(String, u64)> {
         .collect()
 }
 
+/// What a worktree was working on: last commit subject + uncommitted diffstat
+/// (staged + unstaged vs HEAD). Cheap enough to call per selected worktree.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorktreeDetail {
+    pub last_subject: Option<String>,
+    pub insertions: u64,
+    pub deletions: u64,
+}
+
+pub fn worktree_detail(path: &Path) -> WorktreeDetail {
+    let last_subject = git(path, &["log", "-1", "--format=%s"])
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let (insertions, deletions) = git(path, &["diff", "HEAD", "--shortstat"])
+        .ok()
+        .map(|s| parse_shortstat(&s))
+        .unwrap_or((0, 0));
+    WorktreeDetail { last_subject, insertions, deletions }
+}
+
+/// Parse `git --shortstat`: " 3 files changed, 240 insertions(+), 12 deletions(-)".
+/// The count precedes the "insertion"/"deletion" token; either may be absent.
+fn parse_shortstat(s: &str) -> (u64, u64) {
+    let toks: Vec<&str> = s.split_whitespace().collect();
+    let num_before = |kw: &str| -> u64 {
+        toks.iter()
+            .position(|t| t.starts_with(kw))
+            .and_then(|i| i.checked_sub(1))
+            .and_then(|i| toks.get(i))
+            .and_then(|n| n.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    (num_before("insertion"), num_before("deletion"))
+}
+
 const MAX_DIFF_LINES: usize = 5000;
 
 pub fn changes(cwd: &Path) -> Result<diff::Changes, String> {
@@ -3933,5 +3969,34 @@ index e69de29..0cfbf08 100644
             None,
         );
         assert!(stray.exists());
+    }
+
+    #[test]
+    fn worktree_detail_reports_subject_and_diffstat() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let run = |args: &[&str]| {
+            std::process::Command::new("git").arg("-C").arg(p).args(args).output().unwrap();
+        };
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "t@t"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        run(&["add", "a.txt"]);
+        run(&["commit", "-q", "-m", "seed commit"]);
+        std::fs::write(p.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+
+        let d = worktree_detail(p);
+        assert_eq!(d.last_subject.as_deref(), Some("seed commit"));
+        assert!(d.insertions >= 2, "insertions was {}", d.insertions);
+    }
+
+    #[test]
+    fn worktree_detail_empty_repo_has_no_subject() {
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git").arg("-C").arg(dir.path()).args(["init", "-q"]).output().unwrap();
+        let d = worktree_detail(dir.path());
+        assert_eq!(d.last_subject, None);
+        assert_eq!((d.insertions, d.deletions), (0, 0));
     }
 }

@@ -1490,6 +1490,16 @@ export async function gitChanges(cwd: string): Promise<Changes> {
   return invoke<Changes>("git_changes", { cwd });
 }
 
+export interface WorktreeDetail {
+  last_subject: string | null;
+  insertions: number;
+  deletions: number;
+}
+
+export async function worktreeDetail(path: string): Promise<WorktreeDetail> {
+  return invoke<WorktreeDetail>("worktree_detail", { path });
+}
+
 // Beacon — GitHub Actions workflow status sidebar ----------------------
 
 export type BeaconRun = {
