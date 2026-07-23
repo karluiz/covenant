@@ -291,7 +291,15 @@ export class WorktreesSurface {
           confirmLabel: act === "prune" ? "Prune" : "Reclaim",
           onConfirm: () => {
             void worktreeReclaim(this.repoRoot, [wt.path])
-              .then(() => { this.selected = null; void this.refresh(); })
+              .then((outcomes) => {
+                const outcome = outcomes[0];
+                if (outcome && !outcome.removed) {
+                  pushInfoToast({ message: `Could not remove: ${outcome.reason ?? "refused"}` });
+                  return;
+                }
+                this.selected = null;
+                void this.refresh();
+              })
               .catch((e) => pushInfoToast({ message: `Reclaim failed: ${String(e)}` }));
           },
         });
