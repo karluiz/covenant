@@ -20640,3 +20640,28 @@ body.theme-light .tg-secret input,
 body.theme-light .tg-icon-btn,
 body.theme-light .tg-btn { background: var(--bg-overlay); border-color: rgba(0,0,0,0.1); }
 body.theme-light .tg-section { background: rgb(var(--ink-rgb) / 0.04); border-color: rgba(0,0,0,0.06); }
+
+/* Transient zoom-level readout — fades in on any zoom change, out after
+   the timer in main.ts clears .visible. Pointer-inert; centered near the
+   bottom so it never sits under the toolbar icons. */
+#zoom-indicator {
+    position: fixed;
+    left: 50%;
+    bottom: 64px;
+    transform: translateX(-50%);
+    padding: 6px 14px;
+    background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-feature-settings: "tnum" 1;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 220ms ease-out;
+    z-index: 9999;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+#zoom-indicator.visible { opacity: 1; }
