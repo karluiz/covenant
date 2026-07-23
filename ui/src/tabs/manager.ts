@@ -2827,6 +2827,16 @@ export class TabManager {
     }
   }
 
+  /// Re-render the tab strip. Public for callers of createTab with
+  /// skipActivate outside the manifest-restore batch (agent spawns):
+  /// skipActivate defers BOTH activation and tabbar rendering to the
+  /// caller, so without this the new tab exists but has no row until an
+  /// unrelated render (in practice the LLM title_suggested, tens of
+  /// seconds later) — which read as "spawning an agent takes ~24s".
+  refreshTabbar(): void {
+    this.renderTabbar();
+  }
+
   /// Select all output in the active tab's terminal. Wired to the ⌘A
   /// menu route in main.ts (the native Select All can't reach xterm's
   /// buffer). No-op for Pi tabs, which have no terminal.
@@ -3385,6 +3395,8 @@ export class TabManager {
     // Restore path uses this when spawning many tabs in parallel: each
     // createTab still self-pushes/wires, but activation + tabbar render
     // are deferred to the caller so they happen ONCE in manifest order.
+    // CONTRACT: every skipActivate caller must render the tabbar itself
+    // (refreshTabbar() or activate()) — otherwise the tab has no row.
     skipActivate?: boolean;
     /// Stable scrollback key from a previous run. Brand-new tabs leave
     /// this undefined and a fresh key is generated.

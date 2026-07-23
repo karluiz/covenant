@@ -1424,6 +1424,10 @@ async function boot(): Promise<void> {
             }),
           );
           if (!tab) return;
+          // skipActivate defers tabbar rendering to the caller — render now
+          // or the new tab has no row until an unrelated re-render lands
+          // (the LLM retitle, ~tens of seconds — read as a 24s spawn).
+          manager.refreshTabbar();
           manager.setActiveSpawnId(spec.id);
           await chip.refresh();
           requestAnimationFrame(() => manager.focusActive());
@@ -1443,6 +1447,8 @@ async function boot(): Promise<void> {
             }),
           );
           if (!tab) return;
+          // Same deferred-render contract as the isolated branch above.
+          manager.refreshTabbar();
           manager.setActiveSpawnId(spec.id);
           await chip.refresh();
           requestAnimationFrame(() => manager.focusActive());
