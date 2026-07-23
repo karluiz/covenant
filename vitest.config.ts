@@ -13,6 +13,8 @@ export default defineConfig({
     // hold full checkouts whose ui/src duplicates this suite. Swept up, a
     // root `vitest run` becomes a ~16x multi-minute run that reports stale
     // worktrees' failures as if they were main's.
+    // Executor skill dirs (.agents/.pi) symlink locally-installed skills
+    // whose node-runner *.test.mjs files vitest can't parse.
     exclude: [
       "**/node_modules/**",
       "**/dist/**",
@@ -20,6 +22,8 @@ export default defineConfig({
       ".covenant/**",
       ".claude/**",
       ".worktrees/**",
+      ".agents/**",
+      ".pi/**",
     ],
   },
 });
