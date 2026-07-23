@@ -37,6 +37,10 @@ fn shares_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("term_shares.json"))
 }
 
+/// Serializes read-modify-write cycles on the share store. The sibling
+/// gist store shares this flaw; scoped here to avoid touching it.
+static STORE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn jwt() -> Result<String, String> {
     auth::load_jwt()
         .map_err(|e| e.to_string())?
@@ -97,12 +101,12 @@ pub async fn term_share_create(
     app: tauri::AppHandle,
     session_id: String,
 ) -> Result<TermShare, String> {
+    let _guard = STORE_LOCK.lock().await;
     let file = shares_path(&app)?;
     let mut shares = load_shares(&file);
-    // Re-share of a live session keeps the same link (server does too).
-    if let Some(existing) = shares.get(&session_id).cloned() {
-        return Ok(existing);
-    }
+    // Always ask the server: it returns the existing live token for a
+    // re-share, and a fresh one if the old was revoked out-of-band — the
+    // local file is a cache, not the truth.
     let resp = post_share(&session_id).await?;
     let share_id = resp["id"].as_i64().ok_or("missing id in response")?;
     let token = resp["token"]
@@ -121,6 +125,7 @@ pub async fn term_share_create(
 
 #[tauri::command]
 pub async fn term_share_revoke(app: tauri::AppHandle, session_id: String) -> Result<(), String> {
+    let _guard = STORE_LOCK.lock().await;
     let file = shares_path(&app)?;
     let mut shares = load_shares(&file);
     let share = shares.get(&session_id).cloned().ok_or("not shared")?;
@@ -136,6 +141,7 @@ pub async fn term_share_revoke(app: tauri::AppHandle, session_id: String) -> Res
 pub fn spawn_startup_revoke(app: &tauri::AppHandle) {
     let Ok(file) = shares_path(app) else { return };
     tauri::async_runtime::spawn(async move {
+        let _guard = STORE_LOCK.lock().await;
         let shares = load_shares(&file);
         if shares.is_empty() {
             return;
