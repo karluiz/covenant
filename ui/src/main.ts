@@ -1415,6 +1415,10 @@ async function boot(): Promise<void> {
               scrubLaunch: true,
               groupId: group?.id ?? null,
               color: group?.color ?? null,
+              // Spawn in the background: the agent runs in its own tab but
+              // focus stays where the user is typing. activeId is untouched,
+              // so focusActive() below restores focus to the current tab.
+              skipActivate: true,
             }),
           );
           if (!tab) return;
@@ -1433,6 +1437,7 @@ async function boot(): Promise<void> {
               scrubLaunch: true,
               groupId: group?.id ?? null,
               color: group?.color ?? null,
+              skipActivate: true,
             }),
           );
           if (!tab) return;
