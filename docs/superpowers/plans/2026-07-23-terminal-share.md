@@ -1055,15 +1055,48 @@ git commit -m "feat(term-share): app commands + startup stale-share revoke"
 ### Task 6: app UI — context menu, tab badge, auto-revoke on close
 
 **Files:**
+- Create: `ui/src/ui/share-link.ts` (extracted copy-or-toast helper)
 - Create: `ui/src/term-share/api.ts`
 - Create: `ui/src/term-share/share.ts`
 - Create: `ui/src/term-share/share.test.ts`
+- Modify: `ui/src/gist/share.ts` (swap its private `copyOrOffer` for the shared helper)
 - Modify: `ui/src/tabs/manager.ts` (context menu ~`openTabContextMenu` line 7872; pill render `renderTabPill` line 7576; `finalizeCloseTab` line 6323; constructor listener)
 - Modify: `ui/src/styles.css` (next to `.tab-live-dot` at 14289)
 
 **Interfaces:**
 - Consumes: Task 5 commands.
 - Produces: `isTermShared(sessionId): boolean`, `ensureTermSharesLoaded(): void`, `shareSession(sessionId): Promise<void>`, `copyTermShareLink(sessionId): Promise<void>`, `stopSharing(sessionId): Promise<void>`, `revokeIfShared(sessionId): void` (fire-and-forget for close paths), `TERM_SHARE_EVENT` (window CustomEvent name `"covenant:term-shares-changed"`).
+
+- [ ] **Step 1a: Extract the copy-or-toast helper** — `ui/src/ui/share-link.ts` (moved verbatim from `ui/src/gist/share.ts`'s private `copyOrOffer`, parametrized messages):
+
+```ts
+import { pushInfoToast } from "../notifications/toast";
+import { copyText } from "./clipboard";
+
+/// Copy, and if the webview refuses (transient activation is gone after a
+/// network round-trip), fall back to a toast the user clicks — that click
+/// IS a fresh user gesture, so the retry succeeds. Publishing already
+/// happened; a clipboard hiccup must never read as "share failed".
+export async function copyLinkOrOffer(
+  url: string,
+  copiedMsg: string,
+  offerMsg: string,
+): Promise<void> {
+  try {
+    await copyText(url);
+    pushInfoToast({ message: copiedMsg });
+  } catch {
+    pushInfoToast({
+      message: `${offerMsg}: ${url}`,
+      onClick: () => {
+        void copyText(url);
+      },
+    });
+  }
+}
+```
+
+Refactor `ui/src/gist/share.ts`: delete its private `copyOrOffer`, import `copyLinkOrOffer` from `../ui/share-link`, and replace the two call sites with `copyLinkOrOffer(url, "Gist link copied", "Gist published — click to copy")`. Behavior identical; `ui/src/gist/share.test.ts` must still pass unchanged.
 
 - [ ] **Step 1: `ui/src/term-share/api.ts`**
 
@@ -1131,7 +1164,7 @@ describe("term-share local state", () => {
 ```ts
 import { termShareApi } from "./api";
 import { pushInfoToast } from "../notifications/toast";
-import { copyText } from "../ui/clipboard";
+import { copyLinkOrOffer } from "../ui/share-link";
 
 /// Locally-known shared sessions, mirrored from the backend store so the
 /// tab strip can badge synchronously. Same shape as gist/share.ts.
@@ -1162,21 +1195,12 @@ export function ensureTermSharesLoaded(): void {
     });
 }
 
-/// Copy, and if the webview refuses (transient activation is gone after
-/// the network round-trip), fall back to a toast the user clicks — that
-/// click IS a fresh gesture. Same contract as gist/share.ts's copyOrOffer.
-async function copyOrOffer(url: string): Promise<void> {
-  try {
-    await copyText(url);
-    pushInfoToast({ message: "Share link copied — read-only" });
-  } catch {
-    pushInfoToast({
-      message: `Session shared — click to copy: ${url}`,
-      onClick: () => {
-        void copyText(url);
-      },
-    });
-  }
+function copyOrOffer(url: string): Promise<void> {
+  return copyLinkOrOffer(
+    url,
+    "Share link copied — read-only",
+    "Session shared — click to copy",
+  );
 }
 
 export async function shareSession(sessionId: string): Promise<void> {
@@ -1313,7 +1337,7 @@ Expected: vitest green, `tsc` + Vite build clean.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add ui/src/term-share crates/app/src/term_share.rs ui/src/tabs/manager.ts ui/src/styles.css
+git add ui/src/term-share ui/src/ui/share-link.ts ui/src/gist/share.ts ui/src/tabs/manager.ts ui/src/styles.css
 git commit -m "feat(term-share): tab context-menu share, share dot, auto-revoke on close"
 ```
 
