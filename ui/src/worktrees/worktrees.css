@@ -41,7 +41,7 @@ body.worktrees-fullscreen { overflow: hidden; }
   padding: 10px 16px; background: none; border: 0; border-bottom: 1px solid var(--border, #1c1c1e);
   color: inherit; cursor: pointer;
 }
-.wt-row.is-selected { background: var(--bg-elev, #16161a); }
+.wt-row.is-selected { background: rgb(var(--ink-rgb) / 0.08); }
 .wt-dot { grid-area: dot; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-dim, #666); }
 /* status-git-pop-wt-* classes color a ::before pseudo-element (they were
    authored for badges with a dot glyph, not for a standalone dot node), so
@@ -63,7 +63,7 @@ body.worktrees-fullscreen { overflow: hidden; }
 .wt-d-summary { margin-bottom: 14px; }
 .wt-d-subject { font-style: italic; }
 .wt-d-meta { font-size: 12px; color: var(--fg-dim, #888); margin-top: 2px; }
-.wt-d-files { font-family: var(--mono, monospace); font-size: 12px; margin-bottom: 14px; }
+.wt-d-files { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; margin-bottom: 14px; }
 .wt-d-file { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wt-d-more { color: var(--fg-dim, #888); }
 .wt-d-disk { font-size: 12px; color: var(--fg-dim, #aaa); margin-bottom: 14px; font-variant-numeric: tabular-nums; }
@@ -71,8 +71,8 @@ body.worktrees-fullscreen { overflow: hidden; }
 
 .wt-act {
   padding: 6px 12px; font-size: 12px; cursor: pointer;
-  background: var(--bg-elev, #1a1a1e); color: inherit;
+  background: rgb(var(--ink-rgb) / 0.05); color: inherit;
   border: 1px solid var(--border, #333); border-radius: 0;
 }
-.wt-act:hover { background: var(--bg-elev-2, #24242a); }
+.wt-act:hover { background: rgb(var(--ink-rgb) / 0.1); }
 .wt-act-danger { border-color: var(--danger, #a33); }

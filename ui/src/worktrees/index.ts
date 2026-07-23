@@ -5,7 +5,7 @@ import {
 } from "../api";
 import { worktreeStateClass, worktreeStateLabel, worktreeDefaultAction } from "../status/worktree-state";
 import { worktreeLabel, compactPath, humanSize } from "./format";
-import { splitSizes, sizeRequestPaths } from "./sizes";
+import { splitSizes, sizeRequestPaths, subtractNested } from "./sizes";
 import { pushConfirmToast, pushInfoToast } from "../notifications/toast";
 
 interface WorktreesOpts {
@@ -165,7 +165,7 @@ export class WorktreesSurface {
     const paths = this.summary.worktrees.map((w) => w.path);
     try {
       const raw = await worktreeSizes(sizeRequestPaths(paths));
-      this.sizes = splitSizes(paths, raw);
+      this.sizes = subtractNested(splitSizes(paths, raw));
     } catch { /* leave sizes empty — rows show "…" */ }
     if (this.open_) this.render();
   }
@@ -259,7 +259,7 @@ export class WorktreesSurface {
 
     // Clean build artifacts — extra warning on the live/current worktree.
     const isLive = this.liveRoot === wt.path || wt.current;
-    const hasTarget = !size || size.target > 0;
+    const hasTarget = size ? size.target > 0 : false;
     if (hasTarget) {
       const freed = size ? ` (${humanSize(size.target)})` : "";
       btn("Clean build artifacts" + freed, "wt-act-clean", () => {
