@@ -6522,6 +6522,11 @@ export class TabManager {
     // First fit runs synchronously: the pane is back in layout
     // (hidden = false) so measurements are live, and resizing now means
     // the first painted frame already has correct geometry.
+    // Capture geometry before fit so we can tell a "clean" switch (no
+    // resize, nothing written while hidden) from one that needs the
+    // deferred, flicker-safe reveal below.
+    const fitColsBefore = term.cols;
+    const fitRowsBefore = term.rows;
     doFit();
     if (plan.nudge) {
       // Re-sync xterm's viewport scroll area. Data written while the
@@ -6543,6 +6548,31 @@ export class TabManager {
     const activateSessId = activePane(tab).sessionId;
     if (activateSessId) void resizeSession(activateSessId as SessionId, term.cols, term.rows).catch(() => {});
 
+    // Fast path: a "clean" switch — fit() resolved to the same cols/rows
+    // and nothing was written while this pane was hidden — needs no
+    // repaint. Its already-rendered xterm rows are still in the DOM and
+    // correct, so reveal synchronously and hard-cut the outgoing pane
+    // right now. That skips the guaranteed one-frame defer + 45ms
+    // crossfade below, which are only needed when the incoming pane
+    // actually re-rendered and would otherwise flash mid-resize. This is
+    // what removes the perceptible "delay before the tab appears" on the
+    // common switch (see activate()'s deferred path for the stale case).
+    let syncRevealed = false;
+    if (
+      deferSwap &&
+      term.cols === fitColsBefore &&
+      term.rows === fitRowsBefore &&
+      tab.wroteWhileHidden !== true
+    ) {
+      tab.pane.style.removeProperty("visibility");
+      if (prevPainted && prevPainted !== tab) {
+        prevPainted.pane.hidden = true;
+        prevPainted.pane.style.removeProperty("visibility");
+        if (prevPainted.kind === "browser") prevPainted.browser?.hide();
+      }
+      syncRevealed = true;
+    }
+
     requestAnimationFrame(() => {
       // Superseded by a later activate(), or the pane was hidden again
       // (settings page opened mid-switch) — the screen isn't ours.
@@ -6552,7 +6582,7 @@ export class TabManager {
       // term.rows can stay one too high and xterm renders rows under
       // the status bar — invisible but selectable.
       doFit();
-      if (deferSwap) {
+      if (deferSwap && !syncRevealed) {
         tab.pane.style.removeProperty("visibility");
         if (prevPainted && prevPainted !== tab) {
           // Hard cut instead of crossfade when: (a) outgoing is a
