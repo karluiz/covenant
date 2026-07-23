@@ -4058,6 +4058,33 @@ index e69de29..0cfbf08 100644
 
         let err = clean_target(p).unwrap_err();
         assert!(err.contains("symlink"), "got: {err}");
-        assert!(p.join("target").exists(), "symlinked target must be untouched");
+        assert!(std::fs::symlink_metadata(p.join("target")).unwrap().file_type().is_symlink(),
+            "symlinked target must be untouched");
+    }
+
+    #[test]
+    fn clean_target_refuses_non_worktree() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        // No `.git` entry at all — not a worktree.
+        std::fs::create_dir(p.join("target")).unwrap();
+        std::fs::write(p.join("target").join("build.o"), vec![0u8; 4096]).unwrap();
+
+        let err = clean_target(p).unwrap_err();
+        assert!(err.contains("not a git worktree"), "got: {err}");
+        assert!(p.join("target").exists(), "target must be untouched when not a worktree");
+    }
+
+    #[test]
+    fn clean_target_refuses_non_directory_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        std::fs::write(p.join(".git"), "gitdir: /somewhere\n").unwrap();
+        // `target` exists but is a regular file, not a directory.
+        std::fs::write(p.join("target"), "x").unwrap();
+
+        let err = clean_target(p).unwrap_err();
+        assert!(err.contains("not a directory"), "got: {err}");
+        assert!(p.join("target").exists(), "non-directory target must be untouched");
     }
 }
