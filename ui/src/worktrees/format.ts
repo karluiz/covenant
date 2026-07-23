@@ -19,5 +19,5 @@ export function compactPath(path: string): string {
 export function humanSize(kb: number): string {
   if (kb >= 1024 * 1024) return `${(kb / 1024 / 1024).toFixed(1)} GB`;
   if (kb >= 1024) return `${Math.round(kb / 1024)} MB`;
-  return `${kb} KB`;
+  return `${Math.round(kb)} KB`;
 }
