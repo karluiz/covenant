@@ -7003,16 +7003,20 @@ body.theme-light .status-git-popover {
 }
 .status-git-pop-search-input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .status-git-pop-actions {
+    display: flex;
+    gap: 8px;
     border-top: 1px solid var(--border);
     padding-top: 8px;
     margin-top: 2px;
 }
-.status-git-pop-view-changes {
+.status-git-pop-view-changes,
+.status-git-pop-manage {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 7px;
-    width: 100%;
+    flex: 1;
+    width: auto;
     height: 32px;
     padding: 0 10px;
     border-radius: 0;
@@ -7023,12 +7027,14 @@ body.theme-light .status-git-popover {
     font-weight: 550;
     cursor: pointer;
 }
-.status-git-pop-view-changes:hover {
+.status-git-pop-view-changes:hover,
+.status-git-pop-manage:hover {
     background: rgb(var(--ink-rgb) / 0.09);
     border-color: var(--accent);
     color: var(--accent);
 }
-.status-git-pop-view-changes svg { width: 13px; height: 13px; }
+.status-git-pop-view-changes svg,
+.status-git-pop-manage svg { width: 13px; height: 13px; }
 
 .status-git-pop-section {
     min-height: 0;

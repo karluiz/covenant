@@ -1057,6 +1057,7 @@ export class StatusBar {
         <div class="status-git-pop-empty status-git-pop-no-match" hidden>No matching worktrees.</div>
       </section>
       <div class="status-git-pop-actions">
+        <button type="button" class="status-git-pop-manage">${Icons.gitBranch({ size: 13 })}<span>Manage worktrees</span></button>
         <button type="button" class="status-git-pop-view-changes">${Icons.gitCompare({ size: 13 })}<span>View changes</span></button>
       </div>
     `;
@@ -1268,6 +1269,10 @@ export class StatusBar {
     pop.querySelector<HTMLButtonElement>(".status-git-pop-view-changes")?.addEventListener("click", () => {
       this.closeBranchPopover();
       this.onViewChanges?.();
+    });
+    pop.querySelector<HTMLButtonElement>(".status-git-pop-manage")?.addEventListener("click", () => {
+      this.closeBranchPopover();
+      window.dispatchEvent(new CustomEvent("covenant:open-worktrees"));
     });
   }
 

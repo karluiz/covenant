@@ -2811,6 +2811,22 @@ async fn git_changes(cwd: String) -> Result<git_tools::diff::Changes, String> {
 }
 
 #[tauri::command]
+async fn worktree_detail(path: String) -> Result<git_tools::WorktreeDetail, String> {
+    let p = PathBuf::from(path);
+    tokio::task::spawn_blocking(move || git_tools::worktree_detail(&p))
+        .await
+        .map_err(|e| format!("worktree_detail join: {e}"))
+}
+
+#[tauri::command]
+async fn worktree_clean_target(path: String) -> Result<u64, String> {
+    let p = PathBuf::from(path);
+    tokio::task::spawn_blocking(move || git_tools::clean_target(&p))
+        .await
+        .map_err(|e| format!("worktree_clean_target join: {e}"))?
+}
+
+#[tauri::command]
 async fn beacon_workflow_runs(cwd: String) -> Result<beacon::BeaconState, String> {
     Ok(beacon::load_workflow_runs(cwd).await)
 }
@@ -5756,6 +5772,8 @@ pub fn run() {
             worktree_retitle,
             git_switch_branch,
             git_changes,
+            worktree_detail,
+            worktree_clean_target,
             beacon_workflow_runs,
             beacon_rerun_workflow,
             beacon_cancel_workflow,
@@ -6176,7 +6194,12 @@ mod live_worktree_tests {
         let dir = std::env::temp_dir().join(format!("covenant-wt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        Command::new("git").arg("-C").arg(&dir).arg("init").output().unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .arg("init")
+            .output()
+            .unwrap();
 
         let top = git_toplevel(&dir).expect("toplevel in a repo");
         // git resolves symlinks (e.g. /var → /private/var on macOS), so

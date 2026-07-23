@@ -1170,6 +1170,74 @@ pub fn worktree_sizes(paths: Vec<String>) -> Vec<(String, u64)> {
         .collect()
 }
 
+/// Delete a worktree's `target/` build cache and return freed KB. Refuses
+/// anything that isn't a real directory named `target` directly under a git
+/// worktree root. Never touches `node_modules` (a symlink to main's deps).
+/// ponytail: `.git`-existence is the worktree check; skips a full
+/// `git worktree list` cross-verify — upgrade if callers ever pass non-worktree
+/// paths that happen to hold a `.git`.
+pub fn clean_target(path: &Path) -> Result<u64, String> {
+    if !path.join(".git").exists() {
+        return Err(format!("{} is not a git worktree", path.display()));
+    }
+    let target = path.join("target");
+    let meta =
+        std::fs::symlink_metadata(&target).map_err(|_| "no target/ directory".to_string())?;
+    if meta.file_type().is_symlink() {
+        return Err("target/ is a symlink; refusing to delete".into());
+    }
+    if !meta.is_dir() {
+        return Err("target/ is not a directory".into());
+    }
+    let freed = worktree_sizes(vec![target.to_string_lossy().into_owned()])
+        .into_iter()
+        .next()
+        .map(|(_, kb)| kb)
+        .unwrap_or(0);
+    std::fs::remove_dir_all(&target).map_err(|e| format!("remove target/: {e}"))?;
+    Ok(freed)
+}
+
+/// What a worktree was working on: last commit subject + uncommitted diffstat
+/// (staged + unstaged vs HEAD). Cheap enough to call per selected worktree.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorktreeDetail {
+    pub last_subject: Option<String>,
+    pub insertions: u64,
+    pub deletions: u64,
+}
+
+pub fn worktree_detail(path: &Path) -> WorktreeDetail {
+    let last_subject = git(path, &["log", "-1", "--format=%s"])
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let (insertions, deletions) = git(path, &["diff", "HEAD", "--shortstat"])
+        .ok()
+        .map(|s| parse_shortstat(&s))
+        .unwrap_or((0, 0));
+    WorktreeDetail {
+        last_subject,
+        insertions,
+        deletions,
+    }
+}
+
+/// Parse `git --shortstat`: " 3 files changed, 240 insertions(+), 12 deletions(-)".
+/// The count precedes the "insertion"/"deletion" token; either may be absent.
+fn parse_shortstat(s: &str) -> (u64, u64) {
+    let toks: Vec<&str> = s.split_whitespace().collect();
+    let num_before = |kw: &str| -> u64 {
+        toks.iter()
+            .position(|t| t.starts_with(kw))
+            .and_then(|i| i.checked_sub(1))
+            .and_then(|i| toks.get(i))
+            .and_then(|n| n.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    (num_before("insertion"), num_before("deletion"))
+}
+
 const MAX_DIFF_LINES: usize = 5000;
 
 pub fn changes(cwd: &Path) -> Result<diff::Changes, String> {
@@ -3933,5 +4001,120 @@ index e69de29..0cfbf08 100644
             None,
         );
         assert!(stray.exists());
+    }
+
+    #[test]
+    fn worktree_detail_reports_subject_and_diffstat() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(p)
+                .args(args)
+                .output()
+                .unwrap();
+        };
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "t@t"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        run(&["add", "a.txt"]);
+        run(&["commit", "-q", "-m", "seed commit"]);
+        std::fs::write(p.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+
+        let d = worktree_detail(p);
+        assert_eq!(d.last_subject.as_deref(), Some("seed commit"));
+        assert!(d.insertions >= 2, "insertions was {}", d.insertions);
+    }
+
+    #[test]
+    fn worktree_detail_empty_repo_has_no_subject() {
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["init", "-q"])
+            .output()
+            .unwrap();
+        let d = worktree_detail(dir.path());
+        assert_eq!(d.last_subject, None);
+        assert_eq!((d.insertions, d.deletions), (0, 0));
+    }
+
+    #[test]
+    fn clean_target_removes_target_keeps_symlink_and_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        std::fs::write(p.join(".git"), "gitdir: /somewhere\n").unwrap(); // linked-worktree marker
+        std::fs::create_dir(p.join("target")).unwrap();
+        std::fs::write(p.join("target").join("build.o"), vec![0u8; 4096]).unwrap();
+        std::fs::write(p.join("keep.rs"), "fn main() {}\n").unwrap();
+        // node_modules as a symlink to some other dir — must survive.
+        let other = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(other.path(), p.join("node_modules")).unwrap();
+
+        let freed = clean_target(p).unwrap();
+        assert!(!p.join("target").exists(), "target should be gone");
+        assert!(p.join("keep.rs").exists(), "source must survive");
+        assert!(
+            std::fs::symlink_metadata(p.join("node_modules"))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "node_modules symlink must survive"
+        );
+        let _ = freed; // KB may round to 0 on tiny dirs; deletion is what matters.
+    }
+
+    #[test]
+    fn clean_target_refuses_symlinked_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        std::fs::write(p.join(".git"), "gitdir: /somewhere\n").unwrap();
+        let real = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(real.path(), p.join("target")).unwrap();
+
+        let err = clean_target(p).unwrap_err();
+        assert!(err.contains("symlink"), "got: {err}");
+        assert!(
+            std::fs::symlink_metadata(p.join("target"))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "symlinked target must be untouched"
+        );
+    }
+
+    #[test]
+    fn clean_target_refuses_non_worktree() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        // No `.git` entry at all — not a worktree.
+        std::fs::create_dir(p.join("target")).unwrap();
+        std::fs::write(p.join("target").join("build.o"), vec![0u8; 4096]).unwrap();
+
+        let err = clean_target(p).unwrap_err();
+        assert!(err.contains("not a git worktree"), "got: {err}");
+        assert!(
+            p.join("target").exists(),
+            "target must be untouched when not a worktree"
+        );
+    }
+
+    #[test]
+    fn clean_target_refuses_non_directory_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        std::fs::write(p.join(".git"), "gitdir: /somewhere\n").unwrap();
+        // `target` exists but is a regular file, not a directory.
+        std::fs::write(p.join("target"), "x").unwrap();
+
+        let err = clean_target(p).unwrap_err();
+        assert!(err.contains("not a directory"), "got: {err}");
+        assert!(
+            p.join("target").exists(),
+            "non-directory target must be untouched"
+        );
     }
 }
