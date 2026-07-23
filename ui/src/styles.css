@@ -545,6 +545,7 @@ body.theme-special::after {
     font-weight: 400;
     cursor: grab;
     -webkit-user-drag: none;
+    -webkit-user-select: none;
     user-select: none;
     transition:
         background 0.12s ease-out,
