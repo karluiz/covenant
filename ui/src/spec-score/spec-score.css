@@ -91,7 +91,9 @@
 .spec-score-badge--hover { cursor: default; }
 .spec-score-pop {
   position: fixed;
-  z-index: 1000;
+  /* Above the mission-viewer overlay (1150) — the popover mounts on
+   * document.body, so it must outrank any modal that hosts the badge. */
+  z-index: 1450;
   width: 340px;
   max-height: 60vh;
   overflow-y: auto;

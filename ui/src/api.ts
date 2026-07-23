@@ -3166,6 +3166,10 @@ export async function specDeepScore(markdown: string): Promise<string | null> {
   return invoke<string | null>("spec_deep_score", { markdown });
 }
 
+export async function specCanonicalize(markdown: string): Promise<string | null> {
+  return invoke<string | null>("spec_canonicalize", { markdown });
+}
+
 /// A pasted image riding an ACP prompt: base64 payload (no `data:` URL
 /// prefix) + mime type. Backend turns it into an ACP `image` block.
 export interface AcpImageAttachment {
