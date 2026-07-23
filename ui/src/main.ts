@@ -1477,6 +1477,15 @@ async function boot(): Promise<void> {
         if (spec) runSpawn(spec.id, undefined, groupId);
       })();
     };
+    // Empty-tabbar context menu → "Start new agent": default spawn, ungrouped
+    // (same path as the titlebar chip run button — reuse idle or new tab).
+    manager.runDefaultAgentNewTab = (): void => {
+      void (async () => {
+        const specs = await listSpawns();
+        const spec = specs.find((s) => s.default) ?? specs[0];
+        if (spec) runSpawn(spec.id);
+      })();
+    };
     // "Start agent" menu items ask for the default spawn's brand glyph
     // synchronously; cache it and refresh in the background on each read.
     let defaultAgentGlyph: string | null = null;
