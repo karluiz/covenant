@@ -1,4 +1,7 @@
-import { gitRepoSummary, type GitRepoSummary } from "../api";
+import { gitRepoSummary, worktreeSizes, type GitRepoSummary, type GitWorktreeSummary } from "../api";
+import { worktreeStateClass, worktreeStateLabel } from "../status/worktree-state";
+import { worktreeLabel, compactPath, humanSize } from "./format";
+import { splitSizes, sizeRequestPaths } from "./sizes";
 
 /// Full-screen Worktrees management page. Mirrors PulseSurface
 /// (ui/src/pulse/index.ts): a fixed overlay the terminal keeps focus behind,
@@ -8,6 +11,8 @@ export class WorktreesSurface {
   private open_ = false;
   private repoRoot = "";
   private summary: GitRepoSummary | null = null;
+  private sizes = new Map<string, { total: number; target: number }>();
+  private selected: string | null = null;
 
   private onKey = (e: KeyboardEvent): void => {
     if (this.open_ && e.key === "Escape") { e.preventDefault(); this.close(); }
@@ -42,6 +47,7 @@ export class WorktreesSurface {
       this.summary = null;
     }
     this.render();
+    void this.loadSizes();
   }
 
   private mountShell(): void {
@@ -71,9 +77,83 @@ export class WorktreesSurface {
     this.host.appendChild(frame);
   }
 
-  // Replaced in Task 5.
   private render(): void {
     const body = this.host.querySelector(".wt-body");
-    if (body) body.textContent = this.summary ? `${this.summary.worktrees.length} worktrees` : "Not a git repo";
+    if (!body) return;
+    body.innerHTML = "";
+    if (!this.summary) { body.textContent = "Not a git repo."; return; }
+
+    const left = document.createElement("div");
+    left.className = "wt-left";
+    const right = document.createElement("div");
+    right.className = "wt-right";
+    body.append(left, right);
+
+    // Default selection: current worktree, else the first row.
+    const wts = this.summary.worktrees;
+    if (!this.selected || !wts.some((w) => w.path === this.selected)) {
+      this.selected = (wts.find((w) => w.current) ?? wts[0])?.path ?? null;
+    }
+    this.renderList(left);
+    this.renderDetail(right); // Task 6
   }
+
+  private sortedWorktrees(): GitWorktreeSummary[] {
+    const size = (p: string) => this.sizes.get(p)?.total ?? -1;
+    return [...(this.summary?.worktrees ?? [])].sort((a, b) => size(b.path) - size(a.path));
+  }
+
+  private renderList(host: HTMLElement): void {
+    host.innerHTML = "";
+    const maxKb = Math.max(1, ...[...this.sizes.values()].map((s) => s.total));
+    for (const wt of this.sortedWorktrees()) {
+      const size = this.sizes.get(wt.path);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "wt-row" + (wt.path === this.selected ? " is-selected" : "");
+      row.addEventListener("click", () => { this.selected = wt.path; this.render(); });
+
+      const dot = document.createElement("span");
+      dot.className = `wt-dot ${worktreeStateClass(wt.state)}`;
+      const label = document.createElement("span");
+      label.className = "wt-row-label";
+      label.textContent = worktreeLabel(wt);
+      const path = document.createElement("span");
+      path.className = "wt-row-path";
+      path.textContent = compactPath(wt.path);
+
+      const bar = document.createElement("span");
+      bar.className = "wt-bar";
+      const fill = document.createElement("span");
+      fill.className = "wt-bar-fill";
+      fill.style.width = size ? `${Math.round((size.total / maxKb) * 100)}%` : "0%";
+      bar.appendChild(fill);
+
+      const sizeEl = document.createElement("span");
+      sizeEl.className = "wt-row-size";
+      sizeEl.textContent = size ? humanSize(size.total) : "…";
+
+      const badge = document.createElement("span");
+      badge.className = "wt-row-badge";
+      badge.textContent = wt.current ? "HERE"
+        : wt.dirty_count > 0 ? `${wt.dirty_count} changed`
+        : worktreeStateLabel(wt.state);
+
+      row.append(dot, label, path, bar, sizeEl, badge);
+      host.appendChild(row);
+    }
+  }
+
+  private async loadSizes(): Promise<void> {
+    if (!this.summary) return;
+    const paths = this.summary.worktrees.map((w) => w.path);
+    try {
+      const raw = await worktreeSizes(sizeRequestPaths(paths));
+      this.sizes = splitSizes(paths, raw);
+    } catch { /* leave sizes empty — rows show "…" */ }
+    if (this.open_) this.render();
+  }
+
+  // Task 6 replaces this with the real detail pane.
+  private renderDetail(_host: HTMLElement): void {}
 }

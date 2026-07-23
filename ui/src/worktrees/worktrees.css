@@ -31,3 +31,29 @@ body.worktrees-fullscreen { overflow: hidden; }
 .wt-body { flex: 1; display: flex; min-height: 0; }
 .wt-left { width: 44%; min-width: 320px; overflow-y: auto; border-right: 1px solid var(--border); }
 .wt-right { flex: 1; overflow-y: auto; padding: 20px; min-width: 0; }
+
+.wt-row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto 64px auto;
+  grid-template-areas: "dot label bar size badge" "dot path bar size badge";
+  align-items: center; gap: 2px 10px;
+  width: 100%; text-align: left;
+  padding: 10px 16px; background: none; border: 0; border-bottom: 1px solid var(--border, #1c1c1e);
+  color: inherit; cursor: pointer;
+}
+.wt-row.is-selected { background: var(--bg-elev, #16161a); }
+.wt-dot { grid-area: dot; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-dim, #666); }
+/* status-git-pop-wt-* classes color a ::before pseudo-element (they were
+   authored for badges with a dot glyph, not for a standalone dot node), so
+   applying them to .wt-dot itself sets no visible background. Override
+   directly with the same tokens the popover uses (styles.css:6957-6965). */
+.wt-dot.status-git-pop-wt-active { background: var(--ok); }
+.wt-dot.status-git-pop-wt-stale { background: var(--running); }
+.wt-dot.status-git-pop-wt-spent { background: var(--muted); }
+.wt-dot.status-git-pop-wt-orphan { background: var(--danger); }
+.wt-row-label { grid-area: label; font-weight: 600; }
+.wt-row-path { grid-area: path; font-size: 11px; color: var(--fg-dim, #888); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-bar { grid-area: bar; width: 60px; height: 4px; background: var(--border, #222); }
+.wt-bar-fill { display: block; height: 100%; background: var(--accent, #6b9fff); }
+.wt-row-size { grid-area: size; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+.wt-row-badge { grid-area: badge; font-size: 11px; color: var(--fg-dim, #888); }
