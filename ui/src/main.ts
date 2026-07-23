@@ -1448,6 +1448,7 @@ async function boot(): Promise<void> {
           requestAnimationFrame(() => manager.focusActive());
           return;
         }
+        manager.armLaunchScrub(sid as SessionId);
         const line = reuseIdle ? `cd ${shq(launchCwd as string)} && ${cmdline}` : cmdline;
         const bytes = new TextEncoder().encode(line);
         await writeToSession(sid, bytes);

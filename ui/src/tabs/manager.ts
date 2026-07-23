@@ -328,6 +328,9 @@ interface Tab {
   /// it. Cleared after the nudge runs. Shell tabs are born true (replay
   /// scrollback + early shell output land before first activation).
   wroteWhileHidden?: boolean;
+  /// Arms the launch-scrub on the NEXT block_started for a session that
+  /// already exists (reuse-idle spawn), mirroring createTab's `scrubLaunch`.
+  scrubNextLaunch?: boolean;
   /// Which sidebar view is currently selected manually. Recall still
   /// overrides this when user is typing (existing behavior).
   sidebarView: "blocks" | "structure" | "recall";
@@ -3311,6 +3314,23 @@ export class TabManager {
     return true;
   }
 
+  /// Arm the launch-scrub for a session that already exists (reuse-idle
+  /// spawn): the NEXT block_started clears the echoed launch command and
+  /// reveals straight into the agent's UI, matching new-tab scrubLaunch.
+  armLaunchScrub(sessionId: SessionId): void {
+    const tab = this.tabs.find((t) => activePane(t).sessionId === sessionId);
+    if (!tab || !tab.termHost) return;
+    tab.scrubNextLaunch = true;
+    tab.termHost.style.visibility = "hidden";
+    // No OSC 133 → no block_started → scrub never fires. Reveal anyway.
+    setTimeout(() => {
+      if (tab.scrubNextLaunch === true) {
+        tab.scrubNextLaunch = false;
+        if (tab.termHost) tab.termHost.style.visibility = "";
+      }
+    }, 4000);
+  }
+
   /// Focus a tab by the last-6-chars session short used in operator
   /// decision rows (which only persist `session_id_short`). Returns false
   /// if no live tab matches — the originating session has been closed.
@@ -3630,8 +3650,9 @@ export class TabManager {
             if (event.kind === "block_started") {
               atPrompt = false;
               promptHint.reset();
-              if (scrubLaunchPending) {
+              if (scrubLaunchPending || tabRef.current?.scrubNextLaunch === true) {
                 scrubLaunchPending = false;
+                if (tabRef.current) tabRef.current.scrubNextLaunch = false;
                 term.write("\x1b[H\x1b[2J\x1b[3J", () => {
                   termHost.style.visibility = "";
                 });
