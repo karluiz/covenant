@@ -6,6 +6,52 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.64 — Instant agent-spawn tabs + worktree Agent actions
+
+### Added
+
+- **Resume-with-agent from the git popover**: worktree rows gain an "Agent"
+  action beside "Open tab" that launches the default spawn IN the existing
+  worktree (cwd = the worktree's path, skipping `resolveLaunch`) so no new
+  worktree is cut — an ACP default opens a chat tab, a PTY default a terminal
+  with the cmdline preloaded. Rows redesigned so the info stops truncating:
+  name/path stacked, path shown relative to the repo root with the
+  boilerplate dir dimmed, and both actions collapsed (`ui/src/main.ts`).
+
+- **Worktrees page: Changes back-nav, tooltips, Agent action + detail
+  redesign**: "View diff" now offers a back button (and Esc) returning to
+  Worktrees instead of closing outright (`ChangesSurface` takes an optional
+  `onBack`); state dots and the reclaim/prune/relocate buttons carry
+  plain-language tooltips; the detail panel gets a state pill by the title,
+  aligned key/value facts (Last commit / Working tree / Disk) and a lighter
+  icon+label button bar with an inverted-ink "Agent" primary that resumes
+  the default spawn IN the existing worktree (`ui/src/worktrees/index.ts`,
+  `ui/src/changes/index.ts`).
+
+- **"Start new agent" in the empty-tabbar context menu**: mirrors the group
+  menu's item, ungrouped — reuses the default-spawn glyph and the titlebar
+  chip run path, idle-reuse included (`ui/src/tabs/manager.ts`,
+  `ui/src/main.ts`).
+
+- **Launch-scrub on reuse-idle spawns**: `armLaunchScrub` veils the terminal
+  and clears the echoed launch command on the next `block_started` when an
+  agent launches into an existing idle session, matching new-tab
+  `scrubLaunch`; reveals anyway after 4s when no OSC 133 arrives
+  (`ui/src/tabs/manager.ts`).
+
+### Fixed
+
+- **Agent spawns looked like they took ~24 seconds**: the new-tab spawn
+  paths passed `skipActivate` so the agent tab wouldn't steal focus — but
+  `skipActivate` defers tabbar rendering to the caller (a contract written
+  for manifest restore), and the spawn paths never rendered. The worktree,
+  PTY and executor all came up in ~3s, yet the tab row only appeared when an
+  unrelated re-render landed (in practice the LLM tab retitle, tens of
+  seconds later) and then without focus. `TabManager.refreshTabbar()` now
+  runs right after `createTab` in both spawn branches: the row appears
+  immediately — veiled until the agent's UI draws — while keyboard focus
+  stays where the user is typing (`ui/src/main.ts`, `ui/src/tabs/manager.ts`).
+
 ## v0.9.63 — Beacon parallel run fetches + cd-picker light fix
 
 ### Changed
