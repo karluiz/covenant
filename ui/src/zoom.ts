@@ -122,4 +122,25 @@ function persist(value: number): void {
   }
 }
 
+export type ZoomIntent = "in" | "out" | "reset" | null;
+
+/// Pure mapping from a keydown to a zoom action. `mod` = the platform's
+/// zoom modifier is held (Cmd on macOS, Ctrl elsewhere — see modHeld).
+/// Matches on the resolved key char, so shifted `+` counts as "in" while
+/// shifted `-`/`0` (`_`/`)`) are ignored — no separate shift bookkeeping.
+export function zoomIntent(key: string, mod: boolean): ZoomIntent {
+  if (!mod) return null;
+  switch (key) {
+    case "=":
+    case "+":
+      return "in";
+    case "-":
+      return "out";
+    case "0":
+      return "reset";
+    default:
+      return null;
+  }
+}
+
 export const zoom = new ZoomController();

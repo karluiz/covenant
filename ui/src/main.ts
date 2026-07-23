@@ -93,7 +93,7 @@ export let workspacesManager: WorkspaceManager | null = null;
 import { CollapsedRail } from "./tabs/collapsed-rail";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
-import { zoom } from "./zoom";
+import { zoom, zoomIntent } from "./zoom";
 import { setDiscordPresenceEnabled, startDiscordPresence } from "./presence";
 import { OperatorPicker } from "./operator/picker";
 import { openOperatorModal, wireOperatorModal } from "./operator/creator";
@@ -2111,6 +2111,22 @@ async function boot(): Promise<void> {
       .catch(() => undefined);
   });
 
+  // Transient zoom-level readout. One onChange covers keyboard shortcuts
+  // and the settings input alike. ponytail: inline DOM + one timer, no
+  // module — it's ~15 lines and nothing else needs it.
+  {
+    const el = document.createElement("div");
+    el.id = "zoom-indicator";
+    document.body.appendChild(el);
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
+    zoom.onChange((level) => {
+      el.textContent = `${Math.round(level * 100)}%`;
+      el.classList.add("visible");
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => el.classList.remove("visible"), 1000);
+    });
+  }
+
   // Live-apply terminal font/size and window background to open tabs
   // whenever settings save. Background mode swaps a body class — pure
   // CSS reflow, no need to re-init xterm.
@@ -2570,24 +2586,12 @@ async function boot(): Promise<void> {
     // Match both the unshifted (`=`, `-`, `0`) and the shifted (`+`)
     // variants so US and intl keyboards both work. Refits the active
     // terminal after each change so xterm cell metrics stay accurate.
-    if (e.metaKey && !e.shiftKey && (e.key === "=" || e.key === "+")) {
+    const intent = zoomIntent(e.key, modHeld(e));
+    if (intent) {
       e.preventDefault();
-      zoom.zoomIn();
-      return;
-    }
-    if (e.metaKey && e.shiftKey && (e.key === "+" || e.key === "=")) {
-      e.preventDefault();
-      zoom.zoomIn();
-      return;
-    }
-    if (e.metaKey && !e.shiftKey && e.key === "-") {
-      e.preventDefault();
-      zoom.zoomOut();
-      return;
-    }
-    if (e.metaKey && !e.shiftKey && e.key === "0") {
-      e.preventDefault();
-      zoom.reset();
+      if (intent === "in") zoom.zoomIn();
+      else if (intent === "out") zoom.zoomOut();
+      else zoom.reset();
       return;
     }
     // ⌘, / Ctrl+, → settings. The Preferences convention on macOS, and
