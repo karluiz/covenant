@@ -6,6 +6,40 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.62 — Full-screen Worktrees disk & diff-explain page
+
+### Added
+
+- **Worktrees management page**: a full-screen surface (`⌘⌥W`, plus a "Manage
+  worktrees" button in the git popover) that shows every worktree's disk usage
+  and what it was working on. The left list is sorted biggest-first with
+  proportional disk bars; the detail panel shows branch, last commit subject,
+  relative time, diffstat, and changed files, with per-worktree actions — open
+  tab, view diff, clean `target/`, and prune/reclaim/relocate. Two new Rust
+  commands back it: `worktree_detail` (commit subject + working-tree diffstat)
+  and `worktree_clean_target` (symlink-guarded `target/` deletion that never
+  touches the `node_modules` symlink). Because `du` on the main worktree
+  recurses into the nested linked worktrees under `.covenant/worktrees/`,
+  `subtractNested` de-double-counts so each row reflects only its own
+  footprint. Lives in `ui/src/worktrees/` (`index.ts`, `sizes.ts`,
+  `format.ts`, `worktrees.css`); commands in `crates/app/src/git_tools.rs`.
+
+- **Perception auto-answers choice prompts**: PTY Perception now handles an
+  executor's free-form "which approach?" questions, not just boxed permission
+  prompts. A numbered list with exactly one `(recommended)`/`(default)` tag is
+  answered with that option's number (the Haiku judge stays the triviality
+  backstop, so a consequential recommended pick like deploy/delete still
+  escalates); two tags or no `?` leave the list inert. New
+  `parse_choice_prompt` fallback in the PTY prompt/perception paths.
+
+### Fixed
+
+- **Spawn keeps focus in the current tab**: new-tab spawn paths (isolated
+  worktree, group-launch) were missing `skipActivate`, so `createTab`
+  activated the background agent tab and stole focus. They now pass
+  `skipActivate: true`, leaving `activeId` untouched so the current tab keeps
+  focus (`ui/src/main.ts`).
+
 ## v0.9.61 — Worktree awareness, cross-platform zoom + tab/theme fixes
 
 ### Added
