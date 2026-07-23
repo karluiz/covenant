@@ -3115,6 +3115,10 @@ export class TabManager {
     }
     const result = await closePaneAction(tab, paneIdx, {
       killSession: async (sid) => {
+        // Terminal Share: this pane's session is being destroyed — revoke
+        // any live share before the dot/menu re-key to the surviving pane
+        // (mirrors finalizeCloseTab's whole-tab-close path).
+        revokeIfShared(sid);
         try {
           await closeSession(sid as SessionId);
         } catch {
