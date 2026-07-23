@@ -118,6 +118,8 @@ import {
   persistTaskSpawnedSessions,
 } from "./teammate/panel";
 import { ChangesSurface } from "./changes/index";
+import { WorktreesSurface } from "./worktrees/index";
+import "./worktrees/worktrees.css";
 import { gitRepoSummary } from "./api";
 import { handleHandoffRouted, type HandoffRoutedEvent } from "./teammate/handoff-spawn";
 import type { TabPlacement } from "./tabs/manager";
@@ -2026,6 +2028,20 @@ async function boot(): Promise<void> {
   const pulseSurface = new PulseSurface(pulseHost);
   window.addEventListener("covenant:open-pulse", () => { pulseSurface.open(); });
 
+  // Worktrees management page — ⌘⌥W toggle. Own fixed-overlay host on body.
+  const worktreesHost = document.createElement("div");
+  document.body.appendChild(worktreesHost);
+  const worktreesSurface = new WorktreesSurface(worktreesHost);
+  const openWorktrees = async (): Promise<void> => {
+    const cwd = manager.activeCwd();
+    if (!cwd) return;
+    try {
+      const summary = await gitRepoSummary(cwd);
+      await worktreesSurface.open(summary.repo_root);
+    } catch { /* not a git repo — no-op */ }
+  };
+  window.addEventListener("covenant:open-worktrees", () => { void openWorktrees(); });
+
   const openChanges = async (cwdArg?: string): Promise<void> => {
     const cwd = cwdArg ?? manager.activeCwd();
     if (!cwd) return;
@@ -2731,6 +2747,13 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "m" || e.key === "M" || e.key === "µ")) {
       e.preventDefault();
       if (pulseSurface.isOpen) { pulseSurface.close(); } else { pulseSurface.open(); }
+      return;
+    }
+    // ⌘⌥W → Worktrees management page. "∑" is what ⌥W emits on macOS
+    // (same pattern as the ⌘⌥R "®" / ⌘⌥M "µ" handlers).
+    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "w" || e.key === "W" || e.key === "∑")) {
+      e.preventDefault();
+      if (worktreesSurface.isOpen) { worktreesSurface.close(); } else { void openWorktrees(); }
       return;
     }
     // Canon cockpit for the active group (full-screen, skips the rail):

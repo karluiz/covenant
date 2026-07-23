@@ -1,0 +1,33 @@
+/* Worktrees — full-screen worktree management page.
+   Uses Covenant theme tokens: --bg-overlay (opaque panel), --border,
+   --text-primary — same tier as ChangesSurface's .cd-frame. */
+
+body.worktrees-fullscreen { overflow: hidden; }
+
+.wt-frame {
+  position: fixed;
+  /* Live in the app content area — below the 38px custom macOS titlebar,
+     above the status bar — matching .cd-frame / .pn-fullscreen / the
+     tasker board. Confirmed against ui/src/changes/changes.css:6-16
+     (there is no --titlebar-height token in this codebase). */
+  inset: 38px 0 0 0;
+  bottom: calc(var(--statusbar-h) + 1px);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+}
+.wt-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+}
+.wt-title {
+  font-size: var(--fs-title, 13px); font-weight: 700;
+  letter-spacing: 0.02em; text-transform: uppercase;
+}
+.wt-header-spacer { flex: 1; }
+.wt-close { background: none; border: 0; cursor: pointer; color: inherit; padding: 0; }
+.wt-body { flex: 1; display: flex; min-height: 0; }
+.wt-left { width: 44%; min-width: 320px; overflow-y: auto; border-right: 1px solid var(--border); }
+.wt-right { flex: 1; overflow-y: auto; padding: 20px; min-width: 0; }
