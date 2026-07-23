@@ -20,7 +20,9 @@ body.worktrees-fullscreen { overflow: hidden; }
 }
 .wt-header {
   display: flex; align-items: center; gap: 12px;
-  padding: 14px 20px; border-bottom: 1px solid var(--border);
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .wt-title {
   font-size: var(--fs-title, 13px); font-weight: 700;
