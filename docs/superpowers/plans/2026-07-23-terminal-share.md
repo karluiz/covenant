@@ -55,7 +55,9 @@ CREATE TABLE term_shares (
     revoked         BOOLEAN NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX term_shares_owner_session
+-- UNIQUE so two concurrent creates can't mint two live tokens for one
+-- session ("the link stays stable"); create() inserts with ON CONFLICT.
+CREATE UNIQUE INDEX term_shares_owner_session
     ON term_shares (owner_github_id, session_id) WHERE NOT revoked;
 ```
 
@@ -120,16 +122,34 @@ pub async fn create(
         return Ok(Json(ShareCreated { id, token }));
     }
     let token = uuid::Uuid::new_v4().simple().to_string();
-    let (id,): (i64,) = sqlx::query_as(
+    // Race-safe against the partial UNIQUE index: a concurrent create for
+    // the same live session loses the conflict and returns the winner's row.
+    let inserted: Option<(i64,)> = sqlx::query_as(
         "INSERT INTO term_shares (token, session_id, owner_github_id)
-         VALUES ($1, $2, $3) RETURNING id",
+         VALUES ($1, $2, $3)
+         ON CONFLICT (owner_github_id, session_id) WHERE NOT revoked DO NOTHING
+         RETURNING id",
     )
     .bind(&token)
     .bind(sid)
     .bind(claims.sub)
-    .fetch_one(&state.pool)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|e| AppError::Internal(e.into()))?;
+    if let Some((id,)) = inserted {
+        return Ok(Json(ShareCreated { id, token }));
+    }
+    let (id, token): (i64, String) = sqlx::query_as(
+        "SELECT id, token FROM term_shares
+         WHERE owner_github_id = $1 AND session_id = $2 AND NOT revoked
+         ORDER BY id DESC LIMIT 1",
+    )
+    .bind(claims.sub)
+    .bind(sid)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?
+    .ok_or_else(|| AppError::Internal(anyhow::anyhow!("term_share upsert race with no winner")))?;
     Ok(Json(ShareCreated { id, token }))
 }
 
