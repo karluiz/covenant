@@ -1361,6 +1361,7 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     letter-spacing: 0.09em;
     text-transform: uppercase;
     -webkit-user-drag: none;
+    -webkit-user-select: none;
     user-select: none;
     cursor: grab;
     transition:
