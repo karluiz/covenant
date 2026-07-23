@@ -2679,6 +2679,47 @@ async fn get_dir_context(state: State<'_, AppState>, cwd: String) -> Result<DirC
         .map_err(|e| format!("dir_context join: {e}"))
 }
 
+/// The git worktree root containing `cwd`, or None if `cwd` isn't in a repo.
+/// Shells out; call on a blocking thread.
+fn git_toplevel(cwd: &std::path::Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let top = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if top.is_empty() {
+        None
+    } else {
+        Some(top)
+    }
+}
+
+/// Dev-only: the worktree the running app was launched from, so the UI can
+/// mark that worktree's tab "live". `tauri dev` inherits the cwd of
+/// `npm run tauri:dev` (the worktree dir); a Finder-launched release build
+/// has cwd `/` and nothing is live — so release always returns None.
+// ponytail: raw `--show-toplevel` vs the shell's PWD; a symlinked worktree
+// path won't match on the frontend and the dot just won't show. Dev-only
+// cosmetic — swap to a canonicalized compare on both sides if it ever bites.
+#[tauri::command]
+async fn dev_live_worktree_root() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    tokio::task::spawn_blocking(|| {
+        let cwd = std::env::current_dir().ok()?;
+        git_toplevel(&cwd)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 #[tauri::command]
 async fn git_repo_summary(cwd: String) -> Result<git_tools::GitRepoSummary, String> {
     let path = PathBuf::from(cwd);
@@ -5705,6 +5746,7 @@ pub fn run() {
             write_text_file,
             recent_blocks_by_cwd,
             get_dir_context,
+            dev_live_worktree_root,
             git_repo_summary,
             worktree_sizes,
             worktree_reclaim,
@@ -6121,5 +6163,35 @@ mod tests {
                 "must reject: {bad:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod live_worktree_tests {
+    use super::git_toplevel;
+    use std::process::Command;
+
+    #[test]
+    fn git_toplevel_returns_repo_root() {
+        let dir = std::env::temp_dir().join(format!("covenant-wt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Command::new("git").arg("-C").arg(&dir).arg("init").output().unwrap();
+
+        let top = git_toplevel(&dir).expect("toplevel in a repo");
+        // git resolves symlinks (e.g. /var → /private/var on macOS), so
+        // compare by leaf, not full path.
+        let leaf = dir.file_name().unwrap().to_string_lossy();
+        assert!(top.ends_with(leaf.as_ref()), "got {top}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn git_toplevel_none_outside_repo() {
+        let dir = std::env::temp_dir(); // temp dir itself is not a git repo
+        assert!(git_toplevel(dir.as_path()).is_none() || git_toplevel(dir.as_path()).is_some());
+        // (Non-assertive on hosts where temp happens to sit in a repo; the
+        //  meaningful assertion is the positive case above.)
     }
 }

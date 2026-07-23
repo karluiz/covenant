@@ -6,13 +6,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../api", () => ({
   structureListDir: vi.fn(),
   structureMoveInto: vi.fn(),
+  // Default: no git info, so renderBranch stays hidden. Tests that assert the
+  // chip override this per-call. The branch-chip describe (runs last) resets it.
+  getDirContext: vi.fn().mockResolvedValue({ git: null, runtime: null }),
 }));
 
 import { StructureTree, isShareableAsGist } from "./tree";
-import { structureListDir, structureMoveInto } from "../api";
+import { structureListDir, structureMoveInto, getDirContext } from "../api";
 
 const listDirMock = structureListDir as unknown as ReturnType<typeof vi.fn>;
 const moveIntoMock = structureMoveInto as unknown as ReturnType<typeof vi.fn>;
+const dirCtxMock = getDirContext as unknown as ReturnType<typeof vi.fn>;
 
 function entry(path: string, name: string, kind: "file" | "dir") {
   return { path, name, kind, is_symlink: false };
@@ -274,5 +278,53 @@ describe("isShareableAsGist", () => {
     expect(isShareableAsGist("/cwd/notes.md")).toBe(true);
     expect(isShareableAsGist("/cwd/Makefile")).toBe(true);
     expect(isShareableAsGist("/cwd/.gitignore")).toBe(true);
+  });
+});
+
+describe("StructureTree branch chip", () => {
+  let host: HTMLDivElement;
+  let tree: StructureTree;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    listDirMock.mockReset();
+    dirCtxMock.mockReset();
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    tree = new StructureTree(host, () => undefined);
+  });
+
+  it("shows the branch name for a repo cwd", async () => {
+    listDirMock.mockResolvedValueOnce([entry("/wt/a.md", "a.md", "file")]);
+    dirCtxMock.mockResolvedValueOnce({ git: { repo_name: "covenant", branch: "agent/css-fixes-0722-wez" }, runtime: null });
+    await tree.setCwd("/wt");
+    await flush();
+    const chip = host.querySelector(".structure-branch-name");
+    expect(chip?.textContent).toBe("agent/css-fixes-0722-wez");
+    expect(host.querySelector<HTMLElement>(".structure-branch")?.hidden).toBe(false);
+  });
+
+  it("stays hidden when the cwd is not a git repo", async () => {
+    listDirMock.mockResolvedValueOnce([entry("/plain/a.md", "a.md", "file")]);
+    dirCtxMock.mockResolvedValueOnce({ git: null, runtime: null });
+    await tree.setCwd("/plain");
+    await flush();
+    expect(host.querySelector<HTMLElement>(".structure-branch")?.hidden).toBe(true);
+  });
+
+  it("drops a stale branch result after a re-root", async () => {
+    listDirMock.mockResolvedValue([entry("/x/a.md", "a.md", "file")]);
+    // First cwd resolves slowly; second resolves before it.
+    let resolveFirst: (v: unknown) => void = () => undefined;
+    dirCtxMock.mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; }));
+    dirCtxMock.mockResolvedValueOnce({ git: { repo_name: "r", branch: "second" }, runtime: null });
+    await tree.setCwd("/wt-one");
+    await tree.setCwd("/wt-two");
+    await flush();
+    // Now the stale first probe resolves — it must NOT overwrite the chip.
+    resolveFirst({ git: { repo_name: "r", branch: "first" }, runtime: null });
+    await flush();
+    expect(host.querySelector(".structure-branch-name")?.textContent).toBe("second");
   });
 });

@@ -104,7 +104,8 @@ import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
 import { detectExecutor } from "../executor";
 import { PiChatView } from "../executors/pi/view";
-import { spawnPiSession, piSetSessionName } from "../api";
+import { spawnPiSession, piSetSessionName, devLiveWorktreeRoot } from "../api";
+import { cwdUnderRoot } from "./live-worktree";
 import { AcpChatView } from "../executors/acp/view";
 import { closeAcpSession, spawnAcpSession, type AcpExecutor, type AcpTrust } from "../api";
 import type { AomBanner } from "../aom/banner";
@@ -930,6 +931,10 @@ export class TabManager {
   /// state did not change.
   private blockedSessionIds: Set<string> = new Set();
   private blockedPollTimer: number | null = null;
+
+  /// Dev-only: the worktree root the running app was built from. null in
+  /// release, so the live dot never mounts there. See renderTabLiveDot.
+  private liveWorktreeRoot: string | null = null;
 
   /// short-id → display name cache (see `SESSION_NAME_CACHE_KEY`).
   /// Updated on every name-affecting mutation; consulted by panels
@@ -2066,6 +2071,18 @@ export class TabManager {
       void this.createTab();
     });
 
+    // Dev-only: learn which worktree the running app was built from, so
+    // its tab can wear the live dot. Fire-and-forget; null in release, so
+    // no dot ever mounts there.
+    void devLiveWorktreeRoot()
+      .then((root) => {
+        this.liveWorktreeRoot = root;
+        if (root) this.renderTabbar();
+      })
+      .catch(() => {
+        /* command missing / not a repo — no live dot */
+      });
+
     // Operator deletion: drop the cache entry and unpin any tab whose
     // `operator` pointer matched. The backend already unpinned the
     // session record; this keeps the in-memory view consistent so the
@@ -2239,6 +2256,30 @@ export class TabManager {
       dot.className = "tab-busy-dot";
       dot.title = `${paneB.busyProc} running`;
       // Prepend so it sits before the label (left side of the tab).
+      pill.insertBefore(dot, pill.firstChild);
+    } else if (existing) {
+      existing.remove();
+    }
+  }
+
+  private isLiveWorktree(tab: Tab): boolean {
+    return cwdUnderRoot(activePane(tab).cwd, this.liveWorktreeRoot);
+  }
+
+  /// Mount/remove the hollow-ring "this worktree built the running app"
+  /// dot. Idempotent — safe to call on rebuild and on cwd_changed. Dev
+  /// only (liveWorktreeRoot is null in release).
+  private renderTabLiveDot(tab: Tab): void {
+    const pill = this.tabbarHost.querySelector<HTMLElement>(
+      `.tab-btn[data-tab-id="${tab.id}"]`,
+    );
+    if (!pill) return;
+    const existing = pill.querySelector(".tab-live-dot");
+    if (this.isLiveWorktree(tab)) {
+      if (existing instanceof HTMLElement) return;
+      const dot = document.createElement("span");
+      dot.className = "tab-live-dot";
+      dot.title = "The running app was built from this worktree";
       pill.insertBefore(dot, pill.firstChild);
     } else if (existing) {
       existing.remove();
@@ -3708,6 +3749,7 @@ export class TabManager {
               if (tabRef.current?.structure?.isVisible()) {
                 void tabRef.current.structure.setCwd(event.cwd);
               }
+              if (tabRef.current) this.renderTabLiveDot(tabRef.current);
               this.scheduleSave();
               // Status bar: only push when this tab is the visible one AND
               // pane[0] is the active pane. If the user focused pane[1],
@@ -7719,6 +7761,16 @@ export class TabManager {
       dot.className = "tab-busy-dot";
       dot.title = `${pillPaneLate.busyProc} running`;
       pill.insertBefore(dot, pill.firstChild);
+    }
+
+    // Live-worktree dot: this worktree is what the running dev app was
+    // built from. Hollow ring so it reads distinct from the filled
+    // busy-proc dot. Pill isn't in the DOM yet — attach directly.
+    if (this.isLiveWorktree(tab)) {
+      const liveDot = document.createElement("span");
+      liveDot.className = "tab-live-dot";
+      liveDot.title = "The running app was built from this worktree";
+      pill.insertBefore(liveDot, pill.firstChild);
     }
 
     // Same idea for the agent-idle badge: re-attach on rebuild, before

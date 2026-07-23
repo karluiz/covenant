@@ -8594,6 +8594,32 @@ mark.mv-find-hit.is-active {
     text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
 }
+.structure-branch {
+    display: flex;
+    align-items: center;
+    padding: 5px 10px 7px;
+    border-bottom: 1px solid var(--border);
+}
+.structure-branch[hidden] { display: none; }
+.structure-branch-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 2px 7px;
+    font-size: 10.5px;
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    font-variant-numeric: tabular-nums;
+}
+.structure-branch-chip svg { color: var(--muted); flex-shrink: 0; }
+.structure-branch-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .structure-refresh {
     background: transparent;
     border: 1px solid transparent;
@@ -14182,6 +14208,26 @@ button.status-segment.status-tg:focus-visible {
 @keyframes busy-pulse {
   0%, 100% { opacity: 0.35; transform: scale(0.85); }
   50%      { opacity: 1;    transform: scale(1.15); }
+}
+.tab-live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1.5px solid #4ade80;
+  box-shadow: 0 0 5px rgba(74, 222, 128, 0.5);
+  animation: live-pulse 2.2s ease-in-out infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-live-dot { animation: none; opacity: 0.8; }
 }
 
 /* ── Capabilities panel — mirrors #settings-page layout exactly ────── */
