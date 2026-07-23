@@ -82,6 +82,7 @@ mod summarizer;
 mod tab_manifest;
 pub mod teammate;
 pub mod telegram;
+mod term_share;
 mod theme;
 mod vitals;
 mod world;
@@ -5437,6 +5438,7 @@ pub fn run() {
             });
 
             rc_agent::spawn(app.handle().clone());
+            term_share::spawn_startup_revoke(app.handle());
 
             // Deferred traffic-light heal for cold launch. The on_window_event
             // handler re-applies the inset on the launch Focused/Resized burst,
@@ -5991,6 +5993,10 @@ pub fn run() {
             covenant_gist::gist_list_shares,
             covenant_gist::gist_publish,
             covenant_gist::gist_revoke,
+            term_share::term_share_get,
+            term_share::term_share_list,
+            term_share::term_share_create,
+            term_share::term_share_revoke,
             covenant_board::board_get_share,
             covenant_board::board_list_shares,
             covenant_board::board_publish,
