@@ -285,13 +285,47 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
     Ok(())
 }
 
+/// Mirror is read-only, so it only needs the session to exist — unlike
+/// input injection, which stays behind the `armed` consent (`lifecycle_gate`).
+/// Arming consents to remote CONTROL; visibility is consented at its own
+/// surface (the owner shares a tab, or their own authed web dashboard asks).
+async fn mirror_gate(
+    app: &AppHandle,
+    session_id: &str,
+) -> Result<karl_session::SessionId, OutFrame> {
+    use std::str::FromStr;
+    let id = match ulid::Ulid::from_str(session_id) {
+        Ok(u) => karl_session::SessionId(u),
+        Err(_) => {
+            return Err(OutFrame::Rejected {
+                session_id: session_id.to_string(),
+                reason: "no_such_tab",
+                message: "invalid session id".into(),
+            })
+        }
+    };
+    let exists = match app.try_state::<crate::AppState>() {
+        Some(state) => state.sessions.lock().await.contains_key(&id),
+        None => false,
+    };
+    if exists {
+        Ok(id)
+    } else {
+        Err(OutFrame::Rejected {
+            session_id: session_id.to_string(),
+            reason: "no_such_tab",
+            message: "no such session".into(),
+        })
+    }
+}
+
 async fn start_mirror(
     app: &AppHandle,
     session_id: &str,
     out_tx: &tokio::sync::mpsc::UnboundedSender<Message>,
     mirrors: &mut std::collections::HashMap<karl_session::SessionId, tokio::task::JoinHandle<()>>,
 ) {
-    let id = match lifecycle_gate(app, session_id).await {
+    let id = match mirror_gate(app, session_id).await {
         Ok(id) => id,
         Err(rej) => {
             if let Ok(j) = serde_json::to_string(&rej) {
