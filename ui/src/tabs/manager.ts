@@ -1906,6 +1906,11 @@ export class TabManager {
   /// menu's "Start new agent".
   public runDefaultAgentInGroup: ((groupId: string) => void) | null = null;
 
+  /// Launches the default agent, ungrouped — same path as the titlebar chip
+  /// run button (reuses an idle tab or opens a new one). Wired from main.ts;
+  /// used by the empty-tabbar context menu's "Start new agent".
+  public runDefaultAgentNewTab: (() => void) | null = null;
+
   /// Returns the command line that launches the default agent/executor, or
   /// null if no spawn is configured. Wired from main.ts; used by the group
   /// context menu's "Start new agent" item to preload a fresh tab.
@@ -2126,6 +2131,20 @@ export class TabManager {
           shortcut: formatChord(["mod", "shift", "G"]),
           onClick: () => {
             this.createEmptyGroup();
+          },
+        },
+        {
+          label: "Start new agent",
+          icon: this.defaultAgentIcon?.() ?? Icons.sparkles(),
+          onClick: () => {
+            if (this.runDefaultAgentNewTab) {
+              this.runDefaultAgentNewTab();
+              return;
+            }
+            void (async () => {
+              const cmd = (await this.defaultAgentCmdline?.()) ?? null;
+              await this.createTab({ initialCommand: cmd });
+            })();
           },
         },
       ]);
