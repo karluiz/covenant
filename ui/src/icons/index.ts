@@ -144,6 +144,13 @@ export const Icons = {
       o,
     ),
 
+  /** Git branch — a commit forking to a side branch. */
+  gitBranch: (o?: IconOptions): string =>
+    svg(
+      `<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="7.5" r="3"/><path d="M6 9v6"/><path d="M8.5 6.4c6 0 9.5 1.5 9.5 5.1"/>`,
+      o,
+    ),
+
   /** Eye — toggle visibility of hidden / gitignored items. */
   eye: (o?: IconOptions): string =>
     svg(

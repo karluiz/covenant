@@ -8476,6 +8476,32 @@ mark.mv-find-hit.is-active {
     text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
 }
+.structure-branch {
+    display: flex;
+    align-items: center;
+    padding: 5px 10px 7px;
+    border-bottom: 1px solid var(--border);
+}
+.structure-branch[hidden] { display: none; }
+.structure-branch-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 2px 7px;
+    font-size: 10.5px;
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    font-variant-numeric: tabular-nums;
+}
+.structure-branch-chip svg { color: var(--muted); flex-shrink: 0; }
+.structure-branch-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .structure-refresh {
     background: transparent;
     border: 1px solid transparent;

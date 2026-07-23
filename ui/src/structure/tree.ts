@@ -21,6 +21,7 @@ import {
 import { pushInfoToast } from "../notifications/toast";
 import {
   structureClipboardFiles,
+  getDirContext,
   structureClipboardSetFiles,
   structureCopyInto,
   structureCreatePath,
@@ -104,6 +105,7 @@ export class StructureTree {
   private readonly root: HTMLElement;
   private readonly listEl: HTMLUListElement;
   private readonly headerEl: HTMLElement;
+  private readonly branchEl: HTMLElement;
   private readonly emptyEl: HTMLElement;
   private cwd: string | null = null;
   private nodes: NodeState[] = [];
@@ -170,6 +172,11 @@ export class StructureTree {
     this.headerEl = document.createElement("header");
     this.headerEl.className = "structure-header";
     this.root.appendChild(this.headerEl);
+
+    this.branchEl = document.createElement("div");
+    this.branchEl.className = "structure-branch";
+    this.branchEl.hidden = true;
+    this.root.appendChild(this.branchEl);
 
     this.listEl = document.createElement("ul");
     this.listEl.className = "structure-list";
@@ -480,6 +487,7 @@ export class StructureTree {
     this.cwd = cwd;
     this.expandedPaths = loadExpanded(cwd);
     this.renderHeader(cwd);
+    this.renderBranch(cwd);
     await this.refreshRoot();
   }
 
@@ -489,6 +497,7 @@ export class StructureTree {
   }
 
   private renderWaiting(): void {
+    this.branchEl.hidden = true;
     this.headerEl.innerHTML = "";
     const label = document.createElement("span");
     label.className = "structure-cwd";
@@ -566,6 +575,33 @@ export class StructureTree {
       void this.refresh();
     });
     this.headerEl.appendChild(refresh);
+  }
+
+  /// Fill the branch bar under the path. Async: the branch comes from a
+  /// git probe (get_dir_context, cached 5s). Captures `cwd` so a re-root
+  /// mid-flight drops a stale result. Hidden when the cwd is not a repo.
+  private renderBranch(cwd: string): void {
+    this.branchEl.hidden = true;
+    this.branchEl.innerHTML = "";
+    if (!cwd) return;
+    void getDirContext(cwd)
+      .then((ctx) => {
+        if (this.cwd !== cwd) return; // re-rooted while awaiting
+        const branch = ctx.git?.branch;
+        if (!branch) return; // not a repo → stay hidden
+        const chip = document.createElement("span");
+        chip.className = "structure-branch-chip";
+        chip.title = branch;
+        chip.innerHTML =
+          Icons.gitBranch({ size: 11 }) +
+          `<span class="structure-branch-name"></span>`;
+        chip.querySelector(".structure-branch-name")!.textContent = branch;
+        this.branchEl.appendChild(chip);
+        this.branchEl.hidden = false;
+      })
+      .catch(() => {
+        /* probe failed — leave the bar hidden */
+      });
   }
 
   private async refreshRoot(): Promise<void> {
