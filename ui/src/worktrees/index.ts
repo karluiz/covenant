@@ -1,25 +1,37 @@
-import { gitRepoSummary, worktreeSizes, worktreeDetail, gitChanges, type GitRepoSummary, type GitWorktreeSummary } from "../api";
-import { worktreeStateClass, worktreeStateLabel } from "../status/worktree-state";
+import {
+  gitRepoSummary, worktreeSizes, worktreeDetail, gitChanges, devLiveWorktreeRoot,
+  worktreeCleanTarget, worktreeReclaim, worktreeRelocate,
+  type GitRepoSummary, type GitWorktreeSummary,
+} from "../api";
+import { worktreeStateClass, worktreeStateLabel, worktreeDefaultAction } from "../status/worktree-state";
 import { worktreeLabel, compactPath, humanSize } from "./format";
 import { splitSizes, sizeRequestPaths } from "./sizes";
+import { pushConfirmToast, pushInfoToast } from "../notifications/toast";
+
+interface WorktreesOpts {
+  onOpenTab: (path: string, label: string) => void;
+  getOccupiedCwds: () => ReadonlySet<string>;
+}
 
 /// Full-screen Worktrees management page. Mirrors PulseSurface
 /// (ui/src/pulse/index.ts): a fixed overlay the terminal keeps focus behind,
 /// so Escape is captured on the capture phase.
 export class WorktreesSurface {
   private host: HTMLElement;
+  private opts: WorktreesOpts;
   private open_ = false;
   private repoRoot = "";
   private summary: GitRepoSummary | null = null;
   private sizes = new Map<string, { total: number; target: number }>();
   private detail = new Map<string, { subject: string | null; ins: number; del: number; files: string[] }>();
   private selected: string | null = null;
+  private liveRoot: string | null = null;
 
   private onKey = (e: KeyboardEvent): void => {
     if (this.open_ && e.key === "Escape") { e.preventDefault(); this.close(); }
   };
 
-  constructor(host: HTMLElement) { this.host = host; }
+  constructor(host: HTMLElement, opts: WorktreesOpts) { this.host = host; this.opts = opts; }
 
   get isOpen(): boolean { return this.open_; }
 
@@ -30,6 +42,7 @@ export class WorktreesSurface {
     document.body.classList.add("worktrees-fullscreen");
     document.addEventListener("keydown", this.onKey, true);
     this.mountShell();
+    this.liveRoot = await devLiveWorktreeRoot().catch(() => null);
     await this.refresh();
   }
 
@@ -218,10 +231,79 @@ export class WorktreesSurface {
         : `disk ${humanSize(size.total)}`;
     }
 
-    const actions = document.createElement("div");
-    actions.className = "wt-d-actions"; // filled in Task 7
+    const actions = this.renderActions(wt, size);
 
     host.append(title, path, summary, files, disk, actions);
+  }
+
+  private renderActions(wt: GitWorktreeSummary, size?: { total: number; target: number }): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "wt-d-actions";
+    const btn = (text: string, cls: string, fn: () => void): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `wt-act ${cls}`;
+      b.textContent = text;
+      b.addEventListener("click", fn);
+      row.appendChild(b);
+      return b;
+    };
+
+    if (!wt.current && !wt.is_main) {
+      btn("Open tab", "wt-act-open", () => { this.opts.onOpenTab(wt.path, worktreeLabel(wt)); this.close(); });
+    }
+    btn("View diff", "wt-act-diff", () => {
+      window.dispatchEvent(new CustomEvent("covenant:open-changes", { detail: { cwd: wt.path } }));
+      this.close();
+    });
+
+    // Clean build artifacts — extra warning on the live/current worktree.
+    const isLive = this.liveRoot === wt.path || wt.current;
+    const hasTarget = !size || size.target > 0;
+    if (hasTarget) {
+      const freed = size ? ` (${humanSize(size.target)})` : "";
+      btn("Clean build artifacts" + freed, "wt-act-clean", () => {
+        const warn = isLive
+          ? " This worktree built the running app — cleaning target/ mid-run can crash the dev build."
+          : "";
+        pushConfirmToast({
+          message: `Delete ${compactPath(wt.path)}/target/?${warn}`,
+          confirmLabel: "Clean",
+          onConfirm: () => {
+            void worktreeCleanTarget(wt.path)
+              .then((kb) => {
+                pushInfoToast({ message: `Freed ${humanSize(kb)} from ${worktreeLabel(wt)}` });
+                void this.loadSizes();
+              })
+              .catch((e) => pushInfoToast({ message: `Clean failed: ${String(e)}` }));
+          },
+        });
+      });
+    }
+
+    // State action — reuse the popover's verdict. Only wt.path (a real
+    // gitRepoSummary worktree) is ever passed to these destructive commands.
+    const act = worktreeDefaultAction(wt, this.opts.getOccupiedCwds());
+    if (act === "prune" || act === "reclaim") {
+      btn(act === "prune" ? "Prune" : "Reclaim", "wt-act-danger", () => {
+        pushConfirmToast({
+          message: `Remove worktree ${worktreeLabel(wt)}? This deletes the checkout and any untracked/ignored files in it.`,
+          confirmLabel: act === "prune" ? "Prune" : "Reclaim",
+          onConfirm: () => {
+            void worktreeReclaim(this.repoRoot, [wt.path])
+              .then(() => { this.selected = null; void this.refresh(); })
+              .catch((e) => pushInfoToast({ message: `Reclaim failed: ${String(e)}` }));
+          },
+        });
+      });
+    } else if (act === "relocate") {
+      btn("Relocate", "wt-act", () => {
+        void worktreeRelocate(this.repoRoot, wt.path)
+          .then(() => void this.refresh())
+          .catch((e) => pushInfoToast({ message: `Relocate failed: ${String(e)}` }));
+      });
+    }
+    return row;
   }
 }
 

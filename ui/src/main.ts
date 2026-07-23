@@ -2031,7 +2031,10 @@ async function boot(): Promise<void> {
   // Worktrees management page — ⌘⌥W toggle. Own fixed-overlay host on body.
   const worktreesHost = document.createElement("div");
   document.body.appendChild(worktreesHost);
-  const worktreesSurface = new WorktreesSurface(worktreesHost);
+  const worktreesSurface = new WorktreesSurface(worktreesHost, {
+    onOpenTab: (path, label) => { statusBar.onOpenGitWorktree?.(path, label); },
+    getOccupiedCwds: () => new Set(statusBar.getOccupiedCwds?.() ?? []),
+  });
   const openWorktrees = async (): Promise<void> => {
     const cwd = manager.activeCwd();
     if (!cwd) return;

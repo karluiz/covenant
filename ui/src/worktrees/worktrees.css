@@ -68,3 +68,11 @@ body.worktrees-fullscreen { overflow: hidden; }
 .wt-d-more { color: var(--fg-dim, #888); }
 .wt-d-disk { font-size: 12px; color: var(--fg-dim, #aaa); margin-bottom: 14px; font-variant-numeric: tabular-nums; }
 .wt-d-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.wt-act {
+  padding: 6px 12px; font-size: 12px; cursor: pointer;
+  background: var(--bg-elev, #1a1a1e); color: inherit;
+  border: 1px solid var(--border, #333); border-radius: 0;
+}
+.wt-act:hover { background: var(--bg-elev-2, #24242a); }
+.wt-act-danger { border-color: var(--danger, #a33); }
