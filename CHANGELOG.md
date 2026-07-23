@@ -6,6 +6,67 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.60 — Attention-first remote dashboard + PTY Perception + clean agent launches
+
+### Added
+
+- **Remote dashboard rebuilt around attention**: the RC web dashboard now
+  leads with what needs you instead of an alphabetical tab list. A stopped
+  agent asks for a KEY, not a command — the quick-key row (y/n, Esc, ^C,
+  arrows, 1/2/3, ⇧⇥) sends a new `send_keys` frame whose token the desktop
+  maps through a closed whitelist (`rc_agent::key_bytes`) to raw PTY bytes,
+  behind the same arming gate as command injection.
+
+- **Operator Perception reaches Claude Code PTY prompts**: permission
+  prompts are parsed off the per-session headless vt100 grid (closed set:
+  Bash command / edit / read) into the same `PermissionRequest` shape ACP
+  delivers, and flow through the untouched ACP decision core — same Haiku
+  judge, safety floor, persistent-option block and streak cap. Auto-answer
+  writes the option digit to the PTY after a re-parse drift check, and a
+  signed toast + first-act chip make every auto-answer visible.
+
+- **SpecScore canonicalization flow**: the spec viewer always shows the
+  SpecScore chip, findings nudge toward the canonical shape, and the
+  breakdown popover grows a **Convert to canonical** button whose 30–90s
+  LLM rewrite streams into the spec editor instead of blocking the popover.
+
+- **Canon operator review queue in-app**: the Review queue button in
+  Registry > Operators curates in place — pending submissions list with
+  per-card approve/reject via `marketplace_review`, count in the button
+  label — instead of bouncing to the forge admin page.
+
+- **Agent-launch tabs open on the agent, not the shell**: a PTY spawn types
+  its command into a fresh shell, so tabs opened on prompt noise + the
+  echoed cmdline before the agent drew. `createTab({ scrubLaunch })` in
+  `ui/src/tabs/manager.ts` veils the terminal and clears viewport +
+  scrollback when the injected command starts — the tab reveals straight
+  into the agent's banner. View-only: blocks and world-model keep the real
+  bytes; idle-tab reuse is deliberately untouched.
+
+### Changed
+
+- **Root vitest sweep excludes worktree checkouts**: `vitest run` from the
+  repo root swept every agent worktree's duplicated suite (~16x, minutes,
+  stale failures reported as main's). `vitest.config.ts` now excludes
+  `.covenant/`, `.claude/`, `.worktrees/` and executor skill dirs.
+
+### Fixed
+
+- **RC mirror re-wrapped at the browser's width**: the remote terminal now
+  mirrors the source grid dimensions instead of re-flowing lines.
+
+- **Refused pairing token retried forever**: a bad or expired token's plain
+  401 was indistinguishable from a network drop, so the dashboard retried
+  endlessly; it now names the refusal and stops.
+
+- **Spec-score popover + chip layout**: the breakdown popover no longer
+  renders under the mission viewer overlay, and the score chip sits inline
+  with the eyebrow in a wider modal.
+
+- **Worktree Claude history link**: `link_executor_history` required
+  `~/.claude/projects/<main-slug>` to exist, which worktree-first repos
+  never create — it is now created instead of bailing.
+
 ## v0.9.59 — Glass capsule fix for folded tab groups
 
 ### Changed
