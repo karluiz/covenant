@@ -85,7 +85,15 @@ pub fn spawn(
                                 .unwrap_or_default();
                             let (option_label, subject) = toast_fields(&req, &option_id);
                             let state = app.state::<crate::AppState>();
-                            if state.write_pty(session_id, option_id.as_bytes()).await {
+                            // Boxed prompts select on the bare digit; a
+                            // free-form "choice" is typed into the composer and
+                            // needs a carriage return to submit.
+                            let payload = if req.tool_call.kind.as_deref() == Some("choice") {
+                                format!("{option_id}\r")
+                            } else {
+                                option_id.clone()
+                            };
+                            if state.write_pty(session_id, payload.as_bytes()).await {
                                 consecutive += 1;
                                 tracing::info!(
                                     session = %session_id,
@@ -134,6 +142,9 @@ fn toast_fields(req: &karl_agent::acp::PermissionRequest, option_id: &str) -> (S
         .iter()
         .find(|o| o.option_id == option_id)
         .and_then(|o| o.name.clone())
+        // Choice labels carry the whole option prose; keep the head before
+        // the em/en-dash so the toast stays a line.
+        .map(|n| n.split(['—', '–']).next().unwrap_or(&n).trim().to_string())
         .map(|n| format!("{option_id}. {n}"))
         .unwrap_or_else(|| option_id.to_string());
     let subject = req
@@ -141,6 +152,7 @@ fn toast_fields(req: &karl_agent::acp::PermissionRequest, option_id: &str) -> (S
         .command()
         .and_then(|c| c.lines().next())
         .map(str::to_string)
+        .or_else(|| req.tool_call.title.clone())
         .or_else(|| req.tool_call.kind.clone())
         .unwrap_or_default();
     (label, subject)

@@ -48,6 +48,15 @@ pub fn decide(
             // Missing command or a Mutates/Destructive command → hand back.
             _ => return PerceptionDecision::Escalate,
         },
+        // A free-form choice prompt: no command to classify, so the safety is
+        // the parser's unique-`(recommended)` guarantee — exactly one option,
+        // marked "recommended". The judge (below) still gates triviality.
+        Some("choice") => {
+            let rec = req.options.iter().filter(|o| o.kind == "recommended").count();
+            if rec != 1 {
+                return PerceptionDecision::Escalate;
+            }
+        }
         // Unknown kind or None → hand back.
         _ => return PerceptionDecision::Escalate,
     }
@@ -81,19 +90,25 @@ pub fn decide(
 pub fn build_judge_prompt(req: &PermissionRequest) -> String {
     let kind = req.tool_call.kind.as_deref().unwrap_or("unknown");
     let cmd = req.tool_call.command().unwrap_or("");
+    let question = req.tool_call.title.as_deref().unwrap_or("");
     let opts = req
         .options
         .iter()
-        .map(|o| format!("- {} (kind: {})", o.option_id, o.kind))
+        .map(|o| match o.name.as_deref() {
+            Some(n) => format!("- {} (kind: {}): {n}", o.option_id, o.kind),
+            None => format!("- {} (kind: {})", o.option_id, o.kind),
+        })
         .collect::<Vec<_>>()
         .join("\n");
     format!(
         "You gate an executor's permission prompt for a supervising operator.\n\
          Decide ONLY whether this is a trivial decision with one obviously-correct answer\n\
          that any reasonable engineer would pick without thinking (e.g. reading a file,\n\
-         a recommended workflow default). If there is ANY doubt, say it is not trivial.\n\
+         a recommended workflow default). A choice that commits consequential work\n\
+         (deploying, deleting, spending real resources) is NOT trivial even if one option\n\
+         is labelled recommended. If there is ANY doubt, say it is not trivial.\n\
          Do NOT reason about danger — that is handled separately.\n\n\
-         tool kind: {kind}\ncommand: {cmd}\noptions:\n{opts}\n\n\
+         question: {question}\ntool kind: {kind}\ncommand: {cmd}\noptions:\n{opts}\n\n\
          Reply with ONLY JSON: {{\"trivial\": <bool>, \"option_id\": \"<one of the option ids, or omit>\"}}"
     )
 }
@@ -358,6 +373,21 @@ mod tests {
             0,
             5,
         );
+        assert!(matches!(d, PerceptionDecision::Escalate));
+    }
+
+    #[test]
+    fn choice_with_one_recommended_auto_answers() {
+        let r = req("choice", None, vec![opt("1", "recommended")]);
+        let d = decide(&r, &JudgeVerdict::Trivial { option_id: "1".into() }, 0, 5);
+        assert!(matches!(d, PerceptionDecision::AutoAnswer { option_id, .. } if option_id == "1"));
+    }
+
+    #[test]
+    fn choice_without_recommended_escalates() {
+        // Floor guards even if the judge is fooled: no recommended option.
+        let r = req("choice", None, vec![opt("1", ""), opt("2", "")]);
+        let d = decide(&r, &JudgeVerdict::Trivial { option_id: "1".into() }, 0, 5);
         assert!(matches!(d, PerceptionDecision::Escalate));
     }
 
