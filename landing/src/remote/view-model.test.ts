@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { splitTitle, phaseLabel, attentionSummary, groupTabs } from "./view-model";
 import { sortTabs, resolveSelection, mirrorTransition } from "./view-model";
 import type { TabInfo } from "./protocol";
 
@@ -65,5 +66,77 @@ describe("mirrorTransition", () => {
   });
   it("does nothing when not mirroring and detail is hidden", () => {
     expect(mirrorTransition(null, "s1", true, false)).toEqual({ stop: null, start: null });
+  });
+});
+
+
+function ptab(sid: string, title: string, phase: string, armed = false): TabInfo {
+  return { session_id: sid, title, cwd: "~", executor: "claude", phase, armed };
+}
+
+describe("attention ordering", () => {
+  it("a waiting tab outranks a running one, unarmed", () => {
+    const out = sortTabs([ptab("run", "b", "running"), ptab("wait", "a", "waiting")]);
+    expect(out[0].session_id).toBe("wait");
+  });
+  it("armed still beats phase — an armed idle tab sits above an unarmed waiting one", () => {
+    const out = sortTabs([ptab("wait", "a", "waiting", false), ptab("armed", "z", "idle", true)]);
+    expect(out[0].session_id).toBe("armed");
+  });
+  it("orders the full urgency ladder waiting→done→running→thinking→idle", () => {
+    const out = sortTabs([
+      ptab("idle", "a", "idle"), ptab("think", "a", "thinking"),
+      ptab("run", "a", "running"), ptab("done", "a", "done"), ptab("wait", "a", "waiting"),
+    ]);
+    expect(out.map((t) => t.session_id)).toEqual(["wait", "done", "run", "think", "idle"]);
+  });
+});
+
+describe("splitTitle", () => {
+  it("splits GROUP › leaf on the real separator", () => {
+    expect(splitTitle("COVENANT › agent-claude-0722")).toEqual({ group: "COVENANT", leaf: "agent-claude-0722" });
+  });
+  it("returns a null group for an ungrouped title", () => {
+    expect(splitTitle("app")).toEqual({ group: null, leaf: "app" });
+  });
+});
+
+describe("phaseLabel", () => {
+  it("maps waiting to the fail/attention tone", () => {
+    expect(phaseLabel("waiting")).toEqual({ text: "waiting", tone: "wait" });
+  });
+  it("maps writing/reading to the run tone (they are activity)", () => {
+    expect(phaseLabel("writing").tone).toBe("run");
+    expect(phaseLabel("reading").tone).toBe("run");
+  });
+});
+
+describe("attentionSummary", () => {
+  it("names only the non-empty buckets, urgent first", () => {
+    const tabs = [
+      ptab("a", "x", "waiting"), ptab("b", "x", "waiting"),
+      ptab("c", "x", "done"), ptab("d", "x", "running"),
+      ...Array.from({ length: 15 }, (_, i) => ptab("i" + i, "x", "idle")),
+    ];
+    expect(attentionSummary(tabs)).toBe("2 waiting · 1 done · 1 active · 15 idle");
+  });
+  it("says 'no tabs' when empty", () => {
+    expect(attentionSummary([])).toBe("no tabs");
+  });
+});
+
+describe("groupTabs", () => {
+  it("buckets by prefix and floats the group with the most urgent tab up", () => {
+    const groups = groupTabs([
+      ptab("d1", "Drama › damn", "idle"),
+      ptab("c1", "COVENANT › a", "idle"),
+      ptab("c2", "COVENANT › b", "waiting"),  // pulls COVENANT above Drama
+    ]);
+    expect(groups[0].key).toBe("COVENANT");
+    expect(groups[0].active).toBe(1);
+  });
+  it("puts ungrouped tabs in a '' group", () => {
+    const groups = groupTabs([ptab("a", "app", "idle")]);
+    expect(groups[0].key).toBe("");
   });
 });
