@@ -1679,6 +1679,31 @@ async function boot(): Promise<void> {
   statusBar.onOpenGitWorktree = (path, label) => {
     void manager.createTab({ cwd: path, customName: label });
   };
+  // "Agent" on a worktree row: launch the default spawn IN the existing
+  // worktree. Deliberately skips resolveLaunch — no worktree is cut, we reuse
+  // the one git already reported. ACP default → chat tab; PTY default →
+  // terminal tab preloaded with the cmdline. Falls back to a plain tab if the
+  // default spawn has no runnable command.
+  statusBar.onResumeWorktreeAgent = (path, label) => {
+    void (async () => {
+      const specs = await listSpawns();
+      const spec = specs.find((s) => s.default) ?? specs[0];
+      const acpExec = spec?.acp ? acpExecutorFor(spec) : null;
+      if (acpExec) {
+        await manager.createAcpTab({ cwd: path, customName: label, executor: acpExec });
+        return;
+      }
+      const cmdline = spec?.command
+        ? buildSpawnCmdline(spec, claudeThemeFor(resolveTheme(activeThemeMode, activeSpecialId))) + "\n"
+        : null;
+      await manager.createTab({
+        cwd: path,
+        customName: label,
+        initialCommand: cmdline,
+        scrubLaunch: !!cmdline,
+      });
+    })();
+  };
   // Relocate must not be offered for a worktree with a live tab cwd'd into
   // it — git_tools::relocate_worktree can't see open tabs at all (pure
   // git/filesystem layer), so this is the seam that actually enforces that

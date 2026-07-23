@@ -200,6 +200,10 @@ export class StatusBar {
   /// worktree in its own terminal tab.
   public onOpenGitWorktree: ((path: string, label: string) => void) | null = null;
 
+  /// Same popover, but launch the default agent IN the existing worktree
+  /// (no new worktree cut) — "resume with agent" on a worktree row.
+  public onResumeWorktreeAgent: ((path: string, label: string) => void) | null = null;
+
   /// Pulled (not pushed) when the worktree popover renders: the cwd of every
   /// currently open tab, not just the active one. `relocate_worktree` on the
   /// Rust side has no visibility into open tabs — it is a pure git/filesystem
@@ -1006,11 +1010,25 @@ export class StatusBar {
           prune: "Prune",
           relocate: "Relocate",
         };
-        const action = verb === "none"
+        const openable = verb === "open" || verb === "decide";
+        // Actions never occupy a grid track at rest: the state chip owns the
+        // right cell, and on row hover the actions overlay it (see CSS). Only
+        // openable rows get Agent/Open; reclaim/prune/relocate keep their
+        // single text button in the same overlay slot.
+        const AGENT_ICON = Icons.sparkles({ size: 13 });
+        const OPEN_ICON = Icons.terminalSquare({ size: 13 });
+        const actions = verb === "none"
           ? ""
-          : verb === "open" || verb === "decide"
-            ? `<button type="button" class="status-git-pop-open-wt" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">Open tab</button>`
+          : openable
+            ? `<button type="button" class="status-git-pop-agent-wt" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">${AGENT_ICON}<span>Agent</span></button><button type="button" class="status-git-pop-open-wt" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">${OPEN_ICON}<span>Open</span></button>`
             : `<button type="button" class="status-git-pop-wt-act" data-verb="${verb}" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">${ACTION_LABEL[verb]}</button>`;
+        // Path reads relative to the repo root, boilerplate dir dimmed and the
+        // slug left plain — `.covenant/worktrees/` grey, `agent-foo-0722` sharp.
+        const { dir, slug } = worktreePathParts(wt.path, summary.repo_root);
+        const meta = `${dir ? `<span class="status-git-pop-wt-dim">${escapeHtml(dir)}</span>` : ""}${escapeHtml(slug)}`;
+        const exile = wt.off_convention
+          ? `<span class="status-git-pop-wt-exile">off-convention</span>`
+          : "";
         // data-path/data-label live on the ROW too, not just the open-tab
         // button — rows whose default verb is reclaim/prune/relocate render
         // no "Open tab" button at all, but Enter must still be able to open
@@ -1018,14 +1036,17 @@ export class StatusBar {
         // triggers a destructive action).
         return `
           <div class="status-git-pop-row status-git-pop-worktree${wt.current ? " is-current" : ""}" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}">
-            <span class="status-git-pop-row-main">
-              <span class="status-git-pop-row-name">${escapeHtml(label)}</span>
-              <span class="status-git-pop-row-meta">${escapeHtml(compactPath(wt.path))}${
-                wt.off_convention ? ` <span class="status-git-pop-wt-exile">off-convention</span>` : ""
-              }</span>
+            <span class="status-git-pop-row-main status-git-pop-wt-main">
+              <span class="status-git-pop-wt-line1">
+                <span class="status-git-pop-row-name">${escapeHtml(label)}</span>
+                ${exile}
+              </span>
+              <span class="status-git-pop-row-meta">${meta}</span>
             </span>
-            ${state}
-            ${action}
+            <span class="status-git-pop-wt-right">
+              ${state}
+              ${actions ? `<span class="status-git-pop-wt-actions">${actions}</span>` : ""}
+            </span>
           </div>`;
       }).join("")
       : `<div class="status-git-pop-empty">No worktrees reported by git.</div>`;
@@ -1145,6 +1166,15 @@ export class StatusBar {
         const label = btn.dataset.label;
         if (!path || !label) return;
         this.onOpenGitWorktree?.(path, label);
+        this.closeBranchPopover();
+      });
+    });
+    pop.querySelectorAll<HTMLButtonElement>(".status-git-pop-agent-wt").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const path = btn.dataset.path;
+        const label = btn.dataset.label;
+        if (!path || !label) return;
+        this.onResumeWorktreeAgent?.(path, label);
         this.closeBranchPopover();
       });
     });
@@ -3021,6 +3051,21 @@ function worktreeLabel(wt: GitWorktreeSummary): string {
 
 function compactPath(path: string): string {
   return path.replace(/^\/Users\/[^/]+/, "~");
+}
+
+/// Split a worktree path into a dimmable dir prefix and the trailing slug.
+/// Relative to the repo root when the worktree sits under it (the normal
+/// `<root>/.covenant/worktrees/<slug>` case); otherwise falls back to the
+/// home-compacted absolute path. The last segment is the slug worth reading;
+/// everything before it is boilerplate the caller greys out.
+function worktreePathParts(path: string, repoRoot: string): { dir: string; slug: string } {
+  const rel = repoRoot && path.startsWith(repoRoot + "/")
+    ? path.slice(repoRoot.length + 1)
+    : compactPath(path);
+  const slash = rel.lastIndexOf("/");
+  return slash >= 0
+    ? { dir: rel.slice(0, slash + 1), slug: rel.slice(slash + 1) }
+    : { dir: "", slug: rel };
 }
 
 /// Header breadcrumb for a spec path: the last 3 segments, `/`-joined,

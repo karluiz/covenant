@@ -6966,10 +6966,15 @@ body.theme-light .status-git-popover {
 .status-git-pop-wt-orphan { color: var(--danger); }
 .status-git-pop-wt-orphan::before { background: var(--danger); }
 .status-git-pop-wt-exile {
-    color: var(--muted);
+    flex: 0 0 auto;
+    color: var(--warn, var(--running));
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-size: 0.85em;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 9px;
+    line-height: 1.4;
+    padding: 0 4px;
+    border: 1px solid color-mix(in srgb, var(--warn, var(--running)) 40%, transparent);
 }
 .status-git-pop-root {
     color: var(--muted);
@@ -7154,16 +7159,82 @@ button.status-git-pop-row:disabled {
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 10.5px;
 }
+/* Worktree rows: two-line info block (name/path stacked) + a right cell that
+   holds the state chip at rest and swaps to hover-revealed actions. The
+   actions overlay the state, so they never claim a grid track that would
+   squeeze the name. */
 .status-git-pop-worktree {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+    height: auto;
+    min-height: 46px;
+    align-items: center;
+    padding-top: 6px;
+    padding-bottom: 6px;
 }
+.status-git-pop-wt-main {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+}
+.status-git-pop-wt-line1 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+}
+.status-git-pop-wt-main .status-git-pop-row-name { font-size: 13px; }
+.status-git-pop-wt-dim { color: var(--faint, var(--muted)); }
+
+.status-git-pop-wt-right {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+    height: 26px;
+}
+/* State chip fades out under the revealed actions on hover/focus — but only
+   on rows that HAVE actions (the `here` row has none, so its chip must stay). */
+.status-git-pop-wt-right .status-git-pop-badge { transition: opacity 100ms ease; }
+.status-git-pop-worktree:hover:has(.status-git-pop-wt-actions) .status-git-pop-badge,
+.status-git-pop-worktree.is-active:has(.status-git-pop-wt-actions) .status-git-pop-badge,
+.status-git-pop-worktree:focus-within:has(.status-git-pop-wt-actions) .status-git-pop-badge {
+    opacity: 0;
+}
+
+.status-git-pop-wt-actions {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 100ms ease;
+    /* fade so the buttons read cleanly over the path/state behind them */
+    padding-left: 28px;
+    background: linear-gradient(90deg, transparent, var(--bg-overlay) 28px);
+}
+.status-git-pop-worktree:hover .status-git-pop-wt-actions,
+.status-git-pop-worktree.is-active .status-git-pop-wt-actions,
+.status-git-pop-worktree:focus-within .status-git-pop-wt-actions {
+    opacity: 1;
+    pointer-events: auto;
+}
+
 .status-git-pop-open-wt,
+.status-git-pop-agent-wt,
 .status-git-pop-wt-act {
     appearance: none;
     -webkit-appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     border: 1px solid var(--border);
     border-radius: 0;
-    background: transparent;
+    background: var(--bg-overlay);
     color: var(--fg);
     cursor: pointer;
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -7172,25 +7243,23 @@ button.status-git-pop-row:disabled {
     letter-spacing: 0.06em;
     text-transform: uppercase;
     line-height: 1.25;
-    padding: 2px 8px;
-    height: 20px;
-    opacity: 0;
-    transition: opacity 100ms ease;
+    padding: 0 8px;
+    height: 22px;
+    transition: border-color 90ms ease, background 90ms ease, color 90ms ease;
 }
-.status-git-pop-worktree:hover .status-git-pop-open-wt,
-.status-git-pop-worktree.is-active .status-git-pop-open-wt,
-.status-git-pop-open-wt:focus-visible,
-.status-git-pop-worktree:hover .status-git-pop-wt-act,
-.status-git-pop-worktree.is-active .status-git-pop-wt-act,
-.status-git-pop-wt-act:focus-visible {
-    opacity: 1;
-}
+.status-git-pop-agent-wt { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
+.status-git-pop-open-wt svg,
+.status-git-pop-agent-wt svg,
+.status-git-pop-wt-act svg { flex: none; }
 .status-git-pop-open-wt:hover:not(:disabled),
+.status-git-pop-agent-wt:hover:not(:disabled),
 .status-git-pop-wt-act:hover:not(:disabled) {
     border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .status-git-pop-open-wt:disabled,
+.status-git-pop-agent-wt:disabled,
 .status-git-pop-wt-act:disabled {
     cursor: default;
     opacity: 0.45;
