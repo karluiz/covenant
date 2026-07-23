@@ -645,3 +645,50 @@ test("filter narrows the list by leaf/group/executor", async ({ page }) => {
   await page.fill("#rc-filter", "damn");
   await expect(page.locator("#rc-list button.rc-row")).toHaveCount(1);
 });
+
+test("a wide source terminal does not push the detail pane off-screen", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.addInitScript(() => {
+    (window as any).__sent = [];
+    class FakeWS {
+      static last: FakeWS | null = null;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null; onerror: (() => void) | null = null;
+      readyState = 1;
+      constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        (window as any).__sent.push(data);
+        if (JSON.parse(data).t === "list_tabs") setTimeout(() => {
+          this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+          this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
+            { session_id: "s1", title: "COVENANT › wide", cwd: "~/w", executor: "claude", phase: "running", armed: true }] }) });
+        }, 0);
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS; // @ts-ignore
+    window.WebSocket.OPEN = 1; // @ts-ignore
+    window.__pushWide = () => { FakeWS.last && FakeWS.last.onmessage && FakeWS.last.onmessage({
+      data: JSON.stringify({ t: "mirror_screen", session_id: "s1", screen: "X".repeat(213) + "\n" + "Y".repeat(213), cols: 213, rows: 50 }) }); };
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+  await expect(page.locator('input.rc-cmd[data-sid="s1"]')).toBeVisible();
+  await page.evaluate(() => (window as any).__pushWide());
+  // Give the scale transform a beat.
+  await page.waitForTimeout(200);
+  // The page must not scroll sideways, and the detail pane must fit the viewport.
+  const overflow = await page.evaluate(() => ({
+    bodyScroll: document.documentElement.scrollWidth - window.innerWidth,
+    detailRight: document.getElementById("rc-detail")!.getBoundingClientRect().right,
+    inner: window.innerWidth,
+  }));
+  expect(overflow.bodyScroll).toBeLessThanOrEqual(1);
+  expect(overflow.detailRight).toBeLessThanOrEqual(overflow.inner + 1);
+  // The Send button is fully within the viewport (was clipped before the fix).
+  const sendBox = await page.locator("button.rc-send").boundingBox();
+  expect(sendBox!.x + sendBox!.width).toBeLessThanOrEqual(overflow.inner + 1);
+});
