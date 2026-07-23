@@ -1,24 +1,6 @@
 import { gistApi } from "./api";
 import { pushInfoToast } from "../notifications/toast";
-import { copyText } from "../ui/clipboard";
-
-/// Copy, and if the webview refuses (transient activation is gone after the
-/// network round-trip), fall back to a toast the user clicks — that click IS
-/// a fresh user gesture, so the retry succeeds. Publishing already happened;
-/// a clipboard hiccup must never read as "share failed".
-async function copyOrOffer(url: string): Promise<void> {
-  try {
-    await copyText(url);
-    pushInfoToast({ message: "Gist link copied" });
-  } catch {
-    pushInfoToast({
-      message: `Gist published — click to copy: ${url}`,
-      onClick: () => {
-        void copyText(url);
-      },
-    });
-  }
-}
+import { copyLinkOrOffer } from "../ui/share-link";
 
 /// Locally-known shared paths, mirrored from the backend's share store so
 /// views can badge rows synchronously. Views listen for GIST_SHARES_EVENT
@@ -54,13 +36,13 @@ export async function shareFileAsGist(path: string): Promise<void> {
   const share = await gistApi.publish(path);
   sharedPaths.add(path);
   notifySharesChanged();
-  await copyOrOffer(share.url);
+  await copyLinkOrOffer(share.url, "Gist link copied", "Gist published — click to copy");
 }
 
 export async function copyGistLink(path: string): Promise<void> {
   const share = await gistApi.getShare(path);
   if (!share) return;
-  await copyOrOffer(share.url);
+  await copyLinkOrOffer(share.url, "Gist link copied", "Gist published — click to copy");
 }
 
 export async function revokeGist(path: string): Promise<void> {

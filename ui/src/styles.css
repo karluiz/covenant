@@ -14307,6 +14307,20 @@ button.status-segment.status-tg:focus-visible {
   .tab-live-dot { animation: none; opacity: 0.8; }
 }
 
+/* Solid dot: this session's PTY output is being broadcast read-only via
+   Terminal Share. Filled = "broadcasting", vs the live dot's hollow ring. */
+.tab-share-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #f97316;
+  box-shadow: 0 0 5px rgba(249, 115, 22, 0.5);
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
 /* ── Capabilities panel — mirrors #settings-page layout exactly ────── */
 #capabilities-page {
   display: grid;

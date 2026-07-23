@@ -114,6 +114,15 @@ import { getSpecPromptState } from "../aom/spec-prompt";
 import { Familiars } from "../familiars/api";
 import { setFamiliarFor } from "../familiars/registry";
 import { attachTooltip } from "../tooltip/tooltip";
+import {
+  TERM_SHARE_EVENT,
+  ensureTermSharesLoaded,
+  isTermShared,
+  shareSession,
+  copyTermShareLink,
+  stopSharing,
+  revokeIfShared,
+} from "../term-share/share";
 import type { Pane, TabLayout, SplitOrientation } from "./pane";
 import { activePane, assertLayoutValid } from "./pane";
 import {
@@ -2109,6 +2118,11 @@ export class TabManager {
       // re-render. refreshOperatorCache also calls renderTabbar.
       void this.refreshOperatorCache();
     });
+    // Terminal Share: prime the local cache and re-render the strip
+    // whenever a share/revoke happens (see structure/tree.ts for the
+    // same GIST_SHARES_EVENT pattern).
+    ensureTermSharesLoaded();
+    window.addEventListener(TERM_SHARE_EVENT, () => this.renderTabbar());
     // Right-click on empty tabbar area → "New group" menu. We only
     // catch the event when it isn't on a tab pill or a group chip;
     // those have their own contextmenu handlers that stop here.
@@ -6325,6 +6339,11 @@ export class TabManager {
     if (idx < 0) return;
 
     const tab = this.tabs[idx];
+    // Terminal Share: revoke any share on every closing pane. Fire-and-
+    // forget — see revokeIfShared's own doc comment.
+    for (const p of tab.panes) {
+      if (p.sessionId) revokeIfShared(p.sessionId);
+    }
     // Stamp the final name in the cache before disposal so closed-tab
     // labels survive for the operator-decisions panel.
     const closePane = activePane(tab);
@@ -7857,6 +7876,17 @@ export class TabManager {
       pill.insertBefore(liveDot, pill.firstChild);
     }
 
+    // Share dot: session is broadcast read-only. Solid, distinct from the
+    // hollow live-worktree ring. Same insertBefore pattern — pill isn't
+    // in the DOM yet.
+    const shareSid = activePane(tab).sessionId;
+    if (shareSid && isTermShared(shareSid)) {
+      const dot = document.createElement("span");
+      dot.className = "tab-share-dot";
+      attachTooltip(dot, "Sharing read-only");
+      pill.insertBefore(dot, pill.firstChild);
+    }
+
     // Same idea for the agent-idle badge: re-attach on rebuild, before
     // the close button so it sits beside the label.
     if (pillPaneLate.idleAgent) {
@@ -8031,6 +8061,28 @@ export class TabManager {
           }
         },
       });
+    }
+    // Terminal Share: read-only broadcast of this session's PTY output.
+    if (ctxSessionId) {
+      items.push({ divider: true });
+      if (isTermShared(ctxSessionId)) {
+        items.push({
+          label: "Copy share link",
+          icon: Icons.share(),
+          onClick: () => void copyTermShareLink(ctxSessionId),
+        });
+        items.push({
+          label: "Stop sharing",
+          icon: Icons.x(),
+          onClick: () => void stopSharing(ctxSessionId),
+        });
+      } else {
+        items.push({
+          label: "Share read-only…",
+          icon: Icons.share(),
+          onClick: () => void shareSession(ctxSessionId),
+        });
+      }
     }
     } // end terminal-only (mission + operator) block
     // Saved commands (per-group) and prompts (global) as submenus, targeting
