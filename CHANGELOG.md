@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.63 — Beacon parallel run fetches + cd-picker light fix
+
+### Changed
+
+- **Beacon sub-repo picks no longer freeze for 30–40s**: `load_workflow_runs`
+  in `crates/app/src/beacon.rs` fetched each workflow's latest run serially
+  (up to 25 sequential GitHub API round-trips); `join_all` collapses them to
+  roughly one, and a failed fetch now skips that workflow instead of blanking
+  the panel. `ui/src/beacon/panel.ts` clears the picker rows on drill-in so the
+  loader shows instantly.
+
+### Fixed
+
+- **cd-picker shadow washed out in light theme**: the folder picker used a
+  hardcoded `rgba(0,0,0,0.35)` shadow that read as a grey haze with no crisp
+  edge in light theme. Shadow and border in `ui/src/styles.css` now derive from
+  `--ink-rgb` so they flip with the theme.
+
 ## v0.9.62 — Full-screen Worktrees disk & diff-explain page
 
 ### Added
