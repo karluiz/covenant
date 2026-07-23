@@ -61,6 +61,7 @@ mod project_ref;
 mod prompts;
 pub mod provider_resolve;
 mod providers_cmd;
+mod pty_perception;
 mod rc_agent;
 mod resources;
 mod safety;
@@ -349,6 +350,19 @@ pub(crate) struct AppState {
     /// remote `open_tab` frames are honored and emit `rc://tab/open`.
     /// Not persisted (resets to off on every app launch).
     allow_remote_open: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl AppState {
+    /// Write raw bytes into a PTY session. `ManagedSession` is private to
+    /// this module, so out-of-module tasks (PTY Perception) go through
+    /// here. Returns false if the session is gone or the write failed.
+    pub(crate) async fn write_pty(&self, id: SessionId, bytes: &[u8]) -> bool {
+        let mut sessions = self.sessions.lock().await;
+        match sessions.get_mut(&id) {
+            Some(ms) => ms.session.write(bytes).is_ok(),
+            None => false,
+        }
+    }
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -917,6 +931,20 @@ async fn spawn_session(
         state.notifier.clone(),
         state.email_notifier.clone(),
         state.settings.clone(),
+    );
+
+    // PTY Perception: auto-answer trivial safe Claude Code permission
+    // prompts in this tab when the session's effective operator has
+    // Perception enabled. Same decision core as the ACP path.
+    let _ = pty_perception::spawn(
+        id,
+        session.subscribe(),
+        session.screen_handle(),
+        app.state::<std::sync::Arc<crate::operator_registry::OperatorRegistry>>()
+            .inner()
+            .clone(),
+        state.settings.clone(),
+        app.clone(),
     );
 
     // Cross-session watcher: forwards this session's bus into the
@@ -4372,13 +4400,19 @@ async fn spec_deep_score(
 }
 
 /// Rewrite a non-canonical spec into the canonical section shape via the
-/// Summary route. None when no route is configured.
+/// Summary route, streaming each delta over `on_delta` so the UI can
+/// render the rewrite as it generates. Returns the full text at the end
+/// (authoritative); None when no route is configured.
 #[tauri::command]
 async fn spec_canonicalize(
     state: tauri::State<'_, AppState>,
     markdown: String,
+    on_delta: Channel<String>,
 ) -> Result<Option<String>, String> {
-    summarizer::canonicalize_spec_oneshot(&state.settings, &markdown).await
+    summarizer::canonicalize_spec_stream(&state.settings, &markdown, move |t| {
+        let _ = on_delta.send(t);
+    })
+    .await
 }
 
 #[tauri::command]

@@ -465,11 +465,15 @@ questions. Return ONLY the rewritten markdown — no commentary, no code \
 fence around the document.";
 
 /// One-shot rewrite of a non-canonical spec into the canonical section
-/// shape. Ok(None) when no Summary route is configured — same contract as
+/// shape, streamed. Each text delta is forwarded to `on_delta` as it
+/// arrives (a 30–90 s rewrite must read as progress, not a hang); the
+/// full text is also returned so the caller can settle the final value.
+/// Ok(None) when no Summary route is configured — same contract as
 /// [`deep_score_oneshot`].
-pub async fn canonicalize_spec_oneshot(
+pub async fn canonicalize_spec_stream(
     settings: &Arc<Mutex<Settings>>,
     markdown: &str,
+    mut on_delta: impl FnMut(String) + Send + 'static,
 ) -> Result<Option<String>, String> {
     let text = markdown.trim();
     if text.is_empty() {
@@ -491,10 +495,25 @@ pub async fn canonicalize_spec_oneshot(
         thinking_budget: None,
         force_tool: None,
     };
-    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+    let buffer = Arc::new(StdMutex::new(String::new()));
+    let buf_cb = buffer.clone();
+    resolved
+        .provider
+        .ask_streaming(
+            req,
+            Box::new(move |evt| {
+                if let karl_agent::AgentEvent::Delta(t) = evt {
+                    if let Ok(mut b) = buf_cb.lock() {
+                        b.push_str(&t);
+                    }
+                    on_delta(t);
+                }
+            }),
+        )
         .await
         .map_err(|e| crate::route_err("Summary", e))?;
-    Ok(Some(resp.text))
+    let full = buffer.lock().map(|b| b.clone()).unwrap_or_default();
+    Ok(Some(full))
 }
 
 /// One-shot LLM judge for SpecScore's deep pass. Ok(None) when no Summary

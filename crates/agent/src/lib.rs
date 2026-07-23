@@ -10,6 +10,7 @@ pub mod acp;
 pub mod context_miner;
 pub mod pi_rpc;
 pub mod provider;
+pub mod pty_prompt;
 pub mod respond_tool;
 pub mod safety;
 pub mod spec_author;

@@ -187,7 +187,7 @@ where
 /// tracks the user's configured triage model instead of hardcoding
 /// `DEFAULT_TRIAGE_MODEL`. Returns `String::new()` on NO route or ANY error
 /// — the empty string parses to `Uncertain`, so the prompt safely escalates.
-async fn perception_judge(settings: &Arc<Mutex<Settings>>, prompt: String) -> String {
+pub(crate) async fn perception_judge(settings: &Arc<Mutex<Settings>>, prompt: String) -> String {
     let resolved = {
         let s = settings.lock().await;
         match crate::provider_resolve::resolve_route(&s, crate::settings::Role::Triage) {

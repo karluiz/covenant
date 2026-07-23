@@ -2468,6 +2468,29 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
     border-left-color: rgb(var(--ink-rgb) / 0.12);
 }
 
+/* Perception signature toasts: every auto-answer arrives signed by the
+   operator that made it — amber spine, WHO leading in uppercase. */
+.toast.toast-perception {
+    border-color: rgb(var(--ink-rgb) / 0.06);
+    border-left: 2px solid var(--running, #e0af68);
+}
+
+.toast.toast-perception:hover {
+    border-color: rgb(var(--ink-rgb) / 0.12);
+    border-left-color: var(--running, #e0af68);
+}
+
+.toast.toast-perception .toast-icon {
+    color: var(--running, #e0af68);
+}
+
+.toast-perception-who {
+    color: var(--running, #e0af68);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
 @keyframes toast-in {
     from {
         transform: translateX(20px);
@@ -8338,6 +8361,49 @@ mark.mv-find-hit.is-active {
     color: var(--fg, #d6d8db);
 }
 
+/* "Convert to canonical" streaming strip — same amber family as the
+   conflict banner: it's a transient in-progress state, not an error. */
+.mission-viewer-converting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--running, #e0af68) 45%, transparent);
+    background: color-mix(in srgb, var(--running, #e0af68) 12%, transparent);
+    border-radius: 0;
+    font-size: 11.5px;
+    color: var(--fg, #d6d8db);
+}
+
+.mission-viewer-converting-msg {
+    flex: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.mission-viewer-converting-cancel {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--running, #e0af68) 50%, transparent);
+    border-radius: 0;
+    padding: 3px 9px;
+    font: inherit;
+    font-size: 11px;
+    color: var(--fg, #d6d8db);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.mission-viewer-converting-cancel:hover {
+    background: color-mix(in srgb, var(--running, #e0af68) 18%, transparent);
+}
+
+/* While the rewrite streams in, the textarea is read-only — hide the
+   caret so it doesn't read as an editable surface yet. */
+.mission-viewer-textarea--streaming {
+    caret-color: transparent;
+    opacity: 0.92;
+}
+
 .mission-viewer-conflict-msg {
     flex: 1;
 }
@@ -12062,6 +12128,15 @@ body.theme-light .wiz-modal { box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18); }
   transform: scale(0.78);
   opacity: 0.7;
   filter: saturate(0.7);
+}
+/* Perception chip: the effective operator materialized here by ACTING
+   (auto-answering a prompt), not by a pin — dashed + attenuated, so
+   inherited authority never reads as an explicit mandate. */
+.tab-op-chip--perception {
+  transform: scale(0.82);
+  opacity: 0.75;
+  outline: 1px dashed color-mix(in srgb, var(--running, #e0af68) 55%, transparent);
+  outline-offset: 1px;
 }
 .tab-op-stack__more {
   display: inline-flex;
