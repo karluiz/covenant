@@ -84,7 +84,12 @@ pub fn parse_claude_prompt(screen: &str) -> Option<PermissionRequest> {
             question = Some((i, k));
         }
     }
-    let (qi, qkind) = question?;
+    // No boxed permission question → try the free-form "(recommended)"
+    // choice fallback before giving up.
+    let (qi, qkind) = match question {
+        Some(q) => q,
+        None => return parse_choice_prompt(&lines),
+    };
 
     let (kind, command) = match qkind {
         "proceed" => {
@@ -145,6 +150,63 @@ pub fn parse_claude_prompt(screen: &str) -> Option<PermissionRequest> {
             raw_input: command.map(|c| serde_json::json!({ "command": c })),
         },
         options,
+    })
+}
+
+/// Fallback for the agent's own free-form question: a numbered list where
+/// exactly ONE item is tagged `(recommended)` / `(default)`. That deliberate
+/// tag is the whole safety signal — there is no command to classify — so the
+/// answer is just that option's number and the judge is the triviality
+/// backstop. Strict: exactly one tagged item, ≥2 numbered lines total, and a
+/// `?` somewhere (the agent is actually asking).
+///
+/// ponytail: anchored on the unique tag, not on real list-boundary parsing —
+/// the on-screen scrollback often holds several numbered lists (a task list
+/// above the options), and only the tag disambiguates. Ceiling: two lists
+/// that each carry a tag → we bail (return None) rather than guess. Upgrade
+/// path: isolate the options block adjacent to the question if the tag
+/// convention ever proves too loose.
+fn parse_choice_prompt(lines: &[&str]) -> Option<PermissionRequest> {
+    let mut answer: Option<(String, String)> = None; // (number, label)
+    let mut option_count = 0usize;
+    let mut tagged = 0usize;
+    for l in lines {
+        if let Some(c) = OPTION_RE.captures(l) {
+            option_count += 1;
+            let label = c[2].trim().to_string();
+            let low = label.to_ascii_lowercase();
+            if low.contains("(recommended)") || low.contains("(default)") {
+                tagged += 1;
+                answer = Some((c[1].to_string(), label));
+            }
+        }
+    }
+    let (num, label) = answer?;
+    if tagged != 1 || option_count < 2 || !lines.iter().any(|l| l.ends_with('?')) {
+        return None;
+    }
+    let title = lines
+        .iter()
+        .rev()
+        .find(|l| l.ends_with('?'))
+        .map(|s| s.to_string());
+
+    Some(PermissionRequest {
+        session_id: String::new(),
+        tool_call: PermissionToolCall {
+            tool_call_id: "pty".to_string(),
+            title,
+            kind: Some("choice".to_string()),
+            raw_input: None,
+        },
+        // Only the recommended option is offered — the judge can pick nothing
+        // else, so the "chosen == recommended" constraint is enforced by
+        // construction.
+        options: vec![PermissionOption {
+            option_id: num,
+            kind: "recommended".to_string(),
+            name: Some(label),
+        }],
     })
 }
 
@@ -280,5 +342,113 @@ Do you want to proceed?
 Do you want to make this edit to a.rs?
 ❯ 1. Yes";
         assert!(parse_claude_prompt(screen).is_none());
+    }
+
+    // ---- free-form "(recommended)" choice prompts ------------------------
+
+    #[test]
+    fn parses_recommended_choice() {
+        let screen = "\
+Two execution options:
+1. Subagent-Driven (recommended) — I dispatch a fresh subagent per task.
+2. Inline Execution — I execute the tasks in this session.
+
+Which approach?";
+        let req = parse_claude_prompt(screen).expect("should parse");
+        assert_eq!(req.tool_call.kind.as_deref(), Some("choice"));
+        assert_eq!(req.options.len(), 1);
+        assert_eq!(req.options[0].option_id, "1");
+        assert_eq!(req.options[0].kind, "recommended");
+        assert_eq!(req.tool_call.title.as_deref(), Some("Which approach?"));
+    }
+
+    #[test]
+    fn choice_ignores_earlier_numbered_lists() {
+        // The real screen carries an unrelated task list (1..8) above the
+        // options list. Only the (recommended) tag anchors the answer, so the
+        // task list is inert.
+        let screen = "\
+8 tasks:
+1. worktree_detail command — 2 tests
+2. worktree_clean_target — 2 tests
+3. disk size helper — vitest
+
+Two execution options:
+1. Subagent-Driven (recommended) — fresh subagent per task.
+2. Inline Execution — in this session.
+
+Which approach?";
+        let req = parse_claude_prompt(screen).expect("should parse");
+        assert_eq!(req.tool_call.kind.as_deref(), Some("choice"));
+        assert_eq!(req.options[0].option_id, "1");
+    }
+
+    #[test]
+    fn recommended_on_second_option() {
+        let screen = "\
+1. Fast but risky.
+2. Safe and boring (recommended).
+
+Pick one?";
+        let req = parse_claude_prompt(screen).expect("should parse");
+        assert_eq!(req.options[0].option_id, "2");
+    }
+
+    #[test]
+    fn choice_without_recommended_returns_none() {
+        let screen = "\
+1. Option A.
+2. Option B.
+
+Which one?";
+        assert!(parse_claude_prompt(screen).is_none());
+    }
+
+    #[test]
+    fn choice_with_two_recommended_returns_none() {
+        let screen = "\
+1. Option A (recommended).
+2. Option B (recommended).
+
+Which one?";
+        assert!(parse_claude_prompt(screen).is_none());
+    }
+
+    #[test]
+    fn choice_single_option_returns_none() {
+        // A lone recommended item isn't a menu.
+        let screen = "\
+1. Just do it (recommended).
+
+Proceed?";
+        assert!(parse_claude_prompt(screen).is_none());
+    }
+
+    #[test]
+    fn choice_without_question_returns_none() {
+        // No "?" → the agent isn't asking, it's narrating.
+        let screen = "\
+1. Subagent-Driven (recommended).
+2. Inline Execution.";
+        assert!(parse_claude_prompt(screen).is_none());
+    }
+
+    #[test]
+    fn recommended_choice_flows_through_acp_decide() {
+        let screen = "\
+1. Subagent-Driven (recommended) — fresh subagent per task.
+2. Inline Execution — in this session.
+
+Which approach?";
+        let req = parse_claude_prompt(screen).unwrap();
+        let d = decide(
+            &req,
+            &JudgeVerdict::Trivial {
+                option_id: "1".into(),
+            },
+            0,
+            5,
+        );
+        assert!(matches!(d, PerceptionDecision::AutoAnswer { option_id, .. } if option_id == "1"));
     }
 }
