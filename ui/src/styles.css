@@ -6712,6 +6712,22 @@ body:not(.statusbar-single-row) .sb-row .sb-center {
     background: rgb(var(--ink-rgb) / 0.06);
 }
 
+/* At high zoom / narrow width the bar clips its overflow (overflow:hidden on
+   #status-bar) rather than the bar vanishing — its height is a fixed grid row.
+   The clip bites the RIGHT edge, so without this the trailing chrome (version,
+   score, telegram, running executor) is what disappears. Protect that zone and
+   let the framing ephemerals (operator / spec / AOM) absorb the shrink and
+   ellipsize instead — the spec filename is the longest, least-critical text in
+   the bar. .sb-center yields first in the top row (vitals are decorative). */
+.sb-right { flex-shrink: 0; }
+.sb-framing { min-width: 0; }
+.sb-center { flex-shrink: 1; }
+.sb-framing > .status-chip .status-chip-operator__name,
+.sb-framing > .status-segment .status-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .status-segment {
     display: inline-flex;
     align-items: center;
