@@ -1170,6 +1170,34 @@ pub fn worktree_sizes(paths: Vec<String>) -> Vec<(String, u64)> {
         .collect()
 }
 
+/// Delete a worktree's `target/` build cache and return freed KB. Refuses
+/// anything that isn't a real directory named `target` directly under a git
+/// worktree root. Never touches `node_modules` (a symlink to main's deps).
+/// ponytail: `.git`-existence is the worktree check; skips a full
+/// `git worktree list` cross-verify — upgrade if callers ever pass non-worktree
+/// paths that happen to hold a `.git`.
+pub fn clean_target(path: &Path) -> Result<u64, String> {
+    if !path.join(".git").exists() {
+        return Err(format!("{} is not a git worktree", path.display()));
+    }
+    let target = path.join("target");
+    let meta =
+        std::fs::symlink_metadata(&target).map_err(|_| "no target/ directory".to_string())?;
+    if meta.file_type().is_symlink() {
+        return Err("target/ is a symlink; refusing to delete".into());
+    }
+    if !meta.is_dir() {
+        return Err("target/ is not a directory".into());
+    }
+    let freed = worktree_sizes(vec![target.to_string_lossy().into_owned()])
+        .into_iter()
+        .next()
+        .map(|(_, kb)| kb)
+        .unwrap_or(0);
+    std::fs::remove_dir_all(&target).map_err(|e| format!("remove target/: {e}"))?;
+    Ok(freed)
+}
+
 /// What a worktree was working on: last commit subject + uncommitted diffstat
 /// (staged + unstaged vs HEAD). Cheap enough to call per selected worktree.
 #[derive(Debug, Clone, Serialize)]
@@ -3998,5 +4026,38 @@ index e69de29..0cfbf08 100644
         let d = worktree_detail(dir.path());
         assert_eq!(d.last_subject, None);
         assert_eq!((d.insertions, d.deletions), (0, 0));
+    }
+
+    #[test]
+    fn clean_target_removes_target_keeps_symlink_and_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        std::fs::write(p.join(".git"), "gitdir: /somewhere\n").unwrap(); // linked-worktree marker
+        std::fs::create_dir(p.join("target")).unwrap();
+        std::fs::write(p.join("target").join("build.o"), vec![0u8; 4096]).unwrap();
+        std::fs::write(p.join("keep.rs"), "fn main() {}\n").unwrap();
+        // node_modules as a symlink to some other dir — must survive.
+        let other = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(other.path(), p.join("node_modules")).unwrap();
+
+        let freed = clean_target(p).unwrap();
+        assert!(!p.join("target").exists(), "target should be gone");
+        assert!(p.join("keep.rs").exists(), "source must survive");
+        assert!(std::fs::symlink_metadata(p.join("node_modules")).unwrap().file_type().is_symlink(),
+            "node_modules symlink must survive");
+        let _ = freed; // KB may round to 0 on tiny dirs; deletion is what matters.
+    }
+
+    #[test]
+    fn clean_target_refuses_symlinked_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        std::fs::write(p.join(".git"), "gitdir: /somewhere\n").unwrap();
+        let real = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(real.path(), p.join("target")).unwrap();
+
+        let err = clean_target(p).unwrap_err();
+        assert!(err.contains("symlink"), "got: {err}");
+        assert!(p.join("target").exists(), "symlinked target must be untouched");
     }
 }

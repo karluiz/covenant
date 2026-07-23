@@ -2819,6 +2819,14 @@ async fn worktree_detail(path: String) -> Result<git_tools::WorktreeDetail, Stri
 }
 
 #[tauri::command]
+async fn worktree_clean_target(path: String) -> Result<u64, String> {
+    let p = PathBuf::from(path);
+    tokio::task::spawn_blocking(move || git_tools::clean_target(&p))
+        .await
+        .map_err(|e| format!("worktree_clean_target join: {e}"))?
+}
+
+#[tauri::command]
 async fn beacon_workflow_runs(cwd: String) -> Result<beacon::BeaconState, String> {
     Ok(beacon::load_workflow_runs(cwd).await)
 }
@@ -5765,6 +5773,7 @@ pub fn run() {
             git_switch_branch,
             git_changes,
             worktree_detail,
+            worktree_clean_target,
             beacon_workflow_runs,
             beacon_rerun_workflow,
             beacon_cancel_workflow,

@@ -1500,6 +1500,11 @@ export async function worktreeDetail(path: string): Promise<WorktreeDetail> {
   return invoke<WorktreeDetail>("worktree_detail", { path });
 }
 
+/** Delete a worktree's target/ build cache; resolves freed KB. */
+export async function worktreeCleanTarget(path: string): Promise<number> {
+  return invoke<number>("worktree_clean_target", { path });
+}
+
 // Beacon — GitHub Actions workflow status sidebar ----------------------
 
 export type BeaconRun = {
