@@ -14,6 +14,23 @@ export function worktreeStateLabel(state: WorktreeState): string {
   return LABELS[state];
 }
 
+/** Plain-language help for the state dots and lifecycle actions — the words
+ *  "spent"/"reclaim"/"relocate" mean nothing without them. Shown via attachTooltip. */
+export interface StateHelp { title: string; subtitle: string; }
+
+export const STATE_HELP: Record<WorktreeState, StateHelp> = {
+  active: { title: "Active", subtitle: "In use, with recent or unmerged work. Nothing to clean up." },
+  stale: { title: "Stale", subtitle: "No recent commits. Review whether it's still needed." },
+  spent: { title: "Spent", subtitle: "Its branch is merged or gone — safe to reclaim (delete)." },
+  orphan: { title: "Orphan", subtitle: "The checkout is missing or broken. Prune clears the dead entry." },
+};
+
+export const ACTION_HELP: Partial<Record<WorktreeAction, StateHelp>> = {
+  reclaim: { title: "Reclaim", subtitle: "Delete this worktree and its files — its work is already merged or gone." },
+  prune: { title: "Prune", subtitle: "Remove the git entry for a checkout that no longer exists on disk." },
+  relocate: { title: "Relocate", subtitle: "Move this off-convention worktree into .covenant/worktrees so every tool finds it in one place." },
+};
+
 export function worktreeStateClass(state: WorktreeState): string {
   return `status-git-pop-wt-${state}`;
 }

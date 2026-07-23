@@ -30,6 +30,9 @@ export class ChangesSurface {
   private headSumEl: HTMLElement | null = null;
   private pushTargetEl: HTMLElement | null = null;
   private selectedPath: string | null = null;
+  // When opened from another surface (e.g. Worktrees), a back affordance
+  // returns there instead of just closing. null = opened standalone.
+  private onBack: (() => void) | null = null;
   // Explanation of the current change set. Cleared on every refresh so an
   // explanation never outlives the diff it describes.
   private explain: { state: "idle" | "loading" | "done" | "error"; text: string } =
@@ -46,6 +49,8 @@ export class ChangesSurface {
         this.selectedPath = null;
         this.markSelected();
         this.renderOverview();
+      } else if (this.onBack) {
+        this.back();
       } else {
         this.close();
       }
@@ -71,8 +76,9 @@ export class ChangesSurface {
 
   get isOpen(): boolean { return this.open_; }
 
-  async open(repoRoot: string): Promise<void> {
+  async open(repoRoot: string, onBack?: () => void): Promise<void> {
     this.repoRoot = repoRoot;
+    this.onBack = onBack ?? null;
     this.open_ = true;
     document.body.classList.add("changes-fullscreen");
     document.addEventListener("keydown", this.onKey, true);
@@ -85,9 +91,17 @@ export class ChangesSurface {
     this.open_ = false;
     this.filter = "";
     this.selectedPath = null;
+    this.onBack = null;
     document.removeEventListener("keydown", this.onKey, true);
     document.body.classList.remove("changes-fullscreen");
     this.host.innerHTML = "";
+  }
+
+  /// Close and return to whoever opened us (e.g. the Worktrees page).
+  private back(): void {
+    const cb = this.onBack;
+    this.close();
+    cb?.();
   }
 
   /// Branch + push target are cosmetic context — never block the surface on them.
@@ -120,6 +134,18 @@ export class ChangesSurface {
     // Header — title, repo, branch chip left; aggregate diffstat + esc right.
     const header = document.createElement("div");
     header.className = "cd-header";
+    if (this.onBack) {
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "cd-back";
+      back.setAttribute("aria-label", "Back to Worktrees (Esc)");
+      back.innerHTML =
+        `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">` +
+        `<path d="M10 3 L5 8 L10 13" fill="none" stroke="currentColor" stroke-width="1.6" ` +
+        `stroke-linecap="round" stroke-linejoin="round"/></svg><span>Worktrees</span>`;
+      back.addEventListener("click", () => this.back());
+      header.appendChild(back);
+    }
     const title = document.createElement("span");
     title.className = "cd-title";
     title.textContent = "Changes";

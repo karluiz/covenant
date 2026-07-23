@@ -2036,8 +2036,33 @@ async function boot(): Promise<void> {
   // Worktrees management page — ⌘⌥W toggle. Own fixed-overlay host on body.
   const worktreesHost = document.createElement("div");
   document.body.appendChild(worktreesHost);
+  // "Agent" on a worktree: launch the default spawn IN the existing worktree.
+  // Deliberately skips resolveLaunch — no worktree is cut, we reuse the one git
+  // already reported. ACP default → chat tab; PTY default → terminal preloaded
+  // with the cmdline. Mirrors the git popover's row action (main.ts a5088847).
+  const resumeWorktreeAgent = (path: string, label: string): void => {
+    void (async () => {
+      const specs = await listSpawns();
+      const spec = specs.find((s) => s.default) ?? specs[0];
+      const acpExec = spec?.acp ? acpExecutorFor(spec) : null;
+      if (acpExec) {
+        await manager.createAcpTab({ cwd: path, customName: label, executor: acpExec });
+        return;
+      }
+      const cmdline = spec?.command
+        ? buildSpawnCmdline(spec, claudeThemeFor(resolveTheme(activeThemeMode, activeSpecialId))) + "\n"
+        : null;
+      await manager.createTab({
+        cwd: path,
+        customName: label,
+        initialCommand: cmdline,
+        scrubLaunch: !!cmdline,
+      });
+    })();
+  };
   const worktreesSurface = new WorktreesSurface(worktreesHost, {
     onOpenTab: (path, label) => { statusBar.onOpenGitWorktree?.(path, label); },
+    onResumeAgent: resumeWorktreeAgent,
     getOccupiedCwds: () => new Set(statusBar.getOccupiedCwds?.() ?? []),
   });
   const openWorktrees = async (): Promise<void> => {
@@ -2050,12 +2075,12 @@ async function boot(): Promise<void> {
   };
   window.addEventListener("covenant:open-worktrees", () => { void openWorktrees(); });
 
-  const openChanges = async (cwdArg?: string): Promise<void> => {
+  const openChanges = async (cwdArg?: string, onBack?: () => void): Promise<void> => {
     const cwd = cwdArg ?? manager.activeCwd();
     if (!cwd) return;
     try {
       const summary = await gitRepoSummary(cwd);
-      await changesSurface.open(summary.repo_root);
+      await changesSurface.open(summary.repo_root, onBack);
     } catch {
       // Not a git repo or backend error — no-op.
     }
@@ -2063,9 +2088,11 @@ async function boot(): Promise<void> {
 
   statusBar.onViewChanges = () => void openChanges();
   // File-tree "Changes" button (structure/tree.ts) dispatches this with its cwd.
+  // Worktrees "View diff" adds backTo:"worktrees" so Changes offers a way back.
   window.addEventListener("covenant:open-changes", (e) => {
-    const cwd = (e as CustomEvent<{ cwd?: string }>).detail?.cwd;
-    void openChanges(cwd);
+    const d = (e as CustomEvent<{ cwd?: string; backTo?: string }>).detail;
+    const back = d?.backTo === "worktrees" ? () => void openWorktrees() : undefined;
+    void openChanges(d?.cwd, back);
   });
   statusBar.onVersionChipClick = () => release.toggle();
   // Statusbar Covenant chip click → open Settings, covenant tab.
