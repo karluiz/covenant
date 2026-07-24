@@ -8675,6 +8675,7 @@ mark.mv-find-hit.is-active {
 .structure-cwd-selector:hover { color: var(--text-primary); }
 .structure-cwd-chevron svg, .structure-cwd-pin svg { flex-shrink: 0; vertical-align: -1px; }
 .structure-cwd-pin { color: var(--text-primary); margin-right: 2px; }
+.structure-cwd-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .structure-branch {
     display: flex;
     align-items: center;

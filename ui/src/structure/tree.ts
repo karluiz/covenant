@@ -67,6 +67,25 @@ async function openGroupAt(dir: string): Promise<void> {
 const LS_KEY_PREFIX = "covenant.structure.expanded.";
 const LS_KEY_SHOW_IGNORED = "covenant.structure.showIgnored";
 
+// ponytail: module-level 5s memo — repo_summary spawns per-worktree git
+// subprocesses and decorate fires on every cd; server-side cache if this
+// ever needs cross-component sharing.
+const repoSummaryCache = new Map<string, { at: number; p: Promise<GitRepoSummary> }>();
+function cachedRepoSummary(cwd: string): Promise<GitRepoSummary> {
+  const hit = repoSummaryCache.get(cwd);
+  if (hit && Date.now() - hit.at < 5000) return hit.p;
+  const p = gitRepoSummary(cwd);
+  repoSummaryCache.set(cwd, { at: Date.now(), p });
+  p.catch(() => repoSummaryCache.delete(cwd)); // don't memoize failures
+  return p;
+}
+/// Test-only escape hatch: the memo above is module-level and otherwise
+/// outlives any one `StructureTree` instance, so tests that reuse the same
+/// cwd across cases with different mocked summaries need to clear it.
+export function __resetRepoSummaryCacheForTests(): void {
+  repoSummaryCache.clear();
+}
+
 function loadExpanded(cwd: string): Set<string> {
   try {
     const raw = localStorage.getItem(LS_KEY_PREFIX + cwd);
@@ -651,11 +670,29 @@ export class StructureTree {
   /// has sibling worktrees. Async probe; a stale result (re-rooted while
   /// awaiting, or header rebuilt) is dropped via the isConnected check.
   private decorateWorktreeSelector(cwd: string, label: HTMLElement): void {
-    void gitRepoSummary(cwd)
+    void cachedRepoSummary(cwd)
       .then((repo) => {
         if (this.cwd !== cwd || !label.isConnected) return;
-        if (repo.worktrees.length < 2) return;
+        // A pinned tree always needs the selector, even with a single
+        // worktree left — otherwise pinning then pruning the last linked
+        // worktree strands the view with no UI path to unpin.
+        if (repo.worktrees.length < 2 && !this.pinnedRoot) return;
         label.classList.add("structure-cwd-selector");
+
+        // Wrap the existing text node so `text-overflow: ellipsis` still
+        // applies once the label becomes an inline-flex selector — a bare
+        // text node is an anonymous flex item and ignores ellipsis, which
+        // instead clips the chevron.
+        const textNode = Array.from(label.childNodes).find(
+          (n) => n.nodeType === Node.TEXT_NODE,
+        );
+        if (textNode) {
+          const textSpan = document.createElement("span");
+          textSpan.className = "structure-cwd-text";
+          textSpan.textContent = textNode.textContent;
+          textNode.replaceWith(textSpan);
+        }
+
         const chevron = document.createElement("span");
         chevron.className = "structure-cwd-chevron";
         chevron.innerHTML = Icons.chevronsUpDown({ size: 10 });
@@ -669,11 +706,22 @@ export class StructureTree {
             ? `Pinned to ${cwd} — click to change`
             : "Switch which worktree the tree shows",
         );
-        label.addEventListener("click", () => this.openWorktreeMenu(label, repo));
+        // Re-fetch on open (5s memo keeps the common case free) so a
+        // worktree spawned after this header rendered still shows up —
+        // the handlers used to close over the decoration-time `repo`.
+        const open = (): void => {
+          void cachedRepoSummary(cwd)
+            .then((fresh) => {
+              if (this.cwd !== cwd) return;
+              this.openWorktreeMenu(label, fresh);
+            })
+            .catch(() => {});
+        };
+        label.addEventListener("click", () => open());
         label.addEventListener("keydown", (ev) => {
           if (ev.key === "Enter" || ev.key === " ") {
             if (ev.key === " ") ev.preventDefault();
-            this.openWorktreeMenu(label, repo);
+            open();
           }
         });
       })

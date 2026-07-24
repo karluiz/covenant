@@ -13,7 +13,11 @@ vi.mock("../api", () => ({
   gitRepoSummary: vi.fn().mockResolvedValue({ worktrees: [] }),
 }));
 
-import { StructureTree, isShareableAsGist } from "./tree";
+import {
+  StructureTree,
+  isShareableAsGist,
+  __resetRepoSummaryCacheForTests,
+} from "./tree";
 import { structureListDir, structureMoveInto, getDirContext, gitRepoSummary } from "../api";
 
 const listDirMock = structureListDir as unknown as ReturnType<typeof vi.fn>;
@@ -293,6 +297,9 @@ describe("StructureTree worktree pin", () => {
     document.body.appendChild(host);
     listDirMock.mockReset();
     listDirMock.mockResolvedValue([entry("/wt/a.md", "a.md", "file")]);
+    repoSummaryMock.mockReset();
+    repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    __resetRepoSummaryCacheForTests();
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
     tree = new StructureTree(host, () => undefined);
@@ -355,9 +362,26 @@ describe("StructureTree worktree selector header", () => {
     listDirMock.mockResolvedValue([entry("/repo/a.md", "a.md", "file")]);
     repoSummaryMock.mockReset();
     repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    __resetRepoSummaryCacheForTests();
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
     tree = new StructureTree(host, () => undefined);
+  });
+
+  it("activates the selector via keyboard Enter on the label", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    await flush();
+
+    expect(document.body.querySelector(".ctx-menu")).not.toBeNull();
+
+    (tree as unknown as { contextMenu: { dismiss(): void } }).contextMenu.dismiss();
   });
 
   it("keeps the plain label when the repo has one worktree", async () => {
@@ -494,6 +518,7 @@ describe("StructureTree branch chip", () => {
     dirCtxMock.mockReset();
     repoSummaryMock.mockReset();
     repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    __resetRepoSummaryCacheForTests();
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
     tree = new StructureTree(host, () => undefined);
