@@ -8671,6 +8671,41 @@ mark.mv-find-hit.is-active {
     text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
 }
+.structure-cwd-selector { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.structure-cwd-selector:hover { color: var(--text-primary); }
+.structure-cwd-chevron svg, .structure-cwd-pin svg { flex-shrink: 0; vertical-align: -1px; }
+.structure-cwd-pin { color: var(--text-primary); margin-right: 2px; }
+.structure-cwd-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* Worktree selector dropdown (DESIGN.md rule 14): surface + rows come from
+   the canonical .ui-select__popover / .ui-select__option chrome; these
+   rules only add the row extras (MAIN badge, branch hint, separator). */
+.structure-wt-popover .ui-select__option:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text-primary, #fafafa) 9%, transparent);
+}
+.structure-wt-divider {
+    height: 1px;
+    margin: 4px 2px;
+    background: color-mix(in srgb, var(--text-primary, #fafafa) 12%, transparent);
+}
+.structure-wt-badge {
+    flex-shrink: 0;
+    padding: 1px 5px;
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 0;
+}
+.structure-wt-branch {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+    color: var(--muted);
+    font-size: 11px;
+}
 .structure-branch {
     display: flex;
     align-items: center;

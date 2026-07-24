@@ -9,14 +9,21 @@ vi.mock("../api", () => ({
   // Default: no git info, so renderBranch stays hidden. Tests that assert the
   // chip override this per-call. The branch-chip describe (runs last) resets it.
   getDirContext: vi.fn().mockResolvedValue({ git: null, runtime: null }),
+  // Default: not enough worktrees to grow the selector. Selector tests override.
+  gitRepoSummary: vi.fn().mockResolvedValue({ worktrees: [] }),
 }));
 
-import { StructureTree, isShareableAsGist } from "./tree";
-import { structureListDir, structureMoveInto, getDirContext } from "../api";
+import {
+  StructureTree,
+  isShareableAsGist,
+  __resetRepoSummaryCacheForTests,
+} from "./tree";
+import { structureListDir, structureMoveInto, getDirContext, gitRepoSummary } from "../api";
 
 const listDirMock = structureListDir as unknown as ReturnType<typeof vi.fn>;
 const moveIntoMock = structureMoveInto as unknown as ReturnType<typeof vi.fn>;
 const dirCtxMock = getDirContext as unknown as ReturnType<typeof vi.fn>;
+const repoSummaryMock = gitRepoSummary as unknown as ReturnType<typeof vi.fn>;
 
 function entry(path: string, name: string, kind: "file" | "dir") {
   return { path, name, kind, is_symlink: false };
@@ -281,6 +288,231 @@ describe("isShareableAsGist", () => {
   });
 });
 
+describe("StructureTree worktree pin", () => {
+  let host: HTMLDivElement;
+  let tree: StructureTree;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    listDirMock.mockReset();
+    listDirMock.mockResolvedValue([entry("/wt/a.md", "a.md", "file")]);
+    repoSummaryMock.mockReset();
+    repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    __resetRepoSummaryCacheForTests();
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    tree = new StructureTree(host, () => undefined);
+  });
+
+  it("setCwd while pinned records the cwd but does not re-root", async () => {
+    await tree.setCwd("/main");
+    await flush();
+    await tree.pinTo("/wt");
+    await flush();
+    await tree.setCwd("/main/sub");
+    await flush();
+    // Tree still rooted at the pinned path: listDir was never asked for /main/sub.
+    const calls = listDirMock.mock.calls.map((c) => c[0]);
+    expect(calls).not.toContain("/main/sub");
+    expect(tree.pinned).toBe("/wt");
+  });
+
+  it("unpin re-roots to the last terminal cwd", async () => {
+    await tree.setCwd("/main");
+    await flush();
+    await tree.pinTo("/wt");
+    await flush();
+    await tree.setCwd("/main/sub"); // recorded while pinned
+    await tree.unpin();
+    await flush();
+    const calls = listDirMock.mock.calls.map((c) => c[0]);
+    expect(calls).toContain("/main/sub");
+    expect(tree.pinned).toBeNull();
+  });
+
+  it("refresh failure while pinned auto-unpins back to terminal cwd", async () => {
+    await tree.setCwd("/main");
+    await flush();
+    listDirMock.mockRejectedValueOnce(new Error("gone"));
+    await tree.pinTo("/wt-deleted");
+    await flush();
+    expect(tree.pinned).toBeNull();
+    // Fell back to re-listing the terminal cwd.
+    const calls = listDirMock.mock.calls.map((c) => c[0]);
+    expect(calls.filter((c) => c === "/main").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("StructureTree worktree selector header", () => {
+  let host: HTMLDivElement;
+  let tree: StructureTree;
+
+  const twoWorktrees = {
+    worktrees: [
+      { path: "/repo", branch: "main", is_main: true },
+      { path: "/repo/.covenant/worktrees/wt-a", branch: "agent/wt-a", is_main: false },
+    ],
+  };
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    listDirMock.mockReset();
+    listDirMock.mockResolvedValue([entry("/repo/a.md", "a.md", "file")]);
+    repoSummaryMock.mockReset();
+    repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    __resetRepoSummaryCacheForTests();
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    tree = new StructureTree(host, () => undefined);
+  });
+
+  it("activates the selector via keyboard Enter on the label", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    await flush();
+
+    expect(document.body.querySelector(".ui-select__popover")).not.toBeNull();
+
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
+  });
+
+  it("keeps the plain label when the repo has one worktree", async () => {
+    repoSummaryMock.mockResolvedValue({ worktrees: [{ path: "/repo", branch: "main", is_main: true }] });
+    await tree.setCwd("/repo");
+    await flush();
+    const label = host.querySelector(".structure-cwd")!;
+    expect(label.classList.contains("structure-cwd-selector")).toBe(false);
+  });
+
+  it("upgrades the label to a selector when the repo has sibling worktrees", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+    const label = host.querySelector(".structure-cwd")!;
+    expect(label.classList.contains("structure-cwd-selector")).toBe(true);
+    expect(label.querySelector(".structure-cwd-chevron")).not.toBeNull();
+  });
+
+  it("shows the pin indicator while pinned", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+    await tree.pinTo("/repo/.covenant/worktrees/wt-a");
+    await flush();
+    expect(host.querySelector(".structure-cwd-pin")).not.toBeNull();
+  });
+
+  it("renders the dropdown main-first with badge + branch hint, and checks Follow terminal when unpinned", async () => {
+    // Deliberately NOT main-first: linked worktree before main.
+    repoSummaryMock.mockResolvedValue({
+      worktrees: [
+        { path: "/repo/.covenant/worktrees/wt-a", branch: "agent/wt-a", is_main: false },
+        { path: "/repo", branch: "main", is_main: true },
+      ],
+    });
+    await tree.setCwd("/repo");
+    await flush();
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const items = document.body.querySelectorAll<HTMLElement>(
+      ".ui-select__popover .ui-select__option",
+    );
+    expect(items.length).toBe(3); // Follow terminal, main, wt-a
+
+    const [followRow, mainRow, wtRow] = Array.from(items);
+
+    expect(followRow.querySelector(".ui-select__option-label")?.textContent).toBe(
+      "Follow terminal",
+    );
+    // Not pinned — Follow terminal carries the check.
+    expect(followRow.querySelector(".ui-select__option-check")?.textContent).toBe("✓");
+
+    // Sorted main-first despite the input order above.
+    expect(mainRow.querySelector(".ui-select__option-label")?.textContent).toBe("repo");
+    expect(mainRow.querySelector(".structure-wt-badge")?.textContent).toBe("MAIN");
+    // The currently-viewed root ("/repo") carries the check.
+    expect(mainRow.querySelector(".ui-select__option-check")?.textContent).toBe("✓");
+
+    expect(wtRow.querySelector(".ui-select__option-label")?.textContent).toBe("wt-a");
+    expect(wtRow.querySelector(".structure-wt-badge")).toBeNull();
+    expect(wtRow.querySelector(".structure-wt-branch")?.textContent).toBe("agent/wt-a");
+    expect(wtRow.querySelector(".ui-select__option-check")?.textContent).toBe("");
+
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
+  });
+
+  it("moves the check off Follow terminal and onto the pinned worktree once pinned", async () => {
+    repoSummaryMock.mockResolvedValue({
+      worktrees: [
+        { path: "/repo/.covenant/worktrees/wt-a", branch: "agent/wt-a", is_main: false },
+        { path: "/repo", branch: "main", is_main: true },
+      ],
+    });
+    await tree.setCwd("/repo");
+    await flush();
+
+    await tree.pinTo("/repo/.covenant/worktrees/wt-a");
+    await flush();
+
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const items = document.body.querySelectorAll<HTMLElement>(
+      ".ui-select__popover .ui-select__option",
+    );
+    expect(items.length).toBe(3);
+    const followRow = items[0];
+    const wtRow = items[2];
+
+    // Pinned — Follow terminal no longer carries the check.
+    expect(followRow.querySelector(".ui-select__option-check")?.textContent).toBe("");
+    // The pinned worktree row carries it instead.
+    expect(wtRow.querySelector(".ui-select__option-check")?.textContent).toBe("✓");
+
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
+  });
+
+  it("checks only the nested worktree, not main, when cwd is inside the nested worktree", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+
+    // cwd is nested INSIDE wt-a, not just equal to its root — both roots
+    // prefix-match "/repo" and "/repo/.covenant/worktrees/wt-a" naively.
+    await tree.setCwd("/repo/.covenant/worktrees/wt-a/src");
+    await flush();
+
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const items = document.body.querySelectorAll<HTMLElement>(
+      ".ui-select__popover .ui-select__option",
+    );
+    expect(items.length).toBe(3); // Follow terminal, main, wt-a
+    const [, mainRow, wtRow] = Array.from(items);
+
+    expect(mainRow.querySelector(".ui-select__option-label")?.textContent).toBe("repo");
+    expect(mainRow.querySelector(".ui-select__option-check")?.textContent).toBe("");
+
+    expect(wtRow.querySelector(".ui-select__option-label")?.textContent).toBe("wt-a");
+    expect(wtRow.querySelector(".ui-select__option-check")?.textContent).toBe("✓");
+
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
+  });
+});
+
 describe("StructureTree branch chip", () => {
   let host: HTMLDivElement;
   let tree: StructureTree;
@@ -290,6 +522,9 @@ describe("StructureTree branch chip", () => {
     document.body.appendChild(host);
     listDirMock.mockReset();
     dirCtxMock.mockReset();
+    repoSummaryMock.mockReset();
+    repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    __resetRepoSummaryCacheForTests();
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
     tree = new StructureTree(host, () => undefined);

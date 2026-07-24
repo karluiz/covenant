@@ -22,6 +22,7 @@ import { pushInfoToast } from "../notifications/toast";
 import {
   structureClipboardFiles,
   getDirContext,
+  gitRepoSummary,
   structureClipboardSetFiles,
   structureCopyInto,
   structureCreatePath,
@@ -30,6 +31,7 @@ import {
   structureRenamePath,
   structureTrashPath,
   type DirEntry,
+  type GitRepoSummary,
 } from "../api";
 
 export type FileClickHandler = (path: string) => void;
@@ -64,6 +66,29 @@ async function openGroupAt(dir: string): Promise<void> {
 
 const LS_KEY_PREFIX = "covenant.structure.expanded.";
 const LS_KEY_SHOW_IGNORED = "covenant.structure.showIgnored";
+
+// ponytail: module-level 5s memo — repo_summary spawns per-worktree git
+// subprocesses and decorate fires on every cd; server-side cache if this
+// ever needs cross-component sharing.
+const repoSummaryCache = new Map<string, { at: number; p: Promise<GitRepoSummary> }>();
+function cachedRepoSummary(cwd: string): Promise<GitRepoSummary> {
+  const hit = repoSummaryCache.get(cwd);
+  if (hit && Date.now() - hit.at < 5000) return hit.p;
+  const p = gitRepoSummary(cwd);
+  repoSummaryCache.set(cwd, { at: Date.now(), p });
+  p.catch(() => {
+    // Don't memoize failures — but only evict our own entry, not a
+    // fresher refetch that replaced it while we were in flight.
+    if (repoSummaryCache.get(cwd)?.p === p) repoSummaryCache.delete(cwd);
+  });
+  return p;
+}
+/// Test-only escape hatch: the memo above is module-level and otherwise
+/// outlives any one `StructureTree` instance, so tests that reuse the same
+/// cwd across cases with different mocked summaries need to clear it.
+export function __resetRepoSummaryCacheForTests(): void {
+  repoSummaryCache.clear();
+}
 
 function loadExpanded(cwd: string): Set<string> {
   try {
@@ -122,9 +147,24 @@ export class StructureTree {
   /// `listEl` and then both append, doubling every entry.
   private refreshGen = 0;
 
+  /// Worktree root the view is pinned to, or null when following the
+  /// terminal's cwd. While pinned, `setCwd` records but does not re-root.
+  private pinnedRoot: string | null = null;
+  /// Last cwd the terminal reported — the root `unpin()` returns to.
+  private lastTerminalCwd: string | null = null;
+
   /// Shared floating-menu chrome — same component the editor / tabs use,
   /// so all context menus look and behave identically.
   private readonly contextMenu = new ContextMenu(document.body);
+
+  /// Bespoke popover for the worktree selector (DESIGN.md rule 14 — rich
+  /// rows with an icon + MAIN badge + branch hint don't fit ContextMenu's
+  /// item shape, so this wears the shared `.ui-select__*` chrome directly
+  /// instead of `.ctx-menu`). Body-portaled, one at a time.
+  private worktreePopover: HTMLDivElement | null = null;
+  private worktreePopoverOutside: ((e: PointerEvent) => void) | null = null;
+  private worktreePopoverKey: ((e: KeyboardEvent) => void) | null = null;
+  private worktreePopoverReposition: (() => void) | null = null;
 
   /// Path of the file currently open in the editor pane, or null when
   /// no file is open. The matching row gets `.is-active` (CSS gives it
@@ -477,10 +517,37 @@ export class StructureTree {
     await this.refresh();
   }
 
+  /// The terminal reports its cwd. Recorded always; while the view is
+  /// pinned to another worktree the report does not re-root the tree.
+  async setCwd(cwd: string): Promise<void> {
+    this.lastTerminalCwd = cwd;
+    if (this.pinnedRoot) return;
+    await this.reroot(cwd);
+  }
+
+  /// Pin the view to a sibling worktree root. Shell cds stop re-rooting
+  /// the tree until `unpin()`.
+  async pinTo(path: string): Promise<void> {
+    this.pinnedRoot = path;
+    await this.reroot(path);
+    if (this.cwd) this.renderHeader(this.cwd); // reroot may early-return; indicator must still update
+  }
+
+  /// Return to following the terminal's cwd.
+  async unpin(): Promise<void> {
+    this.pinnedRoot = null;
+    if (this.lastTerminalCwd) await this.reroot(this.lastTerminalCwd);
+    if (this.cwd) this.renderHeader(this.cwd);
+  }
+
+  get pinned(): string | null {
+    return this.pinnedRoot;
+  }
+
   /// Re-root the tree at `cwd`. Idempotent: passing the same cwd re-uses
   /// the existing expanded state from localStorage. Triggers a fresh
   /// `list_dir` against the new root.
-  async setCwd(cwd: string): Promise<void> {
+  private async reroot(cwd: string): Promise<void> {
     if (this.cwd === cwd && this.nodes.length > 0) return;
     this.clearActive();
     this.activePath = null;
@@ -517,6 +584,14 @@ export class StructureTree {
     label.title = cwd;
     label.textContent = shortenCwd(cwd);
     this.headerEl.appendChild(label);
+
+    if (this.pinnedRoot) {
+      const pin = document.createElement("span");
+      pin.className = "structure-cwd-pin";
+      pin.innerHTML = Icons.pin({ size: 10 });
+      label.prepend(pin);
+    }
+    this.decorateWorktreeSelector(cwd, label);
 
     const newFile = document.createElement("button");
     newFile.type = "button";
@@ -604,6 +679,223 @@ export class StructureTree {
       });
   }
 
+  /// Upgrade the plain cwd label into a worktree selector when the repo
+  /// has sibling worktrees. Async probe; a stale result (re-rooted while
+  /// awaiting, or header rebuilt) is dropped via the isConnected check.
+  private decorateWorktreeSelector(cwd: string, label: HTMLElement): void {
+    void cachedRepoSummary(cwd)
+      .then((repo) => {
+        if (this.cwd !== cwd || !label.isConnected) return;
+        // A pinned tree always needs the selector, even with a single
+        // worktree left — otherwise pinning then pruning the last linked
+        // worktree strands the view with no UI path to unpin.
+        if (repo.worktrees.length < 2 && !this.pinnedRoot) return;
+        label.classList.add("structure-cwd-selector");
+
+        // Wrap the existing text node so `text-overflow: ellipsis` still
+        // applies once the label becomes an inline-flex selector — a bare
+        // text node is an anonymous flex item and ignores ellipsis, which
+        // instead clips the chevron.
+        const textNode = Array.from(label.childNodes).find(
+          (n) => n.nodeType === Node.TEXT_NODE,
+        );
+        if (textNode) {
+          const textSpan = document.createElement("span");
+          textSpan.className = "structure-cwd-text";
+          textSpan.textContent = textNode.textContent;
+          textNode.replaceWith(textSpan);
+        }
+
+        const chevron = document.createElement("span");
+        chevron.className = "structure-cwd-chevron";
+        chevron.innerHTML = Icons.chevronsUpDown({ size: 10 });
+        label.appendChild(chevron);
+        label.setAttribute("role", "button");
+        label.setAttribute("tabindex", "0");
+        label.removeAttribute("title");
+        attachTooltip(
+          label,
+          this.pinnedRoot
+            ? `Pinned to ${cwd} — click to change`
+            : "Switch which worktree the tree shows",
+        );
+        // Re-fetch on open (5s memo keeps the common case free) so a
+        // worktree spawned after this header rendered still shows up —
+        // the handlers used to close over the decoration-time `repo`.
+        const open = (): void => {
+          void cachedRepoSummary(cwd)
+            .then((fresh) => {
+              if (this.cwd !== cwd || !label.isConnected) return;
+              this.openWorktreeMenu(label, fresh);
+            })
+            .catch(() => {});
+        };
+        label.addEventListener("click", () => open());
+        label.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            if (ev.key === " ") ev.preventDefault();
+            open();
+          }
+        });
+      })
+      .catch(() => {
+        /* not a repo or probe failed — stay a plain label */
+      });
+  }
+
+  /// Dropdown listing "Follow terminal" + every worktree (main first).
+  /// Rich rows (MAIN badge, branch hint) don't fit ContextMenu's item
+  /// shape, so this is a bespoke popover wearing the shared
+  /// `.ui-select__*` chrome (DESIGN.md rule 14) rather than `.ctx-menu`.
+  private openWorktreeMenu(anchor: HTMLElement, repo: GitRepoSummary): void {
+    this.closeWorktreeMenu();
+    if (!anchor.isConnected) return;
+
+    const viewed = this.cwd;
+    const rows = [...repo.worktrees].sort(
+      (a, b) => Number(b.is_main) - Number(a.is_main),
+    );
+    const viewedRoot =
+      rows
+        .filter((wt) => viewed === wt.path || (viewed?.startsWith(wt.path + "/") ?? false))
+        .sort((a, b) => b.path.length - a.path.length)[0]?.path ?? null;
+
+    const pop = document.createElement("div");
+    pop.className = "ui-select__popover structure-wt-popover";
+    pop.setAttribute("role", "listbox");
+    pop.setAttribute("aria-label", "Worktrees");
+    document.body.appendChild(pop);
+    this.worktreePopover = pop;
+
+    const addOption = (opts: {
+      label: string;
+      selected: boolean;
+      badge?: string;
+      branch?: string;
+      onSelect: () => void;
+    }): void => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "ui-select__option";
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(opts.selected));
+      row.classList.toggle("is-selected", opts.selected);
+      const check = document.createElement("span");
+      check.className = "ui-select__option-check";
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = opts.selected ? "✓" : "";
+      row.appendChild(check);
+      const label = document.createElement("span");
+      label.className = "ui-select__option-label";
+      label.textContent = opts.label;
+      row.appendChild(label);
+      if (opts.badge) {
+        const badge = document.createElement("span");
+        badge.className = "structure-wt-badge";
+        badge.textContent = opts.badge;
+        row.appendChild(badge);
+      }
+      if (opts.branch) {
+        const branch = document.createElement("span");
+        branch.className = "structure-wt-branch";
+        branch.textContent = opts.branch;
+        row.appendChild(branch);
+      }
+      row.addEventListener("click", () => {
+        this.closeWorktreeMenu();
+        opts.onSelect();
+      });
+      pop.appendChild(row);
+    };
+
+    addOption({
+      label: "Follow terminal",
+      selected: !this.pinnedRoot,
+      onSelect: () => void this.unpin(),
+    });
+
+    const divider = document.createElement("div");
+    divider.className = "structure-wt-divider";
+    pop.appendChild(divider);
+
+    for (const wt of rows) {
+      addOption({
+        label: wt.path.split("/").pop() ?? wt.path,
+        selected: wt.path === viewedRoot,
+        badge: wt.is_main ? "MAIN" : undefined,
+        branch: wt.branch ?? undefined,
+        onSelect: () => void this.pinTo(wt.path),
+      });
+    }
+
+    this.positionWorktreePopover(anchor);
+
+    // Mirrors CustomSelect's dismissal: outside pointerdown, Escape, and
+    // reposition (not dismiss) on scroll/resize while open.
+    this.worktreePopoverOutside = (e: PointerEvent): void => {
+      const target = e.target as Node;
+      if (!anchor.isConnected) {
+        this.closeWorktreeMenu();
+        return;
+      }
+      if (pop.contains(target)) return;
+      if (anchor.contains(target)) return;
+      this.closeWorktreeMenu();
+    };
+    this.worktreePopoverKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      this.closeWorktreeMenu();
+      anchor.focus();
+    };
+    this.worktreePopoverReposition = (): void => this.positionWorktreePopover(anchor);
+
+    setTimeout(() => {
+      if (!this.worktreePopover) return;
+      document.addEventListener("pointerdown", this.worktreePopoverOutside!);
+      document.addEventListener("keydown", this.worktreePopoverKey!);
+      window.addEventListener("resize", this.worktreePopoverReposition!);
+      window.addEventListener("scroll", this.worktreePopoverReposition!, true);
+    }, 0);
+  }
+
+  private positionWorktreePopover(anchor: HTMLElement): void {
+    if (!this.worktreePopover || !anchor.isConnected) return;
+    const rect = anchor.getBoundingClientRect();
+    const margin = 8;
+    const pop = this.worktreePopover;
+    pop.style.minWidth = `${Math.max(rect.width, 200)}px`;
+    pop.style.maxWidth = `${Math.max(200, window.innerWidth - margin * 2)}px`;
+    const popRect = pop.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(margin, rect.left),
+      Math.max(margin, window.innerWidth - popRect.width - margin),
+    );
+    const top = Math.min(window.innerHeight - margin, rect.bottom + 4);
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+  }
+
+  private closeWorktreeMenu(): void {
+    if (this.worktreePopover) {
+      this.worktreePopover.remove();
+      this.worktreePopover = null;
+    }
+    if (this.worktreePopoverOutside) {
+      document.removeEventListener("pointerdown", this.worktreePopoverOutside);
+      this.worktreePopoverOutside = null;
+    }
+    if (this.worktreePopoverKey) {
+      document.removeEventListener("keydown", this.worktreePopoverKey);
+      this.worktreePopoverKey = null;
+    }
+    if (this.worktreePopoverReposition) {
+      window.removeEventListener("resize", this.worktreePopoverReposition);
+      window.removeEventListener("scroll", this.worktreePopoverReposition, true);
+      this.worktreePopoverReposition = null;
+    }
+  }
+
   private async refreshRoot(): Promise<void> {
     if (!this.cwd) return;
     const gen = ++this.refreshGen;
@@ -622,6 +914,12 @@ export class StructureTree {
       entries = await structureListDir(cwd, this.showIgnored);
     } catch (err) {
       if (gen !== this.refreshGen) return;
+      // Pinned worktree vanished (pruned/deleted) — fall back to the terminal.
+      if (this.pinnedRoot === cwd && this.lastTerminalCwd) {
+        this.pinnedRoot = null;
+        void this.reroot(this.lastTerminalCwd);
+        return;
+      }
       this.showError(String(err));
       return;
     }
