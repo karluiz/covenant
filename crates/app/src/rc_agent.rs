@@ -334,9 +334,7 @@ async fn start_mirror(
             return;
         }
     };
-    if mirrors.contains_key(&id) {
-        return;
-    }
+    let already_mirroring = mirrors.contains_key(&id);
     let Some(state) = app.try_state::<crate::AppState>() else {
         return;
     };
@@ -369,6 +367,13 @@ async fn start_mirror(
         karl_session::unpack_dims(dims.load(std::sync::atomic::Ordering::Relaxed));
     if let Some(j) = screen_frame(last_cols, last_rows) {
         let _ = out_tx.send(Message::Text(j));
+    }
+    // A viewer joining an already-mirrored session (a second guest on a
+    // share link) still needs the snapshot above — the grid dimensions ride
+    // on it, and without them the viewer wraps at its 80×24 default. Only
+    // the streaming task must not be duplicated.
+    if already_mirroring {
+        return;
     }
     let tx = out_tx.clone();
     let handle = tokio::spawn(async move {
