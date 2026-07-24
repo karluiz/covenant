@@ -670,6 +670,12 @@ export class StructureTree {
             : "Switch which worktree the tree shows",
         );
         label.addEventListener("click", () => this.openWorktreeMenu(label, repo));
+        label.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            if (ev.key === " ") ev.preventDefault();
+            this.openWorktreeMenu(label, repo);
+          }
+        });
       })
       .catch(() => {
         /* not a repo or probe failed — stay a plain label */

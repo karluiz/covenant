@@ -385,6 +385,75 @@ describe("StructureTree worktree selector header", () => {
     await flush();
     expect(host.querySelector(".structure-cwd-pin")).not.toBeNull();
   });
+
+  it("renders the dropdown main-first with badge + branch hint, and checks Follow terminal when unpinned", async () => {
+    // Deliberately NOT main-first: linked worktree before main.
+    repoSummaryMock.mockResolvedValue({
+      worktrees: [
+        { path: "/repo/.covenant/worktrees/wt-a", branch: "agent/wt-a", is_main: false },
+        { path: "/repo", branch: "main", is_main: true },
+      ],
+    });
+    await tree.setCwd("/repo");
+    await flush();
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const items = document.body.querySelectorAll<HTMLElement>(".ctx-menu .ctx-item");
+    expect(items.length).toBe(3); // Follow terminal, main, wt-a
+
+    const [followRow, mainRow, wtRow] = Array.from(items);
+
+    expect(followRow.querySelector(".ctx-item-label")?.textContent).toBe(
+      "Follow terminal",
+    );
+    // Not pinned — Follow terminal carries the check icon.
+    expect(followRow.querySelector(".ctx-item-icon svg")).not.toBeNull();
+
+    // Sorted main-first despite the input order above.
+    expect(mainRow.querySelector(".ctx-item-label")?.textContent).toBe("repo");
+    expect(mainRow.querySelector(".ctx-item-badge")?.textContent).toBe("MAIN");
+    // The currently-viewed root ("/repo") carries the check icon.
+    expect(mainRow.querySelector(".ctx-item-icon svg")).not.toBeNull();
+
+    expect(wtRow.querySelector(".ctx-item-label")?.textContent).toBe("wt-a");
+    expect(wtRow.querySelector(".ctx-item-badge")).toBeNull();
+    expect(wtRow.querySelector(".ctx-item-shortcut")?.textContent).toBe("agent/wt-a");
+    expect(wtRow.querySelector(".ctx-item-icon")).toBeNull();
+
+    (tree as unknown as { contextMenu: { dismiss(): void } }).contextMenu.dismiss();
+  });
+
+  it("moves the check off Follow terminal and onto the pinned worktree once pinned", async () => {
+    repoSummaryMock.mockResolvedValue({
+      worktrees: [
+        { path: "/repo/.covenant/worktrees/wt-a", branch: "agent/wt-a", is_main: false },
+        { path: "/repo", branch: "main", is_main: true },
+      ],
+    });
+    await tree.setCwd("/repo");
+    await flush();
+
+    await tree.pinTo("/repo/.covenant/worktrees/wt-a");
+    await flush();
+
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const items = document.body.querySelectorAll<HTMLElement>(".ctx-menu .ctx-item");
+    expect(items.length).toBe(3);
+    const followRow = items[0];
+    const wtRow = items[2];
+
+    // Pinned — Follow terminal no longer carries the check icon.
+    expect(followRow.querySelector(".ctx-item-icon")).toBeNull();
+    // The pinned worktree row carries it instead.
+    expect(wtRow.querySelector(".ctx-item-icon svg")).not.toBeNull();
+
+    (tree as unknown as { contextMenu: { dismiss(): void } }).contextMenu.dismiss();
+  });
 });
 
 describe("StructureTree branch chip", () => {
@@ -396,6 +465,8 @@ describe("StructureTree branch chip", () => {
     document.body.appendChild(host);
     listDirMock.mockReset();
     dirCtxMock.mockReset();
+    repoSummaryMock.mockReset();
+    repoSummaryMock.mockResolvedValue({ worktrees: [] });
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
     tree = new StructureTree(host, () => undefined);
