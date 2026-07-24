@@ -379,9 +379,9 @@ describe("StructureTree worktree selector header", () => {
     );
     await flush();
 
-    expect(document.body.querySelector(".ctx-menu")).not.toBeNull();
+    expect(document.body.querySelector(".ui-select__popover")).not.toBeNull();
 
-    (tree as unknown as { contextMenu: { dismiss(): void } }).contextMenu.dismiss();
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
   });
 
   it("keeps the plain label when the repo has one worktree", async () => {
@@ -424,29 +424,31 @@ describe("StructureTree worktree selector header", () => {
     label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
-    const items = document.body.querySelectorAll<HTMLElement>(".ctx-menu .ctx-item");
+    const items = document.body.querySelectorAll<HTMLElement>(
+      ".ui-select__popover .ui-select__option",
+    );
     expect(items.length).toBe(3); // Follow terminal, main, wt-a
 
     const [followRow, mainRow, wtRow] = Array.from(items);
 
-    expect(followRow.querySelector(".ctx-item-label")?.textContent).toBe(
+    expect(followRow.querySelector(".ui-select__option-label")?.textContent).toBe(
       "Follow terminal",
     );
-    // Not pinned — Follow terminal carries the check icon.
-    expect(followRow.querySelector(".ctx-item-icon svg")).not.toBeNull();
+    // Not pinned — Follow terminal carries the check.
+    expect(followRow.querySelector(".ui-select__option-check")?.textContent).toBe("✓");
 
     // Sorted main-first despite the input order above.
-    expect(mainRow.querySelector(".ctx-item-label")?.textContent).toBe("repo");
-    expect(mainRow.querySelector(".ctx-item-badge")?.textContent).toBe("MAIN");
-    // The currently-viewed root ("/repo") carries the check icon.
-    expect(mainRow.querySelector(".ctx-item-icon svg")).not.toBeNull();
+    expect(mainRow.querySelector(".ui-select__option-label")?.textContent).toBe("repo");
+    expect(mainRow.querySelector(".structure-wt-badge")?.textContent).toBe("MAIN");
+    // The currently-viewed root ("/repo") carries the check.
+    expect(mainRow.querySelector(".ui-select__option-check")?.textContent).toBe("✓");
 
-    expect(wtRow.querySelector(".ctx-item-label")?.textContent).toBe("wt-a");
-    expect(wtRow.querySelector(".ctx-item-badge")).toBeNull();
-    expect(wtRow.querySelector(".ctx-item-shortcut")?.textContent).toBe("agent/wt-a");
-    expect(wtRow.querySelector(".ctx-item-icon")).toBeNull();
+    expect(wtRow.querySelector(".ui-select__option-label")?.textContent).toBe("wt-a");
+    expect(wtRow.querySelector(".structure-wt-badge")).toBeNull();
+    expect(wtRow.querySelector(".structure-wt-branch")?.textContent).toBe("agent/wt-a");
+    expect(wtRow.querySelector(".ui-select__option-check")?.textContent).toBe("");
 
-    (tree as unknown as { contextMenu: { dismiss(): void } }).contextMenu.dismiss();
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
   });
 
   it("moves the check off Follow terminal and onto the pinned worktree once pinned", async () => {
@@ -466,17 +468,19 @@ describe("StructureTree worktree selector header", () => {
     label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
-    const items = document.body.querySelectorAll<HTMLElement>(".ctx-menu .ctx-item");
+    const items = document.body.querySelectorAll<HTMLElement>(
+      ".ui-select__popover .ui-select__option",
+    );
     expect(items.length).toBe(3);
     const followRow = items[0];
     const wtRow = items[2];
 
-    // Pinned — Follow terminal no longer carries the check icon.
-    expect(followRow.querySelector(".ctx-item-icon")).toBeNull();
+    // Pinned — Follow terminal no longer carries the check.
+    expect(followRow.querySelector(".ui-select__option-check")?.textContent).toBe("");
     // The pinned worktree row carries it instead.
-    expect(wtRow.querySelector(".ctx-item-icon svg")).not.toBeNull();
+    expect(wtRow.querySelector(".ui-select__option-check")?.textContent).toBe("✓");
 
-    (tree as unknown as { contextMenu: { dismiss(): void } }).contextMenu.dismiss();
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
   });
 
   it("checks only the nested worktree, not main, when cwd is inside the nested worktree", async () => {
@@ -493,17 +497,19 @@ describe("StructureTree worktree selector header", () => {
     label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
-    const items = document.body.querySelectorAll<HTMLElement>(".ctx-menu .ctx-item");
+    const items = document.body.querySelectorAll<HTMLElement>(
+      ".ui-select__popover .ui-select__option",
+    );
     expect(items.length).toBe(3); // Follow terminal, main, wt-a
     const [, mainRow, wtRow] = Array.from(items);
 
-    expect(mainRow.querySelector(".ctx-item-label")?.textContent).toBe("repo");
-    expect(mainRow.querySelector(".ctx-item-icon")).toBeNull();
+    expect(mainRow.querySelector(".ui-select__option-label")?.textContent).toBe("repo");
+    expect(mainRow.querySelector(".ui-select__option-check")?.textContent).toBe("");
 
-    expect(wtRow.querySelector(".ctx-item-label")?.textContent).toBe("wt-a");
-    expect(wtRow.querySelector(".ctx-item-icon svg")).not.toBeNull();
+    expect(wtRow.querySelector(".ui-select__option-label")?.textContent).toBe("wt-a");
+    expect(wtRow.querySelector(".ui-select__option-check")?.textContent).toBe("✓");
 
-    (tree as unknown as { contextMenu: { dismiss(): void } }).contextMenu.dismiss();
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
   });
 });
 

@@ -157,6 +157,15 @@ export class StructureTree {
   /// so all context menus look and behave identically.
   private readonly contextMenu = new ContextMenu(document.body);
 
+  /// Bespoke popover for the worktree selector (DESIGN.md rule 14 — rich
+  /// rows with an icon + MAIN badge + branch hint don't fit ContextMenu's
+  /// item shape, so this wears the shared `.ui-select__*` chrome directly
+  /// instead of `.ctx-menu`). Body-portaled, one at a time.
+  private worktreePopover: HTMLDivElement | null = null;
+  private worktreePopoverOutside: ((e: PointerEvent) => void) | null = null;
+  private worktreePopoverKey: ((e: KeyboardEvent) => void) | null = null;
+  private worktreePopoverReposition: (() => void) | null = null;
+
   /// Path of the file currently open in the editor pane, or null when
   /// no file is open. The matching row gets `.is-active` (CSS gives it
   /// an accent tint + 2px left stripe). Set by manager.ts from
@@ -735,7 +744,13 @@ export class StructureTree {
   }
 
   /// Dropdown listing "Follow terminal" + every worktree (main first).
+  /// Rich rows (MAIN badge, branch hint) don't fit ContextMenu's item
+  /// shape, so this is a bespoke popover wearing the shared
+  /// `.ui-select__*` chrome (DESIGN.md rule 14) rather than `.ctx-menu`.
   private openWorktreeMenu(anchor: HTMLElement, repo: GitRepoSummary): void {
+    this.closeWorktreeMenu();
+    if (!anchor.isConnected) return;
+
     const viewed = this.cwd;
     const rows = [...repo.worktrees].sort(
       (a, b) => Number(b.is_main) - Number(a.is_main),
@@ -744,23 +759,141 @@ export class StructureTree {
       rows
         .filter((wt) => viewed === wt.path || (viewed?.startsWith(wt.path + "/") ?? false))
         .sort((a, b) => b.path.length - a.path.length)[0]?.path ?? null;
-    const items: MenuItem[] = [
-      {
-        label: "Follow terminal",
-        icon: this.pinnedRoot ? undefined : Icons.check({ size: 12 }),
-        onClick: () => void this.unpin(),
-      },
-      { divider: true },
-      ...rows.map((wt) => ({
+
+    const pop = document.createElement("div");
+    pop.className = "ui-select__popover structure-wt-popover";
+    pop.setAttribute("role", "listbox");
+    pop.setAttribute("aria-label", "Worktrees");
+    document.body.appendChild(pop);
+    this.worktreePopover = pop;
+
+    const addOption = (opts: {
+      label: string;
+      selected: boolean;
+      badge?: string;
+      branch?: string;
+      onSelect: () => void;
+    }): void => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "ui-select__option";
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(opts.selected));
+      row.classList.toggle("is-selected", opts.selected);
+      const check = document.createElement("span");
+      check.className = "ui-select__option-check";
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = opts.selected ? "✓" : "";
+      row.appendChild(check);
+      const label = document.createElement("span");
+      label.className = "ui-select__option-label";
+      label.textContent = opts.label;
+      row.appendChild(label);
+      if (opts.badge) {
+        const badge = document.createElement("span");
+        badge.className = "structure-wt-badge";
+        badge.textContent = opts.badge;
+        row.appendChild(badge);
+      }
+      if (opts.branch) {
+        const branch = document.createElement("span");
+        branch.className = "structure-wt-branch";
+        branch.textContent = opts.branch;
+        row.appendChild(branch);
+      }
+      row.addEventListener("click", () => {
+        this.closeWorktreeMenu();
+        opts.onSelect();
+      });
+      pop.appendChild(row);
+    };
+
+    addOption({
+      label: "Follow terminal",
+      selected: !this.pinnedRoot,
+      onSelect: () => void this.unpin(),
+    });
+
+    const divider = document.createElement("div");
+    divider.className = "structure-wt-divider";
+    pop.appendChild(divider);
+
+    for (const wt of rows) {
+      addOption({
         label: wt.path.split("/").pop() ?? wt.path,
-        icon: wt.path === viewedRoot ? Icons.check({ size: 12 }) : undefined,
+        selected: wt.path === viewedRoot,
         badge: wt.is_main ? "MAIN" : undefined,
-        shortcut: wt.branch ?? undefined,
-        onClick: () => void this.pinTo(wt.path),
-      })),
-    ];
-    const r = anchor.getBoundingClientRect();
-    this.contextMenu.show(r.left, r.bottom + 4, items);
+        branch: wt.branch ?? undefined,
+        onSelect: () => void this.pinTo(wt.path),
+      });
+    }
+
+    this.positionWorktreePopover(anchor);
+
+    // Mirrors CustomSelect's dismissal: outside pointerdown, Escape, and
+    // reposition (not dismiss) on scroll/resize while open.
+    this.worktreePopoverOutside = (e: PointerEvent): void => {
+      const target = e.target as Node;
+      if (!anchor.isConnected) {
+        this.closeWorktreeMenu();
+        return;
+      }
+      if (pop.contains(target)) return;
+      if (anchor.contains(target)) return;
+      this.closeWorktreeMenu();
+    };
+    this.worktreePopoverKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      this.closeWorktreeMenu();
+      anchor.focus();
+    };
+    this.worktreePopoverReposition = (): void => this.positionWorktreePopover(anchor);
+
+    setTimeout(() => {
+      if (!this.worktreePopover) return;
+      document.addEventListener("pointerdown", this.worktreePopoverOutside!);
+      document.addEventListener("keydown", this.worktreePopoverKey!);
+      window.addEventListener("resize", this.worktreePopoverReposition!);
+      window.addEventListener("scroll", this.worktreePopoverReposition!, true);
+    }, 0);
+  }
+
+  private positionWorktreePopover(anchor: HTMLElement): void {
+    if (!this.worktreePopover || !anchor.isConnected) return;
+    const rect = anchor.getBoundingClientRect();
+    const margin = 8;
+    const pop = this.worktreePopover;
+    pop.style.minWidth = `${Math.max(rect.width, 200)}px`;
+    pop.style.maxWidth = `${Math.max(200, window.innerWidth - margin * 2)}px`;
+    const popRect = pop.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(margin, rect.left),
+      Math.max(margin, window.innerWidth - popRect.width - margin),
+    );
+    const top = Math.min(window.innerHeight - margin, rect.bottom + 4);
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+  }
+
+  private closeWorktreeMenu(): void {
+    if (this.worktreePopover) {
+      this.worktreePopover.remove();
+      this.worktreePopover = null;
+    }
+    if (this.worktreePopoverOutside) {
+      document.removeEventListener("pointerdown", this.worktreePopoverOutside);
+      this.worktreePopoverOutside = null;
+    }
+    if (this.worktreePopoverKey) {
+      document.removeEventListener("keydown", this.worktreePopoverKey);
+      this.worktreePopoverKey = null;
+    }
+    if (this.worktreePopoverReposition) {
+      window.removeEventListener("resize", this.worktreePopoverReposition);
+      window.removeEventListener("scroll", this.worktreePopoverReposition, true);
+      this.worktreePopoverReposition = null;
+    }
   }
 
   private async refreshRoot(): Promise<void> {
