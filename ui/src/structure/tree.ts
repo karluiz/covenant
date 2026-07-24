@@ -685,11 +685,13 @@ export class StructureTree {
   /// Dropdown listing "Follow terminal" + every worktree (main first).
   private openWorktreeMenu(anchor: HTMLElement, repo: GitRepoSummary): void {
     const viewed = this.cwd;
-    const inTree = (root: string): boolean =>
-      viewed === root || (viewed?.startsWith(root + "/") ?? false);
     const rows = [...repo.worktrees].sort(
       (a, b) => Number(b.is_main) - Number(a.is_main),
     );
+    const viewedRoot =
+      rows
+        .filter((wt) => viewed === wt.path || (viewed?.startsWith(wt.path + "/") ?? false))
+        .sort((a, b) => b.path.length - a.path.length)[0]?.path ?? null;
     const items: MenuItem[] = [
       {
         label: "Follow terminal",
@@ -699,7 +701,7 @@ export class StructureTree {
       { divider: true },
       ...rows.map((wt) => ({
         label: wt.path.split("/").pop() ?? wt.path,
-        icon: inTree(wt.path) ? Icons.check({ size: 12 }) : undefined,
+        icon: wt.path === viewedRoot ? Icons.check({ size: 12 }) : undefined,
         badge: wt.is_main ? "MAIN" : undefined,
         shortcut: wt.branch ?? undefined,
         onClick: () => void this.pinTo(wt.path),

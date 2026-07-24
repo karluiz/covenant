@@ -454,6 +454,33 @@ describe("StructureTree worktree selector header", () => {
 
     (tree as unknown as { contextMenu: { dismiss(): void } }).contextMenu.dismiss();
   });
+
+  it("checks only the nested worktree, not main, when cwd is inside the nested worktree", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+
+    // cwd is nested INSIDE wt-a, not just equal to its root — both roots
+    // prefix-match "/repo" and "/repo/.covenant/worktrees/wt-a" naively.
+    await tree.setCwd("/repo/.covenant/worktrees/wt-a/src");
+    await flush();
+
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const items = document.body.querySelectorAll<HTMLElement>(".ctx-menu .ctx-item");
+    expect(items.length).toBe(3); // Follow terminal, main, wt-a
+    const [, mainRow, wtRow] = Array.from(items);
+
+    expect(mainRow.querySelector(".ctx-item-label")?.textContent).toBe("repo");
+    expect(mainRow.querySelector(".ctx-item-icon")).toBeNull();
+
+    expect(wtRow.querySelector(".ctx-item-label")?.textContent).toBe("wt-a");
+    expect(wtRow.querySelector(".ctx-item-icon svg")).not.toBeNull();
+
+    (tree as unknown as { contextMenu: { dismiss(): void } }).contextMenu.dismiss();
+  });
 });
 
 describe("StructureTree branch chip", () => {
