@@ -281,6 +281,59 @@ describe("isShareableAsGist", () => {
   });
 });
 
+describe("StructureTree worktree pin", () => {
+  let host: HTMLDivElement;
+  let tree: StructureTree;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    listDirMock.mockReset();
+    listDirMock.mockResolvedValue([entry("/wt/a.md", "a.md", "file")]);
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    tree = new StructureTree(host, () => undefined);
+  });
+
+  it("setCwd while pinned records the cwd but does not re-root", async () => {
+    await tree.setCwd("/main");
+    await flush();
+    await tree.pinTo("/wt");
+    await flush();
+    await tree.setCwd("/main/sub");
+    await flush();
+    // Tree still rooted at the pinned path: listDir was never asked for /main/sub.
+    const calls = listDirMock.mock.calls.map((c) => c[0]);
+    expect(calls).not.toContain("/main/sub");
+    expect(tree.pinned).toBe("/wt");
+  });
+
+  it("unpin re-roots to the last terminal cwd", async () => {
+    await tree.setCwd("/main");
+    await flush();
+    await tree.pinTo("/wt");
+    await flush();
+    await tree.setCwd("/main/sub"); // recorded while pinned
+    await tree.unpin();
+    await flush();
+    const calls = listDirMock.mock.calls.map((c) => c[0]);
+    expect(calls).toContain("/main/sub");
+    expect(tree.pinned).toBeNull();
+  });
+
+  it("refresh failure while pinned auto-unpins back to terminal cwd", async () => {
+    await tree.setCwd("/main");
+    await flush();
+    listDirMock.mockRejectedValueOnce(new Error("gone"));
+    await tree.pinTo("/wt-deleted");
+    await flush();
+    expect(tree.pinned).toBeNull();
+    // Fell back to re-listing the terminal cwd.
+    const calls = listDirMock.mock.calls.map((c) => c[0]);
+    expect(calls.filter((c) => c === "/main").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe("StructureTree branch chip", () => {
   let host: HTMLDivElement;
   let tree: StructureTree;

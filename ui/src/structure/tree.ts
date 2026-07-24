@@ -122,6 +122,12 @@ export class StructureTree {
   /// `listEl` and then both append, doubling every entry.
   private refreshGen = 0;
 
+  /// Worktree root the view is pinned to, or null when following the
+  /// terminal's cwd. While pinned, `setCwd` records but does not re-root.
+  private pinnedRoot: string | null = null;
+  /// Last cwd the terminal reported — the root `unpin()` returns to.
+  private lastTerminalCwd: string | null = null;
+
   /// Shared floating-menu chrome — same component the editor / tabs use,
   /// so all context menus look and behave identically.
   private readonly contextMenu = new ContextMenu(document.body);
@@ -477,10 +483,37 @@ export class StructureTree {
     await this.refresh();
   }
 
+  /// The terminal reports its cwd. Recorded always; while the view is
+  /// pinned to another worktree the report does not re-root the tree.
+  async setCwd(cwd: string): Promise<void> {
+    this.lastTerminalCwd = cwd;
+    if (this.pinnedRoot) return;
+    await this.reroot(cwd);
+  }
+
+  /// Pin the view to a sibling worktree root. Shell cds stop re-rooting
+  /// the tree until `unpin()`.
+  async pinTo(path: string): Promise<void> {
+    this.pinnedRoot = path;
+    await this.reroot(path);
+    if (this.cwd) this.renderHeader(this.cwd); // reroot may early-return; indicator must still update
+  }
+
+  /// Return to following the terminal's cwd.
+  async unpin(): Promise<void> {
+    this.pinnedRoot = null;
+    if (this.lastTerminalCwd) await this.reroot(this.lastTerminalCwd);
+    if (this.cwd) this.renderHeader(this.cwd);
+  }
+
+  get pinned(): string | null {
+    return this.pinnedRoot;
+  }
+
   /// Re-root the tree at `cwd`. Idempotent: passing the same cwd re-uses
   /// the existing expanded state from localStorage. Triggers a fresh
   /// `list_dir` against the new root.
-  async setCwd(cwd: string): Promise<void> {
+  private async reroot(cwd: string): Promise<void> {
     if (this.cwd === cwd && this.nodes.length > 0) return;
     this.clearActive();
     this.activePath = null;
@@ -622,6 +655,12 @@ export class StructureTree {
       entries = await structureListDir(cwd, this.showIgnored);
     } catch (err) {
       if (gen !== this.refreshGen) return;
+      // Pinned worktree vanished (pruned/deleted) — fall back to the terminal.
+      if (this.pinnedRoot === cwd && this.lastTerminalCwd) {
+        this.pinnedRoot = null;
+        void this.reroot(this.lastTerminalCwd);
+        return;
+      }
       this.showError(String(err));
       return;
     }
