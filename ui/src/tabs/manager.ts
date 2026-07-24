@@ -27,6 +27,7 @@ import { playCrossfade } from "./crossfade";
 import { mountWelcomeHint, dismissWelcomeHint } from "../terminal/welcome-hint";
 import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
 import { mountCdPicker } from "../terminal/cd-picker";
+import { oscColorReply } from "../terminal/osc-color";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BrowserPane } from "../browser/pane";
@@ -235,6 +236,30 @@ export function termTheme(): ITheme {
   return document.body.classList.contains("theme-light")
     ? TERMINAL_THEME_LIGHT
     : TERMINAL_THEME_DARK;
+}
+
+/// Answer OSC 10/11 `?` queries with the effective fg/ground instead of
+/// letting xterm report theme.background — transparent so vibrancy shows
+/// through, which parses as black. Without this, TUIs that probe the
+/// ground (cursor-agent, vim) render dark-on-dark on light themes.
+/// Non-query payloads return false and fall through to xterm's builtin.
+function answerColorQueries(term: Terminal, send: (s: string) => void): void {
+  const reply = (code: 10 | 11): boolean => {
+    const light = activeSpecialTerm
+      ? activeSpecialBase === "light"
+      : document.body.classList.contains("theme-light");
+    const hex =
+      code === 10
+        ? termTheme().foreground ?? (light ? "#24292f" : "#d6d8db")
+        : light
+          ? "#ffffff"
+          : "#0b0d10";
+    const seq = oscColorReply(code, hex);
+    if (seq) send(seq);
+    return seq !== null;
+  };
+  term.parser.registerOscHandler(10, (d) => (d === "?" ? reply(10) : false));
+  term.parser.registerOscHandler(11, (d) => (d === "?" ? reply(11) : false));
 }
 
 /// Normalize letter-spacing across displays. xterm adds the value to the
@@ -1199,6 +1224,11 @@ export class TabManager {
 
     // Wire data (keystrokes) → PTY.
     const encoder = new TextEncoder();
+    if (sessionId) {
+      answerColorQueries(term, (s) =>
+        void writeToSession(sessionId as SessionId, encoder.encode(s)).catch(() => {}),
+      );
+    }
     term.onData((data) => {
       if (sessionId) {
         void writeToSession(sessionId as SessionId, encoder.encode(data)).catch((e) => {
@@ -4228,6 +4258,9 @@ export class TabManager {
     );
 
     const encoder = new TextEncoder();
+    answerColorQueries(term, (s) =>
+      void writeToSession(sessionId, encoder.encode(s)).catch(() => {}),
+    );
     const dataDispose = term.onData((data) => {
       const tab = tabRef.current;
       const bare = !!tab && !activePane(tab).executor && atPrompt;
