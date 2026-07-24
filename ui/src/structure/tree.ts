@@ -22,6 +22,7 @@ import { pushInfoToast } from "../notifications/toast";
 import {
   structureClipboardFiles,
   getDirContext,
+  gitRepoSummary,
   structureClipboardSetFiles,
   structureCopyInto,
   structureCreatePath,
@@ -30,6 +31,7 @@ import {
   structureRenamePath,
   structureTrashPath,
   type DirEntry,
+  type GitRepoSummary,
 } from "../api";
 
 export type FileClickHandler = (path: string) => void;
@@ -551,6 +553,14 @@ export class StructureTree {
     label.textContent = shortenCwd(cwd);
     this.headerEl.appendChild(label);
 
+    if (this.pinnedRoot) {
+      const pin = document.createElement("span");
+      pin.className = "structure-cwd-pin";
+      pin.innerHTML = Icons.pin({ size: 10 });
+      label.prepend(pin);
+    }
+    this.decorateWorktreeSelector(cwd, label);
+
     const newFile = document.createElement("button");
     newFile.type = "button";
     newFile.className = "structure-action";
@@ -635,6 +645,62 @@ export class StructureTree {
       .catch(() => {
         /* probe failed — leave the bar hidden */
       });
+  }
+
+  /// Upgrade the plain cwd label into a worktree selector when the repo
+  /// has sibling worktrees. Async probe; a stale result (re-rooted while
+  /// awaiting, or header rebuilt) is dropped via the isConnected check.
+  private decorateWorktreeSelector(cwd: string, label: HTMLElement): void {
+    void gitRepoSummary(cwd)
+      .then((repo) => {
+        if (this.cwd !== cwd || !label.isConnected) return;
+        if (repo.worktrees.length < 2) return;
+        label.classList.add("structure-cwd-selector");
+        const chevron = document.createElement("span");
+        chevron.className = "structure-cwd-chevron";
+        chevron.innerHTML = Icons.chevronsUpDown({ size: 10 });
+        label.appendChild(chevron);
+        label.setAttribute("role", "button");
+        label.setAttribute("tabindex", "0");
+        label.removeAttribute("title");
+        attachTooltip(
+          label,
+          this.pinnedRoot
+            ? `Pinned to ${cwd} — click to change`
+            : "Switch which worktree the tree shows",
+        );
+        label.addEventListener("click", () => this.openWorktreeMenu(label, repo));
+      })
+      .catch(() => {
+        /* not a repo or probe failed — stay a plain label */
+      });
+  }
+
+  /// Dropdown listing "Follow terminal" + every worktree (main first).
+  private openWorktreeMenu(anchor: HTMLElement, repo: GitRepoSummary): void {
+    const viewed = this.cwd;
+    const inTree = (root: string): boolean =>
+      viewed === root || (viewed?.startsWith(root + "/") ?? false);
+    const rows = [...repo.worktrees].sort(
+      (a, b) => Number(b.is_main) - Number(a.is_main),
+    );
+    const items: MenuItem[] = [
+      {
+        label: "Follow terminal",
+        icon: this.pinnedRoot ? undefined : Icons.check({ size: 12 }),
+        onClick: () => void this.unpin(),
+      },
+      { divider: true },
+      ...rows.map((wt) => ({
+        label: wt.path.split("/").pop() ?? wt.path,
+        icon: inTree(wt.path) ? Icons.check({ size: 12 }) : undefined,
+        badge: wt.is_main ? "MAIN" : undefined,
+        shortcut: wt.branch ?? undefined,
+        onClick: () => void this.pinTo(wt.path),
+      })),
+    ];
+    const r = anchor.getBoundingClientRect();
+    this.contextMenu.show(r.left, r.bottom + 4, items);
   }
 
   private async refreshRoot(): Promise<void> {

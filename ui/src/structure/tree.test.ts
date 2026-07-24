@@ -9,14 +9,17 @@ vi.mock("../api", () => ({
   // Default: no git info, so renderBranch stays hidden. Tests that assert the
   // chip override this per-call. The branch-chip describe (runs last) resets it.
   getDirContext: vi.fn().mockResolvedValue({ git: null, runtime: null }),
+  // Default: not enough worktrees to grow the selector. Selector tests override.
+  gitRepoSummary: vi.fn().mockResolvedValue({ worktrees: [] }),
 }));
 
 import { StructureTree, isShareableAsGist } from "./tree";
-import { structureListDir, structureMoveInto, getDirContext } from "../api";
+import { structureListDir, structureMoveInto, getDirContext, gitRepoSummary } from "../api";
 
 const listDirMock = structureListDir as unknown as ReturnType<typeof vi.fn>;
 const moveIntoMock = structureMoveInto as unknown as ReturnType<typeof vi.fn>;
 const dirCtxMock = getDirContext as unknown as ReturnType<typeof vi.fn>;
+const repoSummaryMock = gitRepoSummary as unknown as ReturnType<typeof vi.fn>;
 
 function entry(path: string, name: string, kind: "file" | "dir") {
   return { path, name, kind, is_symlink: false };
@@ -331,6 +334,56 @@ describe("StructureTree worktree pin", () => {
     // Fell back to re-listing the terminal cwd.
     const calls = listDirMock.mock.calls.map((c) => c[0]);
     expect(calls.filter((c) => c === "/main").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("StructureTree worktree selector header", () => {
+  let host: HTMLDivElement;
+  let tree: StructureTree;
+
+  const twoWorktrees = {
+    worktrees: [
+      { path: "/repo", branch: "main", is_main: true },
+      { path: "/repo/.covenant/worktrees/wt-a", branch: "agent/wt-a", is_main: false },
+    ],
+  };
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    listDirMock.mockReset();
+    listDirMock.mockResolvedValue([entry("/repo/a.md", "a.md", "file")]);
+    repoSummaryMock.mockReset();
+    repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    tree = new StructureTree(host, () => undefined);
+  });
+
+  it("keeps the plain label when the repo has one worktree", async () => {
+    repoSummaryMock.mockResolvedValue({ worktrees: [{ path: "/repo", branch: "main", is_main: true }] });
+    await tree.setCwd("/repo");
+    await flush();
+    const label = host.querySelector(".structure-cwd")!;
+    expect(label.classList.contains("structure-cwd-selector")).toBe(false);
+  });
+
+  it("upgrades the label to a selector when the repo has sibling worktrees", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+    const label = host.querySelector(".structure-cwd")!;
+    expect(label.classList.contains("structure-cwd-selector")).toBe(true);
+    expect(label.querySelector(".structure-cwd-chevron")).not.toBeNull();
+  });
+
+  it("shows the pin indicator while pinned", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+    await tree.pinTo("/repo/.covenant/worktrees/wt-a");
+    await flush();
+    expect(host.querySelector(".structure-cwd-pin")).not.toBeNull();
   });
 });
 

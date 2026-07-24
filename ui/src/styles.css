@@ -8671,6 +8671,10 @@ mark.mv-find-hit.is-active {
     text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
 }
+.structure-cwd-selector { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.structure-cwd-selector:hover { color: var(--text-primary); }
+.structure-cwd-chevron svg, .structure-cwd-pin svg { flex-shrink: 0; vertical-align: -1px; }
+.structure-cwd-pin { color: var(--text-primary); margin-right: 2px; }
 .structure-branch {
     display: flex;
     align-items: center;
