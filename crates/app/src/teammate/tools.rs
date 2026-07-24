@@ -660,7 +660,7 @@ pub fn propose_task_tool_def() -> Value {
                 "rationale":   { "type": "string", "description": "Why you chose this archetype + scope." },
                 "executor": {
                     "type": "string",
-                    "enum": ["claude", "codex", "copilot", "pi", "hermes"],
+                    "enum": ["claude", "codex", "copilot", "pi", "hermes", "cursor"],
                     "description":
                         "REQUIRED for archetype='do'. Which executor agent should drive the \
                          work. See the system prompt for guidance on which to pick. Omit \
@@ -704,7 +704,7 @@ pub fn handoff_task_tool_def(available_skills: &[String]) -> Value {
                 "deliverable": { "type": "string", "description": "What 'done' looks like." },
                 "executor": {
                     "type": "string",
-                    "enum": ["claude", "codex", "copilot", "pi", "hermes"],
+                    "enum": ["claude", "codex", "copilot", "pi", "hermes", "cursor"],
                     "description": "Which executor CLI the receiver should drive."
                 },
                 "context": { "type": "string", "description": "Optional already-resolved facts (file contents, paths) to inline for the receiver." }

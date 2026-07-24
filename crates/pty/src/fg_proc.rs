@@ -57,6 +57,8 @@ const LOGICAL_CLIS: &[&str] = &[
     "aider",
     "codex",
     "cursor-agent",
+    // Cursor's current CLI binary is plain `agent`.
+    "agent",
     "gemini",
     "hermes",
     "ollama",

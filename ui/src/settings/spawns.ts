@@ -71,6 +71,16 @@ const PRESETS: Record<string, ExecutorPreset> = {
     chips: [],
     note: "Covenant's in-house Pi RPC executor (LineFramer → PI-4 tools/thinking/steer). No external CLI; spawned via internal RPC.",
   },
+  Cursor: {
+    label: "Cursor", command: "agent", args: [],
+    chips: [
+      { label: "-p '<prompt>'", insert: "-p '<prompt>'", caret: "<prompt>" },
+      { label: "--model <id>", insert: "--model <id>", caret: "<id>" },
+      { label: "--resume", insert: "--resume" },
+      { label: "-f (force)", insert: "-f" },
+    ],
+    note: "Cursor's CLI agent — the binary is `agent`. Install: curl https://cursor.com/install -fsS | bash, then `agent login`.",
+  },
   Gemini: {
     label: "Gemini", command: "gemini", args: [],
     chips: [
@@ -101,6 +111,7 @@ const BRAND_COLORS: Record<string, string> = {
   Codex: "#e8e8e8",
   Copilot: "#6dd29a",
   Pi: "#7c8aff",
+  Cursor: "#e5e7eb",
   Gemini: "#7cc4f4",
   Ollama: "#f4c97c",
   Opencode: "#8a93a0",

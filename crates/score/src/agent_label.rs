@@ -25,6 +25,11 @@ pub fn resolve(comm: &str, argv: &[&str]) -> Option<&'static str> {
     if has("opencode") {
         return Some("opencode");
     }
+    // Cursor's CLI binary is plain `agent` — match it exactly so argv like
+    // "pi-coding-agent" or "claude-agent-acp" can't false-positive.
+    if has("cursor") || comm_l == "agent" {
+        return Some("cursor");
+    }
     if argv_joined.split_whitespace().any(|t| t == "pi") || comm_l == "pi" {
         return Some("pi");
     }

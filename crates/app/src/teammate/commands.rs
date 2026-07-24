@@ -26,7 +26,7 @@ fn default_executor_id(app: &tauri::AppHandle) -> Option<String> {
         .filter(|id| {
             matches!(
                 id.as_str(),
-                "claude" | "codex" | "copilot" | "pi" | "hermes"
+                "claude" | "codex" | "copilot" | "pi" | "hermes" | "cursor"
             )
         })
 }
