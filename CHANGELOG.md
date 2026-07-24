@@ -6,6 +6,46 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.65 — Read-only terminal share + Files-tree worktree selector
+
+### Added
+
+- **Terminal share (read-only)**: share a terminal tab view-only from the tab
+  context menu — creates a `/t/:token` guest link on the RC relay, marks the
+  tab with a share dot, and auto-revokes when the tab closes. Frontend lane in
+  `ui/src/term-share/share.ts` + `ui/src/ui/share-link.ts`; app commands and
+  startup stale-share revoke in `crates/app/src/term_share.rs`.
+
+- **Files-tree worktree selector**: the Structure tree header gains a worktree
+  dropdown (shared `ui-select` chrome) that pins the tree root to any of the
+  repo's worktrees — `setCwd` records, `pinTo`/`unpin` re-root
+  (`ui/src/structure/tree.ts`).
+
+### Changed
+
+- **Specs & plans committed**: terminal-share and structure worktree-selector
+  design docs and implementation plans land under `docs/`.
+
+### Fixed
+
+- **Agent spawns take focus**: launching an agent from the titlebar chip, a
+  group menu, or the empty tabbar created its tab silently in the background —
+  `runSpawn` no longer passes `skipActivate`, so the spawned tab is activated
+  and focused immediately (`ui/src/main.ts`).
+
+- **Term-share hardening**: share create is server-authoritative with
+  serialized store writes (`crates/app/src/term_share.rs`), and closing a
+  split pane revokes the tab's share (`ui/src/tabs/manager.ts`).
+
+- **Worktree selector hardening**: the menu check marks only the longest
+  matching root, the pin survives detached anchors and escapes, probe results
+  are memoized, and a failed probe evicts only its own cache entry
+  (`ui/src/structure/tree.ts`).
+
+- **RC mirror gate**: mirroring a session only requires it to exist — `armed`
+  stays the input gate, so remote viewers see output before the tab is armed
+  for input (`crates/app/src/rc_agent.rs`).
+
 ## v0.9.64 — Instant agent-spawn tabs + worktree Agent actions
 
 ### Added
