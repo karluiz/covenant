@@ -76,7 +76,11 @@ function cachedRepoSummary(cwd: string): Promise<GitRepoSummary> {
   if (hit && Date.now() - hit.at < 5000) return hit.p;
   const p = gitRepoSummary(cwd);
   repoSummaryCache.set(cwd, { at: Date.now(), p });
-  p.catch(() => repoSummaryCache.delete(cwd)); // don't memoize failures
+  p.catch(() => {
+    // Don't memoize failures — but only evict our own entry, not a
+    // fresher refetch that replaced it while we were in flight.
+    if (repoSummaryCache.get(cwd)?.p === p) repoSummaryCache.delete(cwd);
+  });
   return p;
 }
 /// Test-only escape hatch: the memo above is module-level and otherwise
@@ -712,7 +716,7 @@ export class StructureTree {
         const open = (): void => {
           void cachedRepoSummary(cwd)
             .then((fresh) => {
-              if (this.cwd !== cwd) return;
+              if (this.cwd !== cwd || !label.isConnected) return;
               this.openWorktreeMenu(label, fresh);
             })
             .catch(() => {});
