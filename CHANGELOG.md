@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.66 — Terminal share renders correctly for late viewers
+
+### Fixed
+
+- **Terminal share second-viewer garble**: a guest opening a `/t/:token` link
+  while the session's mirror was already running (owner dashboard or another
+  viewer active) never received the `mirror_screen` snapshot that carries the
+  source grid — their xterm stayed at the 80×24 default and every line
+  wrapped into a tiny staircased box. `start_mirror` in
+  `crates/app/src/rc_agent.rs` now re-sends the snapshot on every
+  `mirror_start` and only skips spawning the duplicate streaming task.
+
 ## v0.9.65 — Read-only terminal share + Files-tree worktree selector
 
 ### Added
