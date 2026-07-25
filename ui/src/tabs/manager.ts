@@ -4697,16 +4697,21 @@ export class TabManager {
     tab.finder = new TerminalFinder(pane, term, search);
 
     // Cmd+Click on file paths in terminal output → open in the tab's
-    // editor split. Path detection is local to the visible line; we
-    // resolve against the tab's *current* cwd (read at click time so
-    // the user can `cd` and click into a path printed earlier).
-    //
-    // Only paths with at least one `/` separator (or a `./` / `../` /
-    // absolute prefix) are matched, plus an optional trailing `:line`
-    // or `:line:col`. Bare filenames like `README.md` are intentionally
-    // skipped — too many false positives in agent prose.
+    // editor split. Path detection is local to the visible line, then
+    // every candidate is resolved against the tab's cwd at hover time
+    // and only tokens that land on a real file become links — so the
+    // underline never lies (`agent/some-branch` and `/api/route`
+    // shapes stay inert). Bare filenames (`org-filter.ts`) resolve
+    // through the repo-wide filename finder in the backend.
+    // ponytail: a bare-name miss re-walks the repo on every fresh
+    // hover of that line; add a memo keyed by line text if it shows.
     const PATH_RE =
       /(?:\.{0,2}\/)?[A-Za-z0-9_@.\-]+(?:\/[A-Za-z0-9_@.\-]+)+(?::\d+(?::\d+)?)?/g;
+    // Bare filename with an extension, optional `:line[:col]`. The
+    // extension must start with a letter so version strings
+    // (`v0.9.69`) don't match.
+    const BARE_FILE_RE =
+      /[A-Za-z0-9_@\-][A-Za-z0-9_@.\-]*\.[A-Za-z][A-Za-z0-9]{0,7}(?::\d+(?::\d+)?)?/g;
     const linkDispose = term.registerLinkProvider({
       provideLinks(y, callback) {
         const buf = term.buffer.active;
@@ -4760,60 +4765,87 @@ export class TabManager {
           }
           return null;
         };
-        for (const m of fullText.matchAll(PATH_RE)) {
-          const raw = m[0];
-          const trimmed = raw.replace(/[.,;:)\]}>'"]+$/g, "");
-          if (trimmed.length < 3) continue;
-          const absStart = m.index ?? 0;
-          const absEnd = absStart + trimmed.length; // exclusive
-          // The current provideLinks call is for row `y` (1-based). Only
-          // emit a link entry for the slice of the match that lies on this
-          // row; xterm calls provideLinks once per row and stitches hover
-          // highlighting across rows automatically when ranges line up.
-          let rowStartOffset = -1;
-          let rowEndOffset = -1;
-          for (const s of segments) {
-            if (s.y !== y) continue;
-            rowStartOffset = s.start;
-            rowEndOffset = s.start + s.text.length;
-            break;
+        // Collect candidates from both regexes; slashed paths claim
+        // their spans first so `manager.ts` inside `ui/src/tabs/
+        // manager.ts` isn't double-matched.
+        type Candidate = {
+          pathPart: string;
+          lineNum: number | undefined;
+          absStart: number;
+          absEnd: number;
+          text: string;
+        };
+        const candidates: Candidate[] = [];
+        const claimed: [number, number][] = [];
+        const collect = (re: RegExp): void => {
+          for (const m of fullText.matchAll(re)) {
+            const trimmed = m[0].replace(/[.,;:)\]}>'"]+$/g, "");
+            if (trimmed.length < 3) continue;
+            const absStart = m.index ?? 0;
+            const absEnd = absStart + trimmed.length; // exclusive
+            if (claimed.some(([s, e]) => absStart < e && absEnd > s)) continue;
+            claimed.push([absStart, absEnd]);
+            const colonSplit = trimmed.match(/^(.*?)(?::(\d+)(?::\d+)?)?$/);
+            candidates.push({
+              pathPart: colonSplit?.[1] ?? trimmed,
+              lineNum: colonSplit?.[2] ? Number(colonSplit[2]) : undefined,
+              absStart,
+              absEnd,
+              text: trimmed,
+            });
           }
-          if (rowStartOffset < 0) continue;
-          const sliceStart = Math.max(absStart, rowStartOffset);
-          const sliceEnd = Math.min(absEnd, rowEndOffset);
-          if (sliceEnd <= sliceStart) continue;
-          const startPos = locate(sliceStart);
-          const endPos = locate(sliceEnd - 1);
-          if (!startPos || !endPos) continue;
-          out.push({
-            range: {
-              start: { x: startPos.x, y: startPos.y },
-              end: { x: endPos.x, y: endPos.y },
-            },
-            text: trimmed,
-            activate: (event) => {
-              // Require Cmd (mac) / Ctrl to open — otherwise plain
-              // clicks would steal terminal selection from the user.
-              if (!event.metaKey && !event.ctrlKey) return;
-              const colonSplit = trimmed.match(/^(.*?)(?::(\d+)(?::\d+)?)?$/);
-              const pathPart = colonSplit?.[1] ?? trimmed;
-              const lineNum = colonSplit?.[2] ? Number(colonSplit[2]) : undefined;
-              const cwd = tabRef.current ? (activePane(tabRef.current).cwd || null) : null;
-              void resolveExistingPath(pathPart, cwd)
-                .then((abs) => {
-                  if (!abs) return;
-                  tabRef.current?.openEditor?.(
-                    abs,
-                    lineNum !== undefined ? { line: lineNum } : undefined,
-                  );
-                })
-                .catch(() => {
-                  /* ignore — path didn't resolve */
-                });
-            },
-          });
+        };
+        collect(PATH_RE);
+        collect(BARE_FILE_RE);
+        if (candidates.length === 0) {
+          callback(undefined);
+          return;
         }
-        callback(out);
+        const cwd = tabRef.current ? (activePane(tabRef.current).cwd || null) : null;
+        void Promise.all(
+          candidates.map((c) => resolveExistingPath(c.pathPart, cwd).catch(() => null)),
+        ).then((resolved) => {
+          candidates.forEach((c, i) => {
+            const abs = resolved[i];
+            if (!abs) return; // not a real file — no link, no underline
+            // The current provideLinks call is for row `y` (1-based). Only
+            // emit a link entry for the slice of the match that lies on this
+            // row; xterm calls provideLinks once per row and stitches hover
+            // highlighting across rows automatically when ranges line up.
+            let rowStartOffset = -1;
+            let rowEndOffset = -1;
+            for (const s of segments) {
+              if (s.y !== y) continue;
+              rowStartOffset = s.start;
+              rowEndOffset = s.start + s.text.length;
+              break;
+            }
+            if (rowStartOffset < 0) return;
+            const sliceStart = Math.max(c.absStart, rowStartOffset);
+            const sliceEnd = Math.min(c.absEnd, rowEndOffset);
+            if (sliceEnd <= sliceStart) return;
+            const startPos = locate(sliceStart);
+            const endPos = locate(sliceEnd - 1);
+            if (!startPos || !endPos) return;
+            out.push({
+              range: {
+                start: { x: startPos.x, y: startPos.y },
+                end: { x: endPos.x, y: endPos.y },
+              },
+              text: c.text,
+              activate: (event) => {
+                // Require Cmd (mac) / Ctrl to open — otherwise plain
+                // clicks would steal terminal selection from the user.
+                if (!event.metaKey && !event.ctrlKey) return;
+                tabRef.current?.openEditor?.(
+                  abs,
+                  c.lineNum !== undefined ? { line: c.lineNum } : undefined,
+                );
+              },
+            });
+          });
+          callback(out.length > 0 ? out : undefined);
+        });
       },
     });
     tab.disposers.push(linkDispose);

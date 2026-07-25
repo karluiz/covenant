@@ -3675,10 +3675,11 @@ async fn structure_create_path(path: String, kind: String) -> Result<String, Str
 /// that would stall the IPC bridge.
 const MAX_READ_BYTES_HARD_CAP: u64 = 4 * 1024 * 1024;
 
-/// Cheap file/dir existence probe used by the xterm link provider to
-/// decide whether a path-like token in terminal output is actually a
-/// real file we can open in the editor on Cmd+Click. Resolves the
-/// path relative to `cwd` when not absolute. Returns the canonical
+/// File existence probe used by the xterm link provider to decide
+/// whether a path-like token in terminal output is actually a real
+/// file we can open in the editor on Cmd+Click. Resolves relative to
+/// `cwd`; bare filenames fall back to the repo-wide filename finder
+/// (see `structure::resolve_path_token`). Returns the canonical
 /// absolute path on hit, `None` otherwise.
 #[tauri::command]
 async fn resolve_existing_path(
@@ -3686,18 +3687,10 @@ async fn resolve_existing_path(
     cwd: Option<String>,
 ) -> Result<Option<String>, String> {
     tokio::task::spawn_blocking(move || {
-        let p = std::path::Path::new(&path);
-        let candidate = if p.is_absolute() {
-            p.to_path_buf()
-        } else if let Some(c) = cwd.as_deref() {
-            std::path::Path::new(c).join(p)
-        } else {
-            return Ok(None);
-        };
-        match candidate.canonicalize() {
-            Ok(canon) if canon.is_file() => Ok(Some(canon.to_string_lossy().into_owned())),
-            _ => Ok(None),
-        }
+        Ok(structure::resolve_path_token(
+            &path,
+            cwd.as_deref().map(std::path::Path::new),
+        ))
     })
     .await
     .map_err(|e| format!("resolve_existing_path join: {e}"))?

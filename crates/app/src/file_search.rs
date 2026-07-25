@@ -188,6 +188,24 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn walk_inside_worktree_ignores_ancestor_gitignore() {
+        // Same trap as structure::search: the main checkout gitignores
+        // `.covenant/`, where linked worktrees live. A walk rooted at the
+        // worktree must not inherit that ancestor rule.
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join(".gitignore"), b".covenant/\n").unwrap();
+        let wt = tmp.path().join(".covenant/worktrees/agent-x");
+        std::fs::create_dir_all(wt.join("docs")).unwrap();
+        std::fs::write(wt.join(".git"), b"gitdir: /nowhere\n").unwrap();
+        std::fs::write(wt.join("docs/spec.md"), b"x\n").unwrap();
+        let files = walk(&wt);
+        assert!(
+            files.iter().any(|f| f == "docs/spec.md"),
+            "walk must see worktree files, got: {files:?}"
+        );
+    }
+
+    #[test]
     fn allowlist_admits_rust_and_ts() {
         assert!(is_text_path(&PathBuf::from("a/b/c.rs")));
         assert!(is_text_path(&PathBuf::from("ui/src/api.ts")));
