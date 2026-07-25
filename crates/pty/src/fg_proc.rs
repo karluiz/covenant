@@ -57,8 +57,6 @@ const LOGICAL_CLIS: &[&str] = &[
     "aider",
     "codex",
     "cursor-agent",
-    // Cursor's current CLI binary is plain `agent`.
-    "agent",
     "gemini",
     "hermes",
     "ollama",
@@ -75,6 +73,15 @@ fn logical_name_from_arg(arg: &str) -> Option<&'static str> {
             // `pi-clipboard-*.png` don't get mistaken for the Pi CLI.
             if basename == "pi" || basename == "pi.js" || arg.contains("pi-coding-agent") {
                 return Some("pi");
+            }
+        } else if *cli == "cursor-agent" {
+            // Cursor's CLI: the `agent` launcher script execs its bundled
+            // node with argv[0] = the invoked path, so comm is that path
+            // truncated to 16 chars. Match the invoked basename (`agent`,
+            // exact — it's too generic for contains) or the install path,
+            // and report the canonical executor name "cursor".
+            if basename == "agent" || basename == "cursor-agent" || arg.contains("cursor-agent") {
+                return Some("cursor");
             }
         } else if basename.contains(cli) {
             return Some(*cli);
@@ -222,6 +229,25 @@ mod tests {
             logical_name_from_arg("/Users/me/.hermes/hermes-agent/venv/bin/hermes"),
             Some("hermes")
         );
+    }
+
+    #[test]
+    fn logical_match_canonicalizes_cursor_cli_to_cursor() {
+        // The `agent` launcher execs bundled node with argv[0] = the
+        // invoked path; both that and the install path must map to
+        // "cursor", never the raw binary name.
+        assert_eq!(
+            logical_name_from_arg("/Users/me/.local/bin/agent"),
+            Some("cursor")
+        );
+        assert_eq!(
+            logical_name_from_arg(
+                "/Users/me/.local/share/cursor-agent/versions/2026.07.23/index.js"
+            ),
+            Some("cursor")
+        );
+        // Bare `agent` is exact-match only — no contains false-positives.
+        assert_eq!(logical_name_from_arg("/usr/bin/user-agent-tool"), None);
     }
 
     #[test]

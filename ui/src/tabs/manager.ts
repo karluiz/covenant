@@ -3741,6 +3741,7 @@ export class TabManager {
                 const p = tabRef.current.panes[0];
                 if (p.executor !== next) {
                   p.executor = next;
+                  p.fgExecutor = false;
                   if (next) dismissWelcomeHint();
                   if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
                     this.statusBar?.setExecutor(next);
@@ -3830,6 +3831,30 @@ export class TabManager {
                 // doubling up is just noise. Keep the dot strictly for
                 // user-initiated dev tools.
                 const pFg = tabRef.current.panes[0];
+                // OSC 133 command detection misses launchers that exec
+                // through wrapper scripts (Cursor's `agent` → bundled
+                // node): fall back to the foreground process's logical
+                // name. A shell returning to the foreground clears only
+                // fg-derived state — block_finished owns the
+                // command-detected lifecycle.
+                const fgExec = event.name ? detectExecutor(event.name) : null;
+                const fgIsShell = /^(zsh|bash|fish|sh|nu|tcsh)$/.test(event.name ?? "");
+                if (fgExec && pFg.executor !== fgExec && !pFg.executor) {
+                  pFg.executor = fgExec;
+                  pFg.fgExecutor = true;
+                  dismissWelcomeHint();
+                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
+                    this.statusBar?.setExecutor(fgExec);
+                    this.onActiveExecutorChange?.(fgExec);
+                  }
+                } else if (!fgExec && fgIsShell && pFg.fgExecutor && pFg.executor) {
+                  pFg.executor = null;
+                  pFg.fgExecutor = false;
+                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
+                    this.statusBar?.setExecutor(null);
+                    this.onActiveExecutorChange?.(null);
+                  }
+                }
                 const isAgent = !!pFg.executor;
                 pFg.busyProc = event.busy && !isAgent ? event.name : null;
                 this.renderTabBusyDot(tabRef.current);
