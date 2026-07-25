@@ -6,6 +6,51 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.68 — Cursor CLI executor + Canon projection
+
+### Added
+
+- **Cursor CLI as a first-class executor**: Cursor's `agent` CLI joins
+  claude/codex/copilot/pi/hermes — spawn preset with backfill migration
+  (`crates/app/src/spawns_store.rs`), command/process detection
+  (`ui/src/executor.ts`, `crates/pty/src/fg_proc.rs`), idle/inline
+  detection (`crates/session/src/idle.rs`), teammate delegation target
+  (`crates/app/src/teammate/`), Settings preset with arg chips and brand
+  color (`ui/src/settings/spawns.ts`), status-bar chip with the Cursor
+  logo.
+
+- **Canon projects to Cursor**: skills and contexts land in
+  `.cursor/skills/canon-<name>/SKILL.md`, commands in
+  `.cursor/commands/<name>.md`, and memory reaches Cursor through the
+  `AGENTS.md` managed block it reads natively
+  (`crates/canon/src/project.rs`). New `karl-capabilities` cursor
+  adapter surfaces user/project skills and commands in the Capabilities
+  page, with a Projections sync badge
+  (`crates/capabilities/src/adapters/cursor.rs`,
+  `ui/src/capabilities/panel.ts`).
+
+### Fixed
+
+- **TUIs picked a dark palette on light themes**: xterm answered OSC 10/11
+  color queries with the theme's transparent background (parsed as black),
+  so background-probing TUIs (cursor-agent, vim, delta) rendered
+  dark-on-dark under light and wallpaper themes. Custom handlers now reply
+  with the effective visual ground (`ui/src/terminal/osc-color.ts`,
+  `ui/src/tabs/manager.ts`).
+
+- **OSC 8 hyperlinks swallowed clicks**: xterm parses OSC 8 links
+  (cursor-agent, `ls --hyperlink`, delta) but only activates them when
+  `options.linkHandler` is set — they now route through the same handler
+  as auto-detected URLs (`ui/src/tabs/manager.ts`).
+
+- **Cursor tabs showed the generic busy dot and no executor chip**: the
+  `agent` launcher execs bundled node with argv[0] rewritten, so the
+  foreground name resolved to raw `agent` that no brand surface mapped.
+  `fg_proc` canonicalizes it to `cursor`, and `foreground_changed` now
+  falls back to fg-based executor detection when OSC 133 command
+  detection didn't claim the pane (`crates/pty/src/fg_proc.rs`,
+  `ui/src/tabs/manager.ts`).
+
 ## v0.9.67 — Shared terminals reconnect after silent network drops
 
 ### Added
