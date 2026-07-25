@@ -12,14 +12,14 @@ This is the reference for which executor supports what, and where it lives.
 
 ✓ = a native file/dir Covenant can list and edit for that tool.
 
-| Section  | Claude | opencode | Codex | Copilot | Pi | Hermes |
-|----------|:------:|:--------:|:-----:|:-------:|:--:|:------:|
-| Skills   | ✓ `.claude/skills/<n>/SKILL.md` | — | — | — | ✓ `~/.pi/skills` | — |
-| Agents   | ✓ `.claude/agents/<n>.md` | ✓ `.opencode/agent/<n>.md` | —¹ | —¹ | —² | — |
-| Commands | ✓ `.claude/commands/<n>.md` | — | ✓ `~/.codex/prompts` | — | ✓ `~/.pi/prompts` | — |
-| Hooks    | ✓ `settings.json` | — | — | — | — | — |
-| MCPs     | ✓ `settings.json`/`.mcp.json` | ✓ `opencode.json` | ✓ `config.toml` | ✓ | — | — |
-| Memory   | ✓ `CLAUDE.md` | ✓ `AGENTS.md` | ✓ `AGENTS.md` | ✓ `.github/copilot-instructions.md` | — | ✓ `.hermes.md`/`AGENTS.md` |
+| Section  | Claude | opencode | Codex | Copilot | Pi | Hermes | Cursor |
+|----------|:------:|:--------:|:-----:|:-------:|:--:|:------:|:------:|
+| Skills   | ✓ `.claude/skills/<n>/SKILL.md` | — | — | — | ✓ `~/.pi/skills` | — | ✓ `.cursor/skills/<n>/SKILL.md` |
+| Agents   | ✓ `.claude/agents/<n>.md` | ✓ `.opencode/agent/<n>.md` | —¹ | —¹ | —² | — | —¹ |
+| Commands | ✓ `.claude/commands/<n>.md` | — | ✓ `~/.codex/prompts` | — | ✓ `~/.pi/prompts` | — | ✓ `.cursor/commands/<n>.md` |
+| Hooks    | ✓ `settings.json` | — | — | — | — | — | — |
+| MCPs     | ✓ `settings.json`/`.mcp.json` | ✓ `opencode.json` | ✓ `config.toml` | ✓ | — | — | —³ |
+| Memory   | ✓ `CLAUDE.md` | ✓ `AGENTS.md` | ✓ `AGENTS.md` | ✓ `.github/copilot-instructions.md` | — | ✓ `.hermes.md`/`AGENTS.md` | ✓ `AGENTS.md` |
 
 Project scope mirrors the same paths under the repo root (e.g.
 `<repo>/.claude/agents`, `<repo>/CLAUDE.md`).
@@ -38,6 +38,8 @@ That exists natively only for **Claude** (`.claude/agents`) and **opencode**
   `.github/copilot-instructions.md` — so it surfaces under **Memory**, not Agents.
 - **² Pi** has no subagent concept; it materializes agents as **skills**
   (`~/.pi/skills`).
+- **³ Cursor** has MCP at `.cursor/mcp.json`, but the structured merge is
+  deferred — only claude/opencode/codex get MCP projection today.
 
 ## Why Canon projection exists
 
@@ -47,8 +49,8 @@ map is the ground truth in `crates/canon/src/project.rs`:
 
 ```rust
 const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent"];
-const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills"];
-// memory targets: AGENTS.md (codex/opencode/hermes),
+const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills", ".cursor/skills"];
+// memory targets: AGENTS.md (codex/opencode/hermes/cursor),
 //                 .github/copilot-instructions.md (copilot),
 //                 .hermes.md (hermes, only if it already exists)
 ```

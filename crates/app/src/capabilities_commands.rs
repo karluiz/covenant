@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use karl_capabilities::adapters::{claude, codex, copilot, covenant, opencode, pi, shared};
+use karl_capabilities::adapters::{claude, codex, copilot, covenant, cursor, opencode, pi, shared};
 use karl_capabilities::model::{Kind, Tool};
 use karl_capabilities::scaffold::{render, ScaffoldRequest};
 use karl_capabilities::writer::{delete_with_backup, write_atomic};
@@ -34,6 +34,7 @@ pub struct DetectResult {
     pub opencode: bool,
     pub codex: bool,
     pub pi: bool,
+    pub cursor: bool,
     pub shared: bool,
     pub covenant: bool,
 }
@@ -405,6 +406,46 @@ fn item_from_pi(c: pi::Capability) -> CapabilityListItem {
     }
 }
 
+fn item_from_cursor(c: cursor::Capability) -> CapabilityListItem {
+    let scope_label = |s: &cursor::CursorScope| match s {
+        cursor::CursorScope::User => "user".to_string(),
+        cursor::CursorScope::Project(p) => format!(
+            "project:{}",
+            p.file_name().and_then(|s| s.to_str()).unwrap_or("project")
+        ),
+    };
+    match c {
+        cursor::Capability::Skill(s) => {
+            let path = s.path.to_string_lossy().into_owned();
+            let lbl = scope_label(&s.scope);
+            CapabilityListItem {
+                id: format!("cursor:skill:{path}"),
+                tool: "cursor".into(),
+                kind: "skill".into(),
+                name: s.name,
+                description: Some(s.description),
+                path,
+                scope_label: lbl,
+                read_only: false,
+            }
+        }
+        cursor::Capability::Command(cmd) => {
+            let path = cmd.path.to_string_lossy().into_owned();
+            let lbl = scope_label(&cmd.scope);
+            CapabilityListItem {
+                id: format!("cursor:command:{path}"),
+                tool: "cursor".into(),
+                kind: "command".into(),
+                name: cmd.name,
+                description: Some(cmd.description),
+                path,
+                scope_label: lbl,
+                read_only: false,
+            }
+        }
+    }
+}
+
 fn item_from_shared(s: shared::SharedSkill) -> CapabilityListItem {
     let path = s.path.to_string_lossy().into_owned();
     let scope_label = match (s.source.as_deref(), s.version.as_deref()) {
@@ -474,6 +515,14 @@ fn aggregate(project_root: Option<String>) -> Result<Vec<CapabilityListItem>, St
             .map(item_from_pi),
     );
 
+    // Cursor: user skills (~/.cursor/skills).
+    out.extend(
+        cursor::scan_user(&home)
+            .map_err(|e| format!("cursor scan_user: {e}"))?
+            .into_iter()
+            .map(item_from_cursor),
+    );
+
     // Shared ~/.agents/skills.
     out.extend(
         shared::scan(&home)
@@ -502,6 +551,12 @@ fn aggregate(project_root: Option<String>) -> Result<Vec<CapabilityListItem>, St
                     .map_err(|e| format!("codex scan_project: {e}"))?
                     .into_iter()
                     .map(item_from_codex),
+            );
+            out.extend(
+                cursor::scan_project(&p)
+                    .map_err(|e| format!("cursor scan_project: {e}"))?
+                    .into_iter()
+                    .map(item_from_cursor),
             );
             let repo_name = p
                 .file_name()
@@ -708,6 +763,7 @@ pub async fn capabilities_detect() -> Result<DetectResult, String> {
             || h_clone.join(".opencode/bin/opencode").is_file(),
         codex: codex::detect(&h_clone),
         pi: pi::detect(&h_clone),
+        cursor: cursor::detect(&h_clone),
         shared: shared::detect(&h_clone),
         // Covenant is a project-scoped concept; always available — the list is
         // simply empty until a project root with `.covenant/canon` is selected.

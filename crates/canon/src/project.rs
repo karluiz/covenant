@@ -98,12 +98,13 @@ pub(crate) const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent"];
 
 /// Executors that read multi-file SKILL dirs (the Superpowers `SKILL.md`
 /// convention). Skills and full context bodies land here as `canon-<name>/SKILL.md`.
-pub(crate) const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills"];
+pub(crate) const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills", ".cursor/skills"];
 
 /// Executors that read a multi-file COMMAND dir as file-per-item `<name>.md`
 /// slash commands. Codex has no project-level commands; Copilot uses a
 /// different extension/frontmatter — both deferred. Add an executor here.
-pub(crate) const COMMAND_DIRS: &[&str] = &[".claude/commands", ".opencode/commands", ".pi/prompts"];
+pub(crate) const COMMAND_DIRS: &[&str] =
+    &[".claude/commands", ".opencode/commands", ".pi/prompts", ".cursor/commands"];
 
 /// Write each `<stem>.md` (covenant block stripped) into every dir in `dirs`.
 /// Shared by agents and commands — the two file-per-item projection kinds.
@@ -274,7 +275,7 @@ fn strip_block(existing: &str) -> String {
     }
 }
 
-/// Build the concatenated managed-block body shared by codex/copilot/hermes.
+/// Build the concatenated managed-block body shared by codex/copilot/hermes/cursor.
 /// Returns `None` when there is nothing to project (block should be absent).
 /// Extracted from `project_with_active` so `projection_status` reuses the exact
 /// same generator (ponytail: one source of truth for the block string).
@@ -411,7 +412,7 @@ fn newest_source_mtime(repo_root: &Path) -> Option<u64> {
 /// would currently write, without touching disk. Reuses the same content
 /// helpers as projection, so "synced" means byte-identical to a fresh project.
 pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonError> {
-    const TOOLS: [&str; 5] = ["claude", "opencode", "pi", "codex", "copilot"];
+    const TOOLS: [&str; 6] = ["claude", "opencode", "pi", "codex", "copilot", "cursor"];
 
     let manifest = read_manifest(repo_root)?;
     let skills_dir = canon_dir(repo_root).join("skills");
@@ -481,6 +482,14 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
                 .join(".pi/skills")
                 .join(format!("canon-{name}"))
                 .join("SKILL.md"),
+            content.clone(),
+        ));
+        files.push((
+            "cursor",
+            repo_root
+                .join(".cursor/skills")
+                .join(format!("canon-{name}"))
+                .join("SKILL.md"),
             content,
         ));
     }
@@ -498,6 +507,14 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
             "pi",
             repo_root
                 .join(".pi/skills")
+                .join(format!("canon-{stem}"))
+                .join("SKILL.md"),
+            content.clone(),
+        ));
+        files.push((
+            "cursor",
+            repo_root
+                .join(".cursor/skills")
                 .join(format!("canon-{stem}"))
                 .join("SKILL.md"),
             content,
@@ -522,6 +539,11 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         files.push((
             "pi",
             repo_root.join(".pi/prompts").join(format!("{stem}.md")),
+            content.clone(),
+        ));
+        files.push((
+            "cursor",
+            repo_root.join(".cursor/commands").join(format!("{stem}.md")),
             content,
         ));
     }
@@ -536,7 +558,7 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
             .or_default()
             .push(check_file(path, expected));
     }
-    // Managed-block executors. codex + opencode both read AGENTS.md.
+    // Managed-block executors. codex + opencode + cursor all read AGENTS.md.
     let agents_md = repo_root.join("AGENTS.md");
     checks
         .entry("codex")
@@ -544,6 +566,10 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         .push(check_managed(&agents_md, body.as_deref()));
     checks
         .entry("opencode")
+        .or_default()
+        .push(check_managed(&agents_md, body.as_deref()));
+    checks
+        .entry("cursor")
         .or_default()
         .push(check_managed(&agents_md, body.as_deref()));
     checks.entry("copilot").or_default().push(check_managed(

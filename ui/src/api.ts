@@ -2582,7 +2582,7 @@ export async function telegramStatus(): Promise<TelegramStatus> {
 
 export interface CapabilityListItem {
   id: string;
-  tool: "claude" | "copilot" | "opencode" | "codex" | "pi" | "shared" | "covenant";
+  tool: "claude" | "copilot" | "opencode" | "codex" | "pi" | "cursor" | "shared" | "covenant";
   kind:
     | "skill"
     | "command"
@@ -2606,6 +2606,7 @@ export interface CapabilitiesDetect {
   opencode: boolean;
   codex: boolean;
   pi: boolean;
+  cursor: boolean;
   shared: boolean;
   covenant: boolean;
 }
