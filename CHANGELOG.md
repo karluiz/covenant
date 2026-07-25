@@ -6,6 +6,31 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.70 — Honest terminal file links + search filename fallback
+
+### Added
+
+- **Bare filenames are Cmd+clickable**: terminal output like
+  `org-filter.ts` now resolves through a repo-wide exact-basename lookup
+  (`structure::resolve_path_token` in `crates/app/src/structure.rs`,
+  wired through `resolve_existing_path` in `crates/app/src/lib.rs`) and
+  opens the real file in the editor split. Slash paths keep resolving
+  against the tab's cwd, so agent-printed paths inside a worktree open
+  the worktree copy.
+
+### Changed
+
+- **Link underlines never lie**: the xterm link provider
+  (`ui/src/tabs/manager.ts`) now resolves every path-shaped token at
+  hover time and only emits a link when it lands on a real file — branch
+  names (`agent/foo-bar`) and URL-ish shapes (`/sync/state`) no longer
+  underline and silently no-op on Cmd+click.
+
+- **Search palette falls back to filenames**: a CONTENT-mode query with
+  zero hits now runs the filename finder and flips the mode chip to
+  FILES (`ui/src/search/palette.ts`) — pasting a filename printed by an
+  agent finds the file instead of dead-ending on "No matches".
+
 ## v0.9.69 — Fix the build break that killed v0.9.67/v0.9.68
 
 ### Fixed
