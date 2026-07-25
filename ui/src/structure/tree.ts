@@ -130,6 +130,7 @@ export class StructureTree {
   private readonly root: HTMLElement;
   private readonly listEl: HTMLUListElement;
   private readonly headerEl: HTMLElement;
+  private readonly footerEl: HTMLElement;
   private readonly branchEl: HTMLElement;
   private readonly emptyEl: HTMLElement;
   private cwd: string | null = null;
@@ -213,11 +214,6 @@ export class StructureTree {
     this.headerEl.className = "structure-header";
     this.root.appendChild(this.headerEl);
 
-    this.branchEl = document.createElement("div");
-    this.branchEl.className = "structure-branch";
-    this.branchEl.hidden = true;
-    this.root.appendChild(this.branchEl);
-
     this.listEl = document.createElement("ul");
     this.listEl.className = "structure-list";
     this.root.appendChild(this.listEl);
@@ -227,6 +223,17 @@ export class StructureTree {
     this.emptyEl.textContent = "Empty directory";
     this.emptyEl.hidden = true;
     this.root.appendChild(this.emptyEl);
+
+    // Path + branch live in a fixed footer (spec 2026-07-24) so the tree
+    // keeps the vertical space the old mid-header branch strip stole.
+    this.footerEl = document.createElement("footer");
+    this.footerEl.className = "structure-footer";
+    this.root.appendChild(this.footerEl);
+
+    this.branchEl = document.createElement("div");
+    this.branchEl.className = "structure-branch";
+    this.branchEl.hidden = true;
+    this.footerEl.appendChild(this.branchEl);
 
     this.host.appendChild(this.root);
 
@@ -565,12 +572,22 @@ export class StructureTree {
 
   private renderWaiting(): void {
     this.branchEl.hidden = true;
+    this.branchEl.innerHTML = "";
     this.headerEl.innerHTML = "";
+    const title = document.createElement("span");
+    title.className = "structure-title";
+    title.textContent = "Files";
+    this.headerEl.appendChild(title);
+
+    // Keep branchEl mounted; only swap the path slot in the footer.
+    for (const child of Array.from(this.footerEl.childNodes)) {
+      if (child !== this.branchEl) this.footerEl.removeChild(child);
+    }
     const label = document.createElement("span");
     label.className = "structure-cwd";
-    label.title = "Waiting for the terminal to report its current directory";
+    attachTooltip(label, "Waiting for the terminal to report its current directory");
     label.textContent = "Waiting for shell cwd…";
-    this.headerEl.appendChild(label);
+    this.footerEl.insertBefore(label, this.branchEl);
 
     this.listEl.innerHTML = "";
     this.emptyEl.textContent = "Waiting for the terminal to report its current directory.";
@@ -579,19 +596,14 @@ export class StructureTree {
 
   private renderHeader(cwd: string): void {
     this.headerEl.innerHTML = "";
-    const label = document.createElement("span");
-    label.className = "structure-cwd";
-    label.title = cwd;
-    label.textContent = shortenCwd(cwd);
-    this.headerEl.appendChild(label);
+    const title = document.createElement("span");
+    title.className = "structure-title";
+    title.textContent = "Files";
+    this.headerEl.appendChild(title);
 
-    if (this.pinnedRoot) {
-      const pin = document.createElement("span");
-      pin.className = "structure-cwd-pin";
-      pin.innerHTML = Icons.pin({ size: 10 });
-      label.prepend(pin);
-    }
-    this.decorateWorktreeSelector(cwd, label);
+    const actions = document.createElement("div");
+    actions.className = "structure-actions";
+    this.headerEl.appendChild(actions);
 
     const newFile = document.createElement("button");
     newFile.type = "button";
@@ -601,7 +613,7 @@ export class StructureTree {
     newFile.addEventListener("click", () => {
       this.startCreateAtRoot("file");
     });
-    this.headerEl.appendChild(newFile);
+    actions.appendChild(newFile);
 
     const newFolder = document.createElement("button");
     newFolder.type = "button";
@@ -611,7 +623,7 @@ export class StructureTree {
     newFolder.addEventListener("click", () => {
       this.startCreateAtRoot("dir");
     });
-    this.headerEl.appendChild(newFolder);
+    actions.appendChild(newFolder);
 
     const showIgnored = document.createElement("button");
     showIgnored.type = "button";
@@ -627,7 +639,7 @@ export class StructureTree {
       this.renderHeader(cwd);
       void this.refresh();
     });
-    this.headerEl.appendChild(showIgnored);
+    actions.appendChild(showIgnored);
 
     const changes = document.createElement("button");
     changes.type = "button";
@@ -639,7 +651,7 @@ export class StructureTree {
         new CustomEvent("covenant:open-changes", { detail: { cwd } }),
       );
     });
-    this.headerEl.appendChild(changes);
+    actions.appendChild(changes);
 
     const refresh = document.createElement("button");
     refresh.type = "button";
@@ -649,7 +661,23 @@ export class StructureTree {
     refresh.addEventListener("click", () => {
       void this.refresh();
     });
-    this.headerEl.appendChild(refresh);
+    actions.appendChild(refresh);
+
+    for (const child of Array.from(this.footerEl.childNodes)) {
+      if (child !== this.branchEl) this.footerEl.removeChild(child);
+    }
+    const label = document.createElement("span");
+    label.className = "structure-cwd";
+    attachTooltip(label, cwd);
+    label.textContent = shortenCwd(cwd);
+    if (this.pinnedRoot) {
+      const pin = document.createElement("span");
+      pin.className = "structure-cwd-pin";
+      pin.innerHTML = Icons.pin({ size: 10 });
+      label.prepend(pin);
+    }
+    this.footerEl.insertBefore(label, this.branchEl);
+    this.decorateWorktreeSelector(cwd, label);
   }
 
   /// Fill the branch bar under the path. Async: the branch comes from a

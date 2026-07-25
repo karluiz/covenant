@@ -535,9 +535,9 @@ describe("StructureTree branch chip", () => {
     dirCtxMock.mockResolvedValueOnce({ git: { repo_name: "covenant", branch: "agent/css-fixes-0722-wez" }, runtime: null });
     await tree.setCwd("/wt");
     await flush();
-    const chip = host.querySelector(".structure-branch-name");
+    const chip = host.querySelector(".structure-footer .structure-branch-name");
     expect(chip?.textContent).toBe("agent/css-fixes-0722-wez");
-    expect(host.querySelector<HTMLElement>(".structure-branch")?.hidden).toBe(false);
+    expect(host.querySelector<HTMLElement>(".structure-footer .structure-branch")?.hidden).toBe(false);
   });
 
   it("stays hidden when the cwd is not a git repo", async () => {
@@ -545,7 +545,7 @@ describe("StructureTree branch chip", () => {
     dirCtxMock.mockResolvedValueOnce({ git: null, runtime: null });
     await tree.setCwd("/plain");
     await flush();
-    expect(host.querySelector<HTMLElement>(".structure-branch")?.hidden).toBe(true);
+    expect(host.querySelector<HTMLElement>(".structure-footer .structure-branch")?.hidden).toBe(true);
   });
 
   it("drops a stale branch result after a re-root", async () => {
@@ -560,6 +560,39 @@ describe("StructureTree branch chip", () => {
     // Now the stale first probe resolves — it must NOT overwrite the chip.
     resolveFirst({ git: { repo_name: "r", branch: "first" }, runtime: null });
     await flush();
-    expect(host.querySelector(".structure-branch-name")?.textContent).toBe("second");
+    expect(host.querySelector(".structure-footer .structure-branch-name")?.textContent).toBe("second");
+  });
+});
+
+describe("StructureTree footer layout", () => {
+  let host: HTMLDivElement;
+  let tree: StructureTree;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    listDirMock.mockReset();
+    dirCtxMock.mockReset();
+    repoSummaryMock.mockReset();
+    repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    __resetRepoSummaryCacheForTests();
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    tree = new StructureTree(host, () => undefined);
+  });
+
+  it("puts path in the footer and actions in the header", async () => {
+    listDirMock.mockResolvedValueOnce([entry("/wt/a.md", "a.md", "file")]);
+    dirCtxMock.mockResolvedValueOnce({
+      git: { repo_name: "r", branch: "main" },
+      runtime: null,
+    });
+    await tree.setCwd("/wt");
+    await flush();
+    expect(host.querySelector(".structure-header .structure-cwd")).toBeNull();
+    expect(host.querySelector(".structure-footer .structure-cwd")).not.toBeNull();
+    expect(host.querySelector(".structure-header .structure-action")).not.toBeNull();
+    expect(host.querySelector(".structure-header .structure-branch")).toBeNull();
+    expect(host.querySelector(".structure-title")?.textContent).toBe("Files");
   });
 });
