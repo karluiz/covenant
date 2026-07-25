@@ -677,6 +677,41 @@ pub fn find_files(root: &Path, query: &str, limit: u32) -> Result<Vec<FileHit>, 
     Ok(scored.into_iter().map(|(_, h)| h).collect())
 }
 
+/// Resolve a path-like token from terminal output to an existing file.
+/// Relative and absolute tokens resolve against `cwd`; a bare filename
+/// (no separator) that doesn't exist at cwd falls back to an exact
+/// basename match via the repo-wide filename finder, so `manager.ts`
+/// in agent prose opens the real `ui/src/tabs/manager.ts`. Returns the
+/// canonical absolute path, or None when nothing on disk matches —
+/// the xterm link provider uses that to skip the link entirely.
+pub fn resolve_path_token(token: &str, cwd: Option<&Path>) -> Option<String> {
+    let p = Path::new(token);
+    let candidate = if p.is_absolute() {
+        Some(p.to_path_buf())
+    } else {
+        cwd.map(|c| c.join(p))
+    };
+    if let Some(c) = candidate {
+        if let Ok(canon) = c.canonicalize() {
+            if canon.is_file() {
+                return Some(canon.to_string_lossy().into_owned());
+            }
+        }
+    }
+    if token.contains('/') {
+        return None;
+    }
+    let hits = find_files(cwd?, token, 8).ok()?;
+    hits.into_iter()
+        .find(|h| {
+            h.rel_path
+                .rsplit('/')
+                .next()
+                .is_some_and(|b| b.eq_ignore_ascii_case(token))
+        })
+        .map(|h| h.path)
+}
+
 /// Case-insensitive subsequence match. Returns (score, char_indices_in_haystack)
 /// or None if any needle char can't be matched in order.
 ///
@@ -828,6 +863,57 @@ mod tests {
         assert!(names.contains(&".gitignore"));
         assert!(!names.contains(&"build"));
         assert!(!names.contains(&"secret.env"));
+    }
+
+    #[test]
+    fn search_inside_worktree_ignores_ancestor_gitignore() {
+        // A linked worktree lives under `.covenant/worktrees/<slug>` while
+        // the main checkout's .gitignore contains `.covenant/`. A search
+        // rooted AT the worktree must not inherit that ancestor rule —
+        // it would blank out the entire tree.
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join(".gitignore"), b".covenant/\n").unwrap();
+        let wt = tmp.path().join(".covenant/worktrees/agent-x");
+        fs::create_dir_all(wt.join("docs")).unwrap();
+        // Linked worktrees carry a `.git` FILE pointing at the main repo.
+        fs::write(wt.join(".git"), b"gitdir: /nowhere\n").unwrap();
+        fs::write(wt.join("docs/spec.md"), b"the roster sync design\n").unwrap();
+
+        let hits = search(&wt, "roster", 10).unwrap();
+        assert_eq!(hits.len(), 1, "content search must see worktree files");
+
+        let files = find_files(&wt, "spec.md", 10).unwrap();
+        assert!(
+            files.iter().any(|f| f.rel_path == "docs/spec.md"),
+            "file finder must see worktree files"
+        );
+    }
+
+    #[test]
+    fn resolve_path_token_relative_absolute_and_bare() {
+        let tmp = TempDir::new().unwrap();
+        make_tree(&tmp, &["ui/src/tabs/manager.ts", "README.md"]);
+        let cwd = Some(tmp.path());
+
+        // Relative path with separators.
+        let hit = resolve_path_token("ui/src/tabs/manager.ts", cwd).unwrap();
+        assert!(hit.ends_with("ui/src/tabs/manager.ts"));
+
+        // Absolute path.
+        let abs = tmp.path().join("README.md");
+        assert!(resolve_path_token(abs.to_str().unwrap(), None).is_some());
+
+        // Bare filename falls back to the repo-wide finder (exact basename).
+        let hit = resolve_path_token("manager.ts", cwd).unwrap();
+        assert!(hit.ends_with("ui/src/tabs/manager.ts"));
+
+        // No fuzzy surprises: a bare name that matches only as a
+        // subsequence must NOT resolve.
+        assert!(resolve_path_token("mngr.ts", cwd).is_none());
+
+        // Nonexistent slashed path → None (no finder fallback).
+        assert!(resolve_path_token("agent/claude-0725-gkp", cwd).is_none());
+        assert!(resolve_path_token("nope.ts", cwd).is_none());
     }
 
     #[test]

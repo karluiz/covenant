@@ -166,13 +166,18 @@ export class GlobalSearchPalette {
       : "Type to find files. Tab → search content.";
   }
 
-  private toggleMode(): void {
-    this.mode = this.mode === "content" ? "files" : "content";
+  /// Flip the mode chip + placeholder to `m` without touching results.
+  private setMode(m: Mode): void {
+    this.mode = m;
     if (this.inputEl) this.inputEl.placeholder = this.placeholderText();
     if (this.modeEl) {
       this.modeEl.dataset.mode = this.mode;
       this.modeEl.innerHTML = this.modeBadgeHtml();
     }
+  }
+
+  private toggleMode(): void {
+    this.setMode(this.mode === "content" ? "files" : "content");
     this.cursor = 0;
     this.hits = [];
     this.fileHits = [];
@@ -215,6 +220,18 @@ export class GlobalSearchPalette {
         const results = await structureSearch(cwd, query, HIT_LIMIT);
         if (ticket !== this.fetchTicket || this.mode !== mode) return;
         this.hits = results;
+        // Content found nothing — the query is often a filename pasted
+        // from agent output. Fall through to the filename finder and
+        // flip the mode chip so the switch is visible, instead of a
+        // dead "No matches".
+        if (results.length === 0) {
+          const files = await structureFindFiles(cwd, query, HIT_LIMIT);
+          if (ticket !== this.fetchTicket || this.mode !== mode) return;
+          if (files.length > 0) {
+            this.setMode("files");
+            this.fileHits = files;
+          }
+        }
       } else {
         const results = await structureFindFiles(cwd, query, HIT_LIMIT);
         if (ticket !== this.fetchTicket || this.mode !== mode) return;
