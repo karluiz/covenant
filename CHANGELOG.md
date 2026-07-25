@@ -6,6 +6,41 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.67 — Shared terminals reconnect after silent network drops
+
+### Added
+
+- **Files rail footer**: the Files tree's path + branch context moved out of
+  the header into a fixed footer, so the header is title + actions only and
+  the file list reclaims the mid-strip vertical space. Tree layout in
+  `ui/src/structure/tree.ts` with regression coverage in
+  `ui/src/structure/tree.test.ts`.
+
+### Changed
+
+- **Files rail footer spec + plan**: design spec and implementation plan for
+  the footer under `docs/`.
+
+### Fixed
+
+- **Terminal share stuck on DESKTOP OFFLINE**: when the TCP path under the
+  relay socket died silently (sleep, interface change, LB drop) the socket
+  stayed ESTABLISHED while `stream.next().await` in
+  `crates/app/src/rc_agent.rs` hung forever — the relay dropped the desktop,
+  every `/t/:token` viewer sat on "Desktop offline", and the app never
+  reconnected until restart. The relay pings every 20s, so 75s of silence now
+  fails the read and lets `agent_loop` reconnect with the existing backoff.
+
+- **Worktree popover off-screen from Files footer**: the selector always
+  opened below the path; anchored in the new footer that shoved the menu past
+  the bottom edge. It now measures space and drops up when needed, matching
+  `CustomSelect` (`ui/src/structure/tree.ts`).
+
+- **Files path tooltips overflowing the window**: long pinned paths painted
+  past the right edge of the 340px tip. Tooltips now use structured
+  title/subtitle content, break long paths, and are viewport-capped
+  (`ui/src/ui/tooltip.ts`, `ui/src/styles.css`).
+
 ## v0.9.66 — Terminal share renders correctly for late viewers
 
 ### Fixed
