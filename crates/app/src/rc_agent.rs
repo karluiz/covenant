@@ -191,6 +191,27 @@ async fn collect_tabs(app: &AppHandle) -> Vec<TabInfo> {
     out
 }
 
+/// The relay pings every 20s, so a healthy link never goes this long
+/// without a frame. When the TCP path dies silently (sleep, interface
+/// change, LB drop) the socket stays ESTABLISHED and a bare
+/// `stream.next().await` hangs forever — the relay drops us, guests see
+/// "Desktop offline", and we never reconnect. Silence past this limit
+/// means the link is dead: bail so `agent_loop` reconnects.
+const RELAY_SILENCE_LIMIT: Duration = Duration::from_secs(75);
+
+async fn next_frame<S, T>(stream: &mut S, limit: Duration) -> anyhow::Result<Option<T>>
+where
+    S: futures_util::Stream<Item = T> + Unpin,
+{
+    match tokio::time::timeout(limit, stream.next()).await {
+        Ok(item) => Ok(item),
+        Err(_) => anyhow::bail!(
+            "relay silent for {}s; treating link as dead",
+            limit.as_secs()
+        ),
+    }
+}
+
 async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result<()> {
     let (ws, _resp) = tokio_tungstenite::connect_async(url).await?;
     let (mut sink, mut stream) = ws.split();
@@ -211,8 +232,14 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
         tokio::task::JoinHandle<()>,
     > = std::collections::HashMap::new();
 
-    while let Some(msg) = stream.next().await {
-        match msg? {
+    let res: anyhow::Result<()> = loop {
+        let msg = match next_frame(&mut stream, RELAY_SILENCE_LIMIT).await {
+            Ok(Some(Ok(m))) => m,
+            Ok(Some(Err(e))) => break Err(e.into()),
+            Ok(None) => break Ok(()),
+            Err(e) => break Err(e),
+        };
+        match msg {
             Message::Text(text) => match serde_json::from_str::<InFrame>(&text) {
                 Ok(InFrame::ListTabs) => {
                     let tabs = collect_tabs(app).await;
@@ -274,15 +301,15 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                 Ok(InFrame::Unknown) => {}
                 Err(e) => tracing::debug!(target: "rc_agent", error=%e, "bad frame"),
             },
-            Message::Close(_) => break,
+            Message::Close(_) => break Ok(()),
             _ => {}
         }
-    }
+    };
     for (_, h) in mirrors.drain() {
         h.abort();
     }
     write.abort();
-    Ok(())
+    res
 }
 
 /// Mirror is read-only, so it only needs the session to exist — unlike
@@ -919,5 +946,26 @@ mod tests {
         assert_eq!(a, b);
         assert!(a.contains('-'));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Zombie-socket regression: a dead TCP path keeps the socket ESTABLISHED
+    // while yielding nothing; the read must give up instead of hanging forever.
+    #[tokio::test(start_paused = true)]
+    async fn next_frame_errors_on_silent_stream() {
+        let mut s = futures_util::stream::pending::<u8>();
+        assert!(next_frame(&mut s, Duration::from_secs(75)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn next_frame_passes_items_and_end_through() {
+        let mut s = futures_util::stream::iter(vec![7u8]);
+        assert_eq!(
+            next_frame(&mut s, Duration::from_secs(1)).await.unwrap(),
+            Some(7)
+        );
+        assert_eq!(
+            next_frame(&mut s, Duration::from_secs(1)).await.unwrap(),
+            None
+        );
     }
 }
