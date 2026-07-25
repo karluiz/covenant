@@ -158,11 +158,9 @@ export class StructureTree {
   /// so all context menus look and behave identically.
   private readonly contextMenu = new ContextMenu(document.body);
 
-  /// Bespoke popover for the worktree selector (DESIGN.md rule 14 — rich
-  /// rows with an icon + MAIN badge + branch hint don't fit ContextMenu's
-  /// item shape, so this wears the shared `.ui-select__*` chrome directly
-  /// instead of `.ctx-menu`). Body-portaled, one at a time.
-  private worktreePopover: HTMLDivElement | null = null;
+  /// Detach fn for the path label's tooltip — re-render / selector upgrade
+  /// must drop the previous listeners before attaching a new tip.
+  private pathTipDetach: (() => void) | null = null;
   private worktreePopoverOutside: ((e: PointerEvent) => void) | null = null;
   private worktreePopoverKey: ((e: KeyboardEvent) => void) | null = null;
   private worktreePopoverReposition: (() => void) | null = null;
@@ -570,6 +568,14 @@ export class StructureTree {
     if (this.cwd) await this.refreshRoot();
   }
 
+  private setPathTooltip(
+    label: HTMLElement,
+    content: Parameters<typeof attachTooltip>[1],
+  ): void {
+    this.pathTipDetach?.();
+    this.pathTipDetach = attachTooltip(label, content);
+  }
+
   private renderWaiting(): void {
     this.branchEl.hidden = true;
     this.branchEl.innerHTML = "";
@@ -585,8 +591,8 @@ export class StructureTree {
     }
     const label = document.createElement("span");
     label.className = "structure-cwd";
-    attachTooltip(label, "Waiting for the terminal to report its current directory");
     label.textContent = "Waiting for shell cwd…";
+    this.setPathTooltip(label, "Waiting for the terminal to report its current directory");
     this.footerEl.insertBefore(label, this.branchEl);
 
     this.listEl.innerHTML = "";
@@ -668,7 +674,6 @@ export class StructureTree {
     }
     const label = document.createElement("span");
     label.className = "structure-cwd";
-    attachTooltip(label, cwd);
     label.textContent = shortenCwd(cwd);
     if (this.pinnedRoot) {
       const pin = document.createElement("span");
@@ -676,6 +681,11 @@ export class StructureTree {
       pin.innerHTML = Icons.pin({ size: 10 });
       label.prepend(pin);
     }
+    this.setPathTooltip(label, {
+      title: this.pinnedRoot ? "Pinned to" : "Tree root",
+      subtitle: cwd,
+      hint: this.pinnedRoot ? "Click to change" : undefined,
+    });
     this.footerEl.insertBefore(label, this.branchEl);
     this.decorateWorktreeSelector(cwd, label);
   }
@@ -741,11 +751,19 @@ export class StructureTree {
         label.setAttribute("role", "button");
         label.setAttribute("tabindex", "0");
         label.removeAttribute("title");
-        attachTooltip(
+        this.setPathTooltip(
           label,
           this.pinnedRoot
-            ? `Pinned to ${cwd} — click to change`
-            : "Switch which worktree the tree shows",
+            ? {
+                title: "Pinned to",
+                subtitle: cwd,
+                hint: "Click to change",
+              }
+            : {
+                title: "Switch worktree",
+                subtitle: cwd,
+                hint: "Click to change which tree the Files rail shows",
+              },
         );
         // Re-fetch on open (5s memo keeps the common case free) so a
         // worktree spawned after this header rendered still shows up —

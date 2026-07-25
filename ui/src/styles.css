@@ -15708,6 +15708,11 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
     transition:
         opacity 120ms ease,
         transform 120ms ease;
+    /* Long mono paths (Pinned to /Users/…/worktrees/…) must not paint past
+       the clamped box — overflow:visible + no word-break was clipping at
+       the window edge on the Files rail footer. */
+    overflow: hidden;
+    box-sizing: border-box;
 }
 .ck-tooltip.is-visible {
     display: block;
@@ -15770,6 +15775,8 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
 .ck-tooltip__body {
     color: var(--text, #d5d9de);
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 /* ── In-terminal finder (⌘F) ────────────────────────────────────────
