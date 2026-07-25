@@ -5308,7 +5308,7 @@ fn detect_executor(command: &str) -> Option<String> {
         "claude" | "claude-code" => "claude",
         "opencode" => "opencode",
         "aider" => "aider",
-        "cursor" | "cursor-agent" => "cursor",
+        "cursor" | "cursor-agent" | "agent" => "cursor",
         "codex" => "codex",
         "pi" => "pi",
         "copilot" | "github-copilot-cli" => "copilot",

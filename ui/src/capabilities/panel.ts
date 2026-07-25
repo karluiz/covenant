@@ -26,7 +26,7 @@ import {
 import { pushInfoToast } from "../notifications/toast";
 import { CustomSelect } from "../ui/select";
 
-type ToolKey = "claude" | "copilot" | "opencode" | "codex" | "pi" | "shared" | "covenant";
+type ToolKey = "claude" | "copilot" | "opencode" | "codex" | "pi" | "cursor" | "shared" | "covenant";
 type SectionKey =
   | "skills"
   | "commands"
@@ -73,6 +73,10 @@ const SECTIONS_BY_TOOL: Record<ToolKey, SectionDef[]> = {
     { key: "skills", label: "Skills", kinds: ["skill"] },
     { key: "commands", label: "Prompts", kinds: ["command"] },
     { key: "config", label: "Config", kinds: ["config"] },
+  ],
+  cursor: [
+    { key: "skills", label: "Skills", kinds: ["skill"] },
+    { key: "commands", label: "Commands", kinds: ["command"] },
   ],
   shared: [{ key: "skills", label: "Skills", kinds: ["skill"] }],
   covenant: [
@@ -163,7 +167,7 @@ export class CapabilitiesPanel {
     } catch (err) {
       console.error("capabilities refresh failed", err);
       pushInfoToast({ message: `Capabilities: ${String(err)}` });
-      this.detect = { claude: false, copilot: false, opencode: false, codex: false, pi: false, shared: false, covenant: false };
+      this.detect = { claude: false, copilot: false, opencode: false, codex: false, pi: false, cursor: false, shared: false, covenant: false };
       this.items = [];
     }
     // Projection status is Canon-specific: a malformed manifest must not blank
@@ -288,6 +292,7 @@ export class CapabilitiesPanel {
       { key: "pi", label: "Pi" },
       { key: "copilot", label: "Copilot" },
       { key: "opencode", label: "opencode" },
+      { key: "cursor", label: "Cursor" },
       { key: "shared", label: "Shared" },
     ];
     for (const t of projTools) {

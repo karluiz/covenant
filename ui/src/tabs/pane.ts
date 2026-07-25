@@ -40,6 +40,11 @@ export interface Pane {
   /// the conversation via session/load.
   acpSessionId?: string | null;
   executor: string | null;
+  /// True when `executor` was set from foreground-process detection
+  /// rather than OSC 133 command detection. Fg-derived state is cleared
+  /// when a shell returns to the foreground; command-derived state is
+  /// owned by block_finished. Runtime only, never persisted.
+  fgExecutor?: boolean;
   operatorEnabled: boolean;
   operatorLive: boolean;
   /// Ephemeral solo-autonomous flag (full AOM on this tab only). Runtime

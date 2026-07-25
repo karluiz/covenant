@@ -39,7 +39,7 @@ Covenant is a **chain of delegation of the self**. Three tiers, one principal:
        │  directs / wields
        ▼
   ┌──────────────┐
-  │   EXECUTOR   │  the harness — claude, codex, copilot, pi, hermes
+  │   EXECUTOR   │  the harness — claude, codex, copilot, pi, hermes, cursor
   │ (ag. ejecutor)│  the hands, the construction tool
   └──────────────┘
        │  operates on

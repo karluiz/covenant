@@ -2173,7 +2173,7 @@ function statusLabel(s: Task["status"]): string {
 ///
 /// Valid executor names match Covenant's own executor registry — the
 /// agent CLIs the app tracks via fg_proc:
-///   claude, codex, copilot, pi, hermes
+///   claude, codex, copilot, pi, hermes, cursor
 /// (note: it's `copilot`, NOT `gh copilot` — the GitHub Copilot CLI is
 /// installed as the `copilot` binary). To change without rebuilding:
 ///   localStorage.setItem("covenant.teammate.executor", "codex")

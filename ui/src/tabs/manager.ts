@@ -27,6 +27,7 @@ import { playCrossfade } from "./crossfade";
 import { mountWelcomeHint, dismissWelcomeHint } from "../terminal/welcome-hint";
 import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
 import { mountCdPicker } from "../terminal/cd-picker";
+import { oscColorReply } from "../terminal/osc-color";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BrowserPane } from "../browser/pane";
@@ -235,6 +236,30 @@ export function termTheme(): ITheme {
   return document.body.classList.contains("theme-light")
     ? TERMINAL_THEME_LIGHT
     : TERMINAL_THEME_DARK;
+}
+
+/// Answer OSC 10/11 `?` queries with the effective fg/ground instead of
+/// letting xterm report theme.background — transparent so vibrancy shows
+/// through, which parses as black. Without this, TUIs that probe the
+/// ground (cursor-agent, vim) render dark-on-dark on light themes.
+/// Non-query payloads return false and fall through to xterm's builtin.
+function answerColorQueries(term: Terminal, send: (s: string) => void): void {
+  const reply = (code: 10 | 11): boolean => {
+    const light = activeSpecialTerm
+      ? activeSpecialBase === "light"
+      : document.body.classList.contains("theme-light");
+    const hex =
+      code === 10
+        ? termTheme().foreground ?? (light ? "#24292f" : "#d6d8db")
+        : light
+          ? "#ffffff"
+          : "#0b0d10";
+    const seq = oscColorReply(code, hex);
+    if (seq) send(seq);
+    return seq !== null;
+  };
+  term.parser.registerOscHandler(10, (d) => (d === "?" ? reply(10) : false));
+  term.parser.registerOscHandler(11, (d) => (d === "?" ? reply(11) : false));
 }
 
 /// Normalize letter-spacing across displays. xterm adds the value to the
@@ -1199,6 +1224,11 @@ export class TabManager {
 
     // Wire data (keystrokes) → PTY.
     const encoder = new TextEncoder();
+    if (sessionId) {
+      answerColorQueries(term, (s) =>
+        void writeToSession(sessionId as SessionId, encoder.encode(s)).catch(() => {}),
+      );
+    }
     term.onData((data) => {
       if (sessionId) {
         void writeToSession(sessionId as SessionId, encoder.encode(data)).catch((e) => {
@@ -3520,6 +3550,14 @@ export class TabManager {
       }
     };
     term.loadAddon(new WebLinksAddon((_e, uri) => handleLinkClick(uri)));
+    // OSC 8 hyperlinks (cursor-agent, `ls --hyperlink`, delta): xterm
+    // parses them natively but only activates them through
+    // options.linkHandler — without it they underline on hover and
+    // ignore the click.
+    term.options.linkHandler = {
+      activate: (_e, uri) => handleLinkClick(uri),
+      allowNonHttpProtocols: false,
+    };
     // Cmd+F search — addon paints decorations for every match; the
     // floating finder UI is created right after term.open() so it can
     // mount inside the tab's pane.
@@ -3711,6 +3749,7 @@ export class TabManager {
                 const p = tabRef.current.panes[0];
                 if (p.executor !== next) {
                   p.executor = next;
+                  p.fgExecutor = false;
                   if (next) dismissWelcomeHint();
                   if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
                     this.statusBar?.setExecutor(next);
@@ -3800,6 +3839,30 @@ export class TabManager {
                 // doubling up is just noise. Keep the dot strictly for
                 // user-initiated dev tools.
                 const pFg = tabRef.current.panes[0];
+                // OSC 133 command detection misses launchers that exec
+                // through wrapper scripts (Cursor's `agent` → bundled
+                // node): fall back to the foreground process's logical
+                // name. A shell returning to the foreground clears only
+                // fg-derived state — block_finished owns the
+                // command-detected lifecycle.
+                const fgExec = event.name ? detectExecutor(event.name) : null;
+                const fgIsShell = /^(zsh|bash|fish|sh|nu|tcsh)$/.test(event.name ?? "");
+                if (fgExec && pFg.executor !== fgExec && !pFg.executor) {
+                  pFg.executor = fgExec;
+                  pFg.fgExecutor = true;
+                  dismissWelcomeHint();
+                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
+                    this.statusBar?.setExecutor(fgExec);
+                    this.onActiveExecutorChange?.(fgExec);
+                  }
+                } else if (!fgExec && fgIsShell && pFg.fgExecutor && pFg.executor) {
+                  pFg.executor = null;
+                  pFg.fgExecutor = false;
+                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
+                    this.statusBar?.setExecutor(null);
+                    this.onActiveExecutorChange?.(null);
+                  }
+                }
                 const isAgent = !!pFg.executor;
                 pFg.busyProc = event.busy && !isAgent ? event.name : null;
                 this.renderTabBusyDot(tabRef.current);
@@ -4228,6 +4291,9 @@ export class TabManager {
     );
 
     const encoder = new TextEncoder();
+    answerColorQueries(term, (s) =>
+      void writeToSession(sessionId, encoder.encode(s)).catch(() => {}),
+    );
     const dataDispose = term.onData((data) => {
       const tab = tabRef.current;
       const bare = !!tab && !activePane(tab).executor && atPrompt;

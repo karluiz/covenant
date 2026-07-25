@@ -16,7 +16,9 @@ const EXECUTORS: { match: RegExp; name: string }[] = [
   { match: /^claude(-code)?$/, name: "claude" },
   { match: /^opencode$/, name: "opencode" },
   { match: /^aider$/, name: "aider" },
-  { match: /^cursor(-agent)?$/, name: "cursor" },
+  // Cursor's CLI — the current binary is plain `agent`; older installs
+  // shipped `cursor-agent`.
+  { match: /^(agent|cursor(-agent)?)$/, name: "cursor" },
   { match: /^codex$/, name: "codex" },
   { match: /^pi$/, name: "pi" },
   // Standalone copilot CLI binaries — newer GitHub releases ship as

@@ -19,12 +19,14 @@ pub const KNOWN_AGENTS: &[&str] = &[
     "gemini",
     "pi",
     "hermes",
+    // Cursor's CLI — fg_proc canonicalizes agent/cursor-agent to this.
+    "cursor",
 ];
 
 /// Agents that render inline (no alternate screen). For these we skip the
 /// alt-screen gate but require a prompt-text regex match to avoid firing
 /// while the agent is mid-thought.
-pub const INLINE_AGENTS: &[&str] = &["claude", "codex", "pi", "hermes"];
+pub const INLINE_AGENTS: &[&str] = &["claude", "codex", "pi", "hermes", "cursor"];
 
 const QUIET_THRESHOLD: Duration = Duration::from_secs(3);
 

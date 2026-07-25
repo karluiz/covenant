@@ -18,6 +18,13 @@ describe("detectExecutor", () => {
     expect(detectExecutor("hermes model")).toBe("hermes");
   });
 
+  it("recognizes Cursor's CLI agent", () => {
+    expect(detectExecutor("agent")).toBe("cursor");
+    expect(detectExecutor("cursor-agent")).toBe("cursor");
+    expect(detectExecutor("/usr/local/bin/agent")).toBe("cursor");
+    expect(detectExecutor("env FOO=1 agent -p 'fix it'")).toBe("cursor");
+  });
+
   // Covenant's own reuse-idle launch is `cd <worktree> && claude …`; if this
   // returns null the tab stays "idle" forever and the next Start-agent
   // types into the running agent instead of spawning a session.

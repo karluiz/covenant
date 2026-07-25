@@ -42,6 +42,7 @@ const DEFAULT_SPAWNS: &[(&str, &str, &str, &[&str])] = &[
     ("codex", "Codex", "codex", &[]),
     ("copilot", "Copilot", "gh", &["copilot"]),
     ("hermes", "Hermes", "hermes", &[]),
+    ("cursor", "Cursor", "agent", &[]),
 ];
 
 /// Presets we want to backfill into a previously-persisted spawns.json
@@ -49,7 +50,7 @@ const DEFAULT_SPAWNS: &[(&str, &str, &str, &[&str])] = &[
 /// this list are restored if missing — anything the user has deleted
 /// stays deleted. Adding an entry here is a one-shot migration; once it
 /// has shipped in a release, every existing install will have the row.
-const BACKFILL_IDS: &[&str] = &["hermes"];
+const BACKFILL_IDS: &[&str] = &["hermes", "cursor"];
 
 impl SpawnStore {
     pub fn open(data_dir: &Path) -> std::io::Result<Self> {
@@ -212,6 +213,12 @@ mod tests {
             .expect("hermes preset");
         assert_eq!(hermes.command, "hermes");
         assert!(!hermes.default, "hermes must not steal default from claude");
+        let cursor = list
+            .iter()
+            .find(|s| s.id == "cursor")
+            .expect("cursor preset");
+        assert_eq!(cursor.command, "agent");
+        assert!(!cursor.default, "cursor must not steal default from claude");
         assert!(dir.path().join("spawns.json").exists());
     }
 
@@ -243,6 +250,10 @@ mod tests {
             list.iter().any(|s| s.id == "hermes"),
             "hermes must be backfilled"
         );
+        assert!(
+            list.iter().any(|s| s.id == "cursor"),
+            "cursor must be backfilled"
+        );
         // Backfill must NOT restore presets the user has deleted.
         assert!(!list.iter().any(|s| s.id == "codex"));
         assert!(!list.iter().any(|s| s.id == "copilot"));
@@ -261,6 +272,7 @@ mod tests {
         assert_eq!(after_first, after_second);
         let parsed: Vec<SpawnSpec> = serde_json::from_str(&after_second).unwrap();
         assert_eq!(parsed.iter().filter(|s| s.id == "hermes").count(), 1);
+        assert_eq!(parsed.iter().filter(|s| s.id == "cursor").count(), 1);
     }
 
     #[test]
