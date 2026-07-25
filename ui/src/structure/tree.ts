@@ -161,6 +161,7 @@ export class StructureTree {
   /// Detach fn for the path label's tooltip — re-render / selector upgrade
   /// must drop the previous listeners before attaching a new tip.
   private pathTipDetach: (() => void) | null = null;
+  private worktreePopover: HTMLDivElement | null = null;
   private worktreePopoverOutside: ((e: PointerEvent) => void) | null = null;
   private worktreePopoverKey: ((e: KeyboardEvent) => void) | null = null;
   private worktreePopoverReposition: (() => void) | null = null;
