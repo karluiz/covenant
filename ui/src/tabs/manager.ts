@@ -3550,6 +3550,14 @@ export class TabManager {
       }
     };
     term.loadAddon(new WebLinksAddon((_e, uri) => handleLinkClick(uri)));
+    // OSC 8 hyperlinks (cursor-agent, `ls --hyperlink`, delta): xterm
+    // parses them natively but only activates them through
+    // options.linkHandler — without it they underline on hover and
+    // ignore the click.
+    term.options.linkHandler = {
+      activate: (_e, uri) => handleLinkClick(uri),
+      allowNonHttpProtocols: false,
+    };
     // Cmd+F search — addon paints decorations for every match; the
     // floating finder UI is created right after term.open() so it can
     // mount inside the tab's pane.
