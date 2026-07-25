@@ -138,6 +138,14 @@ describe("computeTooltipPos", () => {
     expect(p.left + 120).toBeLessThanOrEqual(1200 - 8);
   });
 
+  test("keeps an oversized tooltip inside the viewport on the right", () => {
+    // Right-rail anchor + tip wider than remaining space: prefer the
+    // right clamp, then re-clamp left so we never go negative.
+    const p = computeTooltipPos(rect(1100, 300, 40, 20), 340, 60, 1200, 800);
+    expect(p.left).toBeGreaterThanOrEqual(8);
+    expect(p.left + 340).toBeLessThanOrEqual(1200 - 8);
+  });
+
   test("stays glued to a bottom status-bar badge", () => {
     // Native page zoom keeps rects and the viewport in one CSS-px space,
     // so the tooltip sits directly on the badge at any zoom level.

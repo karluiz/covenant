@@ -511,6 +511,77 @@ describe("StructureTree worktree selector header", () => {
 
     (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
   });
+
+  it("opens the worktree menu above a footer-anchored path", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    Object.defineProperty(window, "innerWidth", { value: 1200, configurable: true });
+
+    const gbc = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.classList.contains("ui-select__popover")) {
+          return {
+            top: 0,
+            bottom: 120,
+            left: 0,
+            right: 220,
+            width: 220,
+            height: 120,
+            x: 0,
+            y: 0,
+            toJSON() {
+              return {};
+            },
+          } as DOMRect;
+        }
+        if (this.classList.contains("structure-cwd")) {
+          // Footer path: just above the status bar.
+          return {
+            top: 760,
+            bottom: 780,
+            left: 100,
+            right: 280,
+            width: 180,
+            height: 20,
+            x: 100,
+            y: 760,
+            toJSON() {
+              return {};
+            },
+          } as DOMRect;
+        }
+        return {
+          top: 0,
+          bottom: 0,
+          left: 0,
+          right: 0,
+          width: 0,
+          height: 0,
+          x: 0,
+          y: 0,
+          toJSON() {
+            return {};
+          },
+        } as DOMRect;
+      });
+
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const pop = document.body.querySelector<HTMLElement>(".ui-select__popover")!;
+    expect(pop).not.toBeNull();
+    // Flip-up: top edge sits above the footer path (760 - 120 - 4 = 636).
+    expect(parseFloat(pop.style.top)).toBe(636);
+    expect(parseFloat(pop.style.left)).toBe(100);
+
+    gbc.mockRestore();
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
+  });
 });
 
 describe("StructureTree branch chip", () => {
@@ -535,9 +606,9 @@ describe("StructureTree branch chip", () => {
     dirCtxMock.mockResolvedValueOnce({ git: { repo_name: "covenant", branch: "agent/css-fixes-0722-wez" }, runtime: null });
     await tree.setCwd("/wt");
     await flush();
-    const chip = host.querySelector(".structure-branch-name");
+    const chip = host.querySelector(".structure-footer .structure-branch-name");
     expect(chip?.textContent).toBe("agent/css-fixes-0722-wez");
-    expect(host.querySelector<HTMLElement>(".structure-branch")?.hidden).toBe(false);
+    expect(host.querySelector<HTMLElement>(".structure-footer .structure-branch")?.hidden).toBe(false);
   });
 
   it("stays hidden when the cwd is not a git repo", async () => {
@@ -545,7 +616,7 @@ describe("StructureTree branch chip", () => {
     dirCtxMock.mockResolvedValueOnce({ git: null, runtime: null });
     await tree.setCwd("/plain");
     await flush();
-    expect(host.querySelector<HTMLElement>(".structure-branch")?.hidden).toBe(true);
+    expect(host.querySelector<HTMLElement>(".structure-footer .structure-branch")?.hidden).toBe(true);
   });
 
   it("drops a stale branch result after a re-root", async () => {
@@ -560,6 +631,39 @@ describe("StructureTree branch chip", () => {
     // Now the stale first probe resolves — it must NOT overwrite the chip.
     resolveFirst({ git: { repo_name: "r", branch: "first" }, runtime: null });
     await flush();
-    expect(host.querySelector(".structure-branch-name")?.textContent).toBe("second");
+    expect(host.querySelector(".structure-footer .structure-branch-name")?.textContent).toBe("second");
+  });
+});
+
+describe("StructureTree footer layout", () => {
+  let host: HTMLDivElement;
+  let tree: StructureTree;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    listDirMock.mockReset();
+    dirCtxMock.mockReset();
+    repoSummaryMock.mockReset();
+    repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    __resetRepoSummaryCacheForTests();
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    tree = new StructureTree(host, () => undefined);
+  });
+
+  it("puts path in the footer and actions in the header", async () => {
+    listDirMock.mockResolvedValueOnce([entry("/wt/a.md", "a.md", "file")]);
+    dirCtxMock.mockResolvedValueOnce({
+      git: { repo_name: "r", branch: "main" },
+      runtime: null,
+    });
+    await tree.setCwd("/wt");
+    await flush();
+    expect(host.querySelector(".structure-header .structure-cwd")).toBeNull();
+    expect(host.querySelector(".structure-footer .structure-cwd")).not.toBeNull();
+    expect(host.querySelector(".structure-header .structure-action")).not.toBeNull();
+    expect(host.querySelector(".structure-header .structure-branch")).toBeNull();
+    expect(host.querySelector(".structure-title")?.textContent).toBe("Files");
   });
 });

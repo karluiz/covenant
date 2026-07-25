@@ -130,6 +130,7 @@ export class StructureTree {
   private readonly root: HTMLElement;
   private readonly listEl: HTMLUListElement;
   private readonly headerEl: HTMLElement;
+  private readonly footerEl: HTMLElement;
   private readonly branchEl: HTMLElement;
   private readonly emptyEl: HTMLElement;
   private cwd: string | null = null;
@@ -157,11 +158,9 @@ export class StructureTree {
   /// so all context menus look and behave identically.
   private readonly contextMenu = new ContextMenu(document.body);
 
-  /// Bespoke popover for the worktree selector (DESIGN.md rule 14 — rich
-  /// rows with an icon + MAIN badge + branch hint don't fit ContextMenu's
-  /// item shape, so this wears the shared `.ui-select__*` chrome directly
-  /// instead of `.ctx-menu`). Body-portaled, one at a time.
-  private worktreePopover: HTMLDivElement | null = null;
+  /// Detach fn for the path label's tooltip — re-render / selector upgrade
+  /// must drop the previous listeners before attaching a new tip.
+  private pathTipDetach: (() => void) | null = null;
   private worktreePopoverOutside: ((e: PointerEvent) => void) | null = null;
   private worktreePopoverKey: ((e: KeyboardEvent) => void) | null = null;
   private worktreePopoverReposition: (() => void) | null = null;
@@ -213,11 +212,6 @@ export class StructureTree {
     this.headerEl.className = "structure-header";
     this.root.appendChild(this.headerEl);
 
-    this.branchEl = document.createElement("div");
-    this.branchEl.className = "structure-branch";
-    this.branchEl.hidden = true;
-    this.root.appendChild(this.branchEl);
-
     this.listEl = document.createElement("ul");
     this.listEl.className = "structure-list";
     this.root.appendChild(this.listEl);
@@ -227,6 +221,17 @@ export class StructureTree {
     this.emptyEl.textContent = "Empty directory";
     this.emptyEl.hidden = true;
     this.root.appendChild(this.emptyEl);
+
+    // Path + branch live in a fixed footer (spec 2026-07-24) so the tree
+    // keeps the vertical space the old mid-header branch strip stole.
+    this.footerEl = document.createElement("footer");
+    this.footerEl.className = "structure-footer";
+    this.root.appendChild(this.footerEl);
+
+    this.branchEl = document.createElement("div");
+    this.branchEl.className = "structure-branch";
+    this.branchEl.hidden = true;
+    this.footerEl.appendChild(this.branchEl);
 
     this.host.appendChild(this.root);
 
@@ -563,14 +568,32 @@ export class StructureTree {
     if (this.cwd) await this.refreshRoot();
   }
 
+  private setPathTooltip(
+    label: HTMLElement,
+    content: Parameters<typeof attachTooltip>[1],
+  ): void {
+    this.pathTipDetach?.();
+    this.pathTipDetach = attachTooltip(label, content);
+  }
+
   private renderWaiting(): void {
     this.branchEl.hidden = true;
+    this.branchEl.innerHTML = "";
     this.headerEl.innerHTML = "";
+    const title = document.createElement("span");
+    title.className = "structure-title";
+    title.textContent = "Files";
+    this.headerEl.appendChild(title);
+
+    // Keep branchEl mounted; only swap the path slot in the footer.
+    for (const child of Array.from(this.footerEl.childNodes)) {
+      if (child !== this.branchEl) this.footerEl.removeChild(child);
+    }
     const label = document.createElement("span");
     label.className = "structure-cwd";
-    label.title = "Waiting for the terminal to report its current directory";
     label.textContent = "Waiting for shell cwd…";
-    this.headerEl.appendChild(label);
+    this.setPathTooltip(label, "Waiting for the terminal to report its current directory");
+    this.footerEl.insertBefore(label, this.branchEl);
 
     this.listEl.innerHTML = "";
     this.emptyEl.textContent = "Waiting for the terminal to report its current directory.";
@@ -579,19 +602,14 @@ export class StructureTree {
 
   private renderHeader(cwd: string): void {
     this.headerEl.innerHTML = "";
-    const label = document.createElement("span");
-    label.className = "structure-cwd";
-    label.title = cwd;
-    label.textContent = shortenCwd(cwd);
-    this.headerEl.appendChild(label);
+    const title = document.createElement("span");
+    title.className = "structure-title";
+    title.textContent = "Files";
+    this.headerEl.appendChild(title);
 
-    if (this.pinnedRoot) {
-      const pin = document.createElement("span");
-      pin.className = "structure-cwd-pin";
-      pin.innerHTML = Icons.pin({ size: 10 });
-      label.prepend(pin);
-    }
-    this.decorateWorktreeSelector(cwd, label);
+    const actions = document.createElement("div");
+    actions.className = "structure-actions";
+    this.headerEl.appendChild(actions);
 
     const newFile = document.createElement("button");
     newFile.type = "button";
@@ -601,7 +619,7 @@ export class StructureTree {
     newFile.addEventListener("click", () => {
       this.startCreateAtRoot("file");
     });
-    this.headerEl.appendChild(newFile);
+    actions.appendChild(newFile);
 
     const newFolder = document.createElement("button");
     newFolder.type = "button";
@@ -611,7 +629,7 @@ export class StructureTree {
     newFolder.addEventListener("click", () => {
       this.startCreateAtRoot("dir");
     });
-    this.headerEl.appendChild(newFolder);
+    actions.appendChild(newFolder);
 
     const showIgnored = document.createElement("button");
     showIgnored.type = "button";
@@ -627,7 +645,7 @@ export class StructureTree {
       this.renderHeader(cwd);
       void this.refresh();
     });
-    this.headerEl.appendChild(showIgnored);
+    actions.appendChild(showIgnored);
 
     const changes = document.createElement("button");
     changes.type = "button";
@@ -639,7 +657,7 @@ export class StructureTree {
         new CustomEvent("covenant:open-changes", { detail: { cwd } }),
       );
     });
-    this.headerEl.appendChild(changes);
+    actions.appendChild(changes);
 
     const refresh = document.createElement("button");
     refresh.type = "button";
@@ -649,7 +667,27 @@ export class StructureTree {
     refresh.addEventListener("click", () => {
       void this.refresh();
     });
-    this.headerEl.appendChild(refresh);
+    actions.appendChild(refresh);
+
+    for (const child of Array.from(this.footerEl.childNodes)) {
+      if (child !== this.branchEl) this.footerEl.removeChild(child);
+    }
+    const label = document.createElement("span");
+    label.className = "structure-cwd";
+    label.textContent = shortenCwd(cwd);
+    if (this.pinnedRoot) {
+      const pin = document.createElement("span");
+      pin.className = "structure-cwd-pin";
+      pin.innerHTML = Icons.pin({ size: 10 });
+      label.prepend(pin);
+    }
+    this.setPathTooltip(label, {
+      title: this.pinnedRoot ? "Pinned to" : "Tree root",
+      subtitle: cwd,
+      hint: this.pinnedRoot ? "Click to change" : undefined,
+    });
+    this.footerEl.insertBefore(label, this.branchEl);
+    this.decorateWorktreeSelector(cwd, label);
   }
 
   /// Fill the branch bar under the path. Async: the branch comes from a
@@ -713,11 +751,19 @@ export class StructureTree {
         label.setAttribute("role", "button");
         label.setAttribute("tabindex", "0");
         label.removeAttribute("title");
-        attachTooltip(
+        this.setPathTooltip(
           label,
           this.pinnedRoot
-            ? `Pinned to ${cwd} — click to change`
-            : "Switch which worktree the tree shows",
+            ? {
+                title: "Pinned to",
+                subtitle: cwd,
+                hint: "Click to change",
+              }
+            : {
+                title: "Switch worktree",
+                subtitle: cwd,
+                hint: "Click to change which tree the Files rail shows",
+              },
         );
         // Re-fetch on open (5s memo keeps the common case free) so a
         // worktree spawned after this header rendered still shows up —
@@ -866,12 +912,27 @@ export class StructureTree {
     const pop = this.worktreePopover;
     pop.style.minWidth = `${Math.max(rect.width, 200)}px`;
     pop.style.maxWidth = `${Math.max(200, window.innerWidth - margin * 2)}px`;
+
+    // Footer-anchored path has almost no room below (status bar sits under
+    // the rail). Flip up when the natural menu height won't fit — same
+    // recipe as CustomSelect.position().
+    const optionCount = pop.querySelectorAll(".ui-select__option").length;
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const desiredMax = 280;
+    const naturalHeight = Math.min(desiredMax, optionCount * 34 + 8);
+    const dropUp = spaceBelow < naturalHeight && spaceAbove > spaceBelow;
+    const available = Math.max(96, dropUp ? spaceAbove : spaceBelow);
+    pop.style.maxHeight = `${Math.min(desiredMax, available)}px`;
+
     const popRect = pop.getBoundingClientRect();
     const left = Math.min(
       Math.max(margin, rect.left),
       Math.max(margin, window.innerWidth - popRect.width - margin),
     );
-    const top = Math.min(window.innerHeight - margin, rect.bottom + 4);
+    const top = dropUp
+      ? Math.max(margin, rect.top - popRect.height - 4)
+      : Math.min(window.innerHeight - margin, rect.bottom + 4);
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;
   }

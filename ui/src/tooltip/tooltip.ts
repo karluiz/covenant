@@ -99,8 +99,11 @@ export function computeTooltipPos(
   const below = rTop < th + EDGE_PAD + 8;
   let top = below ? rBottom + 8 : rTop - th - 8;
   let left = rLeft + rWidth / 2 - tw / 2;
-  if (left < EDGE_PAD) left = EDGE_PAD;
+  // Right clamp first so a right-rail anchor (Files footer) doesn't push
+  // the tip past the window; then left clamp so an oversize tip never
+  // goes negative.
   if (left + tw > vw - EDGE_PAD) left = vw - EDGE_PAD - tw;
+  if (left < EDGE_PAD) left = EDGE_PAD;
   if (top < EDGE_PAD) top = EDGE_PAD;
   if (top + th > vh - EDGE_PAD) top = vh - EDGE_PAD - th;
   return { top, left, below };
@@ -109,6 +112,10 @@ export function computeTooltipPos(
 function position(target: HTMLElement): void {
   const el = ensureHost();
   const rect = target.getBoundingClientRect();
+  // Cap to the live viewport before measuring so a 340px CSS max-width
+  // can't still overflow a narrow window (or a right-rail anchor).
+  const maxW = Math.max(120, window.innerWidth - EDGE_PAD * 2);
+  el.style.maxWidth = `${Math.min(340, maxW)}px`;
   // Measure
   el.style.visibility = "hidden";
   el.style.display = "block";
