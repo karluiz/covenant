@@ -894,12 +894,27 @@ export class StructureTree {
     const pop = this.worktreePopover;
     pop.style.minWidth = `${Math.max(rect.width, 200)}px`;
     pop.style.maxWidth = `${Math.max(200, window.innerWidth - margin * 2)}px`;
+
+    // Footer-anchored path has almost no room below (status bar sits under
+    // the rail). Flip up when the natural menu height won't fit — same
+    // recipe as CustomSelect.position().
+    const optionCount = pop.querySelectorAll(".ui-select__option").length;
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const desiredMax = 280;
+    const naturalHeight = Math.min(desiredMax, optionCount * 34 + 8);
+    const dropUp = spaceBelow < naturalHeight && spaceAbove > spaceBelow;
+    const available = Math.max(96, dropUp ? spaceAbove : spaceBelow);
+    pop.style.maxHeight = `${Math.min(desiredMax, available)}px`;
+
     const popRect = pop.getBoundingClientRect();
     const left = Math.min(
       Math.max(margin, rect.left),
       Math.max(margin, window.innerWidth - popRect.width - margin),
     );
-    const top = Math.min(window.innerHeight - margin, rect.bottom + 4);
+    const top = dropUp
+      ? Math.max(margin, rect.top - popRect.height - 4)
+      : Math.min(window.innerHeight - margin, rect.bottom + 4);
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;
   }

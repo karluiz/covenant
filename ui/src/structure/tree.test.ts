@@ -511,6 +511,77 @@ describe("StructureTree worktree selector header", () => {
 
     (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
   });
+
+  it("opens the worktree menu above a footer-anchored path", async () => {
+    repoSummaryMock.mockResolvedValue(twoWorktrees);
+    await tree.setCwd("/repo");
+    await flush();
+
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    Object.defineProperty(window, "innerWidth", { value: 1200, configurable: true });
+
+    const gbc = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.classList.contains("ui-select__popover")) {
+          return {
+            top: 0,
+            bottom: 120,
+            left: 0,
+            right: 220,
+            width: 220,
+            height: 120,
+            x: 0,
+            y: 0,
+            toJSON() {
+              return {};
+            },
+          } as DOMRect;
+        }
+        if (this.classList.contains("structure-cwd")) {
+          // Footer path: just above the status bar.
+          return {
+            top: 760,
+            bottom: 780,
+            left: 100,
+            right: 280,
+            width: 180,
+            height: 20,
+            x: 100,
+            y: 760,
+            toJSON() {
+              return {};
+            },
+          } as DOMRect;
+        }
+        return {
+          top: 0,
+          bottom: 0,
+          left: 0,
+          right: 0,
+          width: 0,
+          height: 0,
+          x: 0,
+          y: 0,
+          toJSON() {
+            return {};
+          },
+        } as DOMRect;
+      });
+
+    const label = host.querySelector<HTMLElement>(".structure-cwd")!;
+    label.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+
+    const pop = document.body.querySelector<HTMLElement>(".ui-select__popover")!;
+    expect(pop).not.toBeNull();
+    // Flip-up: top edge sits above the footer path (760 - 120 - 4 = 636).
+    expect(parseFloat(pop.style.top)).toBe(636);
+    expect(parseFloat(pop.style.left)).toBe(100);
+
+    gbc.mockRestore();
+    (tree as unknown as { closeWorktreeMenu(): void }).closeWorktreeMenu();
+  });
 });
 
 describe("StructureTree branch chip", () => {
