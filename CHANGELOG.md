@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.69 — Fix the build break that killed v0.9.67/v0.9.68
+
+### Fixed
+
+- **Release builds dying in type-check**: the worktree-popover flip
+  (`19c4e654`) referenced `this.worktreePopover` in seven places but the
+  class field declaration never landed in `ui/src/structure/tree.ts`, so
+  `tsc` failed and every release since v0.9.67 died in
+  `beforeBuildCommand` — neither tag shipped artifacts. This release
+  carries everything from those two: the relay read-timeout that unsticks
+  shared terminals from DESKTOP OFFLINE, the Files rail footer, and the
+  Cursor CLI executor.
+
 ## v0.9.68 — Cursor CLI executor + Canon projection
 
 ### Added
