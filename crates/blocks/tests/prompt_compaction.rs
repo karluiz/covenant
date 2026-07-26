@@ -105,3 +105,94 @@ async fn zsh_worktree_prompt_full_when_gate_unset() {
         "expected full path in prompt, got: {got:?}"
     );
 }
+
+/// bash has no zsh_directory_name; the snippet instead flips
+/// PROMPT_DIRTRIM while inside a worktree. Drive bash non-interactively
+/// and eval PROMPT_COMMAND by hand to observe the toggle.
+#[test]
+fn bash_dirtrim_set_inside_worktree_and_restored_outside() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let wt = dir.path().join("groowcity/.covenant/worktrees/agent-claude-x");
+    std::fs::create_dir_all(&wt).expect("mk worktree");
+
+    let script = format!(
+        r#"export COVENANT_COMPACT_WORKTREE=1
+export PROMPT_DIRTRIM=7
+source {snippet}
+cd {wt}
+eval "$PROMPT_COMMAND" >/dev/null 2>&1
+echo "IN=${{PROMPT_DIRTRIM:-unset}}"
+cd /
+eval "$PROMPT_COMMAND" >/dev/null 2>&1
+echo "OUT=${{PROMPT_DIRTRIM:-unset}}"
+"#,
+        snippet = snippet_path("osc133.bash").display(),
+        wt = wt.display(),
+    );
+    let out = std::process::Command::new("bash")
+        .args(["--norc", "-c", &script])
+        .output()
+        .expect("run bash");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("IN=2"), "inside worktree: {stdout:?}");
+    assert!(stdout.contains("OUT=7"), "restore prior value: {stdout:?}");
+}
+
+/// Gate off ⇒ the snippet must not touch PROMPT_DIRTRIM at all.
+#[test]
+fn bash_dirtrim_untouched_when_gate_unset() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let wt = dir.path().join("groowcity/.covenant/worktrees/agent-claude-x");
+    std::fs::create_dir_all(&wt).expect("mk worktree");
+
+    let script = format!(
+        r#"unset COVENANT_COMPACT_WORKTREE
+source {snippet}
+cd {wt}
+eval "$PROMPT_COMMAND" >/dev/null 2>&1
+echo "IN=${{PROMPT_DIRTRIM:-unset}}"
+"#,
+        snippet = snippet_path("osc133.bash").display(),
+        wt = wt.display(),
+    );
+    let out = std::process::Command::new("bash")
+        .args(["--norc", "-c", &script])
+        .output()
+        .expect("run bash");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("IN=unset"), "gate off: {stdout:?}");
+}
+
+/// Regression test: appending __karl_dirtrim must preserve exit codes.
+/// With COVENANT_COMPACT_WORKTREE=1, a failing command (false) should
+/// emit OSC 133;D with exit code 1, not 0. The critical invariant:
+/// __karl_precmd must capture $? before __karl_dirtrim runs.
+#[test]
+fn bash_exit_code_preserved_with_dirtrim_hook() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let wt = dir.path().join("groowcity/.covenant/worktrees/agent-claude-x");
+    std::fs::create_dir_all(&wt).expect("mk worktree");
+
+    let script = format!(
+        r#"export COVENANT_COMPACT_WORKTREE=1
+source {snippet}
+cd {wt}
+# Manually set _karl_cmd_active to simulate preexec, then run eval
+# The key invariant: __karl_precmd's local exit=$? must capture the
+# $? FROM BEFORE eval runs, i.e., from the previous 'false' command.
+_karl_cmd_active=1; false; eval "$PROMPT_COMMAND" 2>&1
+"#,
+        snippet = snippet_path("osc133.bash").display(),
+        wt = wt.display(),
+    );
+    let out = std::process::Command::new("bash")
+        .args(["--norc", "-c", &script])
+        .output()
+        .expect("run bash");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // The OSC 133;D marker must carry exit code 1, not 0
+    assert!(
+        stdout.contains("\u{1b}]133;D;1"),
+        "OSC 133;D must report exit code 1 from 'false', got: {stdout:?}"
+    );
+}
