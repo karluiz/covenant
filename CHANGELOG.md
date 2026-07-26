@@ -6,6 +6,38 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.73 — Worktrees triage: state groups + Reclaim-all-spent
+
+### Added
+
+- **Worktrees page grouped by lifecycle state**: the ⌘⌥W list now clusters
+  worktrees under sticky SPENT → STALE → ORPHAN → ACTIVE headers, each
+  showing count and total disk (`ui/src/worktrees/groups.ts`,
+  `ui/src/worktrees/index.ts`), so the safe-to-delete ones stop hiding
+  between active rows.
+
+- **Reclaim all spent**: the SPENT group header carries a one-click bulk
+  delete — confirm toast states how much disk it frees, one batched
+  `worktree_reclaim` call (the Rust side re-verifies every path is
+  spent/orphan before removing), and an aggregate result toast reports
+  reclaimed count, freed size, and any refusals with their reason.
+
+- **Branch fact in the worktree detail**: the detail panel now explains
+  *why* a spent worktree is safe — `merged into main` or `deleted
+  upstream` (`branchFact` in `ui/src/worktrees/format.ts`) — instead of
+  leaning on the word "spent" alone.
+
+### Fixed
+
+- **Beacon sub-repo picker duplicates**: an umbrella directory full of
+  worktrees of one repo listed N identical owner/repo rows; picks with the
+  same remote now collapse to one (`crates/app/src/beacon.rs`).
+
+- **Worktrees danger tints**: the new Reclaim button's red used a
+  nonexistent `--danger-rgb` token whose hardcoded fallback never
+  theme-flipped; now `color-mix` over `--danger`
+  (`ui/src/worktrees/worktrees.css`).
+
 ## v0.9.72 — Faster tab spawn/switch + agent spawn takes focus
 
 ### Added
