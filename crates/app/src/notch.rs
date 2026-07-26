@@ -61,7 +61,7 @@ pub struct NotchHub {
     sessions: Mutex<HashMap<SessionId, Entry>>,
     labels: Mutex<HashMap<SessionId, String>>,
     /// Hub-owned fan-out for the notch bridge. Distinct from per-session
-    /// buses (which serve familiars, world model, etc.) so the notch
+    /// buses (which serve the world model, etc.) so the notch
     /// window can subscribe to one stream covering every session.
     notch_tx: broadcast::Sender<SessionEvent>,
     /// Settings toggle — when false, `ingest` returns immediately without

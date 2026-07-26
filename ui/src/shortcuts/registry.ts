@@ -59,7 +59,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Tabs", keys: ["mod", "]"], label: "Focus next pane", description: "Move focus to the other pane in a split tab." },
   { category: "Tabs", keys: ["mod", "shift", "]"], label: "Swap panes", description: "Exchange the two panes' positions." },
 
-  // Operator & AI — agent-driven features (super-agent, operators, mission, familiars)
+  // Operator & AI — agent-driven features (super-agent, operators, mission)
   { category: "Operator & AI", keys: ["mod", "K"], label: "Super-agent", description: "Toggle the agent chat panel." },
   { category: "Operator & AI", keys: ["mod", "O"], label: "Operator decisions", description: "Toggle the operator decisions log for the active tab." },
   { category: "Operator & AI", keys: ["mod", "shift", "O"], label: "Operator picker", description: "Pick an operator preset (style, budget, autonomy) for the active tab." },

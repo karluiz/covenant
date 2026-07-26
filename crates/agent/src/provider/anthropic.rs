@@ -37,7 +37,7 @@ impl LlmProvider for AnthropicProvider {
         req: AskRequest,
         mut on_event: Box<dyn FnMut(AgentEvent) + Send>,
     ) -> Result<(), AgentError> {
-        // Resolver-driven callers (operator, familiars, etc.) leave
+        // Resolver-driven callers (operator, etc.) leave
         // `req.api_key` empty and expect the provider to use the key
         // baked into its `ProviderConfig` at construction time. Honor
         // the per-request key when present (legacy direct callers),
