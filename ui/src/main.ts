@@ -97,6 +97,7 @@ import { zoom, zoomIntent } from "./zoom";
 import { setDiscordPresenceEnabled, startDiscordPresence } from "./presence";
 import { OperatorPicker } from "./operator/picker";
 import { openOperatorModal, wireOperatorModal } from "./operator/creator";
+import { pullOrgOperators } from "./operator/org-sync";
 import { mountSpecChat } from "./spec-chat/index";
 import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel, type PanelTab } from "./project-notes/panel";
@@ -1835,7 +1836,7 @@ async function boot(): Promise<void> {
       groupColor: args.groupColor,
       groupRootDir: manager.groupRootDirFor(args.groupId),
       getActiveOrg: () => manager.groupCanonOrg(args.groupId),
-      setActiveOrg: (slug) => manager.setGroupCanonOrg(args.groupId, slug),
+      setActiveOrg: (slug) => { manager.setGroupCanonOrg(args.groupId, slug); void pullOrgOperators(slug); },
       onClose: () => {
         activeCanonPanel = null;
         document.body.classList.remove("canon-open");
@@ -1864,7 +1865,7 @@ async function boot(): Promise<void> {
             orgs: orgsOrNull ?? [],
             orgsFetched: orgsOrNull !== null,
             getActiveOrg: () => manager.groupCanonOrg(a.groupId),
-            setActiveOrg: (slug) => manager.setGroupCanonOrg(a.groupId, slug),
+            setActiveOrg: (slug) => { manager.setGroupCanonOrg(a.groupId, slug); void pullOrgOperators(slug); },
             onNewContext: () => launchContextMiner(a.groupId, a.groupLabel),
             onOpenFile: (path) => manager.openFileAtLine(path),
             onNewSpec: (repoRoot) => window.dispatchEvent(new CustomEvent("spec-chat:open", {
@@ -1899,7 +1900,7 @@ async function boot(): Promise<void> {
         orgs: orgsOrNull ?? [],
         orgsFetched: orgsOrNull !== null,
         getActiveOrg: () => manager.groupCanonOrg(g.id),
-        setActiveOrg: (slug) => manager.setGroupCanonOrg(g.id, slug),
+        setActiveOrg: (slug) => { manager.setGroupCanonOrg(g.id, slug); void pullOrgOperators(slug); },
         onNewContext: () => launchContextMiner(g.id, g.name),
         onOpenFile: (path) => manager.openFileAtLine(path),
         onNewSpec: (repoRoot) => window.dispatchEvent(new CustomEvent("spec-chat:open", {
