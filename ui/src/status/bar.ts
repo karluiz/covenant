@@ -334,11 +334,22 @@ export class StatusBar {
     const sameMtime =
       (this.currentMission?.loaded_at_unix_ms ?? null) ===
       (mission?.loaded_at_unix_ms ?? null);
-    const sameSession = this.currentSessionId === sessionId;
-    if (samePath && sameMtime && sameSession) return;
-
-    this.currentMission = mission;
+    // The sessionId changes on EVERY tab switch, but it isn't painted —
+    // chips read it live at click time. Only its *presence* (null ↔
+    // non-null) changes what renders (the add-mission/add-operator
+    // affordances), so a same-content, session-only change updates the
+    // ref without paying a full innerHTML rebuild. This was the status
+    // bar's per-switch rebuild #1.
+    const samePresence =
+      (this.currentSessionId === null) === (sessionId === null);
     this.currentSessionId = sessionId;
+    if (samePath && sameMtime) {
+      if (samePresence) return;
+    } else {
+      // Only swap the object when content changed — async mission
+      // refreshes guard on `this.currentMission !== mission` identity.
+      this.currentMission = mission;
+    }
     this.render(this.lastDirCtx);
   }
 
@@ -397,14 +408,16 @@ export class StatusBar {
     const sameState =
       (this.currentOperator?.enabled ?? null) === (next?.enabled ?? null) &&
       (this.currentOperator?.live ?? null) === (next?.live ?? null);
-    const sameSession = this.currentSessionId === sessionId;
-    if (sameState && sameSession) return;
-    this.currentOperator = next;
     // currentSessionId is also tracked by setMission; only overwrite
     // when it's unset, otherwise we'd race the mission renderer.
-    if (this.currentSessionId === null && sessionId !== null) {
-      this.currentSessionId = sessionId;
-    }
+    const assignedSession = this.currentSessionId === null && sessionId !== null;
+    if (assignedSession) this.currentSessionId = sessionId;
+    // A session-only difference isn't painted (chips read the session
+    // live at click time) — rebuild only when the operator state or the
+    // session's null↔non-null presence actually changed. This was the
+    // status bar's per-switch rebuild #2.
+    if (sameState && !assignedSession) return;
+    this.currentOperator = next;
     this.render(this.lastDirCtx);
   }
 
@@ -693,7 +706,6 @@ export class StatusBar {
     // ─── FRAMING ─────────────────────────────────────────
     if (this.currentOperatorEntity) {
       const opEntity = this.currentOperatorEntity;
-      const sid = this.currentSessionId;
       const live = this.currentOperator?.live ?? false;
       const enabled = this.currentOperator?.enabled ?? false;
       const btn = document.createElement("button");
@@ -714,6 +726,9 @@ export class StatusBar {
         `<span class="status-chip-operator__name">${escapeHtml(opEntity.name)}</span>` +
         liveBadge;
       btn.addEventListener("click", () => {
+        // Read the session at click time — session-only changes no
+        // longer re-render, so a render-time capture would go stale.
+        const sid = this.currentSessionId;
         if (sid) this.onOperatorChipClick?.(sid);
       });
 
@@ -730,6 +745,7 @@ export class StatusBar {
       const fireRemove = (e: Event) => {
         e.preventDefault();
         e.stopPropagation();
+        const sid = this.currentSessionId;
         if (sid) this.onOperatorClearRequested?.(sid);
       };
       remove.addEventListener("click", fireRemove);
@@ -740,28 +756,34 @@ export class StatusBar {
 
       framing.appendChild(btn);
     } else if (this.currentSessionId) {
-      const sid = this.currentSessionId;
       framing.appendChild(
-        addOperatorSegment(() => this.onOperatorChipClick?.(sid)),
+        addOperatorSegment(() => {
+          const sid = this.currentSessionId;
+          if (sid) this.onOperatorChipClick?.(sid);
+        }),
       );
     }
     if (this.currentMission && this.currentSessionId) {
-      const sid = this.currentSessionId;
       framing.appendChild(
         missionSegment(
           this.currentMission,
           () => this.openMission(),
           (x, y) => this.openMissionContextMenu(x, y),
-          () => this.onMissionClearRequested?.(sid),
+          () => {
+            const sid = this.currentSessionId;
+            if (sid) this.onMissionClearRequested?.(sid);
+          },
         ),
       );
     } else if (
       this.currentSessionId &&
       (ctx.git !== null || ctx.runtime !== null)
     ) {
-      const sid = this.currentSessionId;
       framing.appendChild(
-        addMissionSegment(() => this.onMissionSetRequested?.(sid)),
+        addMissionSegment(() => {
+          const sid = this.currentSessionId;
+          if (sid) this.onMissionSetRequested?.(sid);
+        }),
       );
     }
     // Fallback OP chip — default-operator case (no pinned entity).

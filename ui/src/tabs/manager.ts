@@ -2411,6 +2411,13 @@ export class TabManager {
       // this, dragging over neighbouring tab labels triggers a text-
       // selection sweep (highlighted "zsh 2", "zsh 3", etc).
       e.preventDefault();
+      // Activate on press, not on release (Chrome-style): waiting for
+      // the full press→release `click` added the user's own dwell time
+      // to every switch. The pill's click listener stays as a fallback
+      // for keyboard/synthetic clicks — activate() early-returns on the
+      // already-active id. Drag-intent presses also activate first,
+      // matching browser tab strips.
+      this.activate(tabId);
       this.beginPointerDrag(e, { kind: "tab", id: tabId });
     });
   }
@@ -6841,6 +6848,13 @@ export class TabManager {
       }
       syncRevealed = true;
     }
+
+    // Hand focus over NOW when the incoming pane is already visible —
+    // the rAF-deferred focus below left a ~1-frame window where
+    // keystrokes still went to the previous focus target (read as input
+    // lag on every switch). The deferred path can't: its pane is still
+    // visibility:hidden, and focus() on a hidden textarea is a no-op.
+    if (!deferSwap || syncRevealed) term.focus();
 
     requestAnimationFrame(() => {
       // Superseded by a later activate(), or the pane was hidden again
