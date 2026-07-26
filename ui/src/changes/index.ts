@@ -145,16 +145,24 @@ export class ChangesSurface {
     });
   }
 
+  /// Swap the selector's chevron for a spinner while an async step runs
+  /// (summary fetch on open, full re-root after picking a worktree).
+  private setRepoBusy(busy: boolean): void {
+    this.repoEl?.classList.toggle("cd-repo--busy", busy);
+  }
+
   private toggleWorktreeMenu(anchor: HTMLElement): void {
     if (this.wtMenu) { this.closeWorktreeMenu(); return; }
     // Re-fetch on open so a worktree spawned after this surface mounted shows up.
+    this.setRepoBusy(true);
     void gitRepoSummary(this.repoRoot)
       .then((fresh) => {
         if (!this.open_ || !anchor.isConnected) return;
         this.summary = fresh;
         this.openWorktreeMenu(anchor, fresh);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => this.setRepoBusy(false));
   }
 
   /// Rich rows (MAIN badge, branch hint) wearing the shared `.ui-select__*`
@@ -239,11 +247,16 @@ export class ChangesSurface {
     this.summary = null;
     this.renderBranchChip();
     if (this.repoTextEl) this.repoTextEl.textContent = repoBasename(path);
-    await this.refresh();
-    this.renderOverview();
-    // Branch chip + overview eyebrow catch up once the new summary lands.
-    await this.loadSummary();
-    if (this.selectedPath === null) this.renderOverview();
+    this.setRepoBusy(true);
+    try {
+      await this.refresh();
+      this.renderOverview();
+      // Branch chip + overview eyebrow catch up once the new summary lands.
+      await this.loadSummary();
+      if (this.selectedPath === null) this.renderOverview();
+    } finally {
+      this.setRepoBusy(false);
+    }
   }
 
   private currentBranch(): string | null {

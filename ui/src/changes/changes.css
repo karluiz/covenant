@@ -347,7 +347,21 @@ body.changes-fullscreen .cd-frame {
 }
 @keyframes cd-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .cd-status-spinner, .cd-summarize--busy .cd-summarize-icon { animation: none; }
+  .cd-status-spinner, .cd-summarize--busy .cd-summarize-icon, .cd-repo--busy::after { animation: none; }
+}
+
+/* Worktree selector busy: the chevron yields to a spinner while the summary
+   fetch or the re-root is in flight. */
+.cd-repo--busy .structure-cwd-chevron { display: none; }
+.cd-repo--busy::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid rgb(var(--ink-rgb) / 0.15);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: cd-spin 0.7s linear infinite;
 }
 
 /* Action row: Summarize | Commit | Commit & Push */
