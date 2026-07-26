@@ -93,7 +93,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use karl_pty::SpawnOptions;
+use karl_pty::{PtySize, SpawnOptions};
 use karl_session::{Session, SessionId, SessionStreams, SessionUiEvent};
 use tauri::ipc::Channel;
 use tauri::{Emitter, Manager, State};
@@ -226,7 +226,6 @@ const BASH_SNIPPET: &str = include_str!("../../../shell-integration/osc133.bash"
 /// shell ever re-sources them (uncommon, but cheap insurance).
 struct ManagedSession {
     session: Session,
-    _rc_dir: TempDir,
     world: Arc<Mutex<SessionWorldModel>>,
     op_state: Arc<std::sync::Mutex<OperatorState>>,
     /// Per-session remote-control arming flag. Default `false`. When
@@ -571,6 +570,38 @@ fn build_bash_rcdir() -> Result<TempDir, std::io::Error> {
     Ok(dir)
 }
 
+/// The rc-shim contents are compile-time constants, so each shell's rc
+/// dir is materialized ONCE per app run and shared by every session —
+/// previously every spawn paid a fresh tempdir + 4 `fs::write`s on the
+/// critical path. A `TempDir` held in a static never drops, so the dir
+/// outlives the process; the OS's /tmp reaper owns it from there.
+/// Bonus: a shared ZDOTDIR means compinit's `.zcompdump` persists across
+/// tabs within a run instead of being regenerated per tab.
+///
+/// Returns `None` for shells we ship no snippet for, or if building the
+/// dir failed (disk full) — the caller spawns a bare shell and warns
+/// instead of failing the whole session.
+#[cfg(unix)]
+fn shared_rc_dir(shell: &RcShell) -> Option<&'static Path> {
+    use std::sync::OnceLock;
+    static ZSH: OnceLock<Option<TempDir>> = OnceLock::new();
+    static BASH: OnceLock<Option<TempDir>> = OnceLock::new();
+    let (cell, build): (_, fn() -> Result<TempDir, std::io::Error>) = match shell {
+        RcShell::Zsh => (&ZSH, build_zdotdir as fn() -> _),
+        RcShell::Bash => (&BASH, build_bash_rcdir as fn() -> _),
+        RcShell::Other => return None,
+    };
+    cell.get_or_init(|| match build() {
+        Ok(d) => Some(d),
+        Err(e) => {
+            tracing::warn!(error = %e, "shell rc setup failed; spawning without OSC 133");
+            None
+        }
+    })
+    .as_ref()
+    .map(|d| d.path())
+}
+
 /// Single-quote a path for zsh source. Safe against spaces and most
 /// special chars; escapes embedded single quotes by closing-and-reopening.
 fn shell_quote(p: &Path) -> String {
@@ -588,50 +619,56 @@ async fn spawn_session(
     initial_cwd: Option<String>,
     replay_key: Option<String>,
     pane_id: Option<String>,
+    cols: Option<u16>,
+    rows: Option<u16>,
 ) -> Result<String, String> {
     tracing::debug!(?pane_id, "spawn_session: pane association");
     let mut opts = SpawnOptions::from_default_shell().map_err(|e| format!("shell resolve: {e}"))?;
+    // Spawn the PTY at the frontend's real grid instead of the 80×24
+    // default — otherwise the shell draws its first prompt at the wrong
+    // width and reflows when the first resize lands.
+    if let (Some(cols), Some(rows)) = (cols, rows) {
+        if cols > 0 && rows > 0 {
+            opts.size = PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            };
+        }
+    }
     // Each shell gets its own rc shim and its own way of being pointed at
     // it. Passing zsh's flags to another shell doesn't degrade gracefully:
     // pwsh parsed `--no-globalrcs` as an ambiguous `-no*` prefix (v0.5.5),
     // and bash prints its usage banner and exits — so a bash-default distro
     // never got a prompt at all.
     #[cfg(unix)]
-    let rc_dir = {
+    {
         let shell = rc_shell_for(&opts.program);
-        let rc_dir = match shell {
-            RcShell::Zsh => build_zdotdir(),
-            RcShell::Bash => build_bash_rcdir(),
-            RcShell::Other => tempfile::Builder::new().prefix("karl-rc-").tempdir(),
-        }
-        .map_err(|e| format!("shell rc setup: {e}"))?;
-        match shell {
-            RcShell::Zsh => {
+        match (&shell, shared_rc_dir(&shell)) {
+            (RcShell::Zsh, Some(dir)) => {
                 opts.args.push("--no-globalrcs".to_string());
                 opts.env
-                    .push(("ZDOTDIR".to_string(), rc_dir.path().display().to_string()));
+                    .push(("ZDOTDIR".to_string(), dir.display().to_string()));
             }
-            RcShell::Bash => {
+            (RcShell::Bash, Some(dir)) => {
                 // bash only accepts long options ahead of short ones:
                 // `bash -i --rcfile X` prints its usage banner and exits,
                 // `bash --rcfile X -i` works. Prepend, never push.
-                let rcfile = rc_dir.path().join("bashrc").display().to_string();
+                let rcfile = dir.join("bashrc").display().to_string();
                 opts.args.splice(0..0, ["--rcfile".to_string(), rcfile]);
             }
-            RcShell::Other => {
+            (RcShell::Other, _) => {
                 tracing::warn!(
                     shell = %opts.program,
                     "no OSC 133 snippet for this shell; blocks will not be parsed"
                 );
             }
+            // rc-dir build failed — already warned inside shared_rc_dir;
+            // spawn a bare shell rather than failing the session.
+            _ => {}
         }
-        rc_dir
-    };
-    #[cfg(not(unix))]
-    let rc_dir = tempfile::Builder::new()
-        .prefix("karl-rc-")
-        .tempdir()
-        .map_err(|e| format!("shell rc setup: {e}"))?;
+    }
     // Mirror Covenant's appearance into the shell env so the `claude`
     // wrapper (shell-integration) launches Claude Code with a matching
     // theme via `--settings`. Fixed for this shell's lifetime — new tabs
@@ -794,10 +831,18 @@ async fn spawn_session(
         });
     }
 
-    // Persist the session row immediately so block FK references resolve.
-    let started_unix_ms = now_unix_ms();
-    if let Err(e) = state.storage.save_session(id, started_unix_ms).await {
-        tracing::warn!(session = %id, error = %e, "failed to persist session row");
+    // Persist the session row off the critical path — the frontend
+    // doesn't consume this write, and the first block that FK-references
+    // the row arrives seconds later (first BlockFinished), long after
+    // this task has run.
+    {
+        let storage = state.storage.clone();
+        let started_unix_ms = now_unix_ms();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = storage.save_session(id, started_unix_ms).await {
+                tracing::warn!(session = %id, error = %e, "failed to persist session row");
+            }
+        });
     }
 
     // World model: subscribed to the session bus before insertion so
@@ -999,11 +1044,14 @@ async fn spawn_session(
         )
         .await;
 
+    // Subscribe for the UI relay BEFORE `session` moves into the map —
+    // taking the sessions lock a second time just to re-reach the bus
+    // was a wasted lock acquisition on the spawn path.
+    let mut ui_bus = session.subscribe();
     state.sessions.lock().await.insert(
         id,
         ManagedSession {
             session,
-            _rc_dir: rc_dir,
             world,
             op_state: op_state.clone(),
             armed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -1038,14 +1086,6 @@ async fn spawn_session(
 
     // Pump 2: bus → UI relay. Drops Opened/Closed and the heavy
     // BlockFinished.output_text via SessionEvent::to_ui().
-    let mut ui_bus = state
-        .sessions
-        .lock()
-        .await
-        .get(&id)
-        .ok_or("session vanished before relay setup")?
-        .session
-        .subscribe();
     tauri::async_runtime::spawn(async move {
         loop {
             match ui_bus.recv().await {
