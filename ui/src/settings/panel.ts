@@ -86,6 +86,7 @@ interface TerminalConfig {
   letter_spacing: number;
   line_height: number;
   ligatures: boolean;
+  compact_worktree_prompt: boolean;
 }
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
@@ -366,6 +367,7 @@ export class SettingsPanel {
           letter_spacing: 0,
           line_height: 1.2,
           ligatures: false,
+          compact_worktree_prompt: true,
         },
         window: { background: "vibrant" },
         aom: { default_budget_usd: 10 },
@@ -1102,6 +1104,15 @@ export class SettingsPanel {
               by default.
             </small>
           </label>
+          <label class="settings-field settings-field-row">
+            <input type="checkbox" name="term_compact_worktree" />
+            <span class="settings-label">Compact worktree paths in prompt</span>
+            <small class="settings-hint">
+              Show <code>repo ⌥slug</code> instead of the full
+              <code>.covenant/worktrees/…</code> path (zsh, bash, PowerShell).
+              Applies to new tabs.
+            </small>
+          </label>
         </section>
         <section class="settings-section" id="sec-code-intel"></section>
         <section class="settings-section" id="sec-operators">
@@ -1422,6 +1433,9 @@ export class SettingsPanel {
     const termLigatures = form.querySelector<HTMLInputElement>(
       'input[name="term_ligatures"]',
     )!;
+    const termCompactWorktree = form.querySelector<HTMLInputElement>(
+      'input[name="term_compact_worktree"]',
+    )!;
     const splitPanesInput = form.querySelector<HTMLInputElement>(
       'input[name="experimental_split_panes"]',
     )!;
@@ -1599,6 +1613,8 @@ export class SettingsPanel {
     termLetterSpacing.value = String(this.current.terminal.letter_spacing);
     termLineHeight.value = String(this.current.terminal.line_height);
     termLigatures.checked = !!this.current.terminal.ligatures;
+    termCompactWorktree.checked =
+      this.current.terminal.compact_worktree_prompt ?? true;
     splitPanesInput.checked = !!this.current.experimental?.split_panes;
     statusbarTwoRowInput.checked =
       this.current.experimental?.statusbar_two_row ?? true;
@@ -2372,6 +2388,7 @@ export class SettingsPanel {
             Math.min(2, Number(termLineHeight.value) || 1.2),
           ),
           ligatures: termLigatures.checked,
+          compact_worktree_prompt: termCompactWorktree.checked,
         },
         window: {
           background:

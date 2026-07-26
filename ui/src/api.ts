@@ -1187,6 +1187,7 @@ export interface TerminalConfig {
   letter_spacing: number;
   line_height: number;
   ligatures: boolean;
+  compact_worktree_prompt: boolean;
 }
 
 export type WindowBackground = "solid" | "vibrant" | "translucent";
