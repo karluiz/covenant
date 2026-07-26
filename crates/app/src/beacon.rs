@@ -321,15 +321,17 @@ async fn scan_subrepos(cwd: &str) -> Vec<SubRepo> {
         .filter(|p| p.is_dir() && p.join(".git").exists())
         .collect();
     dirs.sort();
-    let mut out = Vec::new();
+    let mut out: Vec<SubRepo> = Vec::new();
     for p in dirs.into_iter().take(50) {
         // ponytail: bound scan; project umbrellas rarely hold >50 repos
         let path = p.to_string_lossy().to_string();
         if let Some((owner, repo)) = resolve_owner_repo(&path).await {
-            out.push(SubRepo {
-                path,
-                repo: format!("{owner}/{repo}"),
-            });
+            let repo = format!("{owner}/{repo}");
+            // Worktrees of one repo share a remote — one pick is enough
+            // (Actions state is repo-level, any path works).
+            if !out.iter().any(|s| s.repo == repo) {
+                out.push(SubRepo { path, repo });
+            }
         }
     }
     out
@@ -545,6 +547,34 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
         assert_eq!(found.len(), 1, "expected the umbrella's sibling repo");
         assert_eq!(found[0].repo, "acme/some-repo");
+    }
+
+    /// An umbrella full of worktrees of ONE repo (`.covenant/worktrees/…`) must
+    /// collapse into a single pick, not N identical rows.
+    #[tokio::test]
+    async fn scan_dedupes_same_remote() {
+        let tmp = std::env::temp_dir().join(format!("beacon-dedupe-{}", std::process::id()));
+        for name in ["wt-a", "wt-b"] {
+            let repo = tmp.join(name);
+            std::fs::create_dir_all(&repo).unwrap();
+            assert!(std::process::Command::new("git")
+                .args(["init", "-q"])
+                .arg(&repo)
+                .status()
+                .unwrap()
+                .success());
+            assert!(std::process::Command::new("git")
+                .args(["-C", repo.to_str().unwrap(), "remote", "add", "origin"])
+                .arg("https://github.com/acme/one-repo.git")
+                .status()
+                .unwrap()
+                .success());
+        }
+
+        let found = scan_subrepos(tmp.to_str().unwrap()).await;
+        std::fs::remove_dir_all(&tmp).ok();
+        assert_eq!(found.len(), 1, "same remote must appear once");
+        assert_eq!(found[0].repo, "acme/one-repo");
     }
 
     #[test]
