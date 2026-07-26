@@ -6,6 +6,42 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.75 — Worktrees rich detail panel + Changes worktree selector
+
+### Added
+
+- **Worktrees detail panel tells the whole story**: selecting a worktree in
+  ⌘⌥W now shows a sync strip (`↑N ahead` / `↓N behind main` chips, behind in
+  amber, plus last-commit age), a mini log of the commits the branch carries
+  over the default branch (capped at 8), per-file diffstat rows with `+/−`
+  counts and proportional bars, a segmented disk bar splitting checkout vs
+  reclaimable `target/` with the Clean verb inline, a session-presence banner
+  with "Go to tab" when an open tab lives at that cwd, and an on-demand
+  Explain action that summarizes the uncommitted diff with the LLM.
+  `worktree_detail` (`crates/app/src/git_tools.rs`) gains
+  `base_branch`/`ahead`/`behind` via `rev-list --left-right --count` and the
+  ahead-commit list; the panel lives in `ui/src/worktrees/index.ts`. Clicking
+  a diffstat row opens the Changes page focused on that file (the
+  `covenant:open-changes` event gains a `file` field).
+
+- **Worktree selector on the Changes page**: the repo name in the Changes
+  header becomes the same worktree dropdown the Files rail uses (MAIN badge +
+  branch hint) when the repo has sibling worktrees; picking one re-roots the
+  surface — rail, overview, branch chip and push target all refresh
+  (`ui/src/changes/index.ts`). The chevron swaps to a spinner while the
+  summary fetch or the re-root is in flight.
+
+- **Reclaim all shows progress**: bulk reclaim on the Worktrees page now
+  removes worktrees one call at a time — the button counts `Reclaiming n/N…`,
+  the in-flight row pulses, and removed rows dim until the refresh drops them
+  (`ui/src/worktrees/index.ts`). A failed path no longer aborts the rest.
+
+### Fixed
+
+- **Changes worktree dropdown scrolls**: the popover is capped to the
+  viewport height below the header, so long worktree lists scroll inside it
+  instead of overflowing the window (`ui/src/changes/index.ts`).
+
 ## v0.9.74 — Worktree prompt compaction (zsh/bash/pwsh)
 
 ### Added
