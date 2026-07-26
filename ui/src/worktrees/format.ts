@@ -21,3 +21,13 @@ export function humanSize(kb: number): string {
   if (kb >= 1024) return `${Math.round(kb / 1024)} MB`;
   return `${Math.round(kb)} KB`;
 }
+
+/** Why-it's-safe copy for the detail Branch fact. Spent must justify the
+ *  delete verb: "merged into <default>" or "deleted upstream" — the word
+ *  "spent" alone doesn't. Null for main (nothing to explain). */
+export function branchFact(wt: GitWorktreeSummary, defaultBranch: string): string | null {
+  if (wt.is_main) return null;
+  if (wt.state === "spent") return wt.merged ? `merged into ${defaultBranch}` : "deleted upstream";
+  if (wt.branch) return wt.branch;
+  return wt.detached ? "detached" : null;
+}

@@ -6,7 +6,7 @@ import {
 import { worktreeStateClass, worktreeStateLabel, worktreeDefaultAction, STATE_HELP, ACTION_HELP } from "../status/worktree-state";
 import { attachTooltip } from "../tooltip/tooltip";
 import { Icons } from "../icons";
-import { worktreeLabel, compactPath, humanSize } from "./format";
+import { worktreeLabel, compactPath, humanSize, branchFact } from "./format";
 import { splitSizes, sizeRequestPaths, subtractNested } from "./sizes";
 import { groupWorktrees, spentReclaimPaths, type WorktreeGroup } from "./groups";
 import { pushConfirmToast, pushInfoToast } from "../notifications/toast";
@@ -301,6 +301,8 @@ export class WorktreesSurface {
           : humanSize(size.total))
       : "…";
     facts.append(fact("Last commit", when), fact("Working tree", tree), fact("Disk", disk));
+    const branch = branchFact(wt, this.summary?.default_branch ?? "main");
+    if (branch) facts.append(fact("Branch", branch));
 
     const files = document.createElement("div");
     files.className = "wt-d-files";
