@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.71 — Notch overlay no longer kills hover on agent spawn
+
+### Fixed
+
+- **Hover effects froze after launching an agent**: showing the notch
+  HUD (`show_notch` on every `ExecutorStateChanged`, blur/refocus, and
+  preview) made the overlay the key window — tao's `set_visible(true)`
+  on macOS is `makeKeyAndOrderFront`, and a WKWebView in a non-key
+  window stops receiving hover updates, so every `:hover` in the main
+  window froze with the last highlight stuck. The notch window in
+  `crates/app/tauri.conf.json` is now `focusable: false` (the existing
+  `focus: false` only applies at creation), which flips tao's
+  `canBecomeKeyWindow` to false and degrades the show to a plain
+  order-front. Guarded by `notch_window_is_not_focusable` in
+  `crates/app/src/notch.rs`.
+
 ## v0.9.70 — Honest terminal file links + search filename fallback
 
 ### Added
