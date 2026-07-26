@@ -57,6 +57,26 @@ export class CollapsedRail {
   private readonly deps: CollapsedRailDeps;
   /// Bound once so destroy() can unhook the style-change listener.
   private readonly onStyleChange = (): void => this.render();
+  /// A render was requested while the rail was display:none (horizontal
+  /// tabbar / expanded sidebar). onAfterRender fires on every tab
+  /// switch, so skipping the rebuild while hidden is the whole point —
+  /// the ResizeObserver below replays it when the rail folds open.
+  private dirty = false;
+  /// Nullable: jsdom (tests) has no ResizeObserver; without it the rail
+  /// just renders unconditionally, as before.
+  private readonly ro: ResizeObserver | null =
+    typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => {
+          if (this.dirty && !this.isHidden()) this.render();
+        });
+
+  /// display:none detection. Only meaningful for a host that's actually
+  /// in the document — a detached host (tests) reports offsetParent
+  /// null too and must still render.
+  private isHidden(): boolean {
+    return this.host.isConnected && this.host.offsetParent === null;
+  }
 
   constructor(host: HTMLElement, deps: CollapsedRailDeps) {
     this.host = host;
@@ -66,16 +86,23 @@ export class CollapsedRail {
     // applyFoldedRailStyle announces style flips (settings live-preview,
     // boot) — the DOM shape differs per style, so rebuild.
     window.addEventListener("covenant:folded-rail-style", this.onStyleChange);
+    this.ro?.observe(this.host);
     this.render();
   }
 
   destroy(): void {
     this.deps.setOnAfterRender(null);
     window.removeEventListener("covenant:folded-rail-style", this.onStyleChange);
+    this.ro?.disconnect();
     this.host.innerHTML = "";
   }
 
   private render(): void {
+    if (this.ro && this.isHidden()) {
+      this.dirty = true;
+      return;
+    }
+    this.dirty = false;
     const snap = this.deps.snapshot();
     const style = currentFoldedRailStyle();
     this.host.innerHTML = "";

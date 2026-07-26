@@ -110,10 +110,20 @@ export class BrowserPane {
       this.onLabel(this.state.label);
     });
     await browser.open(this.tabId, url, this.bounds());
+    this.shown = true;
   }
 
+  /// Mirrors the last show()/hide() sent to the native webview.
+  /// activate() blanket-hides every browser tab on each tab switch —
+  /// without this, N browser tabs cost N redundant hide IPCs per switch.
+  private shown = false;
+
   show(): void {
-    if (this.opened) { void browser.show(this.tabId); this.syncBounds(); }
+    if (this.opened) {
+      this.shown = true;
+      void browser.show(this.tabId);
+      this.syncBounds();
+    }
   }
   /// Freeze the page: snapshot the native webview into a DOM <img> stand-in
   /// and hide the real webview, so DOM overlays (context menus) can paint
@@ -141,6 +151,7 @@ export class BrowserPane {
       this.freezeImg = img;
       this.viewport().appendChild(img);
     }
+    this.shown = false;
     void browser.hide(this.tabId);
   }
   unfreeze(): void {
@@ -149,11 +160,15 @@ export class BrowserPane {
     this.freezeGen++; // invalidate any in-flight freeze()
     this.freezeImg?.remove();
     this.freezeImg = null;
+    this.shown = true;
     void browser.show(this.tabId);
     this.syncBounds();
   }
   hide(): void {
-    if (this.opened) void browser.hide(this.tabId);
+    if (this.opened && this.shown) {
+      this.shown = false;
+      void browser.hide(this.tabId);
+    }
   }
   destroy(): void {
     this.ro.disconnect();
