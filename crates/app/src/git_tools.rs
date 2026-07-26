@@ -1198,13 +1198,26 @@ pub fn clean_target(path: &Path) -> Result<u64, String> {
     Ok(freed)
 }
 
-/// What a worktree was working on: last commit subject + uncommitted diffstat
-/// (staged + unstaged vs HEAD). Cheap enough to call per selected worktree.
+/// One commit a worktree's branch carries over the repo's default branch.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitBrief {
+    pub subject: String,
+    pub unix: i64,
+}
+
+/// What a worktree was working on: last commit subject, uncommitted diffstat
+/// (staged + unstaged vs HEAD), and its arithmetic against the default branch
+/// (ahead/behind counts + the ahead commits themselves, capped). Cheap enough
+/// to call per selected worktree.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorktreeDetail {
     pub last_subject: Option<String>,
     pub insertions: u64,
     pub deletions: u64,
+    pub base_branch: String,
+    pub ahead: u64,
+    pub behind: u64,
+    pub commits_ahead: Vec<CommitBrief>,
 }
 
 pub fn worktree_detail(path: &Path) -> WorktreeDetail {
@@ -1216,10 +1229,54 @@ pub fn worktree_detail(path: &Path) -> WorktreeDetail {
         .ok()
         .map(|s| parse_shortstat(&s))
         .unwrap_or((0, 0));
+    // Same base the merged/spent classification uses (default_branch), NOT
+    // preferred_base — the panel answers "what has this branch accumulated
+    // relative to what a human calls main", the same question `merged` answers.
+    let base_branch = default_branch(path);
+    let (behind, ahead) = git(
+        path,
+        &[
+            "rev-list",
+            "--left-right",
+            "--count",
+            &format!("{base_branch}...HEAD"),
+        ],
+    )
+    .ok()
+    .and_then(|s| {
+        let mut it = s.split_whitespace();
+        Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+    })
+    .unwrap_or((0, 0));
+    let commits_ahead = if ahead > 0 {
+        git(
+            path,
+            &["log", "--format=%ct%x09%s", "-8", &format!("{base_branch}..HEAD")],
+        )
+        .ok()
+        .map(|out| {
+            out.lines()
+                .filter_map(|l| {
+                    let (ct, subject) = l.split_once('\t')?;
+                    Some(CommitBrief {
+                        unix: ct.trim().parse().ok()?,
+                        subject: subject.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     WorktreeDetail {
         last_subject,
         insertions,
         deletions,
+        base_branch,
+        ahead,
+        behind,
+        commits_ahead,
     }
 }
 
@@ -4026,6 +4083,50 @@ index e69de29..0cfbf08 100644
         let d = worktree_detail(p);
         assert_eq!(d.last_subject.as_deref(), Some("seed commit"));
         assert!(d.insertions >= 2, "insertions was {}", d.insertions);
+        // On the default branch itself: no arithmetic against anything.
+        assert_eq!((d.ahead, d.behind), (0, 0));
+        assert!(d.commits_ahead.is_empty());
+    }
+
+    #[test]
+    fn worktree_detail_counts_ahead_behind_and_lists_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let run = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(p)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {:?}", out);
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "t@t"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        run(&["add", "a.txt"]);
+        run(&["commit", "-q", "-m", "seed"]);
+        run(&["checkout", "-q", "-b", "feature"]);
+        std::fs::write(p.join("b.txt"), "b\n").unwrap();
+        run(&["add", "b.txt"]);
+        run(&["commit", "-q", "-m", "feat: first"]);
+        std::fs::write(p.join("c.txt"), "c\n").unwrap();
+        run(&["add", "c.txt"]);
+        run(&["commit", "-q", "-m", "feat: second"]);
+        // Advance main independently so behind > 0 too.
+        run(&["checkout", "-q", "main"]);
+        std::fs::write(p.join("m.txt"), "m\n").unwrap();
+        run(&["add", "m.txt"]);
+        run(&["commit", "-q", "-m", "main moved"]);
+        run(&["checkout", "-q", "feature"]);
+
+        let d = worktree_detail(p);
+        assert_eq!(d.base_branch, "main");
+        assert_eq!((d.ahead, d.behind), (2, 1));
+        let subjects: Vec<&str> = d.commits_ahead.iter().map(|c| c.subject.as_str()).collect();
+        assert_eq!(subjects, vec!["feat: second", "feat: first"]);
+        assert!(d.commits_ahead.iter().all(|c| c.unix > 0));
     }
 
     #[test]

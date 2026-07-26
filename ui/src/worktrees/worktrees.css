@@ -71,18 +71,98 @@ body.worktrees-fullscreen { overflow: hidden; }
 .wt-d-path { font-size: 11px; color: var(--fg-dim, #888); margin: 2px 0 14px; }
 .wt-d-subject { font-style: italic; margin-bottom: 14px; }
 
-/* Aligned key/value facts — labels in a dimmed column, values tabular. */
-.wt-d-facts {
-  display: grid; grid-template-columns: max-content 1fr;
-  gap: 4px 18px; margin-bottom: 16px; font-size: 12px;
-}
-.wt-d-fact { display: contents; }
-.wt-d-fact-k { color: var(--fg-dim, #888); }
-.wt-d-fact-v { font-variant-numeric: tabular-nums; }
-
-.wt-d-files { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; margin-bottom: 16px; }
-.wt-d-file { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-d-file { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .wt-d-more { color: var(--fg-dim, #888); }
+
+/* P3 — sync strip: the branch's arithmetic against the default branch. */
+.wt-d-sync { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.wt-d-chip {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px; padding: 3px 9px; color: var(--fg-dim, #888);
+  border: 1px solid rgb(var(--ink-rgb) / 0.12);
+  font-variant-numeric: tabular-nums;
+}
+.wt-d-chip-warn { color: var(--running); border-color: color-mix(in srgb, var(--running) 40%, transparent); }
+
+/* P5 — a session is open in this worktree. */
+.wt-d-session {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid rgb(var(--ink-rgb) / 0.12); padding: 8px 12px;
+  font-size: 12px; margin-bottom: 12px;
+}
+.wt-d-session-text { color: var(--fg-dim, #888); }
+.wt-d-session-go {
+  margin-left: auto; background: none; border: 0; cursor: pointer; padding: 0;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px; color: var(--accent, #6b9fff);
+}
+.wt-d-session-go:hover { text-decoration: underline; }
+
+/* Section stack: commits ahead, changes, disk, explain. */
+.wt-d-sections { display: flex; flex-direction: column; gap: 18px; margin-bottom: 16px; }
+.wt-d-seclabel {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--fg-dim, #888); margin-bottom: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* P2 — commits this branch carries over the default branch. */
+.wt-d-commit { display: grid; grid-template-columns: 10px 1fr auto; gap: 0 10px; font-size: 12px; }
+.wt-d-commit-rail { position: relative; }
+.wt-d-commit-rail::before {
+  content: ""; position: absolute; left: 3px; top: 4px; bottom: -2px; width: 1px;
+  background: rgb(var(--ink-rgb) / 0.12);
+}
+.wt-d-commit-rail::after {
+  content: ""; position: absolute; left: 0; top: 5px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--fg-dim, #888);
+}
+.wt-d-commit:first-of-type .wt-d-commit-rail::after { background: var(--accent, #6b9fff); }
+.wt-d-commit:last-of-type .wt-d-commit-rail::before { display: none; }
+.wt-d-commit-subject { padding: 2px 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-d-commit-time { color: var(--fg-dim, #888); font-size: 11px; padding-top: 3px; font-variant-numeric: tabular-nums; }
+
+/* P1 — per-file diffstat rows; the whole row is the "open this diff" button. */
+.wt-d-filerow {
+  display: grid; grid-template-columns: 14px 1fr auto 72px; gap: 10px; align-items: center;
+  width: 100%; padding: 3px 0; background: none; border: 0; cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px; color: inherit; text-align: left;
+}
+.wt-d-filerow:hover .wt-d-filepath { color: var(--accent, #6b9fff); }
+.wt-d-filest { color: var(--fg-dim, #888); }
+.wt-d-filest-a, .wt-d-filest-u { color: var(--ok); }
+.wt-d-filest-d { color: var(--danger, #c0483f); }
+.wt-d-filepath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-d-filenums { color: var(--fg-dim, #888); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+/* Lines-removed uses --fail, matching the Changes surface (.cd-sum-del). */
+.wt-d-filenum-add { color: var(--ok); }
+.wt-d-filenum-del { color: var(--fail, #c0483f); }
+.wt-d-filebar { display: flex; gap: 1px; height: 6px; width: 72px; }
+.wt-d-filebar i { display: block; height: 100%; }
+.wt-d-filebar-add { background: color-mix(in srgb, var(--ok) 70%, transparent); }
+.wt-d-filebar-del { background: color-mix(in srgb, var(--fail, #c0483f) 70%, transparent); }
+
+/* P4 — disk split into checkout vs reclaimable target/. */
+.wt-d-diskbar { display: flex; height: 10px; border: 1px solid rgb(var(--ink-rgb) / 0.12); }
+.wt-d-diskbar i { display: block; height: 100%; }
+i.wt-d-disk-checkout { background: rgb(var(--ink-rgb) / 0.22); }
+i.wt-d-disk-target { background: var(--accent, #6b9fff); }
+.wt-d-disklegend {
+  display: flex; gap: 18px; font-size: 11px; color: var(--fg-dim, #888);
+  margin-top: 7px; font-variant-numeric: tabular-nums;
+}
+.wt-d-disksw { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: -1px; }
+.wt-d-cleanlink {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font: inherit; color: var(--accent, #6b9fff);
+}
+.wt-d-cleanlink:hover { text-decoration: underline; }
+
+/* P6 — LLM explanation of the uncommitted diff. */
+.wt-d-explain { font-size: 13px; max-width: 68ch; }
+.wt-d-explain-loading { color: var(--fg-dim, #888); font-style: italic; }
 
 .wt-d-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 
@@ -144,4 +224,14 @@ body.worktrees-fullscreen { overflow: hidden; }
 .wt-group-reclaim:hover {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
   border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+}
+.wt-group-reclaim:disabled { cursor: default; opacity: 0.75; pointer-events: none; }
+
+/* Bulk reclaim in flight: the row being removed pulses, dead rows stay dimmed
+   until the post-reclaim refresh drops them from the list. */
+.wt-row.is-reclaiming { animation: wt-reclaim-pulse 900ms ease-in-out infinite; }
+.wt-row.is-reclaimed { opacity: 0.3; pointer-events: none; }
+@keyframes wt-reclaim-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }

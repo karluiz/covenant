@@ -1,12 +1,13 @@
 import {
   gitRepoSummary, worktreeSizes, worktreeDetail, gitChanges, devLiveWorktreeRoot,
-  worktreeCleanTarget, worktreeReclaim, worktreeRelocate,
-  type GitRepoSummary, type GitWorktreeSummary,
+  worktreeCleanTarget, worktreeReclaim, worktreeRelocate, explainChanges,
+  type GitRepoSummary, type GitWorktreeSummary, type ReclaimOutcome, type CommitBrief,
 } from "../api";
 import { worktreeStateClass, worktreeStateLabel, worktreeDefaultAction, STATE_HELP, ACTION_HELP } from "../status/worktree-state";
 import { attachTooltip } from "../tooltip/tooltip";
 import { Icons } from "../icons";
-import { worktreeLabel, compactPath, humanSize, branchFact } from "./format";
+import { renderMarkdown } from "../ui/markdown";
+import { worktreeLabel, compactPath, humanSize } from "./format";
 import { splitSizes, sizeRequestPaths, subtractNested } from "./sizes";
 import { groupWorktrees, spentReclaimPaths, type WorktreeGroup } from "./groups";
 import { pushConfirmToast, pushInfoToast } from "../notifications/toast";
@@ -17,6 +18,20 @@ interface WorktreesOpts {
   // existing checkout). Same path as the git popover's "Agent" row action.
   onResumeAgent: (path: string, label: string) => void;
   getOccupiedCwds: () => ReadonlySet<string>;
+  // Presence: which open tab (if any) lives at this cwd, and how to jump to it.
+  getTabForCwd?: (path: string) => { id: string; label: string } | null;
+  onGoToTab?: (id: string) => void;
+}
+
+interface DetailData {
+  subject: string | null;
+  ins: number;
+  del: number;
+  base: string;
+  ahead: number;
+  behind: number;
+  commits: CommitBrief[];
+  files: { path: string; status: string; added: number; removed: number }[];
 }
 
 /// Full-screen Worktrees management page. Mirrors PulseSurface
@@ -29,7 +44,10 @@ export class WorktreesSurface {
   private repoRoot = "";
   private summary: GitRepoSummary | null = null;
   private sizes = new Map<string, { total: number; target: number }>();
-  private detail = new Map<string, { subject: string | null; ins: number; del: number; files: string[] }>();
+  private detail = new Map<string, DetailData>();
+  // On-demand LLM explanation per worktree path. Cleared on refresh so an
+  // explanation never outlives the diff it describes.
+  private explains = new Map<string, { state: "loading" | "done" | "error"; text: string }>();
   private selected: string | null = null;
   private liveRoot: string | null = null;
 
@@ -60,9 +78,12 @@ export class WorktreesSurface {
     this.host.innerHTML = "";
     this.sizes.clear();
     this.detail.clear();
+    this.explains.clear();
   }
 
   private async refresh(): Promise<void> {
+    this.detail.clear();
+    this.explains.clear();
     try {
       this.summary = await gitRepoSummary(this.repoRoot);
     } catch {
@@ -168,22 +189,43 @@ export class WorktreesSurface {
     pushConfirmToast({
       message: `Remove ${paths.length} spent worktrees${freed}? Their branches are already merged or gone.`,
       confirmLabel: "Reclaim all",
-      onConfirm: () => {
-        void worktreeReclaim(this.repoRoot, paths)
-          .then((outcomes) => {
-            const removed = outcomes.filter((o) => o.removed);
-            const refused = outcomes.filter((o) => !o.removed);
-            const freedDone = removed.reduce((sum, o) => sum + (this.sizes.get(o.path)?.total ?? 0), 0);
-            let msg = `Reclaimed ${removed.length}`;
-            if (freedDone > 0) msg += ` · freed ~${humanSize(freedDone)}`;
-            for (const o of refused) msg += ` · ${compactPath(o.path)} refused: ${o.reason ?? "unknown"}`;
-            pushInfoToast({ message: msg });
-            this.selected = null;
-            void this.refresh();
-          })
-          .catch((e) => pushInfoToast({ message: `Reclaim failed: ${String(e)}` }));
-      },
+      onConfirm: () => { void this.runReclaimAll(paths); },
     });
+  }
+
+  /// One backend call per path so the button can count progress and each row
+  /// dims as it dies. Overhead is negligible next to deleting the checkouts.
+  private async runReclaimAll(paths: string[]): Promise<void> {
+    const btn = this.host.querySelector<HTMLButtonElement>(".wt-group-reclaim");
+    const rows = new Map<string, HTMLElement>();
+    for (const el of this.host.querySelectorAll<HTMLElement>(".wt-row[data-path]")) {
+      rows.set(el.dataset.path ?? "", el);
+    }
+    const rowFor = (p: string): HTMLElement | null => rows.get(p) ?? null;
+    if (btn) btn.disabled = true;
+    const outcomes: ReclaimOutcome[] = [];
+    for (const [i, p] of paths.entries()) {
+      if (btn) btn.innerHTML = `${Icons.trash({ size: 12 })}<span>Reclaiming ${i + 1}/${paths.length}…</span>`;
+      const row = rowFor(p);
+      row?.classList.add("is-reclaiming");
+      try {
+        const out = await worktreeReclaim(this.repoRoot, [p]);
+        outcomes.push(...out);
+        row?.classList.toggle("is-reclaimed", out[0]?.removed ?? false);
+      } catch (e) {
+        outcomes.push({ path: p, removed: false, reason: String(e) });
+      }
+      row?.classList.remove("is-reclaiming");
+    }
+    const removed = outcomes.filter((o) => o.removed);
+    const refused = outcomes.filter((o) => !o.removed);
+    const freedDone = removed.reduce((sum, o) => sum + (this.sizes.get(o.path)?.total ?? 0), 0);
+    let msg = `Reclaimed ${removed.length}`;
+    if (freedDone > 0) msg += ` · freed ~${humanSize(freedDone)}`;
+    for (const o of refused) msg += ` · ${compactPath(o.path)} refused: ${o.reason ?? "unknown"}`;
+    pushInfoToast({ message: msg });
+    this.selected = null;
+    void this.refresh();
   }
 
   private renderRow(wt: GitWorktreeSummary, maxKb: number): HTMLElement {
@@ -191,6 +233,7 @@ export class WorktreesSurface {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "wt-row" + (wt.path === this.selected ? " is-selected" : "");
+    row.dataset.path = wt.path;
     row.addEventListener("click", () => { this.selected = wt.path; this.render(); });
 
     const dot = document.createElement("span");
@@ -238,10 +281,21 @@ export class WorktreesSurface {
     if (this.detail.has(path)) return;
     try {
       const [d, changes] = await Promise.all([worktreeDetail(path), gitChanges(path)]);
-      const files = [...changes.unstaged, ...changes.staged].map((f) => `${f.status[0].toUpperCase()} ${f.path}`);
-      this.detail.set(path, { subject: d.last_subject, ins: d.insertions, del: d.deletions, files });
+      const files = [...changes.unstaged, ...changes.staged].map((f) => ({
+        path: f.path,
+        status: f.status[0].toUpperCase(),
+        added: f.added,
+        removed: f.removed,
+      }));
+      this.detail.set(path, {
+        subject: d.last_subject, ins: d.insertions, del: d.deletions,
+        base: d.base_branch ?? "main", ahead: d.ahead ?? 0, behind: d.behind ?? 0,
+        commits: d.commits_ahead ?? [], files,
+      });
     } catch {
-      this.detail.set(path, { subject: null, ins: 0, del: 0, files: [] });
+      this.detail.set(path, {
+        subject: null, ins: 0, del: 0, base: "main", ahead: 0, behind: 0, commits: [], files: [],
+      });
     }
     if (this.open_ && this.selected === path) this.render();
   }
@@ -284,49 +338,237 @@ export class WorktreesSurface {
     path.className = "wt-d-path";
     path.textContent = compactPath(wt.path);
 
+    const sync = this.renderSyncStrip(wt, d);
+    const session = this.renderSession(wt);
+
     const subject = document.createElement("div");
     subject.className = "wt-d-subject";
     subject.textContent = d ? (d.subject ?? "(no commit yet)") : "…";
 
-    // Facts — aligned key/value grid, replaces the run-on meta + stray disk line.
-    const facts = document.createElement("div");
-    facts.className = "wt-d-facts";
-    const when = wt.last_commit_unix ? relativeTime(wt.last_commit_unix) : "no commits";
-    const tree = d
-      ? (wt.dirty_count === 0 ? "clean" : `${wt.dirty_count} changed · +${d.ins} / −${d.del}`)
-      : "…";
-    const disk = size
-      ? (size.target > 0
-          ? `${humanSize(size.total)} · ${humanSize(size.target)} in target/ reclaimable`
-          : humanSize(size.total))
-      : "…";
-    facts.append(fact("Last commit", when), fact("Working tree", tree), fact("Disk", disk));
-    const branch = branchFact(wt, this.summary?.default_branch ?? "main");
-    if (branch) facts.append(fact("Branch", branch));
+    const sections = document.createElement("div");
+    sections.className = "wt-d-sections";
+    if (d && d.commits.length) sections.appendChild(this.renderCommits(d));
+    if (d && d.files.length) sections.appendChild(this.renderFiles(wt, d));
+    if (size) sections.appendChild(this.renderDisk(wt, size));
+    const explain = this.renderExplain(wt);
+    if (explain) sections.appendChild(explain);
 
-    const files = document.createElement("div");
-    files.className = "wt-d-files";
-    if (d && d.files.length) {
-      for (const f of d.files.slice(0, 40)) {
-        const row = document.createElement("div");
-        row.className = "wt-d-file";
-        row.textContent = f;
-        files.appendChild(row);
-      }
-      if (d.files.length > 40) {
-        const more = document.createElement("div");
-        more.className = "wt-d-file wt-d-more";
-        more.textContent = `+${d.files.length - 40} more`;
-        files.appendChild(more);
-      }
-    }
+    const actions = this.renderActions(wt);
 
-    const actions = this.renderActions(wt, size);
-
-    host.append(head, path, subject, facts, files, actions);
+    host.append(head, path, ...(sync ? [sync] : []), ...(session ? [session] : []), subject, sections, actions);
   }
 
-  private renderActions(wt: GitWorktreeSummary, size?: { total: number; target: number }): HTMLElement {
+  /// P3 — the branch's arithmetic against the default branch, as chips.
+  private renderSyncStrip(wt: GitWorktreeSummary, d: DetailData | undefined): HTMLElement | null {
+    const strip = document.createElement("div");
+    strip.className = "wt-d-sync";
+    const chip = (text: string, cls = ""): void => {
+      const c = document.createElement("span");
+      c.className = `wt-d-chip ${cls}`.trim();
+      c.textContent = text;
+      strip.appendChild(c);
+    };
+    if (d) {
+      if (d.ahead > 0) chip(`↑ ${d.ahead} ahead`);
+      if (d.behind > 0) chip(`↓ ${d.behind} behind ${d.base}`, "wt-d-chip-warn");
+    }
+    chip(wt.last_commit_unix ? `last commit ${relativeTime(wt.last_commit_unix)}` : "no commits");
+    return strip;
+  }
+
+  /// P5 — a session is open in this worktree; say so and offer the jump.
+  private renderSession(wt: GitWorktreeSummary): HTMLElement | null {
+    if (wt.current) return null;
+    const tab = this.opts.getTabForCwd?.(wt.path);
+    if (!tab) return null;
+    const row = document.createElement("div");
+    row.className = "wt-d-session";
+    const dot = document.createElement("span");
+    dot.className = "wt-dot status-git-pop-wt-active";
+    const text = document.createElement("span");
+    text.className = "wt-d-session-text";
+    text.textContent = `Session open · tab “${tab.label}”`;
+    row.append(dot, text);
+    if (this.opts.onGoToTab) {
+      const go = document.createElement("button");
+      go.type = "button";
+      go.className = "wt-d-session-go";
+      go.textContent = "Go to tab →";
+      go.addEventListener("click", () => {
+        this.close();
+        this.opts.onGoToTab!(tab.id);
+      });
+      row.appendChild(go);
+    }
+    return row;
+  }
+
+  /// P2 — what this branch adds over the default branch (capped at 8 by the backend).
+  private renderCommits(d: DetailData): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.appendChild(sectionLabel(`Ahead of ${d.base} · ${d.ahead} ${d.ahead === 1 ? "commit" : "commits"}`));
+    for (const c of d.commits) {
+      const row = document.createElement("div");
+      row.className = "wt-d-commit";
+      const rail = document.createElement("span");
+      rail.className = "wt-d-commit-rail";
+      const s = document.createElement("span");
+      s.className = "wt-d-commit-subject";
+      s.textContent = c.subject;
+      const t = document.createElement("span");
+      t.className = "wt-d-commit-time";
+      t.textContent = relativeTime(c.unix);
+      row.append(rail, s, t);
+      wrap.appendChild(row);
+    }
+    if (d.ahead > d.commits.length) {
+      const more = document.createElement("div");
+      more.className = "wt-d-file wt-d-more";
+      more.textContent = `+${d.ahead - d.commits.length} more`;
+      wrap.appendChild(more);
+    }
+    return wrap;
+  }
+
+  /// P1 — uncommitted files with per-file diffstat; click opens the diff.
+  private renderFiles(wt: GitWorktreeSummary, d: DetailData): HTMLElement {
+    const wrap = document.createElement("div");
+    const n = d.files.length;
+    wrap.appendChild(sectionLabel(`Changes · ${n} ${n === 1 ? "file" : "files"} · +${d.ins} / −${d.del}`));
+    const maxTouched = Math.max(1, ...d.files.map((f) => f.added + f.removed));
+    for (const f of d.files.slice(0, 40)) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "wt-d-filerow";
+      const st = document.createElement("span");
+      st.className = `wt-d-filest wt-d-filest-${f.status.toLowerCase()}`;
+      st.textContent = f.status;
+      const p = document.createElement("span");
+      p.className = "wt-d-filepath";
+      p.textContent = f.path;
+      const nums = document.createElement("span");
+      nums.className = "wt-d-filenums";
+      const addN = document.createElement("span");
+      addN.className = "wt-d-filenum-add";
+      addN.textContent = `+${f.added}`;
+      const delN = document.createElement("span");
+      delN.className = "wt-d-filenum-del";
+      delN.textContent = `−${f.removed}`;
+      nums.append(addN, " ", delN);
+      const bar = document.createElement("span");
+      bar.className = "wt-d-filebar";
+      const add = document.createElement("i");
+      add.className = "wt-d-filebar-add";
+      add.style.width = `${Math.round((f.added / maxTouched) * 100)}%`;
+      const del = document.createElement("i");
+      del.className = "wt-d-filebar-del";
+      del.style.width = `${Math.round((f.removed / maxTouched) * 100)}%`;
+      bar.append(add, del);
+      row.append(st, p, nums, bar);
+      row.addEventListener("click", () => {
+        window.dispatchEvent(new CustomEvent("covenant:open-changes", {
+          detail: { cwd: wt.path, backTo: "worktrees", file: f.path },
+        }));
+        this.close();
+      });
+      wrap.appendChild(row);
+    }
+    if (d.files.length > 40) {
+      const more = document.createElement("div");
+      more.className = "wt-d-file wt-d-more";
+      more.textContent = `+${d.files.length - 40} more`;
+      wrap.appendChild(more);
+    }
+    return wrap;
+  }
+
+  /// P4 — disk split into checkout vs target/, with the verb inline.
+  private renderDisk(wt: GitWorktreeSummary, size: { total: number; target: number }): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.appendChild(sectionLabel(`Disk · ${humanSize(size.total)}`));
+    const checkout = Math.max(0, size.total - size.target);
+    const bar = document.createElement("div");
+    bar.className = "wt-d-diskbar";
+    const co = document.createElement("i");
+    co.className = "wt-d-disk-checkout";
+    co.style.width = size.total > 0 ? `${Math.round((checkout / size.total) * 100)}%` : "100%";
+    bar.appendChild(co);
+    if (size.target > 0) {
+      const tg = document.createElement("i");
+      tg.className = "wt-d-disk-target";
+      tg.style.width = `${Math.round((size.target / size.total) * 100)}%`;
+      bar.appendChild(tg);
+    }
+    const legend = document.createElement("div");
+    legend.className = "wt-d-disklegend";
+    const coLeg = document.createElement("span");
+    coLeg.innerHTML = `<i class="wt-d-disksw wt-d-disk-checkout"></i>checkout ${humanSize(checkout)}`;
+    legend.appendChild(coLeg);
+    if (size.target > 0) {
+      const tgLeg = document.createElement("span");
+      tgLeg.innerHTML = `<i class="wt-d-disksw wt-d-disk-target"></i>target/ ${humanSize(size.target)} · `;
+      const clean = document.createElement("button");
+      clean.type = "button";
+      clean.className = "wt-d-cleanlink";
+      clean.textContent = "Clean";
+      clean.addEventListener("click", () => this.confirmCleanTarget(wt, size));
+      tgLeg.appendChild(clean);
+      legend.appendChild(tgLeg);
+    }
+    wrap.append(bar, legend);
+    return wrap;
+  }
+
+  /// P6 — on-demand LLM explanation of the worktree's uncommitted diff.
+  private renderExplain(wt: GitWorktreeSummary): HTMLElement | null {
+    const ex = this.explains.get(wt.path);
+    if (!ex) return null;
+    const wrap = document.createElement("div");
+    wrap.appendChild(sectionLabel("Explain"));
+    const doc = document.createElement("div");
+    doc.className = "wt-d-explain markdown-doc";
+    if (ex.state === "loading") {
+      doc.classList.add("wt-d-explain-loading");
+      doc.textContent = "Reading the diff…";
+    } else if (ex.state === "error") {
+      doc.textContent = ex.text;
+    } else {
+      doc.innerHTML = renderMarkdown(ex.text);
+    }
+    wrap.appendChild(doc);
+    return wrap;
+  }
+
+  private runExplain(wt: GitWorktreeSummary): void {
+    if (this.explains.get(wt.path)?.state === "loading") return;
+    this.explains.set(wt.path, { state: "loading", text: "" });
+    this.render();
+    void explainChanges(wt.path)
+      .then((text) => this.explains.set(wt.path, { state: "done", text }))
+      .catch((e) => this.explains.set(wt.path, { state: "error", text: String(e) }))
+      .then(() => { if (this.open_ && this.selected === wt.path) this.render(); });
+  }
+
+  private confirmCleanTarget(wt: GitWorktreeSummary, size: { total: number; target: number }): void {
+    const isLive = this.liveRoot === wt.path || wt.current;
+    const warn = isLive
+      ? " This worktree built the running app — cleaning target/ mid-run can crash the dev build."
+      : "";
+    pushConfirmToast({
+      message: `Delete ${compactPath(wt.path)}/target/? (${humanSize(size.target)})${warn}`,
+      confirmLabel: "Clean",
+      onConfirm: () => {
+        void worktreeCleanTarget(wt.path)
+          .then((kb) => {
+            pushInfoToast({ message: `Freed ${humanSize(kb)} from ${worktreeLabel(wt)}` });
+            void this.loadSizes();
+          })
+          .catch((e) => pushInfoToast({ message: `Clean failed: ${String(e)}` }));
+      },
+    });
+  }
+
+  private renderActions(wt: GitWorktreeSummary): HTMLElement {
     const row = document.createElement("div");
     row.className = "wt-d-actions";
     // One left-aligned cluster: workflow verbs, then a hairline divider before
@@ -359,29 +601,9 @@ export class WorktreesSurface {
       window.dispatchEvent(new CustomEvent("covenant:open-changes", { detail: { cwd: wt.path, backTo: "worktrees" } }));
       this.close();
     });
-
-    // Clean build artifacts — extra warning on the live/current worktree.
-    const isLive = this.liveRoot === wt.path || wt.current;
-    const hasTarget = size ? size.target > 0 : false;
-    if (hasTarget) {
-      const freed = size ? ` (${humanSize(size.target)})` : "";
-      btn("Clean target/" + freed, Icons.folderMinus({ size: 14 }), "", () => {
-        const warn = isLive
-          ? " This worktree built the running app — cleaning target/ mid-run can crash the dev build."
-          : "";
-        pushConfirmToast({
-          message: `Delete ${compactPath(wt.path)}/target/?${warn}`,
-          confirmLabel: "Clean",
-          onConfirm: () => {
-            void worktreeCleanTarget(wt.path)
-              .then((kb) => {
-                pushInfoToast({ message: `Freed ${humanSize(kb)} from ${worktreeLabel(wt)}` });
-                void this.loadSizes();
-              })
-              .catch((e) => pushInfoToast({ message: `Clean failed: ${String(e)}` }));
-          },
-        });
-      });
+    // Explain only makes sense with an uncommitted diff to read.
+    if (wt.dirty_count > 0) {
+      btn("Explain", Icons.sparkles({ size: 14 }), "", () => this.runExplain(wt));
     }
 
     // State action — reuse the popover's verdict. Only wt.path (a real
@@ -423,19 +645,12 @@ export class WorktreesSurface {
   }
 }
 
-/// One aligned key/value row in the detail facts grid (display:contents, so
-/// the two spans land directly in the parent grid's columns).
-function fact(label: string, value: string): HTMLElement {
-  const row = document.createElement("div");
-  row.className = "wt-d-fact";
-  const k = document.createElement("span");
-  k.className = "wt-d-fact-k";
-  k.textContent = label;
-  const v = document.createElement("span");
-  v.className = "wt-d-fact-v";
-  v.textContent = value;
-  row.append(k, v);
-  return row;
+/// Uppercase mono section label — one per detail section (commits, changes, disk).
+function sectionLabel(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "wt-d-seclabel";
+  el.textContent = text;
+  return el;
 }
 
 /// Coarse relative time for the detail panel ("3m ago", "2h ago", "5d ago").

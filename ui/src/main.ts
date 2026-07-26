@@ -2095,6 +2095,11 @@ async function boot(): Promise<void> {
     onOpenTab: (path, label) => { statusBar.onOpenGitWorktree?.(path, label); },
     onResumeAgent: resumeWorktreeAgent,
     getOccupiedCwds: () => new Set(statusBar.getOccupiedCwds?.() ?? []),
+    getTabForCwd: (path) => {
+      const t = manager.listTabSnapshots().find((s) => s.cwd === path);
+      return t ? { id: t.id, label: manager.getTabLabel(t.id) } : null;
+    },
+    onGoToTab: (id) => manager.activate(id),
   });
   const openWorktrees = async (): Promise<void> => {
     const cwd = manager.activeCwd();
@@ -2106,12 +2111,12 @@ async function boot(): Promise<void> {
   };
   window.addEventListener("covenant:open-worktrees", () => { void openWorktrees(); });
 
-  const openChanges = async (cwdArg?: string, onBack?: () => void): Promise<void> => {
+  const openChanges = async (cwdArg?: string, onBack?: () => void, focusFile?: string): Promise<void> => {
     const cwd = cwdArg ?? manager.activeCwd();
     if (!cwd) return;
     try {
       const summary = await gitRepoSummary(cwd);
-      await changesSurface.open(summary.repo_root, onBack);
+      await changesSurface.open(summary.repo_root, onBack, focusFile);
     } catch {
       // Not a git repo or backend error — no-op.
     }
@@ -2119,11 +2124,12 @@ async function boot(): Promise<void> {
 
   statusBar.onViewChanges = () => void openChanges();
   // File-tree "Changes" button (structure/tree.ts) dispatches this with its cwd.
-  // Worktrees "View diff" adds backTo:"worktrees" so Changes offers a way back.
+  // Worktrees "View diff" adds backTo:"worktrees" so Changes offers a way back;
+  // its per-file rows add `file` so Changes opens on that diff directly.
   window.addEventListener("covenant:open-changes", (e) => {
-    const d = (e as CustomEvent<{ cwd?: string; backTo?: string }>).detail;
+    const d = (e as CustomEvent<{ cwd?: string; backTo?: string; file?: string }>).detail;
     const back = d?.backTo === "worktrees" ? () => void openWorktrees() : undefined;
-    void openChanges(d?.cwd, back);
+    void openChanges(d?.cwd, back, d?.file);
   });
   statusBar.onVersionChipClick = () => release.toggle();
   // Statusbar Covenant chip click → open Settings, covenant tab.

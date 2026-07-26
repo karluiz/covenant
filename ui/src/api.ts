@@ -1513,10 +1513,19 @@ export async function gitChanges(cwd: string): Promise<Changes> {
   return invoke<Changes>("git_changes", { cwd });
 }
 
+export interface CommitBrief {
+  subject: string;
+  unix: number;
+}
+
 export interface WorktreeDetail {
   last_subject: string | null;
   insertions: number;
   deletions: number;
+  base_branch: string;
+  ahead: number;
+  behind: number;
+  commits_ahead: CommitBrief[];
 }
 
 export async function worktreeDetail(path: string): Promise<WorktreeDetail> {

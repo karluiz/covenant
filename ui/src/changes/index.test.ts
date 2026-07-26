@@ -211,4 +211,41 @@ describe("ChangesSurface", () => {
       .find(([, path, staged]) => path === "f.txt" && staged === true);
     expect(secondDiffCall).toBeDefined();
   });
+
+  it("repo label becomes a worktree selector; picking one re-roots the surface", async () => {
+    const multi = {
+      repo_name: "repo", repo_root: "/repo", current_branch: "main",
+      detached_head: null, dirty_count: 1, branches: [], default_branch: "main",
+      worktrees: [
+        { path: "/repo/.covenant/worktrees/a", branch: "agent/a", is_main: false },
+        { path: "/repo", branch: "main", is_main: true },
+      ],
+    };
+    // open → toggle → post-switch loadSummary, in that order.
+    vi.mocked(api.gitRepoSummary)
+      .mockResolvedValueOnce(multi as never)
+      .mockResolvedValueOnce(multi as never)
+      .mockResolvedValueOnce(multi as never);
+
+    const s = new ChangesSurface(host);
+    await s.open("/repo");
+    await tick();
+    const repo = host.querySelector<HTMLElement>(".cd-repo")!;
+    expect(repo.classList.contains("structure-cwd-selector")).toBe(true);
+
+    repo.click();
+    await tick();
+    const rows = [...document.querySelectorAll<HTMLElement>(".structure-wt-popover .ui-select__option")];
+    expect(rows.length).toBe(2);
+    // Main-first ordering; current root carries the check.
+    expect(rows[0].textContent).toContain("MAIN");
+    expect(rows[0].querySelector(".ui-select__option-check")!.textContent).toBe("✓");
+
+    rows[1].click();
+    await tick(8);
+    expect(document.querySelector(".structure-wt-popover")).toBeNull();
+    expect(vi.mocked(api.gitChanges)).toHaveBeenCalledWith("/repo/.covenant/worktrees/a");
+    expect(repo.querySelector("span")!.textContent).toBe("a"); // basename of the new root
+    s.close();
+  });
 });

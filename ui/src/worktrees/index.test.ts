@@ -11,9 +11,20 @@ vi.mock("../api", () => ({
   gitRepoSummary: vi.fn(async () => summary),
   worktreeSizes: vi.fn(async () => []),
   devLiveWorktreeRoot: vi.fn(async () => null),
-  worktreeDetail: vi.fn(async () => ({ last_subject: "s", insertions: 0, deletions: 0 })),
-  gitChanges: vi.fn(async () => ({ staged: [], unstaged: [] })),
+  worktreeDetail: vi.fn(async () => ({
+    last_subject: "s", insertions: 3, deletions: 1,
+    base_branch: "main", ahead: 2, behind: 5,
+    commits_ahead: [
+      { subject: "feat: second", unix: 1_700_000_100 },
+      { subject: "feat: first", unix: 1_700_000_000 },
+    ],
+  })),
+  gitChanges: vi.fn(async () => ({
+    staged: [],
+    unstaged: [{ path: "src/a.ts", oldPath: null, status: "modified", added: 3, removed: 1, binary: false }],
+  })),
   worktreeReclaim: (...args: [string, string[]]) => reclaimMock(...args),
+  explainChanges: vi.fn(async () => "Adds a thing."),
 }));
 
 // Confirm toasts render into app chrome outside the surface host; run
@@ -83,9 +94,45 @@ describe("WorktreesSurface", () => {
     const btn = host.querySelector<HTMLButtonElement>(".wt-group-reclaim");
     expect(btn).not.toBeNull();
     btn!.click();
-    expect(reclaimMock).toHaveBeenCalledWith("/r", [
-      "/r/.covenant/worktrees/a", "/r/.covenant/worktrees/b",
-    ]);
+    // Reclaim runs one call per path so the button can show n/N progress.
+    await vi.waitFor(() => expect(reclaimMock).toHaveBeenCalledTimes(2));
+    expect(reclaimMock).toHaveBeenNthCalledWith(1, "/r", ["/r/.covenant/worktrees/a"]);
+    expect(reclaimMock).toHaveBeenNthCalledWith(2, "/r", ["/r/.covenant/worktrees/b"]);
+    surface.close();
+  });
+
+  it("detail panel renders sync chips, commits ahead, diffstat rows, and presence", async () => {
+    summary.worktrees = [
+      wt({ path: "/r", branch: "main", is_main: true, current: true, state: "active" }),
+      wt({ path: "/r/.covenant/worktrees/a", branch: "agent/a", state: "active", dirty_count: 1, last_commit_unix: 1_700_000_100 }),
+    ];
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const surface = new WorktreesSurface(host, {
+      onOpenTab: () => {}, onResumeAgent: () => {}, getOccupiedCwds: () => new Set(),
+      getTabForCwd: (p) => (p === "/r/.covenant/worktrees/a" ? { id: "t1", label: "agent tab" } : null),
+      onGoToTab: vi.fn(),
+    });
+    await surface.open("/r");
+
+    // Select the linked worktree; loadDetail resolves async.
+    const row = [...host.querySelectorAll<HTMLElement>(".wt-row")]
+      .find((r) => r.textContent?.includes("agent-a") || r.dataset.path?.endsWith("/a"))!;
+    row.click();
+    await vi.waitFor(() => expect(host.querySelector(".wt-d-commit")).not.toBeNull());
+
+    const chips = [...host.querySelectorAll(".wt-d-chip")].map((c) => c.textContent);
+    expect(chips.some((c) => c?.includes("2 ahead"))).toBe(true);
+    expect(chips.some((c) => c?.includes("5 behind main"))).toBe(true);
+
+    const commits = [...host.querySelectorAll(".wt-d-commit-subject")].map((c) => c.textContent);
+    expect(commits).toEqual(["feat: second", "feat: first"]);
+
+    const file = host.querySelector(".wt-d-filerow");
+    expect(file?.textContent).toContain("src/a.ts");
+    expect(file?.textContent).toContain("+3");
+
+    expect(host.querySelector(".wt-d-session-text")?.textContent).toContain("agent tab");
     surface.close();
   });
 });
