@@ -1982,10 +1982,9 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-overlay);
-  /* Theme-aware: a hardcoded black shadow/border becomes a grey haze with no
-     crisp edge in light. Derive both from --ink-rgb so they flip. */
+  /* Theme-aware: hardcoded black becomes a grey haze in light. Derive
+     from --ink-rgb so it flips. Border only — no shadow. */
   border: 1px solid rgb(var(--ink-rgb) / 0.14);
-  box-shadow: 0 2px 8px rgb(var(--ink-rgb) / 0.1), 0 12px 32px rgb(var(--ink-rgb) / 0.18);
   padding: 6px 8px 8px;
   font-size: 12px;
 }
