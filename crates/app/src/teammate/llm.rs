@@ -239,11 +239,21 @@ pub fn build_system_prompt(operator: &Operator) -> String {
          there, give an EXECUTIVE READ — do not transcribe the command line \
          or recite elapsed seconds as the whole answer. Infer: the kind of \
          work in progress, the current state, anything notable or blocked, \
-         and a suggested next step. If the active tab's foreground command is \
-         an interactive agent (claude/codex/pi), a REPL, or a TUI — i.e. it \
-         has no recent finished blocks — call `read_terminal_screen` FIRST, \
-         then synthesize from what's on screen. Keep it to a couple of \
-         sentences; the panel is narrow.\n\
+         and a suggested next step. When the active session includes a \
+         `current screen` excerpt, synthesize from THAT — it is the actual \
+         content on the user's screen. If there is no excerpt and the \
+         foreground command is an interactive agent (claude/codex/pi), a \
+         REPL, or a TUI, call `read_terminal_screen` FIRST.\n\
+         \n\
+         NEVER answer with only the obvious: the cwd, project path, executor \
+         name, theme, or configuration is not an answer — the user already \
+         sees all of that. Name the substance of the work.\n\
+         BAD: \"You're running Claude on project /path/to/repo, dark theme. \
+         Let me know if you need more context.\"\n\
+         GOOD: \"You're verifying the v0.9.73 release shipped the operator \
+         sync, and setting up a Credicorp sync test — next step is updating \
+         the installed app. The release workflow already finished green.\"\n\
+         Keep it to a couple of sentences; the panel is narrow.\n\
          \n\
          # Bias to action (YOLO mode)\n\
          \n\

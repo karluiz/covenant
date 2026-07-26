@@ -21,6 +21,11 @@ pub struct SessionSnapshot {
     pub summary: Option<String>,
     pub last_blocks: Vec<BlockBrief>,
     pub in_flight: Option<InFlightBrief>,
+    /// Rendered-screen tail for the active session when the foreground
+    /// command is interactive (agent TUI / REPL) — those never finish as
+    /// blocks, so the screen is the only substance. Pre-masked. Set by the
+    /// caller after `project()` (which stays pure over the world model).
+    pub screen_tail: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +81,24 @@ pub fn project(
         summary: world.summary.clone(),
         last_blocks,
         in_flight,
+        screen_tail: None,
+    }
+}
+
+/// Trim a captured screen to its last `max_lines` non-trailing-blank lines
+/// so the context section stays bounded on tall windows.
+pub fn screen_tail(screen: &str, max_lines: usize) -> Option<String> {
+    let lines: Vec<&str> = screen.lines().collect();
+    let end = lines
+        .iter()
+        .rposition(|l| !l.trim().is_empty())
+        .map(|i| i + 1)?;
+    let start = end.saturating_sub(max_lines);
+    let tail = lines[start..end].join("\n");
+    if tail.trim().is_empty() {
+        None
+    } else {
+        Some(tail)
     }
 }
 
@@ -227,6 +250,14 @@ fn render_session_full(out: &mut String, s: &SessionSnapshot) {
         for b in live {
             render_block_line(out, b);
         }
+    }
+    if let Some(ref screen) = s.screen_tail {
+        out.push_str(
+            "- current screen (rendered, most recent lines — THIS is what the \
+             user is actually looking at; synthesize your answer from it):\n\n```\n",
+        );
+        out.push_str(screen);
+        out.push_str("\n```\n");
     }
 }
 
@@ -383,6 +414,35 @@ mod tests {
         assert!(out.contains("currently running"));
         assert!(out.contains("npm run dev"));
         assert!(out.contains("elapsed 5s"));
+    }
+
+    #[test]
+    fn renders_screen_tail_for_active_session() {
+        let id = SessionId::new();
+        let mut w = world_with("/x", None, vec![]);
+        w.in_flight = Some(crate::world::InFlightBlock {
+            command: "claude".into(),
+            cwd: PathBuf::from("/x"),
+            started_at_unix_ms: 0,
+        });
+        let mut snap = project(id, &w, true, 1_000);
+        snap.screen_tail = screen_tail("line1\nRelease v0.9.73 verified\n\n\n", 40);
+        let out = render(&[snap]);
+        assert!(out.contains("current screen"));
+        assert!(out.contains("Release v0.9.73 verified"));
+        // Trailing blank lines trimmed.
+        assert!(!out.contains("verified\n\n\n```"));
+    }
+
+    #[test]
+    fn screen_tail_caps_lines_and_handles_blank() {
+        assert_eq!(screen_tail("   \n\n", 40), None);
+        assert_eq!(screen_tail("", 40), None);
+        let many = (0..100).map(|i| format!("l{i}")).collect::<Vec<_>>().join("\n");
+        let tail = screen_tail(&many, 40).unwrap();
+        assert_eq!(tail.lines().count(), 40);
+        assert!(tail.starts_with("l60"));
+        assert!(tail.ends_with("l99"));
     }
 
     #[test]
