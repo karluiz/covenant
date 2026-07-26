@@ -145,3 +145,13 @@ body.worktrees-fullscreen { overflow: hidden; }
   background: color-mix(in srgb, var(--danger) 10%, transparent);
   border-color: color-mix(in srgb, var(--danger) 55%, transparent);
 }
+.wt-group-reclaim:disabled { cursor: default; opacity: 0.75; pointer-events: none; }
+
+/* Bulk reclaim in flight: the row being removed pulses, dead rows stay dimmed
+   until the post-reclaim refresh drops them from the list. */
+.wt-row.is-reclaiming { animation: wt-reclaim-pulse 900ms ease-in-out infinite; }
+.wt-row.is-reclaimed { opacity: 0.3; pointer-events: none; }
+@keyframes wt-reclaim-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}

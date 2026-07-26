@@ -1,7 +1,7 @@
 import {
   gitRepoSummary, worktreeSizes, worktreeDetail, gitChanges, devLiveWorktreeRoot,
   worktreeCleanTarget, worktreeReclaim, worktreeRelocate,
-  type GitRepoSummary, type GitWorktreeSummary,
+  type GitRepoSummary, type GitWorktreeSummary, type ReclaimOutcome,
 } from "../api";
 import { worktreeStateClass, worktreeStateLabel, worktreeDefaultAction, STATE_HELP, ACTION_HELP } from "../status/worktree-state";
 import { attachTooltip } from "../tooltip/tooltip";
@@ -168,22 +168,43 @@ export class WorktreesSurface {
     pushConfirmToast({
       message: `Remove ${paths.length} spent worktrees${freed}? Their branches are already merged or gone.`,
       confirmLabel: "Reclaim all",
-      onConfirm: () => {
-        void worktreeReclaim(this.repoRoot, paths)
-          .then((outcomes) => {
-            const removed = outcomes.filter((o) => o.removed);
-            const refused = outcomes.filter((o) => !o.removed);
-            const freedDone = removed.reduce((sum, o) => sum + (this.sizes.get(o.path)?.total ?? 0), 0);
-            let msg = `Reclaimed ${removed.length}`;
-            if (freedDone > 0) msg += ` · freed ~${humanSize(freedDone)}`;
-            for (const o of refused) msg += ` · ${compactPath(o.path)} refused: ${o.reason ?? "unknown"}`;
-            pushInfoToast({ message: msg });
-            this.selected = null;
-            void this.refresh();
-          })
-          .catch((e) => pushInfoToast({ message: `Reclaim failed: ${String(e)}` }));
-      },
+      onConfirm: () => { void this.runReclaimAll(paths); },
     });
+  }
+
+  /// One backend call per path so the button can count progress and each row
+  /// dims as it dies. Overhead is negligible next to deleting the checkouts.
+  private async runReclaimAll(paths: string[]): Promise<void> {
+    const btn = this.host.querySelector<HTMLButtonElement>(".wt-group-reclaim");
+    const rows = new Map<string, HTMLElement>();
+    for (const el of this.host.querySelectorAll<HTMLElement>(".wt-row[data-path]")) {
+      rows.set(el.dataset.path ?? "", el);
+    }
+    const rowFor = (p: string): HTMLElement | null => rows.get(p) ?? null;
+    if (btn) btn.disabled = true;
+    const outcomes: ReclaimOutcome[] = [];
+    for (const [i, p] of paths.entries()) {
+      if (btn) btn.innerHTML = `${Icons.trash({ size: 12 })}<span>Reclaiming ${i + 1}/${paths.length}…</span>`;
+      const row = rowFor(p);
+      row?.classList.add("is-reclaiming");
+      try {
+        const out = await worktreeReclaim(this.repoRoot, [p]);
+        outcomes.push(...out);
+        row?.classList.toggle("is-reclaimed", out[0]?.removed ?? false);
+      } catch (e) {
+        outcomes.push({ path: p, removed: false, reason: String(e) });
+      }
+      row?.classList.remove("is-reclaiming");
+    }
+    const removed = outcomes.filter((o) => o.removed);
+    const refused = outcomes.filter((o) => !o.removed);
+    const freedDone = removed.reduce((sum, o) => sum + (this.sizes.get(o.path)?.total ?? 0), 0);
+    let msg = `Reclaimed ${removed.length}`;
+    if (freedDone > 0) msg += ` · freed ~${humanSize(freedDone)}`;
+    for (const o of refused) msg += ` · ${compactPath(o.path)} refused: ${o.reason ?? "unknown"}`;
+    pushInfoToast({ message: msg });
+    this.selected = null;
+    void this.refresh();
   }
 
   private renderRow(wt: GitWorktreeSummary, maxKb: number): HTMLElement {
@@ -191,6 +212,7 @@ export class WorktreesSurface {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "wt-row" + (wt.path === this.selected ? " is-selected" : "");
+    row.dataset.path = wt.path;
     row.addEventListener("click", () => { this.selected = wt.path; this.render(); });
 
     const dot = document.createElement("span");

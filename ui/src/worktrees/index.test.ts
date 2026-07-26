@@ -83,9 +83,10 @@ describe("WorktreesSurface", () => {
     const btn = host.querySelector<HTMLButtonElement>(".wt-group-reclaim");
     expect(btn).not.toBeNull();
     btn!.click();
-    expect(reclaimMock).toHaveBeenCalledWith("/r", [
-      "/r/.covenant/worktrees/a", "/r/.covenant/worktrees/b",
-    ]);
+    // Reclaim runs one call per path so the button can show n/N progress.
+    await vi.waitFor(() => expect(reclaimMock).toHaveBeenCalledTimes(2));
+    expect(reclaimMock).toHaveBeenNthCalledWith(1, "/r", ["/r/.covenant/worktrees/a"]);
+    expect(reclaimMock).toHaveBeenNthCalledWith(2, "/r", ["/r/.covenant/worktrees/b"]);
     surface.close();
   });
 });
