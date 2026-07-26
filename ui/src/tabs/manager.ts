@@ -362,6 +362,14 @@ interface Tab {
   /// it. Cleared after the nudge runs. Shell tabs are born true (replay
   /// scrollback + early shell output land before first activation).
   wroteWhileHidden?: boolean;
+  /// True while a resize nudge (shrink one row + grow back, purely to
+  /// force xterm's internal viewport resync) is in flight. The nudge
+  /// starts and ends at the same dims, but each term.resize fires
+  /// onResize → resize_session → SIGWINCH — a foreground TUI
+  /// (claude/vim/htop) then repaints its whole screen twice right after
+  /// the tab reveals. The onResize handler skips the PTY resize while
+  /// this is set.
+  suppressPtyResize?: boolean;
   /// Arms the launch-scrub on the NEXT block_started for a session that
   /// already exists (reuse-idle spawn), mirroring createTab's `scrubLaunch`.
   scrubNextLaunch?: boolean;
@@ -3475,6 +3483,21 @@ export class TabManager {
     // even though shell tabs now title themselves from the cwd basename.
     this.nextSeq++;
 
+    // Kick off both IPC reads NOW so their round-trips overlap the DOM
+    // scaffolding below instead of running as serial awaits afterwards.
+    // replay_scrollback is only issued for tabs restored with a prior
+    // replayKey — a freshly minted key is a guaranteed miss and used to
+    // cost a full round-trip on every ⌘T.
+    const termCfgPromise = getSettings()
+      .then((s) => s.terminal)
+      .catch(() => null);
+    const replayPromise = opts?.replayKey
+      ? replayScrollback(replayKey).catch((err) => {
+          console.warn("replay_scrollback failed", err);
+          return new Uint8Array(0);
+        })
+      : null;
+
     const pane = document.createElement("div");
     pane.className = "tab-pane";
     pane.dataset.tabId = id;
@@ -3534,11 +3557,23 @@ export class TabManager {
 
     // Read terminal font/size from settings each spawn so a Save in
     // ⌘, applies on the next new tab without restart. Existing tabs
-    // are updated live via applyTerminalSettings().
-    const termCfg = await getSettings()
-      .then((s) => s.terminal)
-      .catch(() => null);
-    const term = new Terminal(buildTerminalOptions(termCfg));
+    // are updated live via applyTerminalSettings(). (Promise started
+    // before the DOM work above — this await is usually already settled.)
+    const termCfg = await termCfgPromise;
+    // Spawn-size seed: the pane is display:none here, so fit() can't
+    // measure and xterm would default to 80×24 — the PTY then spawns at
+    // the wrong size and the shell prompt reflows when activate() sends
+    // the real dims. Borrow the active tab's grid (same font, same
+    // workspace box) so the PTY is born at its final size in the common
+    // case; activate()'s fit corrects any drift.
+    const seedTab = this.tabs.find((t) => t.id === this.activeId);
+    const seedCols = seedTab?.term?.cols ?? 80;
+    const seedRows = seedTab?.term?.rows ?? 24;
+    const term = new Terminal({
+      ...buildTerminalOptions(termCfg),
+      cols: seedCols,
+      rows: seedRows,
+    });
     const fit = new FitAddon();
     term.loadAddon(fit);
     const handleLinkClick = (uri: string): void => {
@@ -3688,17 +3723,15 @@ export class TabManager {
       }, 4000);
     }
     // Replay persisted scrollback into xterm BEFORE the live channel
-    // attaches. Brand-new tabs see an empty array; reopened tabs see
-    // the last ~2 MiB of bytes from their previous session.
+    // attaches. Only restored tabs have a replayPromise (started at the
+    // top of createTab); brand-new tabs skip the round-trip entirely.
     let replayedBytes = 0;
-    try {
-      const tail = await replayScrollback(replayKey);
+    if (replayPromise) {
+      const tail = await replayPromise;
       replayedBytes = tail.byteLength;
       if (tail.byteLength > 0) {
         term.write(tail);
       }
-    } catch (err) {
-      console.warn("replay_scrollback failed", err);
     }
     // One-time discoverability card — only on a genuinely fresh, empty viewport.
     // Skipped when a command is preloaded, when scrollback was replayed (a
@@ -3907,6 +3940,8 @@ export class TabManager {
           initialCwd,
           replayKey,
           paneId,
+          cols: seedCols,
+          rows: seedRows,
         },
       );
     } catch (err) {
@@ -4285,10 +4320,11 @@ export class TabManager {
       }
     });
 
-    await resizeSession(sessionId, term.cols, term.rows).catch((e) =>
-      // eslint-disable-next-line no-console
-      console.error("initial resize failed", e),
-    );
+    // (No initial resize_session here: the PTY was spawned at
+    // seedCols×seedRows — the same dims xterm was constructed with — so
+    // the old awaited resize was a full IPC round-trip to send the size
+    // the PTY already had. Any real drift is caught by activate()'s fit
+    // → term.onResize → resizeSession.)
 
     const encoder = new TextEncoder();
     answerColorQueries(term, (s) =>
@@ -4386,6 +4422,9 @@ export class TabManager {
     });
 
     const resizeDispose = term.onResize(({ cols, rows }) => {
+      // Nudges are dims-neutral; the PTY must not see their transient
+      // SIGWINCH pair (see Tab.suppressPtyResize).
+      if (tabRef.current?.suppressPtyResize) return;
       void resizeSession(sessionId, cols, rows).catch((e) =>
         // eslint-disable-next-line no-console
         console.error("resize failed", e),
@@ -4436,11 +4475,15 @@ export class TabManager {
           // but never on a reveal, where activate() owns the refit.
           const dimsChanged = term.cols !== prevCols || term.rows !== prevRows;
           if (shouldRoNudge({ revealing, dimsChanged, rows: prevRows })) {
+            const t = tabRef.current;
+            if (t) t.suppressPtyResize = true;
             try {
               term.resize(prevCols, prevRows - 1);
               term.resize(prevCols, prevRows);
             } catch {
               /* ignore */
+            } finally {
+              if (t) t.suppressPtyResize = false;
             }
           }
           void resizeSession(sessionId, term.cols, term.rows).catch((e) =>
@@ -6751,17 +6794,28 @@ export class TabManager {
       // resize was a no-op and never corrected it. Shrink one row and
       // grow back to force a real resize cycle with live geometry.
       const { cols, rows } = term;
+      tab.suppressPtyResize = true;
       try {
         term.resize(cols, rows - 1);
         term.resize(cols, rows);
       } catch {
         /* ignore — terminal may be mid-dispose */
+      } finally {
+        tab.suppressPtyResize = false;
       }
       tab.wroteWhileHidden = false;
     }
     if (plan.scrollToBottom) term.scrollToBottom();
+    // Only tell the PTY about a size it doesn't already have. On the
+    // common switch fit() resolves to the same dims the PTY was last
+    // synced to; sending it again is a wasted IPC (the kernel skips the
+    // SIGWINCH for a same-size TIOCSWINSZ, but the round-trip and the
+    // sessions-map lock are real).
     const activateSessId = activePane(tab).sessionId;
-    if (activateSessId) void resizeSession(activateSessId as SessionId, term.cols, term.rows).catch(() => {});
+    const dimsChangedByFit =
+      term.cols !== fitColsBefore || term.rows !== fitRowsBefore;
+    if (activateSessId && dimsChangedByFit)
+      void resizeSession(activateSessId as SessionId, term.cols, term.rows).catch(() => {});
 
     // Fast path: a "clean" switch — fit() resolved to the same cols/rows
     // and nothing was written while this pane was hidden — needs no

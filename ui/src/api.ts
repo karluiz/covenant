@@ -65,7 +65,16 @@ export interface SpawnHandlers {
 
 export async function spawnSession(
   handlers: SpawnHandlers,
-  opts?: { initialCwd?: string | null; replayKey?: string | null; paneId?: string | null },
+  opts?: {
+    initialCwd?: string | null;
+    replayKey?: string | null;
+    paneId?: string | null;
+    /// Initial PTY grid. When set, the shell is born at this size and
+    /// draws its first prompt at the right width — no post-spawn resize,
+    /// no prompt reflow. Omitted → backend default (80×24).
+    cols?: number | null;
+    rows?: number | null;
+  },
 ): Promise<SessionId> {
   const outputChannel = new Channel<number[]>();
   outputChannel.onmessage = (data) => handlers.onOutput(new Uint8Array(data));
@@ -79,6 +88,8 @@ export async function spawnSession(
     initialCwd: opts?.initialCwd ?? null,
     replayKey: opts?.replayKey ?? null,
     paneId: opts?.paneId ?? null,
+    cols: opts?.cols ?? null,
+    rows: opts?.rows ?? null,
   });
 }
 

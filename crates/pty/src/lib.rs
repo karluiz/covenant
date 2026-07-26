@@ -28,7 +28,8 @@ mod fg_proc;
 pub use fg_proc::{foreground_process_name, kill_foreground_pgrp, pgrp_alive};
 
 use bytes::Bytes;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty};
+pub use portable_pty::PtySize;
 use thiserror::Error;
 use tokio::sync::mpsc;
 
