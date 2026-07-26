@@ -211,6 +211,8 @@ export class ChangesSurface {
     pop.style.top = `${rect.bottom + 6}px`;
     pop.style.left = `${Math.min(rect.left, Math.max(8, window.innerWidth - 288))}px`;
     pop.style.minWidth = "220px";
+    // Long worktree lists must scroll inside the popover, not overflow the window.
+    pop.style.maxHeight = `${Math.max(120, window.innerHeight - rect.bottom - 18)}px`;
 
     this.wtMenuOutside = (e: PointerEvent): void => {
       const t = e.target as Node;
