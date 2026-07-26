@@ -6,8 +6,9 @@ import {
 import { worktreeStateClass, worktreeStateLabel, worktreeDefaultAction, STATE_HELP, ACTION_HELP } from "../status/worktree-state";
 import { attachTooltip } from "../tooltip/tooltip";
 import { Icons } from "../icons";
-import { worktreeLabel, compactPath, humanSize } from "./format";
+import { worktreeLabel, compactPath, humanSize, branchFact } from "./format";
 import { splitSizes, sizeRequestPaths, subtractNested } from "./sizes";
+import { groupWorktrees, spentReclaimPaths, type WorktreeGroup } from "./groups";
 import { pushConfirmToast, pushInfoToast } from "../notifications/toast";
 
 interface WorktreesOpts {
@@ -119,51 +120,108 @@ export class WorktreesSurface {
     this.renderDetail(right); // Task 6
   }
 
-  private sortedWorktrees(): GitWorktreeSummary[] {
-    const size = (p: string) => this.sizes.get(p)?.total ?? -1;
-    return [...(this.summary?.worktrees ?? [])].sort((a, b) => size(b.path) - size(a.path));
-  }
-
   private renderList(host: HTMLElement): void {
     host.innerHTML = "";
+    const wts = this.summary?.worktrees ?? [];
     const maxKb = Math.max(1, ...[...this.sizes.values()].map((s) => s.total));
-    for (const wt of this.sortedWorktrees()) {
-      const size = this.sizes.get(wt.path);
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "wt-row" + (wt.path === this.selected ? " is-selected" : "");
-      row.addEventListener("click", () => { this.selected = wt.path; this.render(); });
-
-      const dot = document.createElement("span");
-      dot.className = `wt-dot ${worktreeStateClass(wt.state)}`;
-      attachTooltip(dot, STATE_HELP[wt.state]);
-      const label = document.createElement("span");
-      label.className = "wt-row-label";
-      label.textContent = worktreeLabel(wt);
-      const path = document.createElement("span");
-      path.className = "wt-row-path";
-      path.textContent = compactPath(wt.path);
-
-      const bar = document.createElement("span");
-      bar.className = "wt-bar";
-      const fill = document.createElement("span");
-      fill.className = "wt-bar-fill";
-      fill.style.width = size ? `${Math.round((size.total / maxKb) * 100)}%` : "0%";
-      bar.appendChild(fill);
-
-      const sizeEl = document.createElement("span");
-      sizeEl.className = "wt-row-size";
-      sizeEl.textContent = size ? humanSize(size.total) : "…";
-
-      const badge = document.createElement("span");
-      badge.className = "wt-row-badge";
-      badge.textContent = wt.current ? "HERE"
-        : wt.dirty_count > 0 ? `${wt.dirty_count} changed`
-        : worktreeStateLabel(wt.state);
-
-      row.append(dot, label, path, bar, sizeEl, badge);
-      host.appendChild(row);
+    for (const group of groupWorktrees(wts, this.sizes)) {
+      host.appendChild(this.renderGroupHead(group));
+      for (const wt of group.worktrees) host.appendChild(this.renderRow(wt, maxKb));
     }
+  }
+
+  /// Group header: state label + count/total, and the one bulk verb on SPENT.
+  private renderGroupHead(group: WorktreeGroup): HTMLElement {
+    const head = document.createElement("div");
+    head.className = "wt-group-head";
+    const dot = document.createElement("span");
+    dot.className = `wt-dot ${worktreeStateClass(group.state)}`;
+    const label = document.createElement("span");
+    label.className = "wt-group-label";
+    label.textContent = worktreeStateLabel(group.state);
+    attachTooltip(label, STATE_HELP[group.state]);
+    const meta = document.createElement("span");
+    meta.className = "wt-group-meta";
+    const n = group.worktrees.length;
+    meta.textContent = `${n} ${n === 1 ? "worktree" : "worktrees"}`
+      + (group.totalKb !== null ? ` · ${humanSize(group.totalKb)}` : "");
+    head.append(dot, label, meta);
+
+    const paths = group.state === "spent" ? spentReclaimPaths(group.worktrees) : [];
+    if (paths.length) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "wt-group-reclaim";
+      btn.innerHTML = `${Icons.trash({ size: 12 })}<span>Reclaim all</span>`;
+      attachTooltip(btn, ACTION_HELP.reclaim!);
+      btn.addEventListener("click", () => this.reclaimAll(paths));
+      head.appendChild(btn);
+    }
+    return head;
+  }
+
+  /// Bulk reclaim every spent worktree. Freed KB is estimated from the cached
+  /// sizes map (du of a deleted path is gone by the time we could re-measure).
+  private reclaimAll(paths: string[]): void {
+    const freedKb = paths.reduce((sum, p) => sum + (this.sizes.get(p)?.total ?? 0), 0);
+    const freed = freedKb > 0 ? ` and free ~${humanSize(freedKb)}` : "";
+    pushConfirmToast({
+      message: `Remove ${paths.length} spent worktrees${freed}? Their branches are already merged or gone.`,
+      confirmLabel: "Reclaim all",
+      onConfirm: () => {
+        void worktreeReclaim(this.repoRoot, paths)
+          .then((outcomes) => {
+            const removed = outcomes.filter((o) => o.removed);
+            const refused = outcomes.filter((o) => !o.removed);
+            const freedDone = removed.reduce((sum, o) => sum + (this.sizes.get(o.path)?.total ?? 0), 0);
+            let msg = `Reclaimed ${removed.length}`;
+            if (freedDone > 0) msg += ` · freed ~${humanSize(freedDone)}`;
+            for (const o of refused) msg += ` · ${compactPath(o.path)} refused: ${o.reason ?? "unknown"}`;
+            pushInfoToast({ message: msg });
+            this.selected = null;
+            void this.refresh();
+          })
+          .catch((e) => pushInfoToast({ message: `Reclaim failed: ${String(e)}` }));
+      },
+    });
+  }
+
+  private renderRow(wt: GitWorktreeSummary, maxKb: number): HTMLElement {
+    const size = this.sizes.get(wt.path);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "wt-row" + (wt.path === this.selected ? " is-selected" : "");
+    row.addEventListener("click", () => { this.selected = wt.path; this.render(); });
+
+    const dot = document.createElement("span");
+    dot.className = `wt-dot ${worktreeStateClass(wt.state)}`;
+    attachTooltip(dot, STATE_HELP[wt.state]);
+    const label = document.createElement("span");
+    label.className = "wt-row-label";
+    label.textContent = worktreeLabel(wt);
+    const path = document.createElement("span");
+    path.className = "wt-row-path";
+    path.textContent = compactPath(wt.path);
+
+    const bar = document.createElement("span");
+    bar.className = "wt-bar";
+    const fill = document.createElement("span");
+    fill.className = "wt-bar-fill";
+    fill.style.width = size ? `${Math.round((size.total / maxKb) * 100)}%` : "0%";
+    bar.appendChild(fill);
+
+    const sizeEl = document.createElement("span");
+    sizeEl.className = "wt-row-size";
+    sizeEl.textContent = size ? humanSize(size.total) : "…";
+
+    const badge = document.createElement("span");
+    badge.className = "wt-row-badge";
+    badge.textContent = wt.current ? "HERE"
+      : wt.dirty_count > 0 ? `${wt.dirty_count} changed`
+      : worktreeStateLabel(wt.state);
+
+    row.append(dot, label, path, bar, sizeEl, badge);
+    return row;
   }
 
   private async loadSizes(): Promise<void> {
@@ -243,6 +301,8 @@ export class WorktreesSurface {
           : humanSize(size.total))
       : "…";
     facts.append(fact("Last commit", when), fact("Working tree", tree), fact("Disk", disk));
+    const branch = branchFact(wt, this.summary?.default_branch ?? "main");
+    if (branch) facts.append(fact("Branch", branch));
 
     const files = document.createElement("div");
     files.className = "wt-d-files";
