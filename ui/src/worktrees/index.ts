@@ -448,7 +448,13 @@ export class WorktreesSurface {
       p.textContent = f.path;
       const nums = document.createElement("span");
       nums.className = "wt-d-filenums";
-      nums.innerHTML = `<b>+${f.added}</b> <s>−${f.removed}</s>`;
+      const addN = document.createElement("span");
+      addN.className = "wt-d-filenum-add";
+      addN.textContent = `+${f.added}`;
+      const delN = document.createElement("span");
+      delN.className = "wt-d-filenum-del";
+      delN.textContent = `−${f.removed}`;
+      nums.append(addN, " ", delN);
       const bar = document.createElement("span");
       bar.className = "wt-d-filebar";
       const add = document.createElement("i");

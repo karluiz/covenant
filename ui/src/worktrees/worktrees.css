@@ -136,12 +136,13 @@ body.worktrees-fullscreen { overflow: hidden; }
 .wt-d-filest-d { color: var(--danger, #c0483f); }
 .wt-d-filepath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-d-filenums { color: var(--fg-dim, #888); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
-.wt-d-filenums b { color: var(--ok); font-weight: 500; }
-.wt-d-filenums s { color: var(--danger, #c0483f); text-decoration: none; }
+/* Lines-removed uses --fail, matching the Changes surface (.cd-sum-del). */
+.wt-d-filenum-add { color: var(--ok); }
+.wt-d-filenum-del { color: var(--fail, #c0483f); }
 .wt-d-filebar { display: flex; gap: 1px; height: 6px; width: 72px; }
 .wt-d-filebar i { display: block; height: 100%; }
 .wt-d-filebar-add { background: color-mix(in srgb, var(--ok) 70%, transparent); }
-.wt-d-filebar-del { background: color-mix(in srgb, var(--danger, #c0483f) 70%, transparent); }
+.wt-d-filebar-del { background: color-mix(in srgb, var(--fail, #c0483f) 70%, transparent); }
 
 /* P4 — disk split into checkout vs reclaimable target/. */
 .wt-d-diskbar { display: flex; height: 10px; border: 1px solid rgb(var(--ink-rgb) / 0.12); }
