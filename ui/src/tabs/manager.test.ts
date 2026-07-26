@@ -1,5 +1,11 @@
 import { describe, expect, it, beforeAll, vi } from "vitest";
-import { TabManager, applyInferredTitle, shouldRetire, type TabManifestV1 } from "./manager";
+import {
+  TabManager,
+  applyInferredTitle,
+  shouldRetire,
+  shouldRefocusAfterScrub,
+  type TabManifestV1,
+} from "./manager";
 
 // activate() reports the new active tab to the backend; jsdom has no Tauri
 // IPC bridge, so stub it out. Kept as a vi.fn() (via vi.hoisted, since
@@ -281,6 +287,42 @@ describe("TabManager disposeHibernated leaves the live strip intact", () => {
         (el) => el.dataset.tabId,
       ),
     ).toEqual(["live"]);
+  });
+});
+
+// The launch-scrub veils termHost with visibility:hidden while an agent
+// boots; focus() on an unrendered element is a browser no-op, so the veil
+// clear must refocus — but only when it won't steal focus from elsewhere.
+describe("shouldRefocusAfterScrub", () => {
+  const pane = () => {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    return el;
+  };
+
+  it("refocuses when the tab is active and focus is on body", () => {
+    expect(shouldRefocusAfterScrub("t1", "t1", document.body, pane())).toBe(true);
+  });
+
+  it("refocuses when nothing has focus", () => {
+    expect(shouldRefocusAfterScrub("t1", "t1", null, pane())).toBe(true);
+  });
+
+  it("refocuses when focus is already inside the tab's pane", () => {
+    const p = pane();
+    const input = document.createElement("input");
+    p.appendChild(input);
+    expect(shouldRefocusAfterScrub("t1", "t1", input, p)).toBe(true);
+  });
+
+  it("does not refocus a background tab", () => {
+    expect(shouldRefocusAfterScrub("t2", "t1", document.body, pane())).toBe(false);
+  });
+
+  it("does not steal focus from an input outside the pane", () => {
+    const outside = document.createElement("input");
+    document.body.appendChild(outside);
+    expect(shouldRefocusAfterScrub("t1", "t1", outside, pane())).toBe(false);
   });
 });
 
