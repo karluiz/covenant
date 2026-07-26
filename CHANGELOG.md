@@ -6,6 +6,44 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.74 — Worktree prompt compaction (zsh/bash/pwsh)
+
+### Added
+
+- **Worktree paths compact in the shell prompt**: inside
+  `.covenant/worktrees/<slug>`, the prompt now shows `repo ⌥slug` instead of
+  the full ~60-char path. zsh uses a `zsh_directory_name` hook (renders
+  `~[repo ⌥slug]` for any `%~` prompt, chains after user hooks via
+  `zsh_directory_name_functions`), bash flips `PROMPT_DIRTRIM=2` only while
+  inside a worktree with transition-only save/restore, and PowerShell
+  rewrites the rendered prompt string in the existing wrapper
+  (`shell-integration/osc133.zsh`, `osc133.bash`, `osc133.ps1`). Display-only:
+  `$PWD`, `cd`, completion, and OSC 7 keep the real path; fish already
+  truncates natively. Verified end-to-end by 8 new PTY/regression tests in
+  `crates/blocks/tests/prompt_compaction.rs`.
+
+- **Settings → Terminal toggle**: "Compact worktree paths in prompt" (on by
+  default) gates the feature via `terminal.compact_worktree_prompt` →
+  `COVENANT_COMPACT_WORKTREE=1` exported at PTY spawn; new tabs pick up a
+  flipped toggle (`crates/app/src/settings.rs`, `crates/app/src/lib.rs`,
+  `ui/src/settings/panel.ts`).
+
+### Changed
+
+- **Spec + plan committed**: design and implementation plan for the feature
+  under `docs/superpowers/specs/` and `docs/superpowers/plans/`.
+
+### Fixed
+
+- **bash PROMPT_COMMAND splice hardened**: the dirtrim hook joins with a
+  newline (immune to user PROMPT_COMMANDs ending in `;` or newline, which
+  the `; ` join turned into a session-killing `;;` syntax error) and appends
+  after `__karl_precmd` so OSC 133;D exit codes are never clobbered
+  (`shell-integration/osc133.bash`).
+
+- **cd-picker shadow removed**: the inline folder picker now sits flush with
+  a 1px border only — no floating box-shadow (`ui/src/styles.css`).
+
 ## v0.9.73 — Worktrees triage: state groups + Reclaim-all-spent
 
 ### Added
