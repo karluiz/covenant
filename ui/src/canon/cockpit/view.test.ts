@@ -27,11 +27,6 @@ vi.mock("../../api", () => ({
   operatorDelete: vi.fn().mockResolvedValue(undefined),
   operatorSetOrg: vi.fn().mockResolvedValue(undefined),
   operatorCreateFromSoul: vi.fn(async () => ({ id: "op-installed", name: "Zeta Installed" }) as unknown),
-  marketplacePublish: vi.fn().mockResolvedValue(undefined),
-  marketplaceSearch: vi.fn(async () => [] as unknown[]),
-  marketplaceInstallCount: vi.fn().mockResolvedValue(undefined),
-  marketplacePending: vi.fn(async () => [] as unknown[]),
-  marketplaceReview: vi.fn(async () => undefined),
 }));
 
 // The cockpit's "Create organization" button opens the immersive create
@@ -40,9 +35,9 @@ vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
 import {
   canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
-  operatorList, marketplaceSearch, marketplacePending, marketplaceReview, operatorCreateFromSoul, operatorSetOrg, canonPublish, canonUninstallSkill,
+  operatorList, canonPublish, canonUninstallSkill,
   canonNewUnit, canonImportSkill,
-  type Operator, type MarketplaceListing,
+  type Operator,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
 
@@ -53,10 +48,6 @@ const OPERATOR_FIXTURE: Operator = {
   github_access: "Off", acp_enabled: false, perception_enabled: false, org_slug: null,
 };
 
-const LISTING_FIXTURE: MarketplaceListing = {
-  id: "listing-1", name: "Zeta", emoji: "🟣", color: "#a855f7", tags: ["rust"],
-  tagline: "Rust reviewer", author_login: "someone", installs: 4, soul_md: "---\nname: Zeta\n---\nbody",
-};
 
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
@@ -162,60 +153,12 @@ describe("CanonCockpitView Registry section", () => {
     expect(v.element.textContent).toContain("kyc");
   });
 
-  it("registry toggle switches to operators and renders marketplace results", async () => {
-    vi.mocked(marketplaceSearch).mockResolvedValue([LISTING_FIXTURE]);
-    const v = new CanonCockpitView(opts);
-    v.open();
-    v.showSection("registry");
-    const toggle = [...v.element.querySelectorAll(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
-    (toggle as HTMLButtonElement).click();
-    await vi.waitFor(() => {
-      expect(v.element.textContent).toContain("Zeta");
-    });
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
-  });
-
-  it("shows the Review queue toggle only on the Operators tab and lists the pending queue", async () => {
-    vi.mocked(marketplacePending).mockResolvedValue([LISTING_FIXTURE]);
-    const v = new CanonCockpitView(opts);
-    v.open();
-    v.showSection("registry");
-    const review = v.element.querySelector(".canon-reg-review") as HTMLButtonElement;
-    expect(review.hidden).toBe(true); // Skills tab is the default
-    const toggle = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
-    toggle.click();
-    expect(review.hidden).toBe(false);
-    review.click();
-    await vi.waitFor(() => {
-      expect(review.textContent).toContain("Review queue (1)");
-      expect(v.element.textContent).toContain("Zeta");
-    });
-  });
-
-  it("approving a pending operator calls marketplace_review and drops the card", async () => {
-    vi.mocked(marketplacePending).mockResolvedValue([LISTING_FIXTURE]);
-    const v = new CanonCockpitView(opts);
-    v.open();
-    v.showSection("registry");
-    const opsTab = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
-    opsTab.click();
-    (v.element.querySelector(".canon-reg-review") as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(v.element.textContent).toContain("Zeta"));
-    const approve = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-search-result .canon-icon-btn")]
-      .find((b) => b.getAttribute("aria-label") === "Approve")!;
-    approve.click();
-    await vi.waitFor(() => {
-      expect(vi.mocked(marketplaceReview)).toHaveBeenCalledWith("listing-1", true);
-      expect(v.element.textContent).toContain("No operators pending review.");
-    });
-  });
-
-  it("renders all six registry kind tabs", async () => {
+  it("renders all five registry kind tabs", async () => {
     const v = new CanonCockpitView(opts);
     v.open();
     v.showSection("registry");
     const tabs = [...v.element.querySelectorAll(".canon-reg-kind")].map((b) => b.textContent);
-    expect(tabs).toEqual(["Skills", "Operators", "Subagents", "Commands", "Context", "MCP"]);
+    expect(tabs).toEqual(["Skills", "Subagents", "Commands", "Context", "MCP"]);
   });
 
   it("searches and installs a non-skill kind through canonInstallRegistryUnit", async () => {
@@ -244,25 +187,6 @@ describe("CanonCockpitView Registry section", () => {
       expect(canonInstallRegistryUnit).toHaveBeenCalledWith(
         expect.any(String), expect.any(String), "deploy", "abc123def456", "command",
       );
-    });
-  });
-
-  it("installs an operator into the active non-personal org", async () => {
-    vi.mocked(marketplaceSearch).mockResolvedValue([LISTING_FIXTURE]);
-    vi.mocked(operatorList).mockResolvedValue([]);
-    vi.mocked(operatorCreateFromSoul).mockResolvedValue({ id: "op-new", name: "Zeta" } as Operator);
-    const orgOpts = { ...opts, orgs: [{ id: 2, slug: "cleverit", name: "Cleverit", role: "owner", personal: false }], getActiveOrg: () => "cleverit" };
-    const v = new CanonCockpitView(orgOpts);
-    v.open();
-    v.showSection("registry");
-    const toggle = [...v.element.querySelectorAll(".canon-reg-kind")].find((b) => b.textContent === "Operators")!;
-    (toggle as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(v.element.textContent).toContain("Zeta"));
-    const install = v.element.querySelector(".canon-search-result [aria-label='Install']") as HTMLButtonElement;
-    install.click();
-    await vi.waitFor(() => {
-      expect(operatorCreateFromSoul).toHaveBeenCalled();
-      expect(operatorSetOrg).toHaveBeenCalledWith("op-new", "cleverit");
     });
   });
 });

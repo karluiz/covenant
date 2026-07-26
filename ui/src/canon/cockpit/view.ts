@@ -8,7 +8,7 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { CanonStatus, Org, Member, Operator, PkgMeta, MarketplaceListing, CanonPkgKind, CanonNewKind } from "../../api";
+import type { CanonStatus, Org, Member, Operator, PkgMeta, CanonPkgKind, CanonNewKind } from "../../api";
 import {
   canonOrgMembers,
   canonAddMember,
@@ -32,13 +32,6 @@ import {
   canonEvalSummary,
   operatorList,
   operatorDelete,
-  operatorSetOrg,
-  operatorCreateFromSoul,
-  marketplacePublish,
-  marketplaceSearch,
-  marketplaceInstallCount,
-  marketplacePending,
-  marketplaceReview,
 } from "../../api";
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
@@ -48,7 +41,6 @@ import { openOperatorModal, wireOperatorModal, renderOperatorList } from "../../
 import { operatorsForOrg, isStaleOrg } from "../../operator/org-filter";
 import { pullOrgOperators } from "../../operator/org-sync";
 import { pushInfoToast } from "../../notifications/toast";
-import { suffixSoulName } from "../../settings/marketplace_install";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { liftRow, groupVerdict } from "./lift";
@@ -859,11 +851,6 @@ export class CanonCockpitView {
               onSaved: () => this.showSection("operators"),
             });
           },
-          onPublish: (op) => {
-            void marketplacePublish(op.id)
-              .then(() => pushInfoToast({ message: `${op.name} submitted — pending review` }))
-              .catch((e) => pushInfoToast({ message: `Publish failed: ${this.friendlyError(e)}` }));
-          },
           onDelete: (op) => this.deleteOperator(op),
         }));
       })
@@ -1372,12 +1359,11 @@ export class CanonCockpitView {
     // Kind tabs — one registry surface, six catalogs. Each kind wears the
     // icon that carries its identity (see DESIGN.md § Registry / catalog tabs)
     // so the row is scannable by glyph before you read a word; active state is
-    // the shared accent underline. Operators ride the marketplace API; every
-    // other kind is a /cdlc/packages search.
-    type RegTab = { key: string; label: string; wire: CanonPkgKind | null; icon: string };
+    // the shared accent underline. Every kind is a /cdlc/packages search;
+    // operators are shared via the org roster sync, not a public registry.
+    type RegTab = { key: string; label: string; wire: CanonPkgKind; icon: string };
     const REG_TABS: RegTab[] = [
       { key: "skills", label: "Skills", wire: "skill", icon: Icons.sparkles({ size: 15 }) },
-      { key: "operators", label: "Operators", wire: null, icon: Icons.headphones({ size: 15 }) },
       { key: "agents", label: "Subagents", wire: "agent", icon: Icons.bot({ size: 15 }) },
       { key: "commands", label: "Commands", wire: "command", icon: Icons.terminalSquare({ size: 15 }) },
       { key: "context", label: "Context", wire: "context", icon: Icons.fileText({ size: 15 }) },
@@ -1415,10 +1401,7 @@ export class CanonCockpitView {
     for (const t of REG_TABS) {
       const ct = countEls.get(t.key);
       if (!ct) continue;
-      const load = t.wire === null
-        ? marketplaceSearch().then((rows) => rows.length)
-        : canonSearch(initialActive.slug, null, t.wire).then((rows) => rows.length);
-      void load.then((n) => { ct.textContent = String(n); ct.hidden = false; }).catch(() => {});
+      void canonSearch(initialActive.slug, null, t.wire).then((rows) => rows.length).then((n) => { ct.textContent = String(n); ct.hidden = false; }).catch(() => {});
     }
 
     const searchRow = document.createElement("div");
@@ -1430,79 +1413,6 @@ export class CanonCockpitView {
     go.type = "button";
     go.className = "canon-cockpit-search-go";
     go.textContent = "Search";
-
-    // Operators publish into a moderated marketplace queue; the curator
-    // approves right here — the button swaps the results list for the
-    // pending queue (server 403s everyone else, same as the admin page).
-    let queueMode = false;
-    const review = document.createElement("button");
-    review.type = "button";
-    review.className = "canon-cockpit-search-go canon-reg-review";
-    const reviewLabel = (n?: number): void => {
-      review.innerHTML = `${Icons.clipboard({ size: 13 })}<span>Review queue${n == null ? "" : ` (${n})`}</span>`;
-    };
-    reviewLabel();
-    attachTooltip(review, "Approve or reject operators pending marketplace review");
-
-    const runPendingQueue = (): void => {
-      results.replaceChildren(this.note("Loading queue…"));
-      void marketplacePending()
-        .then((rows: MarketplaceListing[]) => {
-          let n = rows.length;
-          reviewLabel(n);
-          results.replaceChildren();
-          if (n === 0) {
-            results.appendChild(this.note("No operators pending review."));
-            return;
-          }
-          for (const r of rows) {
-            const decide = (approve: boolean): void => {
-              ok.disabled = true;
-              no.disabled = true;
-              void marketplaceReview(r.id, approve)
-                .then(() => {
-                  card.remove();
-                  n -= 1;
-                  reviewLabel(n);
-                  if (n === 0) results.appendChild(this.note("No operators pending review."));
-                })
-                .catch((e) => {
-                  ok.disabled = false;
-                  no.disabled = false;
-                  errorEl.hidden = false;
-                  errorEl.textContent = this.friendlyError(e);
-                });
-            };
-            const ok = iconButton(Icons.check({ size: 15 }), "Approve", () => decide(true));
-            const no = iconButton(Icons.x({ size: 15 }), "Reject", () => decide(false));
-            const card = skillCard({
-              name: r.name,
-              meta: `@${r.author_login}`,
-              description: r.tagline,
-              className: "canon-search-result",
-              fetchPreview: () => Promise.resolve(r.soul_md),
-              actions: [ok, no],
-            });
-            results.appendChild(card);
-          }
-        })
-        .catch((e) => {
-          queueMode = false;
-          review.classList.remove("is-active");
-          reviewLabel();
-          results.replaceChildren();
-          errorEl.hidden = false;
-          errorEl.textContent = this.friendlyError(e);
-        });
-    };
-
-    review.addEventListener("click", () => {
-      queueMode = !queueMode;
-      review.classList.toggle("is-active", queueMode);
-      errorEl.hidden = true;
-      if (queueMode) runPendingQueue();
-      else { reviewLabel(); runSearch(); }
-    });
 
     const errorEl = document.createElement("p");
     errorEl.className = "canon-cockpit-error";
@@ -1562,57 +1472,8 @@ export class CanonCockpitView {
         });
     };
 
-    const runOperatorsSearch = (): void => {
-      results.replaceChildren(this.note("Searching…"));
-      void marketplaceSearch(input.value.trim() || undefined)
-        .then((rows: MarketplaceListing[]) => {
-          results.replaceChildren();
-          if (rows.length === 0) {
-            results.appendChild(this.note("No operators found."));
-            return;
-          }
-          for (const r of rows) {
-            const inst = iconButton(Icons.download({ size: 15 }), "Install", () => {
-              inst.disabled = true;
-              void (async () => {
-                const existing = new Set((await operatorList()).map((o) => o.name.toLowerCase()));
-                const raw = suffixSoulName(r.soul_md, existing);
-                const created = await operatorCreateFromSoul(raw);
-                const org = this.activeOrg();
-                if (org && !org.personal) await operatorSetOrg(created.id, org.slug);
-                marketplaceInstallCount(r.id).catch(() => {});
-                inst.innerHTML = Icons.check({ size: 15 });
-              })().catch((e) => {
-                inst.disabled = false;
-                errorEl.hidden = false;
-                errorEl.textContent = this.friendlyError(e);
-              });
-            });
-            results.appendChild(skillCard({
-              name: r.name,
-              meta: `@${r.author_login} · ${r.installs} ${r.installs === 1 ? "install" : "installs"}`,
-              description: r.tagline,
-              className: "canon-search-result",
-              fetchPreview: () => Promise.resolve(r.soul_md),
-              actions: [inst],
-            }));
-          }
-        })
-        .catch((e) => {
-          results.replaceChildren();
-          errorEl.hidden = false;
-          errorEl.textContent = this.friendlyError(e);
-        });
-    };
-
     const runSearch = (): void => {
       errorEl.hidden = true;
-      queueMode = false;
-      review.classList.remove("is-active");
-      if (tab.wire === null) {
-        runOperatorsSearch();
-        return;
-      }
       const active = this.activeOrg();
       if (!active) {
         errorEl.hidden = false;
@@ -1630,20 +1491,14 @@ export class CanonCockpitView {
         b.classList.toggle("is-active", isActive);
       }
       input.value = "";
-      input.placeholder = next.wire === null
-        ? "Search operators…"
-        : `Search ${initialActive.slug} ${next.wire === "mcp" ? "MCP" : next.label.toLowerCase()}…`;
-      review.hidden = next.wire !== null;
-      queueMode = false;
-      review.classList.remove("is-active");
-      reviewLabel();
+      input.placeholder = `Search ${initialActive.slug} ${next.wire === "mcp" ? "MCP" : next.label.toLowerCase()}…`;
     };
     applyKindUI(REG_TABS[0]);
 
     go.addEventListener("click", runSearch);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
 
-    searchRow.append(input, go, review);
+    searchRow.append(input, go);
     el.append(toggleRow, searchRow, errorEl, results);
     return el;
   }

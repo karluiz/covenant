@@ -1543,7 +1543,6 @@ export interface ListHandlers {
   onEdit(op: Operator): void;
   onDelete(op: Operator): void;
   onDuplicate(op: Operator): void;
-  onPublish?(op: Operator): void;
   /** True when the operator's org is one we no longer know about (deleted
    *  server-side). Renders an "unassigned" badge so the org-scoped cockpit
    *  roster surfaces stale operators instead of silently hiding them. */
@@ -1658,9 +1657,6 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
     };
     actions.append(mk("Edit", Icons.pencil(), () => h.onEdit(op)));
     actions.append(mk("Duplicate", Icons.copy(), () => h.onDuplicate(op)));
-    if (h.onPublish) {
-      actions.append(mk("Publish", Icons.upload(), () => h.onPublish!(op)));
-    }
     actions.append(mk("Delete", Icons.trash(), () => h.onDelete(op), true));
     card.append(actions);
     root.append(card);

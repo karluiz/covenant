@@ -513,42 +513,6 @@ export async function operatorUpdateFromSoul(id: string, raw: string): Promise<O
   return invoke<Operator>("operator_update_from_soul", { id, raw });
 }
 
-export interface MarketplaceListing {
-  id: string;
-  name: string;
-  emoji: string;
-  color: string;
-  tags: string[];
-  tagline: string;
-  author_login: string;
-  installs: number;
-  soul_md: string;
-}
-
-export async function marketplaceSearch(q?: string, tag?: string): Promise<MarketplaceListing[]> {
-  return invoke<MarketplaceListing[]>("marketplace_search", { q: q ?? null, tag: tag ?? null });
-}
-
-export async function marketplacePublish(id: string): Promise<void> {
-  return invoke<void>("marketplace_publish", { id });
-}
-
-export async function marketplaceInstallCount(id: string): Promise<void> {
-  return invoke<void>("marketplace_install_count", { id });
-}
-
-export async function marketplaceAdminUrl(): Promise<string> {
-  return invoke<string>("marketplace_admin_url");
-}
-
-/** Curator-only review queue (server 403s everyone else). */
-export async function marketplacePending(): Promise<MarketplaceListing[]> {
-  return invoke<MarketplaceListing[]>("marketplace_pending");
-}
-
-export async function marketplaceReview(id: string, approve: boolean): Promise<void> {
-  return invoke<void>("marketplace_review", { id, approve });
-}
 
 // ── Teammate (Phase 1) ───────────────────────────────────────────────
 

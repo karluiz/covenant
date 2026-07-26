@@ -43,7 +43,6 @@ mod fix_proposer;
 mod git_tools;
 mod history_import;
 mod lsp_commands;
-mod marketplace;
 mod memory;
 mod mission_pair;
 mod mission_persistence;
@@ -6083,12 +6082,6 @@ pub fn run() {
             resources::resources_set_active,
             resources::resources_sample_now,
             theme::set_window_theme,
-            marketplace::marketplace_search,
-            marketplace::marketplace_publish,
-            marketplace::marketplace_install_count,
-            marketplace::marketplace_admin_url,
-            marketplace::marketplace_pending,
-            marketplace::marketplace_review,
             lsp_commands::lsp_server_status,
             lsp_commands::lsp_download_server,
             lsp_commands::lsp_start,
