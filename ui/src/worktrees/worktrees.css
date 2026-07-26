@@ -118,3 +118,30 @@ body.worktrees-fullscreen { overflow: hidden; }
 
 /* Hairline separating the workflow verbs from the lone lifecycle verb. */
 .wt-act-sep { width: 1px; align-self: stretch; margin: 3px 3px; background: rgb(var(--ink-rgb) / 0.12); }
+
+/* State group headers — uppercase label + count/total, sticky so the section
+   you are scrolling through stays named. SPENT carries the one bulk verb. */
+.wt-group-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px 6px;
+  background: var(--bg-overlay);
+  border-bottom: 1px solid var(--border);
+}
+.wt-group-head .wt-dot { width: 7px; height: 7px; }
+.wt-group-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.wt-group-meta { font-size: 11px; color: var(--fg-dim, #888); font-variant-numeric: tabular-nums; }
+.wt-group-reclaim {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: auto;
+  padding: 3px 8px; font-size: 11px; line-height: 1; cursor: pointer;
+  background: transparent; color: var(--danger, #c0483f);
+  border: 1px solid rgb(var(--danger-rgb, 192 72 63) / 0.35); border-radius: 0;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.wt-group-reclaim svg { opacity: 0.7; }
+.wt-group-reclaim:hover {
+  background: rgb(var(--danger-rgb, 192 72 63) / 0.1);
+  border-color: rgb(var(--danger-rgb, 192 72 63) / 0.55);
+}
