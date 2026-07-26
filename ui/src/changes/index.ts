@@ -7,6 +7,7 @@ import { renderRail, splitPath, countsLabel, type RailHandlers } from "./rail";
 import { renderDiffBody } from "./diff-view";
 import { formatChord } from "../platform";
 import { renderMarkdown } from "../ui/markdown";
+import { Icons } from "../icons";
 
 const SUBJECT_SOFT_LIMIT = 50;
 
@@ -27,6 +28,10 @@ export class ChangesSurface {
   private summarizeBtn: HTMLButtonElement | null = null;
   private statusEl: HTMLElement | null = null;
   private branchEl: HTMLElement | null = null;
+  private repoEl: HTMLElement | null = null;
+  private repoTextEl: HTMLElement | null = null;
+  private wtMenu: HTMLElement | null = null;
+  private wtMenuOutside: ((e: PointerEvent) => void) | null = null;
   private headSumEl: HTMLElement | null = null;
   private pushTargetEl: HTMLElement | null = null;
   private selectedPath: string | null = null;
@@ -44,6 +49,7 @@ export class ChangesSurface {
     if (!this.open_) return;
     if (e.key === "Escape") {
       e.preventDefault();
+      if (this.wtMenu) { this.closeWorktreeMenu(); return; }
       // First Esc leaves the diff back to the overview; second closes.
       if (this.selectedPath !== null) {
         this.selectedPath = null;
@@ -89,6 +95,7 @@ export class ChangesSurface {
 
   close(): void {
     this.open_ = false;
+    this.closeWorktreeMenu();
     this.filter = "";
     this.selectedPath = null;
     this.onBack = null;
@@ -113,6 +120,128 @@ export class ChangesSurface {
     }
     this.renderBranchChip();
     this.renderPushTarget();
+    this.decorateRepoSelector();
+  }
+
+  /// Upgrade the plain repo label into a worktree selector when the repo has
+  /// sibling worktrees — same dropdown as the Files rail (structure/tree.ts).
+  private decorateRepoSelector(): void {
+    const repo = this.repoEl;
+    if (!repo || !this.summary || this.summary.worktrees.length < 2) return;
+    if (repo.classList.contains("structure-cwd-selector")) return;
+    repo.classList.add("structure-cwd-selector");
+    const chevron = document.createElement("span");
+    chevron.className = "structure-cwd-chevron";
+    chevron.innerHTML = Icons.chevronsUpDown({ size: 10 });
+    repo.appendChild(chevron);
+    repo.setAttribute("role", "button");
+    repo.setAttribute("tabindex", "0");
+    repo.addEventListener("click", () => this.toggleWorktreeMenu(repo));
+    repo.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        this.toggleWorktreeMenu(repo);
+      }
+    });
+  }
+
+  private toggleWorktreeMenu(anchor: HTMLElement): void {
+    if (this.wtMenu) { this.closeWorktreeMenu(); return; }
+    // Re-fetch on open so a worktree spawned after this surface mounted shows up.
+    void gitRepoSummary(this.repoRoot)
+      .then((fresh) => {
+        if (!this.open_ || !anchor.isConnected) return;
+        this.summary = fresh;
+        this.openWorktreeMenu(anchor, fresh);
+      })
+      .catch(() => {});
+  }
+
+  /// Rich rows (MAIN badge, branch hint) wearing the shared `.ui-select__*`
+  /// chrome — mirrors structure/tree.ts's picker, minus "Follow terminal"
+  /// (this surface has a fixed root, nothing to follow).
+  private openWorktreeMenu(anchor: HTMLElement, repo: GitRepoSummary): void {
+    this.closeWorktreeMenu();
+    const pop = document.createElement("div");
+    pop.className = "ui-select__popover structure-wt-popover";
+    pop.setAttribute("role", "listbox");
+    pop.setAttribute("aria-label", "Worktrees");
+    document.body.appendChild(pop);
+    this.wtMenu = pop;
+
+    const rows = [...repo.worktrees].sort((a, b) => Number(b.is_main) - Number(a.is_main));
+    for (const wt of rows) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "ui-select__option";
+      row.setAttribute("role", "option");
+      const selected = wt.path === this.repoRoot;
+      row.setAttribute("aria-selected", String(selected));
+      row.classList.toggle("is-selected", selected);
+      const check = document.createElement("span");
+      check.className = "ui-select__option-check";
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = selected ? "✓" : "";
+      const label = document.createElement("span");
+      label.className = "ui-select__option-label";
+      label.textContent = wt.path.split("/").pop() ?? wt.path;
+      row.append(check, label);
+      if (wt.is_main) {
+        const badge = document.createElement("span");
+        badge.className = "structure-wt-badge";
+        badge.textContent = "MAIN";
+        row.appendChild(badge);
+      }
+      if (wt.branch) {
+        const branch = document.createElement("span");
+        branch.className = "structure-wt-branch";
+        branch.textContent = wt.branch;
+        row.appendChild(branch);
+      }
+      row.addEventListener("click", () => {
+        this.closeWorktreeMenu();
+        void this.switchRoot(wt.path);
+      });
+      pop.appendChild(row);
+    }
+
+    // Header anchor — plenty of room below, no flip-up needed.
+    const rect = anchor.getBoundingClientRect();
+    pop.style.position = "fixed";
+    pop.style.top = `${rect.bottom + 6}px`;
+    pop.style.left = `${Math.min(rect.left, Math.max(8, window.innerWidth - 288))}px`;
+    pop.style.minWidth = "220px";
+
+    this.wtMenuOutside = (e: PointerEvent): void => {
+      const t = e.target as Node;
+      if (pop.contains(t) || anchor.contains(t)) return;
+      this.closeWorktreeMenu();
+    };
+    setTimeout(() => {
+      if (this.wtMenu) document.addEventListener("pointerdown", this.wtMenuOutside!);
+    }, 0);
+  }
+
+  private closeWorktreeMenu(): void {
+    if (this.wtMenuOutside) document.removeEventListener("pointerdown", this.wtMenuOutside);
+    this.wtMenuOutside = null;
+    this.wtMenu?.remove();
+    this.wtMenu = null;
+  }
+
+  /// Re-root the surface on another worktree: same shell, fresh data.
+  private async switchRoot(path: string): Promise<void> {
+    if (path === this.repoRoot) return;
+    this.repoRoot = path;
+    this.selectedPath = null;
+    this.summary = null;
+    this.renderBranchChip();
+    if (this.repoTextEl) this.repoTextEl.textContent = repoBasename(path);
+    await this.refresh();
+    this.renderOverview();
+    // Branch chip + overview eyebrow catch up once the new summary lands.
+    await this.loadSummary();
+    if (this.selectedPath === null) this.renderOverview();
   }
 
   private currentBranch(): string | null {
@@ -151,7 +280,11 @@ export class ChangesSurface {
     title.textContent = "Changes";
     const repo = document.createElement("span");
     repo.className = "cd-repo";
-    repo.textContent = repoBasename(this.repoRoot);
+    const repoText = document.createElement("span");
+    repoText.textContent = repoBasename(this.repoRoot);
+    repo.appendChild(repoText);
+    this.repoEl = repo;
+    this.repoTextEl = repoText;
     const branch = document.createElement("span");
     branch.className = "cd-branch";
     branch.hidden = true;
