@@ -6,6 +6,41 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.72 — Faster tab spawn/switch + agent spawn takes focus
+
+### Added
+
+- **Operators org roster sync**: editing an operator now pushes it to the
+  active Canon org (`push-on-edit`), and selecting an org pulls its roster
+  down (`pull-on-org-select`), so operator souls follow you across
+  machines. New sync client in `crates/app/src/operator_sync.rs` wired
+  through `ui/src/operator/org-sync.ts` and the Canon cockpit
+  (`ui/src/canon/cockpit/view.ts`).
+
+### Changed
+
+- **Faster tab spawn and switch**: the spawn path drops its serial IPC
+  round-trips (parallelized in `crates/app/src/lib.rs` /
+  `ui/src/tabs/manager.ts`), the PTY spawns at the target size instead of
+  resizing after (`crates/pty/src/lib.rs`), and the resize nudges no
+  longer fire SIGWINCH storms — `activate()` only calls `resize_session`
+  when `fit()` actually changed the geometry.
+
+- **Second switch pass**: tab switches skip the status-bar rebuild when
+  only the session changed (`ui/src/status/bar.ts`), skip layout work for
+  the hidden collapsed rail (`ui/src/tabs/collapsed-rail.ts`), activate on
+  press instead of release, and focus synchronously.
+
+### Fixed
+
+- **Spawned agents now take keyboard focus**: agent launches veil the
+  terminal (`scrubLaunch`, `visibility: hidden`) while the executor
+  boots, and `focus()` on an unrendered element is a browser no-op — so
+  the spawn path's `focusActive()` never stuck and you had to click
+  before typing. Every veil-clear site in `ui/src/tabs/manager.ts` now
+  refocuses, gated by `shouldRefocusAfterScrub` so a background tab or a
+  focused input elsewhere is never robbed.
+
 ## v0.9.71 — Notch overlay no longer kills hover on agent spawn
 
 ### Fixed
