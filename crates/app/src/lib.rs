@@ -682,6 +682,14 @@ async fn spawn_session(
             .unwrap_or_else(|_| "dark-daltonized".to_string());
         opts.env.push(("COVENANT_CLAUDE_THEME".to_string(), theme));
     }
+    // Worktree prompt compaction gate — the osc133 snippets collapse
+    // `.covenant/worktrees/<slug>` prompt paths only when this is set.
+    // Same lifetime semantics as the theme env: fixed per shell, new
+    // tabs pick up a toggled setting.
+    if state.settings.lock().await.terminal.compact_worktree_prompt {
+        opts.env
+            .push(("COVENANT_COMPACT_WORKTREE".to_string(), "1".to_string()));
+    }
     // Claude Code statusLine bridge env. The `claude` wrapper installs
     // Covenant's statusLine when COVENANT_TAB is set; the helper writes its
     // JSON keyed by this token and chains the user's original statusLine.

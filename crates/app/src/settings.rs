@@ -921,6 +921,11 @@ pub struct TerminalConfig {
     /// Code etc. flip it on.
     #[serde(default)]
     pub ligatures: bool,
+    /// Collapse `.covenant/worktrees/<slug>` paths in the shell prompt
+    /// to `repo ⌥slug` (zsh/bash/pwsh via the integration snippets).
+    /// Display-only; exported as COVENANT_COMPACT_WORKTREE at spawn.
+    #[serde(default = "default_true")]
+    pub compact_worktree_prompt: bool,
 }
 
 impl Default for TerminalConfig {
@@ -931,6 +936,7 @@ impl Default for TerminalConfig {
             letter_spacing: 0,
             line_height: default_line_height(),
             ligatures: false,
+            compact_worktree_prompt: true,
         }
     }
 }
@@ -1866,5 +1872,18 @@ mod tab_styles_config_tests {
         assert_eq!(back["shape"], "rounded");
         assert_eq!(back["bg_mode"], "gradient");
         assert_eq!(back["indicator"], "underline");
+    }
+}
+
+#[cfg(test)]
+mod terminal_compact_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_compact_worktree_prompt_defaults_true() {
+        // Field absent in stored JSON (all pre-feature configs) → true.
+        let t: TerminalConfig = serde_json::from_str("{}").expect("parse");
+        assert!(t.compact_worktree_prompt);
+        assert!(TerminalConfig::default().compact_worktree_prompt);
     }
 }

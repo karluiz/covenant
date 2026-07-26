@@ -102,6 +102,37 @@ precmd_functions=(__karl_precmd $precmd_functions __karl_inject_b)
 preexec_functions=(${preexec_functions:#__karl_preexec})
 preexec_functions+=(__karl_preexec)
 
+# ─── Worktree prompt compaction ───────────────────────────────────────
+#
+# Covenant spawns executors inside `<repo>/.covenant/worktrees/<slug>`,
+# which turns every `%~` prompt into a ~60-char path. zsh's dynamic
+# named directories collapse it: any prompt using `%~` renders
+# `~[repo ⌥slug]` instead. Display-only — $PWD, completion and `cd`
+# are untouched. Gated on COVENANT_COMPACT_WORKTREE (Settings →
+# Terminal). We append to zsh_directory_name_functions, so a user's own
+# zsh_directory_name / hooks keep working.
+__karl_worktree_dirname() {
+    emulate -L zsh
+    setopt extendedglob
+    [[ "$1" == d ]] || return 1  # only path→name; never invent names
+    [[ -n "${COVENANT_COMPACT_WORKTREE:-}" ]] || return 1
+    local mid="/.covenant/worktrees/"
+    if [[ "$2" == (#b)(*)${mid}([^/]##)(|/*) ]]; then
+        typeset -ga reply
+        reply=(
+            "${match[1]:t} ⌥${match[2]}"
+            $(( ${#match[1]} + ${#mid} + ${#match[2]} ))
+        )
+        return 0
+    fi
+    return 1
+}
+
+typeset -ga zsh_directory_name_functions
+if (( ! ${zsh_directory_name_functions[(I)__karl_worktree_dirname]} )); then
+    zsh_directory_name_functions+=(__karl_worktree_dirname)
+fi
+
 # ─── zsh-autosuggestions integration ──────────────────────────────────
 #
 # Inline ghost-text autocomplete (https://github.com/zsh-users/zsh-autosuggestions).

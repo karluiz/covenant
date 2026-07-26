@@ -53,6 +53,42 @@ case "$PROMPT_COMMAND" in
     *) PROMPT_COMMAND="__karl_precmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
 esac
 
+# ── Worktree prompt compaction ───────────────────────────────────────
+# Inside `<repo>/.covenant/worktrees/<slug>`, trim the `\w` prompt path
+# to its last 2 components (`.../worktrees/<slug>`) via bash-native
+# PROMPT_DIRTRIM; restore the user's prior value everywhere else.
+# Display-only. Gated on COVENANT_COMPACT_WORKTREE (Settings → Terminal).
+if [ -n "${COVENANT_COMPACT_WORKTREE:-}" ]; then
+    __karl_dirtrim() {
+        case "$PWD" in
+            */.covenant/worktrees/*)
+                # Save the caller's value once, on entry into a worktree.
+                if [ "${_karl_dirtrim_saved+x}" != x ]; then
+                    _karl_dirtrim_saved="${PROMPT_DIRTRIM-__karl_unset__}"
+                fi
+                PROMPT_DIRTRIM=2
+                ;;
+            *)
+                # Restore once, on exit from a worktree. Leave an
+                # interactively-set PROMPT_DIRTRIM alone otherwise —
+                # we only ever touched it during a worktree stay.
+                if [ "${_karl_dirtrim_saved+x}" = x ]; then
+                    if [ "$_karl_dirtrim_saved" = "__karl_unset__" ]; then
+                        unset PROMPT_DIRTRIM
+                    else
+                        PROMPT_DIRTRIM="$_karl_dirtrim_saved"
+                    fi
+                    unset _karl_dirtrim_saved
+                fi
+                ;;
+        esac
+    }
+    case "$PROMPT_COMMAND" in
+        *__karl_dirtrim*) ;;
+        *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}__karl_dirtrim" ;;
+    esac
+fi
+
 # ── Covenant theme sync ──────────────────────────────────────────────
 # Launch Claude Code matching Covenant's appearance. Covenant exports
 # COVENANT_CLAUDE_THEME (e.g. `dark-daltonized`) into this shell's env at

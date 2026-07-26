@@ -25,6 +25,16 @@ function global:__Covenant-EmitOsc7 {
     [Console]::Write("$ESC]7;file://$env:COMPUTERNAME/$cwd$ST")
 }
 
+# Worktree prompt compaction: collapse `<repo>/.covenant/worktrees/<slug>`
+# in the RENDERED prompt string to `repo ⌥slug`. Display-only; covers the
+# default prompt and any string-returning framework (oh-my-posh, starship).
+# Prompts that Write-Host directly bypass this — acceptable no-op. Gated
+# on COVENANT_COMPACT_WORKTREE (Settings → Terminal).
+function global:__Covenant-CompactPath([string]$s) {
+    if (-not $env:COVENANT_COMPACT_WORKTREE) { return $s }
+    return $s -replace '([^\\/\s]+)[\\/]\.covenant[\\/]worktrees[\\/]([^\\/>\s]+)', '$1 ⌥$2'
+}
+
 # Wrap the user's existing `prompt` function so we keep their PS1 chrome and
 # only sandwich our markers around it.
 $prevPrompt = (Get-Item function:prompt -ErrorAction SilentlyContinue)
@@ -38,21 +48,23 @@ function global:prompt {
     }
     [Console]::Write("$ESC]133;A$ST")
     __Covenant-EmitOsc7
-    $rendered = & $Global:_CovenantPrevPrompt
+    $rendered = __Covenant-CompactPath (& $Global:_CovenantPrevPrompt)
     "$rendered$ESC]133;B$ST"
 }
 
 # Hook command submission via PSReadLine to emit OSC 133;C with the command
 # text. AcceptLine is the canonical Enter handler.
 if (Get-Module -ListAvailable PSReadLine) {
-    Import-Module PSReadLine -ErrorAction SilentlyContinue
-    Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
-        param($key, $arg)
-        $line = $null; $cursor = $null
-        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-        $clean = ($line -replace "[\x00\x07\x1b]", '')
-        [Console]::Write("$ESC]133;C;$clean$ST")
-        $Global:_CovenantLastCmd = $clean
-        [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
-    }
+    try {
+        Import-Module PSReadLine -ErrorAction SilentlyContinue
+        Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
+            param($key, $arg)
+            $line = $null; $cursor = $null
+            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+            $clean = ($line -replace "[\x00\x07\x1b]", '')
+            [Console]::Write("$ESC]133;C;$clean$ST")
+            $Global:_CovenantLastCmd = $clean
+            [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+        }
+    } catch {}
 }
