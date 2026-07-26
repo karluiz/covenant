@@ -49,6 +49,7 @@
         "shadow": false,
         "resizable": false,
         "focus": false,
+        "focusable": false,
         "visible": false,
         "width": 360,
         "height": 440
