@@ -421,6 +421,17 @@ export function operatorSetOrg(id: string, orgSlug: string | null): Promise<void
   return invoke<void>("operator_set_org", { id, orgSlug });
 }
 
+export interface OperatorPullSummary {
+  pulled: number;
+  pushed: number;
+  unchanged: number;
+}
+
+/** Sync the org's operator roster from the server (LWW both directions). */
+export function operatorOrgPull(org: string): Promise<OperatorPullSummary> {
+  return invoke<OperatorPullSummary>("operator_org_pull", { org });
+}
+
 /// One row of the ACP /resume picker (from `session/list`).
 export interface AcpSessionListing {
   sessionId: string;

@@ -46,6 +46,7 @@ import { openCreateOrgExperience } from "../create-org/view";
 import { openConfirmTyped } from "../../workspaces/confirm-typed";
 import { openOperatorModal, wireOperatorModal, renderOperatorList } from "../../operator/creator";
 import { operatorsForOrg, isStaleOrg } from "../../operator/org-filter";
+import { pullOrgOperators } from "../../operator/org-sync";
 import { pushInfoToast } from "../../notifications/toast";
 import { suffixSoulName } from "../../settings/marketplace_install";
 import { Icons } from "../../icons";
@@ -815,6 +816,12 @@ export class CanonCockpitView {
     const list = document.createElement("div");
     list.appendChild(this.note("Loading…"));
     el.appendChild(list);
+
+    // Sync the roster from the server; if anything landed, re-render so the
+    // pulled operators appear without leaving the section.
+    void pullOrgOperators(this.activeOrg()?.slug).then((changed) => {
+      if (changed && this.current === "operators") this.showSection("operators");
+    });
 
     void operatorList()
       .then((all) => {

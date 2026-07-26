@@ -62,7 +62,7 @@ fn jwt() -> Result<String, String> {
         .ok_or_else(|| "not signed in to Covenant".to_string())
 }
 
-fn client() -> reqwest::Client {
+pub(crate) fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
@@ -71,7 +71,7 @@ fn client() -> reqwest::Client {
 
 /// Send an authed request via [`auth::send_authed`] (401 → refresh JWT +
 /// retry once), then surface HTTP errors as strings.
-async fn send_authed(
+pub(crate) async fn send_authed(
     build: impl Fn(&str) -> reqwest::RequestBuilder,
 ) -> Result<reqwest::Response, String> {
     let j = jwt()?;
@@ -207,7 +207,7 @@ pub async fn record_install(id: i64) -> Result<(), String> {
 
 /// Minimal percent-encoding for path/query segments (slug/name/version are
 /// already restricted to url-safe chars server-side, but encode defensively).
-fn urlencoding(s: &str) -> String {
+pub(crate) fn urlencoding(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {

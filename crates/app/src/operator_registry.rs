@@ -928,10 +928,12 @@ pub mod commands {
         storage: State<'_, Arc<Storage>>,
     ) -> Result<Operator, String> {
         let id: OperatorId = id.parse().map_err(map_err)?;
-        registry
+        let op = registry
             .update_from_soul(&storage, id, &raw)
             .await
-            .map_err(map_err)
+            .map_err(map_err)?;
+        crate::operator_sync::push_if_org(&registry, &op);
+        Ok(op)
     }
 
     #[tauri::command]
@@ -1015,7 +1017,9 @@ pub mod commands {
             perception_enabled: existing.perception_enabled,
             org_slug: existing.org_slug.clone(),
         };
-        registry.update(&storage, updated).await.map_err(map_err)
+        let op = registry.update(&storage, updated).await.map_err(map_err)?;
+        crate::operator_sync::push_if_org(&registry, &op);
+        Ok(op)
     }
 
     #[tauri::command]
@@ -1091,7 +1095,12 @@ pub mod commands {
         registry
             .set_org(&storage, id, org_slug)
             .await
-            .map_err(map_err)
+            .map_err(map_err)?;
+        // Promote-to-org is the publish gesture: push the soul to the roster.
+        if let Some(op) = registry.get(id) {
+            crate::operator_sync::push_if_org(&registry, &op);
+        }
+        Ok(())
     }
 
     #[tauri::command]

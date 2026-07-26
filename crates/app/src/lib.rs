@@ -54,6 +54,7 @@ mod opencode_vitals;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
+pub mod operator_sync;
 mod pane;
 mod pi_commands;
 mod project_notes;
@@ -5902,6 +5903,7 @@ pub fn run() {
             operator_registry::commands::operator_set_acp_enabled,
             operator_registry::commands::operator_set_perception_enabled,
             operator_registry::commands::operator_set_org,
+            operator_sync::commands::operator_org_pull,
             operator_registry::commands::operator_list_archetypes,
             operator_registry::commands::operator_soul_read,
             operator_registry::commands::operator_soul_parse,
