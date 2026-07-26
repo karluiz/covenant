@@ -975,6 +975,29 @@ mod tests {
     use super::*;
     use karl_session::ExecutorPhase;
 
+    /// The notch overlay must never be able to become the key window.
+    /// tao's `set_visible(true)` on macOS is `makeKeyAndOrderFront`, so a
+    /// focusable notch steals key from the main window every time it is
+    /// shown (executor spawn, blur/refocus, preview) — and a WKWebView in
+    /// a non-key window stops receiving hover updates, freezing every
+    /// `:hover` effect in the app. `focus: false` only affects creation;
+    /// `focusable: false` is what keeps `canBecomeKeyWindow` false.
+    #[test]
+    fn notch_window_is_not_focusable() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tauri.conf.json"
+        )))
+        .unwrap();
+        let notch = conf["app"]["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["label"] == "notch")
+            .expect("notch window in tauri.conf.json");
+        assert_eq!(notch["focusable"], serde_json::Value::Bool(false));
+    }
+
     #[tokio::test]
     async fn skill_load_recorded_once_per_redraw_storm_even_with_notch_off() {
         let (tx, _rx) = broadcast::channel(16);
