@@ -196,3 +196,44 @@ _karl_cmd_active=1; false; eval "$PROMPT_COMMAND" 2>&1
         "OSC 133;D must report exit code 1 from 'false', got: {stdout:?}"
     );
 }
+
+/// pwsh: dot-source the snippet and unit-test the pure string function.
+/// This file is `#![cfg(unix)]`, so the test only compiles on Unix hosts.
+/// It self-skips when pwsh is not installed (macOS CI has no pwsh; native
+/// Windows e2e belongs to the M8 Windows pipeline, not this test). Runs and
+/// asserts wherever pwsh is available (e.g., pwsh on Linux/macOS).
+#[test]
+fn pwsh_compact_path_collapses_worktree_segment() {
+    if std::process::Command::new("pwsh")
+        .arg("-Version")
+        .output()
+        .is_err()
+    {
+        let msg = "SKIPPED: pwsh not installed — __Covenant-CompactPath unverified on this host";
+        println!("{}", msg);
+        eprintln!("{}", msg);
+        return;
+    }
+    let script = format!(
+        r#"$env:COVENANT_COMPACT_WORKTREE = '1'
+. "{snippet}"
+$win = __Covenant-CompactPath 'PS C:\Users\k\Sources\groowcity\.covenant\worktrees\agent-claude-x> '
+if ($win -ne 'PS C:\Users\k\Sources\groowcity ⌥agent-claude-x> ') {{ Write-Output "WIN-FAIL: $win"; exit 1 }}
+$nix = __Covenant-CompactPath 'PS /Users/k/Sources/groowcity/.covenant/worktrees/agent-claude-x> '
+if ($nix -ne 'PS /Users/k/Sources/groowcity ⌥agent-claude-x> ') {{ Write-Output "NIX-FAIL: $nix"; exit 1 }}
+$plain = __Covenant-CompactPath 'PS C:\Users\k> '
+if ($plain -ne 'PS C:\Users\k> ') {{ Write-Output "PLAIN-FAIL: $plain"; exit 1 }}
+$env:COVENANT_COMPACT_WORKTREE = $null
+$gated = __Covenant-CompactPath 'PS /x/.covenant/worktrees/y> '
+if ($gated -ne 'PS /x/.covenant/worktrees/y> ') {{ Write-Output "GATE-FAIL: $gated"; exit 1 }}
+Write-Output OK
+"#,
+        snippet = snippet_path("osc133.ps1").display(),
+    );
+    let out = std::process::Command::new("pwsh")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .expect("run pwsh");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("OK"), "pwsh: {stdout:?}");
+}
