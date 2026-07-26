@@ -197,6 +197,89 @@ _karl_cmd_active=1; false; eval "$PROMPT_COMMAND" 2>&1
     );
 }
 
+/// Regression test (review finding 1): a pre-existing `PROMPT_COMMAND`
+/// that already ends in `;` (e.g. `history -a;`, common with
+/// `shopt -s histappend` setups) used to be joined with `"; __karl_dirtrim"`,
+/// producing `history -a;; __karl_dirtrim` — a bash syntax error that
+/// aborts parsing of the ENTIRE eval'd string, including `__karl_precmd`,
+/// silently killing OSC 133 markers for the rest of the session. The
+/// splice must join on a newline instead, which bash always treats as a
+/// valid command separator regardless of what precedes it.
+#[test]
+fn bash_prompt_command_trailing_semicolon_does_not_break_chain() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let wt = dir.path().join("groowcity/.covenant/worktrees/agent-claude-x");
+    std::fs::create_dir_all(&wt).expect("mk worktree");
+
+    let script = format!(
+        r#"export COVENANT_COMPACT_WORKTREE=1
+export PROMPT_COMMAND='history -a;'
+source {snippet}
+cd {wt}
+_karl_cmd_active=1; false; eval "$PROMPT_COMMAND"
+echo "DIRTRIM=${{PROMPT_DIRTRIM:-unset}}"
+"#,
+        snippet = snippet_path("osc133.bash").display(),
+        wt = wt.display(),
+    );
+    let out = std::process::Command::new("bash")
+        .args(["--norc", "-c", &script])
+        .output()
+        .expect("run bash");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("syntax error"),
+        "trailing `;` in the prior PROMPT_COMMAND must not produce a bash \
+         syntax error, stderr: {stderr:?}"
+    );
+    assert!(
+        stdout.contains("DIRTRIM=2"),
+        "__karl_dirtrim must still run (proves the chain didn't abort), got: {stdout:?}"
+    );
+    assert!(
+        stdout.contains("\u{1b}]133;D;1"),
+        "__karl_precmd must still run and emit OSC 133;D despite the \
+         trailing `;`, got: {stdout:?}"
+    );
+}
+
+/// Regression test (review finding 2): outside a worktree, the snippet
+/// used to unconditionally overwrite PROMPT_DIRTRIM with the value
+/// captured once at source time on EVERY prompt — clobbering anything
+/// the user set interactively mid-session. It must now only touch
+/// PROMPT_DIRTRIM on the worktree -> outside TRANSITION; a value set
+/// outside a worktree, with no worktree visit in between, is left alone.
+#[test]
+fn bash_dirtrim_outside_worktree_never_clobbered() {
+    // Must cd out of whatever directory the test runner started in —
+    // that could itself be inside a `.covenant/worktrees/` checkout
+    // (this repo IS one), which would spuriously match the worktree case.
+    let outside = tempfile::tempdir().expect("tempdir");
+    let script = format!(
+        r#"export COVENANT_COMPACT_WORKTREE=1
+source {snippet}
+cd {outside}
+export PROMPT_DIRTRIM=5
+eval "$PROMPT_COMMAND" >/dev/null 2>&1
+eval "$PROMPT_COMMAND" >/dev/null 2>&1
+echo "DIRTRIM=${{PROMPT_DIRTRIM:-unset}}"
+"#,
+        snippet = snippet_path("osc133.bash").display(),
+        outside = outside.path().display(),
+    );
+    let out = std::process::Command::new("bash")
+        .args(["--norc", "-c", &script])
+        .output()
+        .expect("run bash");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("DIRTRIM=5"),
+        "interactive PROMPT_DIRTRIM outside a worktree must survive repeated \
+         prompt redraws, got: {stdout:?}"
+    );
+}
+
 /// pwsh: dot-source the snippet and unit-test the pure string function.
 /// This file is `#![cfg(unix)]`, so the test only compiles on Unix hosts.
 /// It self-skips when pwsh is not installed (macOS CI has no pwsh; native

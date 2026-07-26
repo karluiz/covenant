@@ -48,7 +48,7 @@ fn terminal_compact_worktree_prompt_defaults_true() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p karl-app terminal_compact_worktree_prompt_defaults_true`
+Run: `cargo test -p covenant terminal_compact_worktree_prompt_defaults_true`
 Expected: FAIL — `no field compact_worktree_prompt` (compile error). If the package name differs, get it from `crates/app/Cargo.toml` `[package] name`.
 
 - [ ] **Step 3: Add the field**
@@ -67,7 +67,7 @@ In `TerminalConfig` (after `ligatures`):
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p karl-app terminal_compact_worktree_prompt_defaults_true`
+Run: `cargo test -p covenant terminal_compact_worktree_prompt_defaults_true`
 Expected: PASS
 
 - [ ] **Step 5: Export the env var at spawn**
@@ -89,7 +89,7 @@ In `crates/app/src/lib.rs`, `spawn_session`, immediately after the block that pu
 
 - [ ] **Step 6: Verify workspace compiles and tests pass**
 
-Run: `cargo test -p karl-app settings && cargo clippy -p karl-app --all-targets 2>&1 | tail -5`
+Run: `cargo test -p covenant settings && cargo clippy -p covenant --all-targets 2>&1 | tail -5`
 Expected: tests PASS, no new clippy warnings.
 
 - [ ] **Step 7: Commit**

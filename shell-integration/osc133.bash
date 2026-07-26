@@ -59,22 +59,33 @@ esac
 # PROMPT_DIRTRIM; restore the user's prior value everywhere else.
 # Display-only. Gated on COVENANT_COMPACT_WORKTREE (Settings → Terminal).
 if [ -n "${COVENANT_COMPACT_WORKTREE:-}" ]; then
-    _karl_prev_dirtrim="${PROMPT_DIRTRIM:-}"
     __karl_dirtrim() {
         case "$PWD" in
-            */.covenant/worktrees/*) PROMPT_DIRTRIM=2 ;;
+            */.covenant/worktrees/*)
+                # Save the caller's value once, on entry into a worktree.
+                if [ "${_karl_dirtrim_saved+x}" != x ]; then
+                    _karl_dirtrim_saved="${PROMPT_DIRTRIM-__karl_unset__}"
+                fi
+                PROMPT_DIRTRIM=2
+                ;;
             *)
-                if [ -n "$_karl_prev_dirtrim" ]; then
-                    PROMPT_DIRTRIM="$_karl_prev_dirtrim"
-                else
-                    unset PROMPT_DIRTRIM
+                # Restore once, on exit from a worktree. Leave an
+                # interactively-set PROMPT_DIRTRIM alone otherwise —
+                # we only ever touched it during a worktree stay.
+                if [ "${_karl_dirtrim_saved+x}" = x ]; then
+                    if [ "$_karl_dirtrim_saved" = "__karl_unset__" ]; then
+                        unset PROMPT_DIRTRIM
+                    else
+                        PROMPT_DIRTRIM="$_karl_dirtrim_saved"
+                    fi
+                    unset _karl_dirtrim_saved
                 fi
                 ;;
         esac
     }
     case "$PROMPT_COMMAND" in
         *__karl_dirtrim*) ;;
-        *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }__karl_dirtrim" ;;
+        *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}__karl_dirtrim" ;;
     esac
 fi
 
