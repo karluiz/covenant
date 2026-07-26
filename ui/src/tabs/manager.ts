@@ -837,6 +837,24 @@ export function applyInferredTitle(
   });
 }
 
+/// Whether the terminal should grab keyboard focus when a launch-scrub
+/// veil clears. The scrub hides termHost with visibility:hidden while the
+/// agent boots, and focus() on an unrendered element is a browser no-op —
+/// so the spawn path's focusActive() never sticks and the user had to
+/// click before typing. Refocus only when the tab is still active and the
+/// user hasn't moved focus into some other surface (palette, panel input).
+export function shouldRefocusAfterScrub(
+  activeId: string | null,
+  tabId: string,
+  activeElement: Element | null,
+  pane: HTMLElement,
+): boolean {
+  if (activeId !== tabId) return false;
+  if (activeElement && activeElement !== document.body && !pane.contains(activeElement))
+    return false;
+  return true;
+}
+
 export function shouldRetire(closingCwd: string | null, remainingCwds: string[]): boolean {
   if (!closingCwd) return false;
   const prefix = closingCwd.endsWith("/") ? closingCwd : `${closingCwd}/`;
@@ -3419,8 +3437,22 @@ export class TabManager {
       if (tab.scrubNextLaunch === true) {
         tab.scrubNextLaunch = false;
         if (tab.termHost) tab.termHost.style.visibility = "";
+        this.refocusAfterScrub(tab);
       }
     }, 4000);
+  }
+
+  /// Restore keyboard focus after a launch-scrub veil clears — see
+  /// shouldRefocusAfterScrub for why the spawn path's focusActive()
+  /// can't do it (focus on visibility:hidden is a no-op).
+  private refocusAfterScrub(tab: Tab): void {
+    if (!shouldRefocusAfterScrub(this.activeId, tab.id, document.activeElement, tab.pane))
+      return;
+    try {
+      tab.term?.focus();
+    } catch {
+      /* term may be disposed mid-call */
+    }
   }
 
   /// Focus a tab by the last-6-chars session short used in operator
@@ -3727,6 +3759,7 @@ export class TabManager {
       // shell anyway; the scrub degrades to today's behavior.
       setTimeout(() => {
         termHost.style.visibility = "";
+        if (tabRef.current) this.refocusAfterScrub(tabRef.current);
       }, 4000);
     }
     // Replay persisted scrollback into xterm BEFORE the live channel
@@ -3782,6 +3815,7 @@ export class TabManager {
                 if (tabRef.current) tabRef.current.scrubNextLaunch = false;
                 term.write("\x1b[H\x1b[2J\x1b[3J", () => {
                   termHost.style.visibility = "";
+                  if (tabRef.current) this.refocusAfterScrub(tabRef.current);
                 });
               }
               const next = detectExecutor(event.command);
