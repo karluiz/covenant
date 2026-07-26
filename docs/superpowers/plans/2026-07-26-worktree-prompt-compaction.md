@@ -380,7 +380,9 @@ if [ -n "${COVENANT_COMPACT_WORKTREE:-}" ]; then
     }
     case "$PROMPT_COMMAND" in
         *__karl_dirtrim*) ;;
-        *) PROMPT_COMMAND="__karl_dirtrim${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
+        # APPEND, never prepend: __karl_precmd must stay first so its
+        # `local exit=$?` sees the user command's status, not ours.
+        *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }__karl_dirtrim" ;;
     esac
 fi
 ```
