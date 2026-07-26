@@ -82,7 +82,7 @@ export class ChangesSurface {
 
   get isOpen(): boolean { return this.open_; }
 
-  async open(repoRoot: string, onBack?: () => void): Promise<void> {
+  async open(repoRoot: string, onBack?: () => void, focusFile?: string): Promise<void> {
     this.repoRoot = repoRoot;
     this.onBack = onBack ?? null;
     this.open_ = true;
@@ -91,6 +91,15 @@ export class ChangesSurface {
     this.mountShell();
     await this.refresh();
     void this.loadSummary();
+    // Opened aimed at one file (Worktrees per-file rows) — jump straight to its diff.
+    if (focusFile) {
+      const f = this.allFiles().find((v) => v.file.path === focusFile);
+      if (f) {
+        this.selectedPath = f.file.path;
+        this.markSelected();
+        void this.showDiff(f.file.path, f.staged);
+      }
+    }
   }
 
   close(): void {
