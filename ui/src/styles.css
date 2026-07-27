@@ -2176,6 +2176,7 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
 /* Scope chip — only rendered when the cwd is a linked worktree. Same
  * chassis as the mode chip; MAIN gets the accent treatment so searching
  * outside the worktree you're standing in is visibly non-default. */
+.global-search-scope[hidden] { display: none; } /* class display beats the [hidden] UA rule */
 .global-search-scope {
   display: inline-flex;
   align-items: center;
