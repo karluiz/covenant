@@ -286,6 +286,84 @@ pub struct SessionInput {
     pub operator_name: Option<String>,
     /// Operator avatar (emoji or short string). Optional.
     pub operator_avatar: Option<String>,
+    /// Live display phase from `NotchHub::phase_snapshot`. `None` when the
+    /// session isn't registered there.
+    pub notch_phase: Option<ExecutorPhase>,
+    /// Foreground agent name from NotchHub ("claude", …). `None` at a
+    /// plain shell prompt — the operator-less gate for this lane.
+    pub notch_agent: Option<String>,
+}
+
+/// Per-ACP-tab inputs (from `AcpRegistry` + NotchHub + tab hints).
+pub struct AcpSessionInput {
+    pub session_id: SessionId,
+    pub executor: String,
+    pub cwd: Option<String>,
+    pub tab_title: String,
+    pub tab_color: Option<String>,
+    pub notch_phase: Option<ExecutorPhase>,
+    pub operator_id: Option<String>,
+    pub operator_name: Option<String>,
+    pub operator_avatar: Option<String>,
+}
+
+/// Card for an operator-less PTY session. `None` unless NotchHub sees a
+/// foreground agent (plain shells stay out of Convergence).
+pub fn pty_agent_card(
+    session_id: &str,
+    tab_title: &str,
+    tab_color: Option<String>,
+    notch_agent: Option<String>,
+    notch_phase: Option<ExecutorPhase>,
+) -> Option<AgentCard> {
+    let agent = notch_agent?;
+    let phase = notch_phase.unwrap_or(ExecutorPhase::Idle);
+    Some(AgentCard {
+        session_id: session_id.into(),
+        tab_title: tab_title.into(),
+        tab_color,
+        lane: Lane::Pty,
+        executor: Some(agent),
+        status: phase_to_status(&phase),
+        phase_label: phase_label(&phase),
+        cwd: None,
+        vendor: Vendor::Unknown,
+        raw_command_label: None,
+        last_command: None,
+        last_output_line: None,
+        mission_name: None,
+        operator_id: None,
+        operator_name: None,
+        operator_avatar: None,
+        cost_usd: None,
+        budget_usd: None,
+    })
+}
+
+/// Card for an ACP chat tab. Always present — an open ACP tab IS an agent
+/// session even between turns (phase defaults to Idle).
+pub fn acp_agent_card(inp: AcpSessionInput) -> AgentCard {
+    let phase = inp.notch_phase.unwrap_or(ExecutorPhase::Idle);
+    AgentCard {
+        session_id: inp.session_id.to_string(),
+        tab_title: inp.tab_title,
+        tab_color: inp.tab_color,
+        lane: Lane::Acp,
+        executor: Some(inp.executor),
+        status: phase_to_status(&phase),
+        phase_label: phase_label(&phase),
+        cwd: inp.cwd,
+        vendor: Vendor::Unknown,
+        raw_command_label: None,
+        last_command: None,
+        last_output_line: None,
+        mission_name: None,
+        operator_id: inp.operator_id,
+        operator_name: inp.operator_name,
+        operator_avatar: inp.operator_avatar,
+        cost_usd: None,
+        budget_usd: None,
+    }
 }
 
 /// Operator-lane row produced by the first pass of
@@ -344,6 +422,7 @@ fn lock_recover<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 pub async fn build_convergence_snapshot(
     sessions: Vec<SessionInput>,
+    acp_sessions: Vec<AcpSessionInput>,
     operator: &OperatorWatcher,
     storage: &Storage,
     aom: &AomHandle,
@@ -363,8 +442,20 @@ pub async fn build_convergence_snapshot(
     let now = Instant::now();
 
     let mut built: Vec<BuiltRow> = Vec::with_capacity(sessions.len());
+    let mut agent_cards: Vec<AgentCard> = Vec::new();
     for s in sessions {
         let Some(op_id) = s.operator_id else {
+            // Operator-less PTY session: a card iff NotchHub sees a
+            // foreground agent (plain shells stay out).
+            if let Some(c) = pty_agent_card(
+                &s.session_id.to_string(),
+                &s.tab_title,
+                s.tab_color.clone(),
+                s.notch_agent.clone(),
+                s.notch_phase.clone(),
+            ) {
+                agent_cards.push(c);
+            }
             continue;
         };
         let op_name = s.operator_name.clone().unwrap_or_default();
@@ -417,9 +508,9 @@ pub async fn build_convergence_snapshot(
             tab_title: s.tab_title,
             tab_color: s.tab_color,
             lane: Lane::Pty,
-            executor: None,
+            executor: s.notch_agent,
             status,
-            phase_label: None,
+            phase_label: s.notch_phase.as_ref().and_then(phase_label),
             cwd: None,
             vendor,
             raw_command_label,
@@ -445,7 +536,8 @@ pub async fn build_convergence_snapshot(
         });
     }
 
-    assemble_snapshot(built, Vec::new())
+    agent_cards.extend(acp_sessions.into_iter().map(acp_agent_card));
+    assemble_snapshot(built, agent_cards)
 }
 
 fn shorten6(id: &str) -> String {
@@ -684,6 +776,26 @@ mod tests {
             executor_excerpt: None,
             question: None,
         }
+    }
+
+    #[test]
+    fn pty_agent_card_requires_foreground_agent() {
+        use karl_session::ExecutorPhase as P;
+        // plain shell: no foreground agent → no card
+        assert!(pty_agent_card("s1", "tab", None, None, Some(P::Idle)).is_none());
+        // claude running → card with mapped status + label
+        let c = pty_agent_card(
+            "s1",
+            "tab",
+            None,
+            Some("claude".into()),
+            Some(P::Writing { file: "a.rs".into() }),
+        )
+        .expect("card");
+        assert_eq!(c.status, TileStatus::Working);
+        assert_eq!(c.phase_label.as_deref(), Some("writing a.rs"));
+        assert_eq!(c.executor.as_deref(), Some("claude"));
+        assert!(matches!(c.lane, Lane::Pty));
     }
 
     #[test]

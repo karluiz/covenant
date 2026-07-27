@@ -1920,42 +1920,83 @@ async fn build_convergence_inputs(
     state: &State<'_, AppState>,
     registry: &std::sync::Arc<crate::operator_registry::OperatorRegistry>,
     tab_hints: Vec<convergence::TabHint>,
-) -> Vec<convergence::SessionInput> {
+) -> (
+    Vec<convergence::SessionInput>,
+    Vec<convergence::AcpSessionInput>,
+) {
     use std::collections::HashMap;
     let by_id: HashMap<String, convergence::TabHint> = tab_hints
         .into_iter()
         .map(|t| (t.session_id.clone(), t))
         .collect();
 
-    let sessions = state.sessions.lock().await;
-    let mut out = Vec::with_capacity(sessions.len());
-    for (id, ms) in sessions.iter() {
+    let pinned_operator = |id: karl_session::SessionId| {
+        match registry.pinned(id).and_then(|oid| registry.get(oid)) {
+            Some(op) => (
+                Some(op.id.to_string()),
+                Some(op.name.clone()),
+                Some(op.emoji.clone()),
+            ),
+            None => (None, None, None),
+        }
+    };
+
+    // Collect (id, op_state) under the lock, then drop it — `&ManagedSession`
+    // is not Sync, so it must not live across the notch awaits below.
+    let base: Vec<_> = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .iter()
+            .map(|(id, ms)| (*id, ms.op_state.clone()))
+            .collect()
+    };
+    let mut out = Vec::with_capacity(base.len());
+    for (id, op_state) in base {
         let id_str = id.to_string();
-        let pinned = registry.pinned(*id);
-        let (operator_id, operator_name, operator_avatar) =
-            match pinned.and_then(|oid| registry.get(oid)) {
-                Some(op) => (
-                    Some(op.id.to_string()),
-                    Some(op.name.clone()),
-                    Some(op.emoji.clone()),
-                ),
-                None => (None, None, None),
-            };
+        let (operator_id, operator_name, operator_avatar) = pinned_operator(id);
         let (tab_title, tab_color) = by_id
             .get(&id_str)
             .map(|h| (h.title.clone(), h.color.clone()))
             .unwrap_or_else(|| (String::from("untitled"), None));
+        let (notch_phase, notch_agent) = match state.notch_hub.phase_snapshot(id).await {
+            Some((p, a)) => (Some(p), a),
+            None => (None, None),
+        };
         out.push(convergence::SessionInput {
-            session_id: *id,
-            op_state: ms.op_state.clone(),
+            session_id: id,
+            op_state,
             tab_title,
             tab_color,
             operator_id,
             operator_name,
             operator_avatar,
+            notch_phase,
+            notch_agent,
         });
     }
-    out
+
+    let mut acp_out = Vec::new();
+    for (id, executor, cwd) in state.acp_sessions.list_meta().await {
+        let id_str = id.to_string();
+        let (tab_title, tab_color) = by_id
+            .get(&id_str)
+            .map(|h| (h.title.clone(), h.color.clone()))
+            .unwrap_or_else(|| (executor.clone(), None));
+        let notch_phase = state.notch_hub.phase_snapshot(id).await.map(|(p, _)| p);
+        let (operator_id, operator_name, operator_avatar) = pinned_operator(id);
+        acp_out.push(convergence::AcpSessionInput {
+            session_id: id,
+            executor,
+            cwd,
+            tab_title,
+            tab_color,
+            notch_phase,
+            operator_id,
+            operator_name,
+            operator_avatar,
+        });
+    }
+    (out, acp_out)
 }
 
 /// 3.8 Convergence Mode — one snapshot per UI poll (1 Hz). Read-only
@@ -1969,16 +2010,15 @@ async fn get_convergence_snapshot(
     registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
     tabs: Vec<convergence::TabHint>,
 ) -> Result<convergence::ConvergenceSnapshot, String> {
-    let inputs = build_convergence_inputs(&state, &registry, tabs).await;
-    Ok(
-        convergence::build_convergence_snapshot(
-            inputs,
-            &state.operator,
-            &state.storage,
-            &state.aom,
-        )
-        .await,
+    let (inputs, acp_inputs) = build_convergence_inputs(&state, &registry, tabs).await;
+    Ok(convergence::build_convergence_snapshot(
+        inputs,
+        acp_inputs,
+        &state.operator,
+        &state.storage,
+        &state.aom,
     )
+    .await)
 }
 
 /// 3.14 — light poll surface for the tab strip. Returns session ids
@@ -1993,9 +2033,10 @@ async fn get_blocked_session_ids(
     registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
     tabs: Vec<convergence::TabHint>,
 ) -> Result<Vec<String>, String> {
-    let inputs = build_convergence_inputs(&state, &registry, tabs).await;
+    let (inputs, acp_inputs) = build_convergence_inputs(&state, &registry, tabs).await;
     let snap = convergence::build_convergence_snapshot(
         inputs,
+        acp_inputs,
         &state.operator,
         &state.storage,
         &state.aom,

@@ -354,6 +354,21 @@ impl AcpRegistry {
         self.inner.lock().await.remove(id)
     }
 
+    /// (session_id, executor, cwd) per live ACP tab — Convergence card
+    /// inputs.
+    pub async fn list_meta(&self) -> Vec<(SessionId, String, Option<String>)> {
+        let g = self.inner.lock().await;
+        g.iter()
+            .map(|(id, tab)| {
+                (
+                    *id,
+                    tab.executor.clone(),
+                    Some(tab.cwd.to_string_lossy().into_owned()),
+                )
+            })
+            .collect()
+    }
+
     /// Clone every live tab's world-model state for the operator's
     /// terminal-context snapshot. Inner std locks are held per-tab for
     /// the clone only, never across an await.
