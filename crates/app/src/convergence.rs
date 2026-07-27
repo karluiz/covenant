@@ -105,31 +105,30 @@ pub fn mission_name_from_path(path: Option<&str>) -> Option<String> {
     Some(stem.chars().take(40).collect())
 }
 
+/// One Convergence card — an agent session from any lane. The operator,
+/// when present, is a badge on the card, not its grouping key.
 #[derive(Debug, Clone, Serialize)]
-pub struct SessionSummary {
+pub struct AgentCard {
     pub session_id: String,
     pub tab_title: String,
     pub tab_color: Option<String>,
+    pub lane: Lane,
+    /// NotchHub foreground agent / ACP executor ("claude", "codex", …).
+    pub executor: Option<String>,
     pub status: TileStatus,
+    pub phase_label: Option<String>,
+    pub cwd: Option<String>,
     pub vendor: Vendor,
     pub raw_command_label: Option<String>,
     pub last_command: Option<String>,
     pub last_output_line: Option<String>,
-    pub last_decision_action: Option<String>,
-    pub last_decision_rationale: Option<String>,
     pub mission_name: Option<String>,
+    /// Operator badge — all None when no operator is enabled on the tab.
+    pub operator_id: Option<String>,
+    pub operator_name: Option<String>,
+    pub operator_avatar: Option<String>,
     pub cost_usd: Option<f64>,
     pub budget_usd: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct OperatorRosterEntry {
-    pub operator_id: String,
-    pub operator_name: String,
-    pub operator_avatar: Option<String>,
-    pub sessions: Vec<SessionSummary>,
-    /// Convenience: any session in the entry has TileStatus::Blocked.
-    pub has_escalation: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -157,7 +156,7 @@ pub struct EscalationCard {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ConvergenceSnapshot {
-    pub roster: Vec<OperatorRosterEntry>,
+    pub agents: Vec<AgentCard>,
     pub escalations: Vec<EscalationCard>,
 }
 
@@ -289,67 +288,48 @@ pub struct SessionInput {
     pub operator_avatar: Option<String>,
 }
 
-/// Flat row produced by the first pass of `build_convergence_snapshot`.
-/// Exposed so `assemble_snapshot` can be unit-tested without async I/O.
+/// Operator-lane row produced by the first pass of
+/// `build_convergence_snapshot`. Exposed so `assemble_snapshot` can be
+/// unit-tested without async I/O.
 pub struct BuiltRow {
-    pub operator_id: String,
-    pub operator_name: String,
-    pub operator_avatar: Option<String>,
-    pub summary: SessionSummary,
+    pub card: AgentCard,
     pub escalated_at_unix_ms: u64,
     /// Snapshot of the executor's tail at build time. Only meaningful
-    /// when `summary.status == Blocked`; copied into the EscalationCard.
+    /// when `card.status == Blocked`; copied into the EscalationCard.
     pub executor_excerpt: Option<String>,
+    /// Operator's open question (decision escalation/rationale) — feeds
+    /// EscalationCard.question; not carried on the card itself.
+    pub question: Option<String>,
 }
 
-/// Pure second + third pass: groups rows by operator, builds escalation
-/// list, and sorts both. Extracted so tests can drive it without async.
-pub fn assemble_snapshot(built: Vec<BuiltRow>) -> ConvergenceSnapshot {
-    let mut escalations: Vec<EscalationCard> = built
+/// Pure second pass: escalations from blocked operator rows (P1: agent
+/// lanes never escalate), then one flat card list. Sorting is the
+/// frontend's job — only escalations get their oldest-first order here.
+pub fn assemble_snapshot(op_rows: Vec<BuiltRow>, agent_cards: Vec<AgentCard>) -> ConvergenceSnapshot {
+    let mut escalations: Vec<EscalationCard> = op_rows
         .iter()
-        .filter(|b| matches!(b.summary.status, TileStatus::Blocked))
+        .filter(|b| matches!(b.card.status, TileStatus::Blocked))
         .map(|b| EscalationCard {
-            session_id: b.summary.session_id.clone(),
-            tab_title: b.summary.tab_title.clone(),
-            tab_color: b.summary.tab_color.clone(),
-            operator_id: b.operator_id.clone(),
-            operator_name: b.operator_name.clone(),
-            operator_avatar: b.operator_avatar.clone(),
-            vendor: b.summary.vendor,
-            raw_command_label: b.summary.raw_command_label.clone(),
-            question: b.summary.last_decision_rationale.clone(),
+            session_id: b.card.session_id.clone(),
+            tab_title: b.card.tab_title.clone(),
+            tab_color: b.card.tab_color.clone(),
+            operator_id: b.card.operator_id.clone().unwrap_or_default(),
+            operator_name: b.card.operator_name.clone().unwrap_or_default(),
+            operator_avatar: b.card.operator_avatar.clone(),
+            vendor: b.card.vendor,
+            raw_command_label: b.card.raw_command_label.clone(),
+            question: b.question.clone(),
             executor_excerpt: b.executor_excerpt.clone(),
-            mission_name: b.summary.mission_name.clone(),
+            mission_name: b.card.mission_name.clone(),
             escalated_at_unix_ms: b.escalated_at_unix_ms,
         })
         .collect();
     escalations.sort_by_key(|e| e.escalated_at_unix_ms);
 
-    let mut roster: Vec<OperatorRosterEntry> = Vec::new();
-    for b in built {
-        if let Some(entry) = roster.iter_mut().find(|e| e.operator_id == b.operator_id) {
-            if matches!(b.summary.status, TileStatus::Blocked) {
-                entry.has_escalation = true;
-            }
-            entry.sessions.push(b.summary);
-        } else {
-            let has_escalation = matches!(b.summary.status, TileStatus::Blocked);
-            roster.push(OperatorRosterEntry {
-                operator_id: b.operator_id,
-                operator_name: b.operator_name,
-                operator_avatar: b.operator_avatar,
-                sessions: vec![b.summary],
-                has_escalation,
-            });
-        }
-    }
-    roster.sort_by(|a, b| match (a.has_escalation, b.has_escalation) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.operator_name.cmp(&b.operator_name),
-    });
+    let mut agents: Vec<AgentCard> = op_rows.into_iter().map(|b| b.card).collect();
+    agents.extend(agent_cards);
     ConvergenceSnapshot {
-        roster,
+        agents,
         escalations,
     }
 }
@@ -432,18 +412,23 @@ pub async fn build_convergence_snapshot(
             None
         };
 
-        let summary = SessionSummary {
+        let card = AgentCard {
             session_id: id_str,
             tab_title: s.tab_title,
             tab_color: s.tab_color,
+            lane: Lane::Pty,
+            executor: None,
             status,
+            phase_label: None,
+            cwd: None,
             vendor,
             raw_command_label,
             last_command: last.and_then(|d| d.in_flight_command.clone()),
             last_output_line: last_non_empty_line(&tail_bytes, 160),
-            last_decision_action: last.map(|d| d.action.clone()),
-            last_decision_rationale: last.and_then(decision_question),
             mission_name: mission_name_from_path(last.and_then(|d| d.mission_path.as_deref())),
+            operator_id: Some(op_id),
+            operator_name: Some(op_name),
+            operator_avatar: op_avatar,
             cost_usd,
             budget_usd: if enrolled { Some(aom_budget) } else { None },
         };
@@ -453,16 +438,14 @@ pub async fn build_convergence_snapshot(
             .flatten();
 
         built.push(BuiltRow {
-            operator_id: op_id,
-            operator_name: op_name,
-            operator_avatar: op_avatar,
             escalated_at_unix_ms: last.map(|d| d.timestamp_unix_ms).unwrap_or(0),
-            summary,
             executor_excerpt,
+            question: last.and_then(decision_question),
+            card,
         });
     }
 
-    assemble_snapshot(built)
+    assemble_snapshot(built, Vec::new())
 }
 
 fn shorten6(id: &str) -> String {
@@ -671,89 +654,69 @@ mod tests {
         assert!(got.chars().all(|c| c == 'a'));
     }
 
-    fn summary(session: &str, status: TileStatus) -> SessionSummary {
-        SessionSummary {
-            session_id: session.into(),
-            tab_title: format!("tab-{session}"),
+    fn card(sid: &str, status: TileStatus, op: Option<&str>) -> AgentCard {
+        AgentCard {
+            session_id: sid.into(),
+            tab_title: format!("tab-{sid}"),
             tab_color: None,
+            lane: Lane::Pty,
+            executor: Some("claude".into()),
             status,
-            vendor: Vendor::Unknown,
+            phase_label: None,
+            cwd: None,
+            vendor: Vendor::Claude,
             raw_command_label: None,
             last_command: None,
             last_output_line: None,
-            last_decision_action: None,
-            last_decision_rationale: matches!(status, TileStatus::Blocked).then(|| "q?".into()),
             mission_name: None,
+            operator_id: op.map(Into::into),
+            operator_name: op.map(|o| format!("op-{o}")),
+            operator_avatar: None,
             cost_usd: None,
             budget_usd: None,
         }
     }
 
-    fn row(op: &str, op_name: &str, session: &str, status: TileStatus, esc_ms: u64) -> BuiltRow {
+    fn op_row(sid: &str, status: TileStatus, op: &str, esc_ms: u64) -> BuiltRow {
         BuiltRow {
-            operator_id: op.into(),
-            operator_name: op_name.into(),
-            operator_avatar: None,
-            summary: summary(session, status),
+            card: card(sid, status, Some(op)),
             escalated_at_unix_ms: esc_ms,
             executor_excerpt: None,
+            question: None,
         }
     }
 
     #[test]
-    fn roster_groups_same_operator_across_sessions() {
-        let snap = assemble_snapshot(vec![
-            row("op-frontend", "frontend", "s1", TileStatus::Working, 0),
-            row("op-backend", "backend", "s2", TileStatus::Idle, 0),
-            row("op-frontend", "frontend", "s3", TileStatus::Idle, 0),
-        ]);
-        assert_eq!(snap.roster.len(), 2);
-        let frontend = snap
-            .roster
-            .iter()
-            .find(|r| r.operator_id == "op-frontend")
-            .unwrap();
-        assert_eq!(frontend.sessions.len(), 2);
-        assert!(snap.roster.iter().any(|r| r.operator_id == "op-backend"));
+    fn assemble_concats_operator_rows_then_agent_cards() {
+        let snap = assemble_snapshot(
+            vec![op_row("a", TileStatus::Working, "o1", 0)],
+            vec![card("b", TileStatus::Idle, None)],
+        );
+        assert_eq!(snap.agents.len(), 2);
+        assert_eq!(snap.agents[0].session_id, "a");
+        assert_eq!(snap.agents[1].session_id, "b");
+        assert!(snap.escalations.is_empty());
     }
 
     #[test]
-    fn roster_sorts_escalating_operators_first() {
-        let snap = assemble_snapshot(vec![
-            row("op-a", "alpha", "s1", TileStatus::Working, 0),
-            row("op-b", "bravo", "s2", TileStatus::Blocked, 100),
-            row("op-c", "charlie", "s3", TileStatus::Idle, 0),
-        ]);
-        assert_eq!(snap.roster[0].operator_id, "op-b");
-        assert!(snap.roster[0].has_escalation);
-        assert_eq!(snap.roster[1].operator_name, "alpha");
-        assert_eq!(snap.roster[2].operator_name, "charlie");
-    }
-
-    #[test]
-    fn escalations_are_oldest_first() {
-        let snap = assemble_snapshot(vec![
-            row("op-a", "alpha", "s-new", TileStatus::Blocked, 500),
-            row("op-b", "bravo", "s-old", TileStatus::Blocked, 100),
-            row("op-c", "char", "s-mid", TileStatus::Blocked, 300),
-        ]);
-        let order: Vec<_> = snap
-            .escalations
-            .iter()
-            .map(|e| e.session_id.as_str())
-            .collect();
-        assert_eq!(order, vec!["s-old", "s-mid", "s-new"]);
-    }
-
-    #[test]
-    fn escalations_only_include_blocked_status() {
-        let snap = assemble_snapshot(vec![
-            row("op-a", "alpha", "s1", TileStatus::Working, 0),
-            row("op-b", "bravo", "s2", TileStatus::Blocked, 100),
-            row("op-c", "char", "s3", TileStatus::AwaitingInput, 200),
-        ]);
-        assert_eq!(snap.escalations.len(), 1);
-        assert_eq!(snap.escalations[0].session_id, "s2");
+    fn assemble_builds_escalations_from_blocked_operator_rows_only() {
+        let blocked_op = BuiltRow {
+            card: card("a", TileStatus::Blocked, Some("o1")),
+            escalated_at_unix_ms: 200,
+            executor_excerpt: Some("tail".into()),
+            question: Some("q?".into()),
+        };
+        let older = op_row("b", TileStatus::Blocked, "o2", 100);
+        // Agent-lane blocked (Waiting) produces NO escalation in P1.
+        let snap = assemble_snapshot(
+            vec![blocked_op, older],
+            vec![card("c", TileStatus::Blocked, None)],
+        );
+        assert_eq!(snap.escalations.len(), 2);
+        assert_eq!(snap.escalations[0].session_id, "b"); // oldest first
+        assert_eq!(snap.escalations[1].executor_excerpt.as_deref(), Some("tail"));
+        assert_eq!(snap.escalations[1].question.as_deref(), Some("q?"));
+        assert_eq!(snap.agents.len(), 3);
     }
 
     #[test]
