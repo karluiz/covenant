@@ -26,7 +26,7 @@ use super::session::{
 /// never sees or controls this string directly.
 const HEADLESS_PROMPT_NOTE: &str = "\n\n(Headless session note: shell commands that modify files or state are auto-denied by policy. Use your native file creation/editing tools for any file changes; shell is available for read-only commands only.)";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AcpRunOpts {
     pub cwd: PathBuf,
     pub prompt: String,
@@ -36,6 +36,11 @@ pub struct AcpRunOpts {
     /// Extra args for the child. Only tests use this (to run `sh -c`);
     /// production callers leave it empty.
     pub extra_args_for_tests: Vec<String>,
+    /// ACP `session/new` `mcpServers` entries (plain JSON — this crate
+    /// stays tauri-free). The app crate computes these from its
+    /// `mcp_server::acp_entry(&app)` and threads the result through here;
+    /// empty means no MCP tools for this headless run.
+    pub mcp_servers: Vec<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -178,7 +183,7 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
     let new_sess = session
         .request(
             "session/new",
-            serde_json::json!({ "cwd": opts.cwd.to_string_lossy(), "mcpServers": [] }),
+            serde_json::json!({ "cwd": opts.cwd.to_string_lossy(), "mcpServers": opts.mcp_servers }),
         )
         .await?;
     let session_id = new_sess
@@ -343,6 +348,7 @@ printf '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}\n'
             timeout: Duration::from_secs(10),
             program: Some(PathBuf::from("sh")),
             extra_args_for_tests: vec!["-c".into(), script.into()],
+            mcp_servers: Vec::new(),
         })
         .await
         .expect("run ok");
@@ -397,6 +403,7 @@ printf '%s\n%s\n%s\n%s\n' \
             timeout: Duration::from_secs(10),
             program: Some(PathBuf::from("sh")),
             extra_args_for_tests: vec!["-c".into(), script],
+            mcp_servers: Vec::new(),
         })
         .await
         .expect("run ok");
@@ -429,6 +436,7 @@ sleep 30
             timeout: Duration::from_millis(1500),
             program: Some(PathBuf::from("sh")),
             extra_args_for_tests: vec!["-c".into(), script.into()],
+            mcp_servers: Vec::new(),
         })
         .await
         .expect("timeout is not an Err");
@@ -451,6 +459,7 @@ sleep 30
             timeout: Duration::from_secs(10),
             program: Some(PathBuf::from("sh")),
             extra_args_for_tests: vec!["-c".into(), script.into()],
+            mcp_servers: Vec::new(),
         })
         .await
         .expect_err("an old copilot binary must not silently succeed");
@@ -479,6 +488,7 @@ sleep 30
             timeout: Duration::from_secs(120),
             program: None,
             extra_args_for_tests: vec![],
+            mcp_servers: Vec::new(),
         })
         .await
         .expect("run ok");

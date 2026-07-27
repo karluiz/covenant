@@ -872,6 +872,15 @@ pub async fn spawn_acp_session(
         }
     }
 
+    // Covenant identity for the MCP tools' id-discovery args (task_complete,
+    // notes_read, …) — the tool descriptions in mcp_server.rs point at
+    // these. session_id is always known at spawn time; task_id/group_id are
+    // not (they're attached to a session after spawn, via
+    // teammate_attach_session_to_task — see task-5-report.md follow-up).
+    spawn_opts
+        .env
+        .push(("COVENANT_SESSION_ID".to_string(), session_id.to_string()));
+
     // User escape hatches last: env can override trust-derived entries
     // (later duplicates win — Command::env replaces), args append after
     // the adapter's own.
@@ -956,10 +965,13 @@ pub async fn spawn_acp_session(
         .filter(|s| !s.is_empty())
     {
         if can_load {
+            let servers = crate::mcp_server::acp_entry(&app)
+                .into_iter()
+                .collect::<Vec<_>>();
             match session
                 .request(
                     "session/load",
-                    json!({ "sessionId": prev, "cwd": cwd.to_string_lossy(), "mcpServers": [] }),
+                    json!({ "sessionId": prev, "cwd": cwd.to_string_lossy(), "mcpServers": servers }),
                 )
                 .await
             {
@@ -982,10 +994,13 @@ pub async fn spawn_acp_session(
             sess_val.unwrap_or(Value::Null),
         )
     } else {
+        let servers = crate::mcp_server::acp_entry(&app)
+            .into_iter()
+            .collect::<Vec<_>>();
         let new_sess = match session
             .request(
                 "session/new",
-                json!({ "cwd": cwd.to_string_lossy(), "mcpServers": [] }),
+                json!({ "cwd": cwd.to_string_lossy(), "mcpServers": servers }),
             )
             .await
         {
@@ -1664,6 +1679,7 @@ pub async fn acp_list_sessions(
 /// subsequent prompts/cancels/model-switches target the loaded session.
 #[tauri::command]
 pub async fn acp_load_session(
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     acp_session_id: String,
@@ -1672,6 +1688,9 @@ pub async fn acp_load_session(
     if tab.in_flight.load(Ordering::Acquire) {
         return Err("acp: prompt in flight — wait for the turn to finish".into());
     }
+    let servers = crate::mcp_server::acp_entry(&app)
+        .into_iter()
+        .collect::<Vec<_>>();
     let res = tab
         .session
         .request(
@@ -1679,7 +1698,7 @@ pub async fn acp_load_session(
             json!({
                 "sessionId": acp_session_id,
                 "cwd": tab.cwd.to_string_lossy(),
-                "mcpServers": [],
+                "mcpServers": servers,
             }),
         )
         .await

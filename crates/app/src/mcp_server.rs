@@ -23,9 +23,6 @@ use crate::teammate::{TaskId, TaskStatus};
 
 /// Port + token of the running server, managed as tauri state so spawn
 /// paths (ACP injection) and `mcp-config` printing can read them.
-// Unread within this task — consumers land with ACP injection / mcp-config
-// printing in a later task.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct McpRuntime {
     pub port: u16,
@@ -87,6 +84,27 @@ pub fn remove_discovery_file(app: &tauri::AppHandle) {
     if let Ok(p) = discovery_path(app) {
         remove_discovery_at(&p);
     }
+}
+
+/// Pure shape of the ACP `session/new`/`session/load` `mcpServers` entry
+/// (ACP http variant). Split out from [`acp_entry`] so the shape is
+/// testable without a running `McpRuntime`.
+fn acp_entry_json(port: u16, token: &str) -> serde_json::Value {
+    serde_json::json!({
+        "name": "covenant",
+        "type": "http",
+        "url": format!("http://127.0.0.1:{port}/mcp"),
+        "headers": [{ "name": "Authorization", "value": format!("Bearer {token}") }],
+    })
+}
+
+/// ACP `session/new` mcpServers entry (ACP http variant). None if the
+/// server isn't up yet (rare — `start` manages the state before it starts
+/// accepting connections, but a spawn racing very early boot could still
+/// see it absent).
+pub fn acp_entry(app: &tauri::AppHandle) -> Option<serde_json::Value> {
+    let rt = app.try_state::<McpRuntime>()?;
+    Some(acp_entry_json(rt.port, &rt.token))
 }
 
 /// Axum middleware: require `Authorization: Bearer <state>`.
@@ -419,6 +437,16 @@ mod tests {
     fn parse_task_id_bad_id_echoes_input() {
         let err = parse_task_id("not-a-ulid").unwrap_err();
         assert!(err.contains("not-a-ulid"), "got: {err}");
+    }
+
+    #[test]
+    fn acp_entry_json_has_the_acp_http_shape() {
+        let v = acp_entry_json(43210, "tok123");
+        assert_eq!(v["name"], "covenant");
+        assert_eq!(v["type"], "http");
+        assert_eq!(v["url"], "http://127.0.0.1:43210/mcp");
+        assert_eq!(v["headers"][0]["name"], "Authorization");
+        assert_eq!(v["headers"][0]["value"], "Bearer tok123");
     }
 
     #[test]

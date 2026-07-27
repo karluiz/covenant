@@ -939,6 +939,10 @@ pub async fn dispatch_acp(env: &ToolEnv, args: &Value) -> Result<String, ToolErr
         timeout: std::time::Duration::from_secs(timeout_secs),
         program: None,
         extra_args_for_tests: vec![],
+        // ponytail follow-up (see task-5-report.md): `ToolEnv` has no
+        // `AppHandle` in scope here, so this headless dispatch can't call
+        // `mcp_server::acp_entry` yet — it runs without covenant MCP tools.
+        mcp_servers: Vec::new(),
     })
     .await
     .map_err(|e| ToolError::Acp(e.to_string()))?;
