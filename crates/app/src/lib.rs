@@ -1975,24 +1975,26 @@ async fn build_convergence_inputs(
     }
 
     let mut acp_out = Vec::new();
-    for (id, executor, cwd) in state.acp_sessions.list_meta().await {
+    for m in state.acp_sessions.list_meta().await {
+        let id = m.session_id;
         let id_str = id.to_string();
         let (tab_title, tab_color) = by_id
             .get(&id_str)
             .map(|h| (h.title.clone(), h.color.clone()))
-            .unwrap_or_else(|| (executor.clone(), None));
+            .unwrap_or_else(|| (m.executor.clone(), None));
         let notch_phase = state.notch_hub.phase_snapshot(id).await.map(|(p, _)| p);
         let (operator_id, operator_name, operator_avatar) = pinned_operator(id);
         acp_out.push(convergence::AcpSessionInput {
             session_id: id,
-            executor,
-            cwd,
+            executor: m.executor,
+            cwd: m.cwd,
             tab_title,
             tab_color,
             notch_phase,
             operator_id,
             operator_name,
             operator_avatar,
+            pending: m.pending,
         });
     }
     (out, acp_out)

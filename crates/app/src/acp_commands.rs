@@ -77,6 +77,35 @@ pub(crate) fn acp_event_to_phase(ev: &AcpSessionEvent) -> Option<ExecutorPhase> 
 /// Bucket a tool call into Writing / Running / Reading by its `kind`.
 /// Any other (or missing) kind is treated as a heartbeat, not a distinct
 /// phase — same rationale as pi's tool-update heartbeats.
+/// Pure: build the convergence-facing pending record from a wire request.
+pub(crate) fn pending_from_request(
+    request_key: &str,
+    request: &PermissionRequest,
+    now_unix_ms: u64,
+) -> crate::convergence::PendingAcpPermission {
+    let tc = &request.tool_call;
+    let title = tc
+        .title
+        .clone()
+        .or_else(|| tc.command().map(String::from))
+        .or_else(|| tc.kind.clone())
+        .unwrap_or_else(|| "permission".into());
+    crate::convergence::PendingAcpPermission {
+        request_key: request_key.into(),
+        title,
+        options: request
+            .options
+            .iter()
+            .map(|o| crate::convergence::PermissionChoice {
+                option_id: o.option_id.clone(),
+                kind: o.kind.clone(),
+                name: o.name.clone(),
+            })
+            .collect(),
+        since_unix_ms: now_unix_ms,
+    }
+}
+
 fn tool_call_phase(f: &ToolCallFields) -> ExecutorPhase {
     match f.kind.as_deref() {
         Some("edit") => ExecutorPhase::Writing {
@@ -269,6 +298,20 @@ struct AcpTabSession {
     /// context (see `acp_world.rs`). std Mutex: short holds, never
     /// across an await — same pattern as `commands`/`models`.
     world: std::sync::Mutex<crate::acp_world::AcpWorldModel>,
+    /// The permission prompt this tab is currently blocked on, if any.
+    /// Set by the forwarder when a prompt reaches the human; cleared on
+    /// `acp_respond_permission` and on turn end (PromptDone) so a
+    /// cancelled prompt can't go stale. Read by Convergence.
+    pending_permission: std::sync::Mutex<Option<crate::convergence::PendingAcpPermission>>,
+}
+
+impl AcpTabSession {
+    fn set_pending(&self, v: Option<crate::convergence::PendingAcpPermission>) {
+        match self.pending_permission.lock() {
+            Ok(mut g) => *g = v,
+            Err(poisoned) => *poisoned.into_inner() = v,
+        }
+    }
 }
 
 impl AcpTabSession {
@@ -337,6 +380,14 @@ pub struct AcpRegistry {
     inner: Arc<Mutex<HashMap<SessionId, Arc<AcpTabSession>>>>,
 }
 
+/// One live ACP tab's Convergence-facing metadata (see `list_meta`).
+pub struct AcpMeta {
+    pub session_id: SessionId,
+    pub executor: String,
+    pub cwd: Option<String>,
+    pub pending: Option<crate::convergence::PendingAcpPermission>,
+}
+
 impl AcpRegistry {
     pub fn new() -> Self {
         Self::default()
@@ -354,17 +405,18 @@ impl AcpRegistry {
         self.inner.lock().await.remove(id)
     }
 
-    /// (session_id, executor, cwd) per live ACP tab — Convergence card
-    /// inputs.
-    pub async fn list_meta(&self) -> Vec<(SessionId, String, Option<String>)> {
+    /// Per-live-ACP-tab metadata — Convergence card + attention inputs.
+    pub async fn list_meta(&self) -> Vec<AcpMeta> {
         let g = self.inner.lock().await;
         g.iter()
-            .map(|(id, tab)| {
-                (
-                    *id,
-                    tab.executor.clone(),
-                    Some(tab.cwd.to_string_lossy().into_owned()),
-                )
+            .map(|(id, tab)| AcpMeta {
+                session_id: *id,
+                executor: tab.executor.clone(),
+                cwd: Some(tab.cwd.to_string_lossy().into_owned()),
+                pending: match tab.pending_permission.lock() {
+                    Ok(p) => p.clone(),
+                    Err(poisoned) => poisoned.into_inner().clone(),
+                },
             })
             .collect()
     }
@@ -1039,6 +1091,7 @@ pub async fn spawn_acp_session(
         perception_consecutive: AtomicU32::new(0),
         trust: trust.clone(),
         world: std::sync::Mutex::new(crate::acp_world::AcpWorldModel::new(executor.clone())),
+        pending_permission: std::sync::Mutex::new(None),
     });
     let tab_for_task = tab_session.clone();
 
@@ -1277,6 +1330,17 @@ pub async fn spawn_acp_session(
                     break;
                 }
             };
+            if let AcpTabEvent::PermissionPending {
+                request_key,
+                request,
+            } = &payload
+            {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                tab_for_task.set_pending(Some(pending_from_request(request_key, request, now)));
+            }
             if let Err(e) = app_for_task.emit(&topic_for_task, &payload) {
                 tracing::warn!(?e, topic = %topic_for_task, "acp event emit failed");
             }
@@ -1461,6 +1525,9 @@ pub async fn acp_send_prompt(
             Err(e) => e.to_string(),
         };
         tab_for_flag.in_flight.store(false, Ordering::Release);
+        // Turn over → no permission can still be pending (covers prompts
+        // resolved by cancellation, which never hit respond_permission).
+        tab_for_flag.set_pending(None);
         // Turn boundary: fold the streamed chunks into one Agent turn.
         match tab_for_flag.world.lock() {
             Ok(mut w) => w.flush_agent_turn(),
@@ -1492,6 +1559,7 @@ pub async fn acp_respond_permission(
     let (_, tab) = require(&state, &session_id).await?;
     // A human click breaks the Perception auto-answer streak.
     tab.perception_consecutive.store(0, Ordering::Release);
+    tab.set_pending(None);
     tab.session
         .respond_permission(&request_key, &option_id)
         .await
@@ -1758,6 +1826,38 @@ mod tests {
 
     fn tool_call_fields(json: &str) -> ToolCallFields {
         serde_json::from_str(json).expect("tool call fixture parses")
+    }
+
+    #[test]
+    fn pending_from_request_derives_title_and_choices() {
+        let req: PermissionRequest = serde_json::from_value(json!({
+            "sessionId": "s1",
+            "toolCall": { "toolCallId": "t1", "kind": "execute", "rawInput": { "command": "npm test" } },
+            "options": [
+                { "optionId": "allow_once", "kind": "allow_once", "name": "Allow once" },
+                { "optionId": "rej", "kind": "reject_once" }
+            ]
+        }))
+        .expect("fixture parses");
+        let p = pending_from_request("perm-7", &req, 1234);
+        assert_eq!(p.request_key, "perm-7");
+        assert_eq!(p.title, "npm test"); // no title → falls back to rawInput.command
+        assert_eq!(p.since_unix_ms, 1234);
+        assert_eq!(p.options.len(), 2);
+        assert_eq!(p.options[0].option_id, "allow_once");
+        assert_eq!(p.options[0].name.as_deref(), Some("Allow once"));
+        assert_eq!(p.options[1].name, None);
+    }
+
+    #[test]
+    fn pending_from_request_prefers_explicit_title() {
+        let req: PermissionRequest = serde_json::from_value(json!({
+            "sessionId": "s1",
+            "toolCall": { "toolCallId": "t1", "title": "Write src/main.rs", "kind": "edit" },
+            "options": [{ "optionId": "a", "kind": "allow_once" }]
+        }))
+        .expect("fixture parses");
+        assert_eq!(pending_from_request("k", &req, 0).title, "Write src/main.rs");
     }
 
     #[test]

@@ -105,6 +105,26 @@ pub fn mission_name_from_path(path: Option<&str>) -> Option<String> {
     Some(stem.chars().take(40).collect())
 }
 
+/// One selectable answer on a pending ACP permission prompt.
+#[derive(Debug, Clone, Serialize)]
+pub struct PermissionChoice {
+    pub option_id: String,
+    /// "allow_once" | "allow_always" | "reject_once" (open set).
+    pub kind: String,
+    pub name: Option<String>,
+}
+
+/// The permission prompt an ACP tab is currently blocked on, recorded by
+/// the forwarder so Convergence can answer it inline.
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingAcpPermission {
+    pub request_key: String,
+    /// Human line: tool title, else rawInput.command, else kind.
+    pub title: String,
+    pub options: Vec<PermissionChoice>,
+    pub since_unix_ms: u64,
+}
+
 /// One Convergence card — an agent session from any lane. The operator,
 /// when present, is a badge on the card, not its grouping key.
 #[derive(Debug, Clone, Serialize)]
@@ -305,6 +325,8 @@ pub struct AcpSessionInput {
     pub operator_id: Option<String>,
     pub operator_name: Option<String>,
     pub operator_avatar: Option<String>,
+    /// The permission prompt this tab is blocked on, if any.
+    pub pending: Option<PendingAcpPermission>,
 }
 
 /// Card for an operator-less PTY session. `None` unless NotchHub sees a
