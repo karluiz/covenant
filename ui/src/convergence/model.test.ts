@@ -9,6 +9,7 @@ const agent = (sid: string, status: TileStatus, title = sid): AgentCard => ({
   vendor: "unknown", raw_command_label: null, last_command: null,
   last_output_line: null, mission_name: null, operator_id: null,
   operator_name: null, operator_avatar: null, cost_usd: null, budget_usd: null,
+  subagents: [],
 });
 
 const att = (sid: string, at: number | null): AttentionItem => ({

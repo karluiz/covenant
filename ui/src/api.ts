@@ -2342,6 +2342,15 @@ export type Vendor = "claude" | "copilot" | "opencode" | "aider" | "codex" | "un
 
 export type Lane = "pty" | "acp";
 
+/// One live sub-agent under an ACP session (Task tool call). One level.
+export interface SubAgentRow {
+  id: string;
+  label: string;
+  detail: string | null;
+  running: boolean;
+  started_unix_ms: number;
+}
+
 /// One Convergence card — an agent session from any lane. The operator,
 /// when present, is a badge on the card, not its grouping key.
 export interface AgentCard {
@@ -2363,6 +2372,8 @@ export interface AgentCard {
   operator_avatar: string | null;
   cost_usd: number | null;
   budget_usd: number | null;
+  /// Live sub-agents (ACP lane only; empty elsewhere).
+  subagents: SubAgentRow[];
 }
 
 export type AttentionKind = "acp-permission" | "pty-waiting" | "operator-escalation";

@@ -24,7 +24,7 @@ const agent = (over: Partial<AgentCard>): AgentCard => ({
   vendor: "claude", raw_command_label: null, last_command: "x",
   last_output_line: null, mission_name: null, operator_id: null,
   operator_name: null, operator_avatar: null, cost_usd: null, budget_usd: null,
-  ...over,
+  subagents: [], ...over,
 });
 
 const attItem = (over: Partial<AttentionItem>): AttentionItem => ({

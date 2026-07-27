@@ -1,4 +1,4 @@
-import type { AgentCard, TileStatus } from "../api";
+import type { AgentCard, SubAgentRow, TileStatus } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
 import { formatChord } from "../platform";
 import { CustomSelect } from "../ui/select";
@@ -95,12 +95,50 @@ function renderBody(card: AgentCard): DocumentFragment {
   act.textContent = card.phase_label ?? activityLine(card);
   frag.append(act);
 
+  if (card.subagents.length > 0) frag.append(renderSubAgents(card.subagents));
+
   const chips = contextChips(card);
   if (chips) frag.append(chips);
 
   const cost = costBar(card);
   if (cost) frag.append(cost);
   return frag;
+}
+
+/// Live sub-agent rows (ACP Task tool calls). Elapsed is computed per
+/// render — the overlay's 1s poll keeps it fresh, no timer needed.
+function renderSubAgents(rows: SubAgentRow[]): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "mc-subagents";
+  for (const r of rows) {
+    const row = document.createElement("div");
+    row.className = "mc-subrow";
+    const dot = document.createElement("span");
+    dot.className = `mc-dot mc-dot--${r.running ? "working" : "idle"}`;
+    const label = document.createElement("span");
+    label.className = "mc-subrow__label";
+    label.textContent = r.label;
+    row.append(dot, label);
+    if (r.detail) {
+      const detail = document.createElement("span");
+      detail.className = "mc-subrow__detail";
+      detail.textContent = r.detail;
+      row.append(detail);
+    }
+    const age = document.createElement("span");
+    age.className = "mc-subrow__age";
+    age.textContent = r.running ? elapsedLabel(r.started_unix_ms) : "done";
+    row.append(age);
+    wrap.append(row);
+  }
+  return wrap;
+}
+
+function elapsedLabel(sinceMs: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - sinceMs) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
 function activityLine(card: AgentCard): string {

@@ -9,7 +9,7 @@ const agent = (over: Partial<AgentCard>): AgentCard => ({
   cwd: null, vendor: "claude", raw_command_label: null,
   last_command: "editing storage.rs", last_output_line: null,
   mission_name: null, operator_id: null, operator_name: null,
-  operator_avatar: null, cost_usd: null, budget_usd: null, ...over,
+  operator_avatar: null, cost_usd: null, budget_usd: null, subagents: [], ...over,
 });
 
 const cbs = (): CardCallbacks => ({
@@ -57,6 +57,27 @@ describe("renderAgentCard", () => {
     const el = renderAgentCard(agent({}), c);
     el.querySelector<HTMLElement>(".mc-card__tab")!.click();
     expect(c.onFocus).toHaveBeenCalledWith("s1", false);
+  });
+
+  it("renders sub-agent rows when present, hidden when empty", () => {
+    expect(renderAgentCard(agent({}), cbs()).querySelector(".mc-subagents")).toBeNull();
+    const el = renderAgentCard(
+      agent({
+        subagents: [
+          { id: "t1", label: "find phase detection", detail: "Explore", running: true, started_unix_ms: Date.now() - 65_000 },
+          { id: "t2", label: "review:bugs", detail: null, running: false, started_unix_ms: Date.now() },
+        ],
+      }),
+      cbs(),
+    );
+    const rows = [...el.querySelectorAll(".mc-subrow")];
+    expect(rows.length).toBe(2);
+    expect(rows[0].textContent).toContain("find phase detection");
+    expect(rows[0].textContent).toContain("Explore");
+    expect(rows[0].textContent).toContain("1m");
+    expect(rows[0].querySelector(".mc-dot--working")).not.toBeNull();
+    expect(rows[1].querySelector(".mc-dot--idle")).not.toBeNull();
+    expect(rows[1].textContent).toContain("done");
   });
 
   it("shows a cost bar only when AOM-enrolled", () => {
