@@ -11,6 +11,10 @@ vi.mock("../../api", () => ({
   canonLocalStatus: vi.fn().mockResolvedValue({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] }),
   canonReadLocal: vi.fn().mockResolvedValue(""),
   canonPublish: vi.fn().mockResolvedValue(undefined),
+  canonOrgDefaults: vi.fn(async () => [] as unknown[]),
+  canonOrgDefaultSet: vi.fn().mockResolvedValue(undefined),
+  canonOrgDefaultUnset: vi.fn().mockResolvedValue(undefined),
+  canonUnitInstalled: vi.fn(async () => false),
   canonUninstallSkill: vi.fn(async () => undefined),
   canonNewUnit: vi.fn(async () => "/x/.covenant/canon/agents/reviewer.md"),
   canonImportSkill: vi.fn(async () => [] as string[]),
@@ -36,6 +40,7 @@ vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 import {
   canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
   operatorList, canonPublish, canonUninstallSkill,
+  canonOrgDefaults, canonOrgDefaultSet, canonUnitInstalled,
   canonNewUnit, canonImportSkill,
   type Operator,
 } from "../../api";
@@ -187,6 +192,67 @@ describe("CanonCockpitView Registry section", () => {
       expect(canonInstallRegistryUnit).toHaveBeenCalledWith(
         expect.any(String), expect.any(String), "deploy", "abc123def456", "command",
       );
+    });
+  });
+});
+
+describe("CanonCockpitView org defaults", () => {
+  it("org section lists defaults with install action for missing ones", async () => {
+    vi.mocked(canonOrgDefaults).mockResolvedValue([
+      { kind: "skill", name: "conventions" },
+      { kind: "mcp", name: "jira" },
+    ]);
+    vi.mocked(canonUnitInstalled).mockImplementation(async (_cwd, _kind, name) => name === "conventions");
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("org");
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("Org defaults");
+      expect(v.element.textContent).toContain("conventions");
+      expect(v.element.textContent).toContain("jira");
+    });
+    // conventions is installed (no install button); jira is missing (button).
+    const installs = [...v.element.querySelectorAll('[aria-label="Install into this repo"]')];
+    expect(installs.length).toBe(1);
+  });
+
+  it("registry cards show the org-default pin only to owners", async () => {
+    vi.mocked(canonSearch).mockResolvedValue([
+      { id: 1, kind: "skill", name: "conventions", version: "1", description: "", publisher_login: "k", installs: 0, sha: "abc" },
+    ]);
+    const v = new CanonCockpitView(opts); // opts org role: owner
+    v.open();
+    v.showSection("registry");
+    const go = v.element.querySelector(".canon-cockpit-search-go") as HTMLButtonElement;
+    go.click();
+    await vi.waitFor(() => expect(v.element.querySelector(".canon-search-result")).toBeTruthy());
+    expect(v.element.querySelector(".canon-default-pin")).toBeTruthy();
+
+    const memberOpts = { ...opts,
+      orgs: [{ id: 2, slug: "cleverit", name: "Cleverit", role: "member", personal: false }],
+      getActiveOrg: () => "cleverit" };
+    const m = new CanonCockpitView(memberOpts);
+    m.open();
+    m.showSection("registry");
+    const mgo = m.element.querySelector(".canon-cockpit-search-go") as HTMLButtonElement;
+    mgo.click();
+    await vi.waitFor(() => expect(m.element.querySelector(".canon-search-result")).toBeTruthy());
+    expect(m.element.querySelector(".canon-default-pin")).toBeNull();
+  });
+
+  it("pinning calls canonOrgDefaultSet with the card's kind and name", async () => {
+    vi.mocked(canonOrgDefaults).mockResolvedValue([]);
+    vi.mocked(canonSearch).mockResolvedValue([
+      { id: 1, kind: "skill", name: "conventions", version: "1", description: "", publisher_login: "k", installs: 0, sha: "abc" },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    v.showSection("registry");
+    (v.element.querySelector(".canon-cockpit-search-go") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(v.element.querySelector(".canon-default-pin")).toBeTruthy());
+    (v.element.querySelector(".canon-default-pin") as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(canonOrgDefaultSet).toHaveBeenCalledWith("karluiz", "skill", "conventions");
     });
   });
 });

@@ -199,6 +199,46 @@ pub async fn publish(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrgDefault {
+    pub kind: String,
+    pub name: String,
+}
+
+/// Owner-curated set of packages every repo of the org should have.
+pub async fn list_defaults(org: &str) -> Result<Vec<OrgDefault>, String> {
+    let url = format!("{}/orgs/{}/defaults", auth::backend_url(), urlencoding(org));
+    send_authed(|j| client().get(&url).bearer_auth(j))
+        .await?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn set_default(org: &str, kind: &str, name: &str) -> Result<(), String> {
+    let url = format!(
+        "{}/orgs/{}/defaults/{}/{}",
+        auth::backend_url(),
+        urlencoding(org),
+        urlencoding(kind),
+        urlencoding(name)
+    );
+    send_authed(|j| client().put(&url).bearer_auth(j)).await?;
+    Ok(())
+}
+
+pub async fn unset_default(org: &str, kind: &str, name: &str) -> Result<(), String> {
+    let url = format!(
+        "{}/orgs/{}/defaults/{}/{}",
+        auth::backend_url(),
+        urlencoding(org),
+        urlencoding(kind),
+        urlencoding(name)
+    );
+    send_authed(|j| client().delete(&url).bearer_auth(j)).await?;
+    Ok(())
+}
+
 pub async fn record_install(id: i64) -> Result<(), String> {
     let url = format!("{}/cdlc/packages/{}/install", auth::backend_url(), id);
     send_authed(|j| client().post(&url).bearer_auth(j)).await?;

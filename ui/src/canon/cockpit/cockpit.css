@@ -696,3 +696,11 @@ body.tabbar-left.canon-cockpit-open .canon-reader {
   background: rgb(var(--ink-rgb) / 0.08);
   border-color: rgb(var(--ink-rgb) / 0.16);
 }
+
+/* Org-default pin on registry cards — active = this package is suggested
+   in every repo of the org. Neutral at rest, accent when pinned. */
+.canon-default-pin.is-active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.canon-default-ok { display: inline-flex; align-items: center; }

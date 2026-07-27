@@ -2872,6 +2872,34 @@ async fn canon_search(
 }
 
 #[tauri::command]
+async fn canon_org_defaults_list(org: String) -> Result<Vec<canon_registry::OrgDefault>, String> {
+    canon_registry::list_defaults(&org).await
+}
+
+#[tauri::command]
+async fn canon_org_default_set(org: String, kind: String, name: String) -> Result<(), String> {
+    canon_registry::set_default(&org, &kind, &name).await
+}
+
+#[tauri::command]
+async fn canon_org_default_unset(org: String, kind: String, name: String) -> Result<(), String> {
+    canon_registry::unset_default(&org, &kind, &name).await
+}
+
+/// Whether a canon unit is already installed in the repo — the client-side
+/// half of the org-defaults diff (source of truth is `.covenant/canon/`).
+#[tauri::command]
+async fn canon_unit_installed(cwd: String, kind: String, name: String) -> Result<bool, String> {
+    let k = parse_unit_kind(&kind)?;
+    let base = std::path::PathBuf::from(cwd).join(".covenant/canon").join(k.dir());
+    Ok(match k {
+        karl_canon::ContextKind::Skill => base.join(&name).join("SKILL.md").exists(),
+        karl_canon::ContextKind::Mcp => base.join(format!("{name}.json")).exists(),
+        _ => base.join(format!("{name}.md")).exists(),
+    })
+}
+
+#[tauri::command]
 async fn canon_create_org(slug: String, name: String) -> Result<serde_json::Value, String> {
     canon_registry::create_org(&slug, &name).await
 }
@@ -5764,6 +5792,10 @@ pub fn run() {
             canon_my_orgs,
             canon_search,
             canon_create_org,
+            canon_org_defaults_list,
+            canon_org_default_set,
+            canon_org_default_unset,
+            canon_unit_installed,
             canon_rename_org,
             canon_delete_org,
             canon_org_members,
