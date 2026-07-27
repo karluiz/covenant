@@ -1116,13 +1116,112 @@
   max-height: calc(100vh - 80px);
   overflow: hidden;
 }
-.acp-sketch-header {
-  padding: 10px 14px;
+.acp-sketch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgb(var(--ink-rgb) / 0.1);
+}
+.acp-sketch-title {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.3px;
-  border-bottom: 1px solid rgb(var(--ink-rgb) / 0.1);
   color: var(--text-primary);
+  margin-right: 6px;
+  user-select: none;
+}
+.acp-sketch-sep {
+  width: 1px;
+  height: 18px;
+  background: rgb(var(--ink-rgb) / 0.12);
+  margin: 0 5px;
+  flex-shrink: 0;
+}
+.acp-sketch-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.acp-sketch-tool:hover {
+  background: rgb(var(--ink-rgb) / 0.08);
+  color: var(--text-primary);
+}
+.acp-sketch-tool[data-on] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+.acp-sketch-tool:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+.acp-sketch-tool:disabled:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.acp-sketch-tool svg {
+  display: block;
+}
+.acp-sketch-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgb(var(--ink-rgb) / 0.18);
+  border-radius: 0;
+  cursor: pointer;
+  transition: transform 100ms ease;
+}
+.acp-sketch-swatch:hover {
+  transform: scale(1.12);
+}
+.acp-sketch-swatch[data-on] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.acp-sketch-width {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+}
+.acp-sketch-width:hover {
+  background: rgb(var(--ink-rgb) / 0.08);
+}
+.acp-sketch-width[data-on] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.acp-sketch-width i {
+  display: block;
+  background: var(--text-primary);
+  border-radius: 50%;
+}
+.acp-sketch-history {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.acp-sketch-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 4px;
   user-select: none;
 }
 .acp-sketch-canvas {

@@ -860,13 +860,13 @@ export class AcpChatView {
             aria-label="Message ${brand.title}"
           ></textarea>
           <div class="acp-chat-actions">
-            <button type="button" class="acp-tb-btn acp-tb-attach" aria-label="Attach file" title="Attach file">${Icons.paperclip({ size: 13 })}</button>
-            <button type="button" class="acp-tb-btn acp-tb-sketch" aria-label="Sketch" title="Sketch">${Icons.penLine({ size: 13 })}</button>
+            <button type="button" class="acp-tb-btn acp-tb-attach" aria-label="Attach file">${Icons.paperclip({ size: 13 })}</button>
+            <button type="button" class="acp-tb-btn acp-tb-sketch" aria-label="Sketch">${Icons.penLine({ size: 13 })}</button>
             <span class="acp-composer-hint"><kbd>${formatChord(["enter"])}</kbd> send · <kbd>${formatChord(["shift", "enter"])}</kbd> newline</span>
-            <button type="button" class="acp-chat-cancel" hidden aria-label="Stop" title="Stop">
+            <button type="button" class="acp-chat-cancel" hidden aria-label="Stop">
               <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg>
             </button>
-            <button type="submit" class="acp-chat-send" disabled aria-label="Send" title="Send">
+            <button type="submit" class="acp-chat-send" disabled aria-label="Send">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M8 3 3.5 7.5M8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
@@ -942,6 +942,8 @@ export class AcpChatView {
     this.inputEl = requireChild(this.host, ".acp-chat-textarea") as HTMLTextAreaElement;
     this.sendBtn = requireChild(this.host, ".acp-chat-send") as HTMLButtonElement;
     this.cancelBtn = requireChild(this.host, ".acp-chat-cancel") as HTMLButtonElement;
+    attachTooltip(this.sendBtn, "Send");
+    attachTooltip(this.cancelBtn, "Stop");
     this.jumpBtn = requireChild(this.host, ".acp-jump-present") as HTMLButtonElement;
     this.jumpBtn.addEventListener("click", () => {
       this.stickToBottom = true;
@@ -956,10 +958,12 @@ export class AcpChatView {
       void this.handleSend();
     });
     this.cancelBtn.addEventListener("click", () => void this.handleCancel());
-    (requireChild(this.host, ".acp-tb-attach") as HTMLButtonElement)
-      .addEventListener("click", () => this.openFilePicker());
-    (requireChild(this.host, ".acp-tb-sketch") as HTMLButtonElement)
-      .addEventListener("click", () => this.openSketch());
+    const attachTbBtn = requireChild(this.host, ".acp-tb-attach") as HTMLButtonElement;
+    attachTbBtn.addEventListener("click", () => this.openFilePicker());
+    attachTooltip(attachTbBtn, "Attach file");
+    const sketchTbBtn = requireChild(this.host, ".acp-tb-sketch") as HTMLButtonElement;
+    sketchTbBtn.addEventListener("click", () => this.openSketch());
+    attachTooltip(sketchTbBtn, "Sketch");
     this.slashEl = requireChild(this.host, ".acp-slash-menu");
     this.mentionEl = requireChild(this.host, ".acp-mention-menu");
     this.inputEl.addEventListener("input", () => {
@@ -1367,7 +1371,10 @@ export class AcpChatView {
     input.click();
   }
 
-  /// Open a minimal sketch canvas; the result is attached as a PNG image chip.
+  /// Open the sketch overlay: pen/line/arrow/rect/ellipse/eraser with
+  /// color + stroke pickers, snapshot-based undo/redo (⌘Z / ⇧⌘Z), and
+  /// ⌘V paste of a clipboard image onto the canvas — so a screenshot can
+  /// be annotated in place. The result attaches as a PNG image chip.
   private openSketch(): void {
     if (this.sketchOverlay) return;
     const overlay = document.createElement("div");
@@ -1376,21 +1383,167 @@ export class AcpChatView {
     const card = document.createElement("div");
     card.className = "acp-sketch-card";
 
-    const header = document.createElement("div");
-    header.className = "acp-sketch-header";
-    header.textContent = "Sketch";
-
+    // Logical drawing space stays 720×400; the backing store is 2× so
+    // strokes stay crisp on retina. Export size doubles, which is fine —
+    // the chip path downscales for display and the model gets more pixels.
+    const W = 720;
+    const H = 400;
     const canvas = document.createElement("canvas");
     canvas.className = "acp-sketch-canvas";
-    canvas.width = 720;
-    canvas.height = 400;
+    canvas.width = W * 2;
+    canvas.height = H * 2;
 
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    ctx.scale(2, 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // ---- Toolbar: title · tools · colors · widths · undo/redo ----
+    type Tool = "pen" | "line" | "arrow" | "rect" | "ellipse" | "eraser";
+    let tool: Tool = "pen";
+    let color = "#1a1a2e";
+    let stroke = 3;
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "acp-sketch-toolbar";
+    const title = document.createElement("span");
+    title.className = "acp-sketch-title";
+    title.textContent = "Sketch";
+    toolbar.appendChild(title);
+    const sep = (): void => {
+      const s = document.createElement("span");
+      s.className = "acp-sketch-sep";
+      toolbar.appendChild(s);
+    };
+    sep();
+
+    const toolDefs: Array<[Tool, string, string]> = [
+      ["pen", Icons.penLine({ size: 13 }), "Pen — P"],
+      ["line", Icons.slash({ size: 13 }), "Line — L"],
+      ["arrow", Icons.arrowUpRight({ size: 13 }), "Arrow — A"],
+      ["rect", Icons.square({ size: 13 }), "Rectangle — R"],
+      ["ellipse", Icons.circle({ size: 13 }), "Ellipse — O"],
+      ["eraser", Icons.eraser({ size: 13 }), "Eraser — E"],
+    ];
+    const toolBtns = new Map<Tool, HTMLButtonElement>();
+    const setTool = (t: Tool): void => {
+      tool = t;
+      for (const [k, b] of toolBtns) b.toggleAttribute("data-on", k === t);
+      canvas.style.cursor = t === "eraser" ? "cell" : "crosshair";
+    };
+    for (const [key, svg, label] of toolDefs) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "acp-sketch-tool";
+      b.innerHTML = svg; // trusted — Icons.* only
+      b.setAttribute("aria-label", label);
+      attachTooltip(b, label);
+      b.addEventListener("click", () => setTool(key));
+      toolbar.appendChild(b);
+      toolBtns.set(key, b);
+    }
+    sep();
+
+    const colors = ["#1a1a2e", "#e5484d", "#f5a524", "#30a46c", "#3e63dd", "#8e4ec6", "#889096"];
+    const swatches: HTMLButtonElement[] = [];
+    for (const c of colors) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "acp-sketch-swatch";
+      b.style.background = c;
+      b.setAttribute("aria-label", `Color ${c}`);
+      b.addEventListener("click", () => {
+        color = c;
+        for (const s of swatches) s.toggleAttribute("data-on", s === b);
+      });
+      toolbar.appendChild(b);
+      swatches.push(b);
+    }
+    swatches[0]?.setAttribute("data-on", "");
+    sep();
+
+    const widths: HTMLButtonElement[] = [];
+    for (const [w, dot] of [[2, 3], [3, 5], [6, 8]] as const) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "acp-sketch-width";
+      const i = document.createElement("i");
+      i.style.width = `${dot}px`;
+      i.style.height = `${dot}px`;
+      b.appendChild(i);
+      b.setAttribute("aria-label", `${w}px stroke`);
+      attachTooltip(b, `${w}px stroke`);
+      b.addEventListener("click", () => {
+        stroke = w;
+        for (const s of widths) s.toggleAttribute("data-on", s === b);
+      });
+      toolbar.appendChild(b);
+      widths.push(b);
+    }
+    widths[1]?.setAttribute("data-on", "");
+
+    // ---- History: full-canvas ImageData snapshots, pushed before every
+    // mutation (stroke start, paste, clear). Flat raster — no object model.
+    const undoStack: ImageData[] = [];
+    const redoStack: ImageData[] = [];
+    const undoBtn = document.createElement("button");
+    undoBtn.type = "button";
+    undoBtn.className = "acp-sketch-tool";
+    undoBtn.innerHTML = Icons.undo2({ size: 13 });
+    undoBtn.setAttribute("aria-label", "Undo — ⌘Z");
+    attachTooltip(undoBtn, "Undo — ⌘Z");
+    const redoBtn = document.createElement("button");
+    redoBtn.type = "button";
+    redoBtn.className = "acp-sketch-tool";
+    redoBtn.innerHTML = Icons.redo2({ size: 13 });
+    redoBtn.setAttribute("aria-label", "Redo — ⇧⌘Z");
+    attachTooltip(redoBtn, "Redo — ⇧⌘Z");
+    const historyBox = document.createElement("span");
+    historyBox.className = "acp-sketch-history";
+    historyBox.append(undoBtn, redoBtn);
+    toolbar.appendChild(historyBox);
+
+    const syncHistory = (): void => {
+      undoBtn.disabled = undoStack.length === 0;
+      redoBtn.disabled = redoStack.length === 0;
+    };
+    const snapshot = (): void => {
+      undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+      if (undoStack.length > 50) undoStack.shift();
+      redoStack.length = 0;
+      syncHistory();
+    };
+    const undo = (): void => {
+      const prev = undoStack.pop();
+      if (!prev) return;
+      redoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+      ctx.putImageData(prev, 0, 0);
+      syncHistory();
+    };
+    const redo = (): void => {
+      const next = redoStack.pop();
+      if (!next) return;
+      undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+      ctx.putImageData(next, 0, 0);
+      syncHistory();
+    };
+    undoBtn.addEventListener("click", undo);
+    redoBtn.addEventListener("click", redo);
+    syncHistory();
+
+    // ---- Footer ----
     const footer = document.createElement("div");
     footer.className = "acp-sketch-footer";
 
     const clearBtn = document.createElement("button");
     clearBtn.type = "button";
     clearBtn.textContent = "Clear";
+
+    const hint = document.createElement("span");
+    hint.className = "acp-sketch-hint";
+    hint.textContent = "⌘V pastes an image onto the canvas";
 
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
@@ -1401,55 +1554,151 @@ export class AcpChatView {
     attachBtn.className = "acp-sketch-attach-btn";
     attachBtn.textContent = "Attach";
 
-    footer.append(clearBtn, cancelBtn, attachBtn);
-    card.append(header, canvas, footer);
+    footer.append(clearBtn, hint, cancelBtn, attachBtn);
+    card.append(toolbar, canvas, footer);
     overlay.appendChild(card);
     document.body.appendChild(overlay);
     this.sketchOverlay = overlay;
 
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "#1a1a2e";
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
+    // ---- Drawing. Pen/eraser paint segments as the pointer moves; shape
+    // tools restore the pre-drag snapshot each move for a live preview.
     let drawing = false;
+    let startX = 0;
+    let startY = 0;
     let lastX = 0;
     let lastY = 0;
+    let dragBase: ImageData | null = null;
 
     const getPos = (e: PointerEvent): { x: number; y: number } => {
       const rect = canvas.getBoundingClientRect();
       return {
-        x: (e.clientX - rect.left) * (canvas.width / rect.width),
-        y: (e.clientY - rect.top) * (canvas.height / rect.height),
+        x: (e.clientX - rect.left) * (W / rect.width),
+        y: (e.clientY - rect.top) * (H / rect.height),
       };
     };
+    const applyStroke = (): void => {
+      ctx.strokeStyle = tool === "eraser" ? "#ffffff" : color;
+      ctx.lineWidth = tool === "eraser" ? stroke * 5 : stroke;
+    };
+    const drawShape = (x: number, y: number): void => {
+      if (!dragBase) return;
+      ctx.putImageData(dragBase, 0, 0);
+      applyStroke();
+      ctx.beginPath();
+      if (tool === "line" || tool === "arrow") {
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(x, y);
+        if (tool === "arrow") {
+          const a = Math.atan2(y - startY, x - startX);
+          const h = 9 + stroke * 2;
+          ctx.moveTo(x, y);
+          ctx.lineTo(x - h * Math.cos(a - 0.45), y - h * Math.sin(a - 0.45));
+          ctx.moveTo(x, y);
+          ctx.lineTo(x - h * Math.cos(a + 0.45), y - h * Math.sin(a + 0.45));
+        }
+      } else if (tool === "rect") {
+        ctx.rect(Math.min(startX, x), Math.min(startY, y), Math.abs(x - startX), Math.abs(y - startY));
+      } else {
+        ctx.ellipse((startX + x) / 2, (startY + y) / 2, Math.abs(x - startX) / 2, Math.abs(y - startY) / 2, 0, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+    };
     canvas.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      snapshot();
       drawing = true;
       const p = getPos(e);
-      lastX = p.x; lastY = p.y;
+      startX = lastX = p.x;
+      startY = lastY = p.y;
       canvas.setPointerCapture(e.pointerId);
+      if (tool === "pen" || tool === "eraser") {
+        applyStroke();
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + 0.01, p.y);
+        ctx.stroke();
+      } else {
+        dragBase = undoStack[undoStack.length - 1] ?? null;
+      }
     });
     canvas.addEventListener("pointermove", (e) => {
       if (!drawing) return;
       const p = getPos(e);
-      ctx.beginPath();
-      ctx.moveTo(lastX, lastY);
-      ctx.lineTo(p.x, p.y);
-      ctx.stroke();
-      lastX = p.x; lastY = p.y;
+      if (tool === "pen" || tool === "eraser") {
+        applyStroke();
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        lastX = p.x;
+        lastY = p.y;
+      } else {
+        drawShape(p.x, p.y);
+      }
     });
-    canvas.addEventListener("pointerup", () => { drawing = false; });
-    canvas.addEventListener("pointercancel", () => { drawing = false; });
+    const stopDrawing = (): void => {
+      drawing = false;
+      dragBase = null;
+    };
+    canvas.addEventListener("pointerup", stopDrawing);
+    canvas.addEventListener("pointercancel", stopDrawing);
+
+    // ---- Paste + keyboard, alive only while the overlay is open. The
+    // composer's paste-to-attach listens on the input element, which is
+    // unfocused while the overlay is up, so the two never both fire.
+    const onPaste = (e: ClipboardEvent): void => {
+      const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
+      if (!item) return;
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (!file) return;
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        snapshot();
+        const k = Math.min(W / img.width, H / img.height, 1);
+        const w = img.width * k;
+        const h = img.height * k;
+        ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    };
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+        return;
+      }
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (mod || e.altKey) return;
+      const map: Record<string, Tool> = { p: "pen", l: "line", a: "arrow", r: "rect", o: "ellipse", e: "eraser" };
+      const t = map[e.key.toLowerCase()];
+      if (t) setTool(t);
+    };
+    document.addEventListener("paste", onPaste);
+    document.addEventListener("keydown", onKeyDown);
 
     clearBtn.addEventListener("click", () => {
+      snapshot();
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, W, H);
     });
 
-    const close = () => {
+    const close = (): void => {
+      document.removeEventListener("paste", onPaste);
+      document.removeEventListener("keydown", onKeyDown);
       overlay.remove();
       this.sketchOverlay = null;
     };
@@ -1472,6 +1721,8 @@ export class AcpChatView {
       }, "image/png");
       close();
     });
+
+    setTool("pen");
   }
 
   /// Header meta — plain textContent, wire/user strings never hit
