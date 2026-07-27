@@ -562,6 +562,9 @@ export interface AcpChatViewOptions {
   /// Working directory of the ACP session. Threaded through to
   /// `spawnAcpSession` on restart.
   cwd?: string | null;
+  /// Tab-group id of the owning tab. Threaded through to `spawnAcpSession`
+  /// (spawn + restart) as the COVENANT_GROUP_ID env for MCP notes tools.
+  groupId?: string | null;
   /// Which agent drives this tab ("copilot" default). Controls branding
   /// (header, empty state, composer) and — critically — which agent
   /// `restart()` respawns.
@@ -612,6 +615,7 @@ export class AcpChatView {
   private sessionId: SessionId;
   private readonly onCloseCb?: () => void;
   private readonly cwd: string | null;
+  private readonly groupId: string | null;
   private model: string | null;
   private metaEl!: HTMLElement;
   private modelChipEl!: HTMLButtonElement;
@@ -738,6 +742,7 @@ export class AcpChatView {
     this.sessionId = opts.sessionId;
     this.onCloseCb = opts.onClose;
     this.cwd = opts.cwd ?? null;
+    this.groupId = opts.groupId ?? null;
     this.model = opts.model ?? null;
     this.executor = opts.executor ?? "copilot";
     this.acpSessionId = opts.acpSessionId ?? null;
@@ -2616,6 +2621,7 @@ export class AcpChatView {
         cwd: this.cwd,
         executor: this.executor,
         resumeAcpSessionId: this.acpSessionId ?? undefined,
+        groupId: this.groupId ?? undefined,
       });
       // destroy() may have run during the spawn await — don't adopt the
       // fresh session or resubscribe on a torn-down view. (subscribe()

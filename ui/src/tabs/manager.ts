@@ -5344,6 +5344,7 @@ export class TabManager {
           cwd: launchCwd ?? undefined,
           resumeAcpSessionId: opts?.resumeAcpSessionId ?? undefined,
           executor,
+          groupId: tab.groupId ?? undefined,
         });
       } catch (err) {
         console.warn("spawnAcpSession failed", err);
@@ -5363,6 +5364,7 @@ export class TabManager {
         sessionId: spawned.sessionId,
         host: acpPaneHost0,
         cwd: launchCwd,
+        groupId: tab.groupId ?? null,
         model: spawned.model,
         executor,
         acpSessionId: spawned.acpSessionId,

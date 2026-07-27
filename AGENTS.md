@@ -371,10 +371,11 @@ app instead of just being watched by it. `crates/app/src/mcp_server.rs`.
   on the server side.
 - **Spawn injection**: ACP executor spawns get the server's `mcpServers`
   entry (name `covenant`, type `http`, Bearer header) injected into
-  `session/new`/`session/load`, plus a `COVENANT_SESSION_ID` env var.
-  `COVENANT_TASK_ID`/`COVENANT_GROUP_ID` are deferred — task/group attach
-  happens after spawn — so tool descriptions tell the model to read whichever
-  env vars are set if it's unsure which ids to pass. The headless
+  `session/new`/`session/load`, plus `COVENANT_SESSION_ID` and — when the
+  tab belongs to a group — `COVENANT_GROUP_ID` env vars. There is no
+  `COVENANT_TASK_ID`: tasks attach to a session *after* spawn, so tool
+  descriptions teach the discovery flow instead (call `task_list`, match
+  `spawned_session` against `$COVENANT_SESSION_ID`). The headless
   `dispatch_acp` path does not get the injection yet.
 - **External agents**: `covenant mcp-config` prints the ready-to-paste MCP
   config entry for a hand-opened harness; exits 1 if the app isn't running

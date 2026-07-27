@@ -598,6 +598,9 @@ pub struct SpawnAcpOpts {
     /// Which agent drives this tab: "copilot" (default) or "pi". Resolved
     /// to a launch profile by `AcpSpawnOpts::for_executor`.
     pub executor: Option<String>,
+    /// Tab-group id of the spawning tab, exported as `COVENANT_GROUP_ID` so
+    /// the executor can scope project-notes MCP tools without discovery.
+    pub group_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1027,12 +1030,19 @@ pub async fn spawn_acp_session(
 
     // Covenant identity for the MCP tools' id-discovery args (task_complete,
     // notes_read, …) — the tool descriptions in mcp_server.rs point at
-    // these. session_id is always known at spawn time; task_id/group_id are
-    // not (they're attached to a session after spawn, via
-    // teammate_attach_session_to_task — see task-5-report.md follow-up).
+    // these. session_id is always known at spawn time; group_id comes from
+    // the spawning tab when the frontend has one. task_id is not knowable
+    // here (tasks attach to a session after spawn, via
+    // teammate_attach_session_to_task) — executors discover theirs by
+    // matching task_list's spawned_session against COVENANT_SESSION_ID.
     spawn_opts
         .env
         .push(("COVENANT_SESSION_ID".to_string(), session_id.to_string()));
+    if let Some(group) = opts.group_id.as_deref().filter(|g| !g.is_empty()) {
+        spawn_opts
+            .env
+            .push(("COVENANT_GROUP_ID".to_string(), group.to_string()));
+    }
 
     // User escape hatches last: env can override trust-derived entries
     // (later duplicates win — Command::env replaces), args append after

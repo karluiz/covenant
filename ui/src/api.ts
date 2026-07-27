@@ -3164,7 +3164,14 @@ export interface AcpExecutorConfig {
 export type AcpExecutor = "copilot" | "pi" | "claude" | "opencode";
 
 export async function spawnAcpSession(
-  opts: { cwd?: string | null; resumeAcpSessionId?: string | null; executor?: AcpExecutor } = {},
+  opts: {
+    cwd?: string | null;
+    resumeAcpSessionId?: string | null;
+    executor?: AcpExecutor;
+    /// Tab-group id of the spawning tab; exported to the adapter as
+    /// COVENANT_GROUP_ID so covenant MCP notes tools are scopable.
+    groupId?: string | null;
+  } = {},
 ): Promise<SpawnAcpResult> {
   return invoke<SpawnAcpResult>("spawn_acp_session", { opts });
 }
