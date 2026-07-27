@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { statusPriority, escalationIndex, sortAgents } from "./model";
-import type { AgentCard, EscalationCard, TileStatus } from "../api";
+import { statusPriority, attentionIndex, sortAgents } from "./model";
+import type { AgentCard, AttentionItem, TileStatus } from "../api";
 
 const agent = (sid: string, status: TileStatus, title = sid): AgentCard => ({
   session_id: sid, tab_title: title, tab_color: null, lane: "pty",
@@ -11,11 +11,11 @@ const agent = (sid: string, status: TileStatus, title = sid): AgentCard => ({
   operator_name: null, operator_avatar: null, cost_usd: null, budget_usd: null,
 });
 
-const esc = (sid: string, at: number): EscalationCard => ({
-  session_id: sid, tab_title: sid, tab_color: null, operator_id: "o",
-  operator_name: "o", operator_avatar: null, vendor: "unknown",
-  raw_command_label: null, question: "q?", executor_excerpt: null,
-  mission_name: null, escalated_at_unix_ms: at,
+const att = (sid: string, at: number | null): AttentionItem => ({
+  session_id: sid, tab_title: sid, tab_color: null, lane: "pty",
+  executor: "claude", kind: "operator-escalation", question: "q?",
+  excerpt: null, permission: null, operator_name: "o",
+  operator_avatar: null, mission_name: null, since_unix_ms: at,
 });
 
 describe("statusPriority", () => {
@@ -28,27 +28,34 @@ describe("statusPriority", () => {
   });
 });
 
-describe("escalationIndex", () => {
-  it("maps session_id to its escalation card", () => {
-    const idx = escalationIndex([esc("s1", 10)]);
+describe("attentionIndex", () => {
+  it("maps session_id to its attention item", () => {
+    const idx = attentionIndex([att("s1", 10)]);
     expect(idx.get("s1")?.question).toBe("q?");
     expect(idx.get("nope")).toBeUndefined();
   });
 });
 
 describe("sortAgents", () => {
-  it("blocked first, oldest escalation leading, then status priority, then title", () => {
+  it("blocked first, oldest attention leading, then status priority, then title", () => {
     const cards = [
       agent("idle1", "idle"),
       agent("work1", "working"),
       agent("blockNew", "blocked"),
       agent("blockOld", "blocked"),
-      agent("blockNoEsc", "blocked"),
+      agent("blockNoAtt", "blocked"),
       agent("wait1", "awaiting-input"),
     ];
-    const escs = [esc("blockNew", 200), esc("blockOld", 100)];
-    const out = sortAgents(cards, escs).map((c) => c.session_id);
-    expect(out).toEqual(["blockOld", "blockNew", "blockNoEsc", "work1", "wait1", "idle1"]);
+    const atts = [att("blockNew", 200), att("blockOld", 100)];
+    const out = sortAgents(cards, atts).map((c) => c.session_id);
+    expect(out).toEqual(["blockOld", "blockNew", "blockNoAtt", "work1", "wait1", "idle1"]);
+  });
+
+  it("attention items without a timestamp sort with the untimestamped blocked", () => {
+    const cards = [agent("a", "blocked"), agent("b", "blocked")];
+    const atts = [att("b", null)];
+    // neither has a timestamp → title tiebreak
+    expect(sortAgents(cards, atts).map((c) => c.session_id)).toEqual(["a", "b"]);
   });
 
   it("does not mutate the input array", () => {

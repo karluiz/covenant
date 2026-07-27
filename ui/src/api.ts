@@ -2365,28 +2365,43 @@ export interface AgentCard {
   budget_usd: number | null;
 }
 
-export interface EscalationCard {
+export type AttentionKind = "acp-permission" | "pty-waiting" | "operator-escalation";
+
+export interface PermissionChoice {
+  option_id: string;
+  kind: string;
+  name: string | null;
+}
+
+export interface PendingAcpPermission {
+  request_key: string;
+  title: string;
+  options: PermissionChoice[];
+  since_unix_ms: number;
+}
+
+/// One row of the "needs you" queue — a session blocked on the human,
+/// from any lane, answerable inline.
+export interface AttentionItem {
   session_id: string;
   tab_title: string;
   tab_color: string | null;
-  operator_id: string;
-  operator_name: string;
-  operator_avatar: string | null;
-  vendor: Vendor;
-  raw_command_label: string | null;
+  lane: Lane;
+  executor: string | null;
+  kind: AttentionKind;
   question: string | null;
-  /// Last ~15 non-empty lines of the executor's screen at escalation
-  /// time (ANSI-stripped). Distinct from `question`, which is the
-  /// operator's rationale; this is the raw context the user reads to
-  /// reply.
-  executor_excerpt: string | null;
+  /// Last ~15 screen lines (PTY lanes); null for ACP.
+  excerpt: string | null;
+  permission: PendingAcpPermission | null;
+  operator_name: string | null;
+  operator_avatar: string | null;
   mission_name: string | null;
-  escalated_at_unix_ms: number;
+  since_unix_ms: number | null;
 }
 
 export interface ConvergenceSnapshot {
   agents: AgentCard[];
-  escalations: EscalationCard[];
+  attention: AttentionItem[];
 }
 
 export interface ConvergenceTabHint {
