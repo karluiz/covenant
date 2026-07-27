@@ -6732,6 +6732,10 @@ body:not(.statusbar-single-row) .sb-row .sb-center {
     box-shadow: none;
     border: 0;
 }
+.status-segment.status-git .status-text {
+    max-width: 160px;
+    white-space: nowrap;
+}
 .status-segment.status-git:hover {
     color: var(--fg);
     background: rgb(var(--ink-rgb) / 0.025);
