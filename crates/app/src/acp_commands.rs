@@ -106,6 +106,38 @@ pub(crate) fn pending_from_request(
     }
 }
 
+/// Recognize an agent-spawn tool call (Claude Code's Task tool). Updates
+/// can't classify — they may omit rawInput/title; match rows by id there.
+pub(crate) fn subagent_from_tool_call(
+    f: &ToolCallFields,
+    now_unix_ms: u64,
+) -> Option<crate::convergence::SubAgentRow> {
+    let ri = f.raw_input.as_ref();
+    let sub_type = ri
+        .and_then(|v| v.get("subagent_type"))
+        .and_then(Value::as_str);
+    let task_title = f
+        .title
+        .as_deref()
+        .is_some_and(|t| t == "Task" || t.starts_with("Task("));
+    if sub_type.is_none() && !task_title {
+        return None;
+    }
+    let label = ri
+        .and_then(|v| v.get("description"))
+        .and_then(Value::as_str)
+        .map(String::from)
+        .or_else(|| f.title.clone())
+        .unwrap_or_else(|| "subagent".into());
+    Some(crate::convergence::SubAgentRow {
+        id: f.tool_call_id.clone(),
+        label,
+        detail: sub_type.map(String::from),
+        running: !matches!(f.status.as_deref(), Some("completed") | Some("failed")),
+        started_unix_ms: now_unix_ms,
+    })
+}
+
 fn tool_call_phase(f: &ToolCallFields) -> ExecutorPhase {
     match f.kind.as_deref() {
         Some("edit") => ExecutorPhase::Writing {
@@ -303,13 +335,62 @@ struct AcpTabSession {
     /// `acp_respond_permission` and on turn end (PromptDone) so a
     /// cancelled prompt can't go stale. Read by Convergence.
     pending_permission: std::sync::Mutex<Option<crate::convergence::PendingAcpPermission>>,
+    /// Live sub-agents (Task tool calls) this turn, bounded to the last
+    /// `SUBAGENT_CAP`. Fed by the forwarder; cleared on PromptDone.
+    subagents: std::sync::Mutex<std::collections::VecDeque<crate::convergence::SubAgentRow>>,
 }
+
+/// Ring bound for per-tab sub-agent rows — enough for any real fan-out
+/// display; older rows fall off the front.
+const SUBAGENT_CAP: usize = 8;
 
 impl AcpTabSession {
     fn set_pending(&self, v: Option<crate::convergence::PendingAcpPermission>) {
         match self.pending_permission.lock() {
             Ok(mut g) => *g = v,
             Err(poisoned) => *poisoned.into_inner() = v,
+        }
+    }
+
+    /// A fresh `tool_call`: classify; replace the row with the same id or
+    /// append (dropping the oldest past the cap).
+    fn feed_subagent_call(&self, f: &ToolCallFields, now_unix_ms: u64) {
+        let Some(row) = subagent_from_tool_call(f, now_unix_ms) else {
+            return;
+        };
+        let mut g = match self.subagents.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(existing) = g.iter_mut().find(|r| r.id == row.id) {
+            *existing = row;
+            return;
+        }
+        if g.len() >= SUBAGENT_CAP {
+            g.pop_front();
+        }
+        g.push_back(row);
+    }
+
+    /// A `tool_call_update`: updates never classify (they may omit
+    /// rawInput/title) — only flip `running` on a row already in the ring.
+    fn feed_subagent_update(&self, f: &ToolCallFields) {
+        let Some(status) = f.status.as_deref() else {
+            return;
+        };
+        let mut g = match self.subagents.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(row) = g.iter_mut().find(|r| r.id == f.tool_call_id) {
+            row.running = !matches!(status, "completed" | "failed");
+        }
+    }
+
+    fn clear_subagents(&self) {
+        match self.subagents.lock() {
+            Ok(mut g) => g.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
         }
     }
 }
@@ -386,6 +467,7 @@ pub struct AcpMeta {
     pub executor: String,
     pub cwd: Option<String>,
     pub pending: Option<crate::convergence::PendingAcpPermission>,
+    pub subagents: Vec<crate::convergence::SubAgentRow>,
 }
 
 impl AcpRegistry {
@@ -416,6 +498,10 @@ impl AcpRegistry {
                 pending: match tab.pending_permission.lock() {
                     Ok(p) => p.clone(),
                     Err(poisoned) => poisoned.into_inner().clone(),
+                },
+                subagents: match tab.subagents.lock() {
+                    Ok(s) => s.iter().cloned().collect(),
+                    Err(poisoned) => poisoned.into_inner().iter().cloned().collect(),
                 },
             })
             .collect()
@@ -1092,6 +1178,7 @@ pub async fn spawn_acp_session(
         trust: trust.clone(),
         world: std::sync::Mutex::new(crate::acp_world::AcpWorldModel::new(executor.clone())),
         pending_permission: std::sync::Mutex::new(None),
+        subagents: std::sync::Mutex::new(std::collections::VecDeque::new()),
     });
     let tab_for_task = tab_session.clone();
 
@@ -1221,6 +1308,14 @@ pub async fn spawn_acp_session(
                             Ok(mut w) => w.on_tool_call(title),
                             Err(poisoned) => poisoned.into_inner().on_tool_call(title),
                         }
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0);
+                        tab_for_task.feed_subagent_call(f, now);
+                    }
+                    SessionUpdate::ToolCallUpdate(f) => {
+                        tab_for_task.feed_subagent_update(f);
                     }
                     _ => {}
                 }
@@ -1526,8 +1621,10 @@ pub async fn acp_send_prompt(
         };
         tab_for_flag.in_flight.store(false, Ordering::Release);
         // Turn over → no permission can still be pending (covers prompts
-        // resolved by cancellation, which never hit respond_permission).
+        // resolved by cancellation, which never hit respond_permission),
+        // and the turn's sub-agents are finished — drop their rows.
         tab_for_flag.set_pending(None);
+        tab_for_flag.clear_subagents();
         // Turn boundary: fold the streamed chunks into one Agent turn.
         match tab_for_flag.world.lock() {
             Ok(mut w) => w.flush_agent_turn(),
@@ -1826,6 +1923,38 @@ mod tests {
 
     fn tool_call_fields(json: &str) -> ToolCallFields {
         serde_json::from_str(json).expect("tool call fixture parses")
+    }
+
+    #[test]
+    fn subagent_from_tool_call_classifies_task_calls_only() {
+        // Task via rawInput.subagent_type
+        let t = tool_call_fields(
+            r#"{"toolCallId":"t1","title":"Task","status":"in_progress",
+                "rawInput":{"subagent_type":"Explore","description":"find phase detection","prompt":"..."}}"#,
+        );
+        let row = subagent_from_tool_call(&t, 42).expect("classified");
+        assert_eq!(row.id, "t1");
+        assert_eq!(row.label, "find phase detection");
+        assert_eq!(row.detail.as_deref(), Some("Explore"));
+        assert!(row.running);
+        assert_eq!(row.started_unix_ms, 42);
+
+        // Task-title without subagent_type still counts
+        let bare =
+            tool_call_fields(r#"{"toolCallId":"t2","title":"Task(review)","status":"completed"}"#);
+        let row2 = subagent_from_tool_call(&bare, 0).expect("classified");
+        assert_eq!(row2.label, "Task(review)");
+        assert!(!row2.running); // completed → not running
+
+        // Ordinary tools never classify
+        let read = tool_call_fields(
+            r#"{"toolCallId":"t3","kind":"read","title":"Read","rawInput":{"fileName":"a.rs"}}"#,
+        );
+        assert!(subagent_from_tool_call(&read, 0).is_none());
+        let exec = tool_call_fields(
+            r#"{"toolCallId":"t4","kind":"execute","rawInput":{"command":"cargo test"}}"#,
+        );
+        assert!(subagent_from_tool_call(&exec, 0).is_none());
     }
 
     #[test]

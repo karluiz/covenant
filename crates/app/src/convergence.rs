@@ -125,6 +125,20 @@ pub struct PendingAcpPermission {
     pub since_unix_ms: u64,
 }
 
+/// One live sub-agent under an ACP session — a Task tool call the
+/// executor spawned. One level only; rows vanish at turn end.
+#[derive(Debug, Clone, Serialize)]
+pub struct SubAgentRow {
+    /// tool_call_id
+    pub id: String,
+    /// rawInput.description ?? title ?? "subagent"
+    pub label: String,
+    /// rawInput.subagent_type
+    pub detail: Option<String>,
+    pub running: bool,
+    pub started_unix_ms: u64,
+}
+
 /// One Convergence card — an agent session from any lane. The operator,
 /// when present, is a badge on the card, not its grouping key.
 #[derive(Debug, Clone, Serialize)]
@@ -149,6 +163,8 @@ pub struct AgentCard {
     pub operator_avatar: Option<String>,
     pub cost_usd: Option<f64>,
     pub budget_usd: Option<f64>,
+    /// Live sub-agents (ACP lane only; empty elsewhere).
+    pub subagents: Vec<SubAgentRow>,
 }
 
 /// What kind of blocked signal an attention item carries. Determines the
@@ -341,6 +357,8 @@ pub struct AcpSessionInput {
     pub operator_avatar: Option<String>,
     /// The permission prompt this tab is blocked on, if any.
     pub pending: Option<PendingAcpPermission>,
+    /// Live sub-agents recorded on the tab (Task tool calls).
+    pub subagents: Vec<SubAgentRow>,
 }
 
 /// Card for an operator-less PTY session. `None` unless NotchHub sees a
@@ -373,6 +391,7 @@ pub fn pty_agent_card(
         operator_avatar: None,
         cost_usd: None,
         budget_usd: None,
+        subagents: Vec::new(),
     })
 }
 
@@ -399,6 +418,7 @@ pub fn acp_agent_card(inp: AcpSessionInput) -> AgentCard {
         operator_avatar: inp.operator_avatar,
         cost_usd: None,
         budget_usd: None,
+        subagents: inp.subagents,
     }
 }
 
@@ -623,6 +643,7 @@ pub async fn build_convergence_snapshot(
             operator_avatar: op_avatar,
             cost_usd,
             budget_usd: if enrolled { Some(aom_budget) } else { None },
+            subagents: Vec::new(),
         };
 
         let executor_excerpt = matches!(status, TileStatus::Blocked)
@@ -880,6 +901,7 @@ mod tests {
             operator_avatar: None,
             cost_usd: None,
             budget_usd: None,
+            subagents: Vec::new(),
         }
     }
 

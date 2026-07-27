@@ -1995,6 +1995,7 @@ async fn build_convergence_inputs(
             operator_name,
             operator_avatar,
             pending: m.pending,
+            subagents: m.subagents,
         });
     }
     (out, acp_out)
