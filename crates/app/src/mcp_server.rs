@@ -109,8 +109,8 @@ pub(crate) async fn require_bearer(
     }
 }
 
-/// The MCP handler. Task tools land here in Task 3; notes tools follow in
-/// Task 4.
+/// The MCP handler. Hosts both task tools (`task_list`/`task_complete`/
+/// `task_create`) and notes tools (`notes_read`/`notes_append`).
 #[derive(Clone)]
 pub struct CovenantMcp {
     pub app: tauri::AppHandle,
@@ -135,6 +135,20 @@ pub struct TaskCreateArgs {
     pub parent_task_id: String,
     pub title: String,
     pub body: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct NotesReadArgs {
+    /// Project group id. If spawned by Covenant, $COVENANT_GROUP_ID.
+    pub group_id: String,
+    /// Max notes to return, newest first. Default 20.
+    pub limit: Option<u32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct NotesAppendArgs {
+    pub group_id: String,
+    pub body: String,
 }
 
 fn now_ms() -> u64 {
@@ -176,6 +190,13 @@ impl CovenantMcp {
 
     fn storage(&self) -> Arc<Storage> {
         self.app.state::<Arc<Storage>>().inner().clone()
+    }
+
+    fn notes(&self) -> crate::project_notes::Store {
+        self.app
+            .state::<crate::project_notes::Store>()
+            .inner()
+            .clone()
     }
 
     #[rmcp::tool(description = "List Covenant operator tasks, optionally filtered by status.")]
@@ -241,6 +262,45 @@ impl CovenantMcp {
                 )]))
             }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
+    }
+
+    #[rmcp::tool(description = "Read recent Covenant project notes for a group, newest first.")]
+    async fn notes_read(
+        &self,
+        params: Parameters<NotesReadArgs>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let limit = params.0.limit.unwrap_or(20) as usize;
+        match self
+            .notes()
+            .list_notes(&params.0.group_id, limit, None)
+            .await
+        {
+            Ok(notes) => Ok(CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&notes).unwrap_or_default(),
+            )])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
+                e.to_string(),
+            )])),
+        }
+    }
+
+    #[rmcp::tool(description = "Append a note to a Covenant project group's notes.")]
+    async fn notes_append(
+        &self,
+        params: Parameters<NotesAppendArgs>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self
+            .notes()
+            .append_note(&params.0.group_id, &params.0.body, Some("mcp"))
+            .await
+        {
+            Ok(note) => Ok(CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&note).unwrap_or_default(),
+            )])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
+                e.to_string(),
+            )])),
         }
     }
 }
