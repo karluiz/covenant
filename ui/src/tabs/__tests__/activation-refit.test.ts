@@ -41,20 +41,28 @@ describe("computeActivationRefit", () => {
 });
 
 describe("shouldRoNudge", () => {
-  it("skips the nudge on the reveal transition (host was 0x0)", () => {
-    expect(shouldRoNudge({ revealing: true, dimsChanged: false, rows: 40 })).toBe(false);
+  it("skips the nudge on an activation-owned reveal (host was 0x0, nothing pending)", () => {
+    expect(shouldRoNudge({ revealing: true, dimsChanged: false, rows: 40, wroteWhileHidden: false })).toBe(false);
+  });
+
+  it("nudges on a reveal that activate() never handled (bytes still pending)", () => {
+    // A pane can be revealed without going through activate() — e.g. its
+    // host regains size after an ancestor was display:none. If data arrived
+    // while it was unmeasurable, the scroll area is stale and the user
+    // can't scroll to the bottom until the nudge re-syncs it.
+    expect(shouldRoNudge({ revealing: true, dimsChanged: false, rows: 40, wroteWhileHidden: true })).toBe(true);
   });
 
   it("nudges on sub-cell drift while visible (same dims after fit)", () => {
-    expect(shouldRoNudge({ revealing: false, dimsChanged: false, rows: 40 })).toBe(true);
+    expect(shouldRoNudge({ revealing: false, dimsChanged: false, rows: 40, wroteWhileHidden: false })).toBe(true);
   });
 
   it("skips the nudge when fit already resized (resize re-syncs the scroll area)", () => {
-    expect(shouldRoNudge({ revealing: false, dimsChanged: true, rows: 40 })).toBe(false);
+    expect(shouldRoNudge({ revealing: false, dimsChanged: true, rows: 40, wroteWhileHidden: false })).toBe(false);
   });
 
   it("never nudges a 1-row terminal", () => {
-    expect(shouldRoNudge({ revealing: false, dimsChanged: false, rows: 1 })).toBe(false);
+    expect(shouldRoNudge({ revealing: true, dimsChanged: false, rows: 1, wroteWhileHidden: true })).toBe(false);
   });
 });
 
