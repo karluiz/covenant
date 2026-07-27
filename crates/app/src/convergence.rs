@@ -2,6 +2,7 @@
 //! tile per open session for the ⌘⇧O overlay. NO schema changes; pulls
 //! from existing AppState handles only.
 
+use karl_session::ExecutorPhase;
 use serde::Serialize;
 use std::time::{Duration, Instant};
 
@@ -52,6 +53,41 @@ pub fn detect_vendor(cmd: Option<&str>) -> Vendor {
         h if h.starts_with("aider") => Vendor::Aider,
         h if h.starts_with("codex") => Vendor::Codex,
         _ => Vendor::Unknown,
+    }
+}
+
+/// Which lane produced an agent card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Lane {
+    Pty,
+    Acp,
+}
+
+/// Phase→status mapping for operator-less agent sessions (spec P1 table).
+/// Thinking is `Working` — `OperatorThinking` stays operator-only.
+pub fn phase_to_status(p: &ExecutorPhase) -> TileStatus {
+    match p {
+        ExecutorPhase::Thinking
+        | ExecutorPhase::Running { .. }
+        | ExecutorPhase::Writing { .. }
+        | ExecutorPhase::Reading { .. } => TileStatus::Working,
+        ExecutorPhase::Waiting { .. } => TileStatus::Blocked,
+        ExecutorPhase::Done { .. } => TileStatus::AwaitingInput,
+        ExecutorPhase::Idle => TileStatus::Idle,
+    }
+}
+
+/// Human line under the card title ("writing overlay.ts").
+pub fn phase_label(p: &ExecutorPhase) -> Option<String> {
+    match p {
+        ExecutorPhase::Idle => None,
+        ExecutorPhase::Thinking => Some("thinking".into()),
+        ExecutorPhase::Running { cmd } => Some(format!("running {cmd}")),
+        ExecutorPhase::Writing { file } => Some(format!("writing {file}")),
+        ExecutorPhase::Reading { file } => Some(format!("reading {file}")),
+        ExecutorPhase::Waiting { reason } => Some(format!("waiting: {reason}")),
+        ExecutorPhase::Done { summary } => summary.clone().or_else(|| Some("done".into())),
     }
 }
 
@@ -753,6 +789,77 @@ mod tests {
         // Both blank → absent, never a blank question in the UI.
         assert_eq!(decision_question(&mk(Some("  "), Some(""))), None);
         assert_eq!(decision_question(&mk(None, None)), None);
+    }
+
+    #[test]
+    fn phase_to_status_table() {
+        use karl_session::ExecutorPhase as P;
+        assert_eq!(phase_to_status(&P::Thinking), TileStatus::Working);
+        assert_eq!(
+            phase_to_status(&P::Running {
+                cmd: "cargo test".into()
+            }),
+            TileStatus::Working
+        );
+        assert_eq!(
+            phase_to_status(&P::Writing { file: "a.rs".into() }),
+            TileStatus::Working
+        );
+        assert_eq!(
+            phase_to_status(&P::Reading { file: "a.rs".into() }),
+            TileStatus::Working
+        );
+        assert_eq!(
+            phase_to_status(&P::Waiting {
+                reason: "permission".into()
+            }),
+            TileStatus::Blocked
+        );
+        assert_eq!(
+            phase_to_status(&P::Done { summary: None }),
+            TileStatus::AwaitingInput
+        );
+        assert_eq!(phase_to_status(&P::Idle), TileStatus::Idle);
+    }
+
+    #[test]
+    fn phase_label_table() {
+        use karl_session::ExecutorPhase as P;
+        assert_eq!(phase_label(&P::Idle), None);
+        assert_eq!(phase_label(&P::Thinking).as_deref(), Some("thinking"));
+        assert_eq!(
+            phase_label(&P::Running {
+                cmd: "cargo test".into()
+            })
+            .as_deref(),
+            Some("running cargo test")
+        );
+        assert_eq!(
+            phase_label(&P::Writing { file: "a.rs".into() }).as_deref(),
+            Some("writing a.rs")
+        );
+        assert_eq!(
+            phase_label(&P::Reading { file: "a.rs".into() }).as_deref(),
+            Some("reading a.rs")
+        );
+        assert_eq!(
+            phase_label(&P::Waiting {
+                reason: "permission".into()
+            })
+            .as_deref(),
+            Some("waiting: permission")
+        );
+        assert_eq!(
+            phase_label(&P::Done {
+                summary: Some("2 files".into())
+            })
+            .as_deref(),
+            Some("2 files")
+        );
+        assert_eq!(
+            phase_label(&P::Done { summary: None }).as_deref(),
+            Some("done")
+        );
     }
 
     #[test]
