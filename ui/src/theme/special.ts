@@ -319,6 +319,10 @@ const OWNED_PROPS = [
   "--settings-btn-fill",
   "--settings-btn-fill-hover",
   "--op-card-fill",
+  "--cp-scrim",
+  "--cp-card-bg",
+  "--cp-card-border",
+  "--cp-card-sheen",
 ] as const;
 
 /// Translucency forced while a Special Theme is active. Without this a
@@ -372,6 +376,13 @@ export function applySpecialTokens(
   set("--settings-btn-fill", rgbFn(shade(base, 10)));
   set("--settings-btn-fill-hover", rgbFn(shade(base, 16)));
   set("--op-card-fill", rgbFn(shade(base, 10)));
+  // Command-palette skin (⌘⌥T switcher + the confirm/rename modals that
+  // reuse it): without these the card falls back to the stylesheet's fixed
+  // dark navy and ignores the theme's ground entirely.
+  set("--cp-scrim", `rgb(${shade(base, -20).join(" ")} / 0.55)`);
+  set("--cp-card-bg", `rgb(${shade(base, 8).join(" ")} / 0.8)`);
+  set("--cp-card-border", "rgb(var(--ink-rgb) / 0.12)");
+  set("--cp-card-sheen", "rgb(255 255 255 / 0.04)");
   set("--border", "rgb(var(--ink-rgb) / 0.12)");
   set("--accent", t.accent);
   if (t.danger) set("--danger", t.danger);
