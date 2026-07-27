@@ -6,6 +6,33 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.77 — Tasker subtasks checklist + chrome fixes
+
+### Added
+
+- **Tasker subtasks**: the task detail sheet grows a Subtasks section between
+  Due and Notes — checkbox toggles, hover-revealed delete, and an
+  always-visible add input (Enter adds and keeps focus). Board cards and rail
+  rows show a mono `2/5` progress chip that turns accent when the list is
+  complete, and shared boards at forge `/b/:token` republish with the
+  checklist automatically (`ui/src/tasker/panel.ts`, `board.ts`,
+  `styles.css`, `board.css`).
+
+### Fixed
+
+- **Status bar branch chip**: long git branch names no longer stretch the
+  status bar — the chip caps at 160px with an ellipsis (`ui/src/styles.css`).
+
+- **Canon esc pill hover flicker**: the Esc pill now sits in-flow inside the
+  sticky section head instead of absolutely positioned over hover-animated
+  rows, killing the WebKit repaint flicker for good
+  (`ui/src/canon/cockpit/cockpit.css`, `view.ts`,
+  `ui/src/project-notes/panel.ts`).
+
+- **Worktree tabs join the active group**: Agent/Open tabs spawned from
+  worktree surfaces now land in the active tab group instead of a stray one
+  (`ui/src/main.ts`).
+
 ## v0.9.76 — ACP sketch v2, composer shortcuts, org defaults
 
 ### Added
