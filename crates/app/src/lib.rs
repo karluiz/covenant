@@ -4715,8 +4715,7 @@ pub fn run() {
     // `covenant mcp-config` prints the MCP entry for external agents and exits.
     if std::env::args().nth(1).as_deref() == Some("mcp-config") {
         // Same dir tauri's app_data_dir resolves to; keep in sync with mcp_server::discovery_path.
-        let path = dirs::data_dir()
-            .map(|d| d.join("com.karluiz.covenant").join("mcp.json"));
+        let path = dirs::data_dir().map(|d| d.join("com.karluiz.covenant").join("mcp.json"));
         match path.and_then(|p| std::fs::read_to_string(p).ok()) {
             Some(raw) => {
                 let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
