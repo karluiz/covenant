@@ -19993,6 +19993,18 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 
 .mc-card__head { display: flex; align-items: center; gap: 9px; }
 .mc-card__name { color: var(--text-primary); font-size: 14px; font-weight: 600; }
+.mc-card__exec { color: var(--text-primary); font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+.mc-oplabel { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
+.mc-attention { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.mc-attention__head { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.mc-attention-card__age { color: var(--muted); font-size: 11px; margin-left: auto; }
+.mc-perm-opts { display: flex; gap: 6px; margin-top: 8px; }
+.mc-perm-opts button { appearance: none; border: 1px solid var(--border); background: transparent; color: var(--text-primary); padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 0; }
+.mc-perm-opts button:hover { border-color: var(--text-primary); }
+.mc-subagents { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.mc-subrow { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.mc-subrow__detail, .mc-subrow__age { color: var(--muted); font-size: 11px; }
+.mc-subrow__age { margin-left: auto; }
 .mc-card__tab {
   margin-left: auto; background: transparent; border: 0; cursor: pointer;
   color: var(--accent); font: inherit; font-size: 12px; text-decoration: underline dotted;

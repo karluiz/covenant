@@ -1,14 +1,17 @@
 import {
+  acpRespondPermission,
   getConvergenceSnapshot,
   setOperatorEnabled,
   submitConvergenceReply,
+  writeToSession,
   type ConvergenceSnapshot,
 } from "../api";
 import type { SessionId } from "../api";
 import { Icons } from "../icons";
 import { formatChord } from "../platform";
-import { escalationIndex, sortOperators } from "./model";
-import { renderOperatorCard, type ReplyScope } from "./tile";
+import { renderAttentionCard } from "./attention";
+import { attentionIndex, sortAgents } from "./model";
+import { renderAgentCard, type ReplyScope } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
@@ -26,6 +29,7 @@ const POLL_MS = 1000;
 
 export class ConvergenceOverlay {
   private root: HTMLElement | null = null;
+  private attentionEl: HTMLElement | null = null;
   private gridEl: HTMLElement | null = null;
   private summaryEl: HTMLElement | null = null;
   private empty: HTMLElement | null = null;
@@ -35,8 +39,7 @@ export class ConvergenceOverlay {
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
   private snap: ConvergenceSnapshot | null = null; // last-good
   private filter: Filter = "all";
-  private expanded = new Set<string>();
-  private activeOperatorId: string | null = null;
+  private activeSessionId: string | null = null;
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
@@ -60,11 +63,10 @@ export class ConvergenceOverlay {
       this.escHandler = null;
     }
     this.root?.remove();
-    this.root = this.gridEl = this.summaryEl = this.empty = this.reconnectEl = null;
+    this.root = this.attentionEl = this.gridEl = this.summaryEl = this.empty = this.reconnectEl = null;
     this.snap = null;
     this.filter = "all";
-    this.expanded.clear();
-    this.activeOperatorId = null;
+    this.activeSessionId = null;
   }
 
   private mount(): void {
@@ -107,6 +109,10 @@ export class ConvergenceOverlay {
     }
     strip.append(summary, reconnect, filters);
 
+    const attention = document.createElement("div");
+    attention.className = "mc-attention";
+    attention.hidden = true;
+
     const grid = document.createElement("div");
     grid.className = "mc-grid";
 
@@ -115,17 +121,18 @@ export class ConvergenceOverlay {
     empty.hidden = true;
     empty.innerHTML = `
       <div class="convergence-overlay__empty-icon">${Icons.link2({ size: 56 })}</div>
-      <div class="convergence-overlay__empty-title">Nothing to converge</div>
+      <div class="convergence-overlay__empty-title">No agents running</div>
       <div class="convergence-overlay__empty-body">
-        Mission Control shows every operator across your tabs.<br/>
-        Enable an operator on a tab (${formatChord(["mod", "O"])}) to populate this view.
+        Convergence shows every agent across your tabs.<br/>
+        Run an executor in any terminal (claude, codex, …) or open an ACP chat — it appears here automatically.
       </div>
       <kbd class="convergence-overlay__empty-hint">${formatChord(["mod", "shift", "M"])} to toggle convergence</kbd>`;
 
-    root.append(header, strip, grid, empty);
+    root.append(header, strip, attention, grid, empty);
     document.body.append(root);
 
     this.root = root;
+    this.attentionEl = attention;
     this.gridEl = grid;
     this.summaryEl = summary;
     this.empty = empty;
@@ -143,12 +150,11 @@ export class ConvergenceOverlay {
         e.preventDefault();
         this.moveActive(e.key === "ArrowDown" ? 1 : -1);
       }
-      if (e.key === "Enter" && this.activeOperatorId) {
+      if (e.key === "Enter" && this.activeSessionId) {
         const active = document.activeElement as HTMLElement | null;
         if (active?.closest(".mc-reply") || active?.closest("button, input, select, textarea")) return;
-        const op = this.visibleOperators().find((o) => o.operator_id === this.activeOperatorId);
-        const first = op?.sessions[0];
-        if (first) { this.bridge.activateBySessionId(first.session_id); this.close(); }
+        this.bridge.activateBySessionId(this.activeSessionId);
+        this.close();
       }
     };
     document.addEventListener("keydown", this.escHandler, { capture: true });
@@ -176,23 +182,31 @@ export class ConvergenceOverlay {
     this.render();
   }
 
-  private visibleOperators() {
+  /// Grid population: queued (attention) sessions are excluded — the
+  /// queue owns them. Under "needs you" the grid is empty by design and
+  /// only the queue shows.
+  private visibleAgents() {
     if (!this.snap) return [];
-    const sorted = sortOperators(this.snap.roster, this.snap.escalations);
-    return sorted.filter((entry) => {
+    const queued = attentionIndex(this.snap.attention);
+    const sorted = sortAgents(this.snap.agents, this.snap.attention)
+      .filter((card) => !queued.has(card.session_id));
+    return sorted.filter((card) => {
       switch (this.filter) {
         case "all": return true;
-        case "needs you": return entry.has_escalation;
-        case "working": return entry.sessions.some((s) => s.status === "working");
-        case "idle": return entry.sessions.every((s) => s.status === "idle");
+        case "needs you": return false;
+        case "working": return card.status === "working";
+        case "idle": return card.status === "idle";
       }
     });
   }
 
   private render(): void {
-    if (!this.gridEl || !this.empty || !this.summaryEl || !this.snap) return;
-    const roster = this.snap.roster;
-    if (roster.length === 0) {
+    if (!this.attentionEl || !this.gridEl || !this.empty || !this.summaryEl || !this.snap) return;
+    const agents = this.snap.agents;
+    const attention = this.snap.attention;
+    if (agents.length === 0 && attention.length === 0) {
+      this.attentionEl.replaceChildren();
+      this.attentionEl.hidden = true;
       this.gridEl.replaceChildren();
       this.gridEl.hidden = true;
       this.empty.hidden = false;
@@ -202,14 +216,12 @@ export class ConvergenceOverlay {
     this.empty.hidden = true;
     this.gridEl.hidden = false;
 
-    const sessions = roster.flatMap((r) => r.sessions);
-    const needs = roster.filter((r) => r.has_escalation).length;
-    const working = sessions.filter((s) => s.status === "working").length;
-    const idle = sessions.filter((s) => s.status === "idle").length;
-    const cost = sessions.reduce((a, s) => a + (s.cost_usd ?? 0), 0);
+    const working = agents.filter((a) => a.status === "working").length;
+    const idle = agents.filter((a) => a.status === "idle").length;
+    const cost = agents.reduce((acc, a) => acc + (a.cost_usd ?? 0), 0);
     this.summaryEl.innerHTML =
-      `<b>${roster.length}</b> operators · ` +
-      (needs ? `<b class="mc-strip__alert">${needs} needs you</b> · ` : "") +
+      `<b>${agents.length}</b> agents · ` +
+      (attention.length ? `<b class="mc-strip__alert">${attention.length} needs you</b> · ` : "") +
       `${working} working · ${idle} idle` +
       (cost >= 0.005 ? ` · <b>$${cost.toFixed(2)}</b>` : "");
 
@@ -217,36 +229,60 @@ export class ConvergenceOverlay {
       c.classList.toggle("mc-fchip--on", c.dataset.filter === this.filter);
     });
 
-    const esc = escalationIndex(this.snap.escalations);
-    const list = this.visibleOperators();
-    if (!this.activeOperatorId || !list.some((o) => o.operator_id === this.activeOperatorId)) {
-      this.activeOperatorId = list[0]?.operator_id ?? null;
+    // The queue: backend pre-sorts (timestamped oldest-first).
+    this.attentionEl.replaceChildren();
+    this.attentionEl.hidden = attention.length === 0;
+    for (const item of attention) {
+      this.attentionEl.append(
+        renderAttentionCard(item, {
+          onFocus: (sid, keepOpen) => {
+            const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
+            if (ok && !keepOpen) this.close();
+          },
+          onOperatorReply: this.submitReply.bind(this),
+          onPermission: (sid, key, opt) => {
+            void acpRespondPermission(sid as SessionId, key, opt).catch((err) =>
+              console.warn("[convergence] respond permission failed", sid, err),
+            );
+            void this.refresh();
+          },
+          onPtyReply: (sid, text) => {
+            void writeToSession(sid as SessionId, new TextEncoder().encode(text + "\r")).catch(
+              (err) => console.warn("[convergence] pty reply failed", sid, err),
+            );
+            void this.refresh();
+          },
+        }),
+      );
+    }
+
+    const list = this.visibleAgents();
+    if (!this.activeSessionId || !list.some((a) => a.session_id === this.activeSessionId)) {
+      this.activeSessionId = list[0]?.session_id ?? null;
     }
     this.gridEl.replaceChildren();
     if (list.length === 0) {
-      const none = document.createElement("div");
-      none.className = "mc-grid__empty";
-      none.innerHTML = `No operators match <code>${this.filter}</code>. <button type="button" class="mc-grid__reset">Show all</button>`;
-      none.querySelector(".mc-grid__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
-      this.gridEl.append(none);
+      // Under "needs you" the queue IS the content — no grid nudge.
+      if (this.filter !== "needs you" && attention.length === 0) {
+        const none = document.createElement("div");
+        none.className = "mc-grid__empty";
+        none.innerHTML = `No agents match <code>${this.filter}</code>. <button type="button" class="mc-grid__reset">Show all</button>`;
+        none.querySelector(".mc-grid__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
+        this.gridEl.append(none);
+      }
       return;
     }
-    for (const entry of list) {
-      const card = renderOperatorCard(entry, esc, {
+    for (const card of list) {
+      const el = renderAgentCard(card, {
         onFocus: (sid, keepOpen) => {
           const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
           if (ok && !keepOpen) this.close();
         },
-        onToggleExpand: (opId) => {
-          if (this.expanded.has(opId)) this.expanded.delete(opId);
-          else this.expanded.add(opId);
-          this.render();
-        },
         onSubmit: this.submitReply.bind(this),
         onStop: this.stopOperator.bind(this),
-      }, this.expanded);
-      if (entry.operator_id === this.activeOperatorId) card.classList.add("mc-card--active");
-      this.gridEl.append(card);
+      });
+      if (card.session_id === this.activeSessionId) el.classList.add("mc-card--active");
+      this.gridEl.append(el);
     }
   }
 
@@ -258,29 +294,27 @@ export class ConvergenceOverlay {
     this.gridEl.replaceChildren();
     const err = document.createElement("div");
     err.className = "mc-grid__empty";
-    err.innerHTML = `Couldn't load operator status. <button type="button" class="mc-grid__reset">Retry</button>`;
+    err.innerHTML = `Couldn't load agent status. <button type="button" class="mc-grid__reset">Retry</button>`;
     err.querySelector(".mc-grid__reset")?.addEventListener("click", () => void this.refresh());
     this.gridEl.append(err);
   }
 
   private moveActive(delta: number): void {
-    const list = this.visibleOperators();
+    const list = this.visibleAgents();
     if (list.length === 0) return;
-    const idx = list.findIndex((o) => o.operator_id === this.activeOperatorId);
+    const idx = list.findIndex((a) => a.session_id === this.activeSessionId);
     const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
-    this.activeOperatorId = list[next].operator_id;
+    this.activeSessionId = list[next].session_id;
     this.render();
   }
 
-  /// Disable the operator on every one of its sessions. Fire-and-forget per
-  /// session; the next 1s poll drops the now-inert sessions from the roster so
-  /// the card leaves on its own — no optimistic mutation needed.
-  private stopOperator(_operatorId: string, sessionIds: string[]): void {
-    for (const sid of sessionIds) {
-      void setOperatorEnabled(sid as SessionId, false).catch((err) =>
-        console.warn("[convergence] stopOperator failed", sid, err),
-      );
-    }
+  /// Disable the operator on this session. Fire-and-forget; the next 1s
+  /// poll re-renders the card without its operator badge (the card stays —
+  /// it's still an agent session).
+  private stopOperator(sessionId: string): void {
+    void setOperatorEnabled(sessionId as SessionId, false).catch((err) =>
+      console.warn("[convergence] stopOperator failed", sessionId, err),
+    );
     void this.refresh();
   }
 

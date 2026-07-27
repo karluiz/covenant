@@ -77,6 +77,67 @@ pub(crate) fn acp_event_to_phase(ev: &AcpSessionEvent) -> Option<ExecutorPhase> 
 /// Bucket a tool call into Writing / Running / Reading by its `kind`.
 /// Any other (or missing) kind is treated as a heartbeat, not a distinct
 /// phase — same rationale as pi's tool-update heartbeats.
+/// Pure: build the convergence-facing pending record from a wire request.
+pub(crate) fn pending_from_request(
+    request_key: &str,
+    request: &PermissionRequest,
+    now_unix_ms: u64,
+) -> crate::convergence::PendingAcpPermission {
+    let tc = &request.tool_call;
+    let title = tc
+        .title
+        .clone()
+        .or_else(|| tc.command().map(String::from))
+        .or_else(|| tc.kind.clone())
+        .unwrap_or_else(|| "permission".into());
+    crate::convergence::PendingAcpPermission {
+        request_key: request_key.into(),
+        title,
+        options: request
+            .options
+            .iter()
+            .map(|o| crate::convergence::PermissionChoice {
+                option_id: o.option_id.clone(),
+                kind: o.kind.clone(),
+                name: o.name.clone(),
+            })
+            .collect(),
+        since_unix_ms: now_unix_ms,
+    }
+}
+
+/// Recognize an agent-spawn tool call (Claude Code's Task tool). Updates
+/// can't classify — they may omit rawInput/title; match rows by id there.
+pub(crate) fn subagent_from_tool_call(
+    f: &ToolCallFields,
+    now_unix_ms: u64,
+) -> Option<crate::convergence::SubAgentRow> {
+    let ri = f.raw_input.as_ref();
+    let sub_type = ri
+        .and_then(|v| v.get("subagent_type"))
+        .and_then(Value::as_str);
+    let task_title = f
+        .title
+        .as_deref()
+        .is_some_and(|t| t == "Task" || t.starts_with("Task("));
+    if sub_type.is_none() && !task_title {
+        return None;
+    }
+    let label = ri
+        .and_then(|v| v.get("description"))
+        .and_then(Value::as_str)
+        .map(String::from)
+        .or_else(|| f.title.clone())
+        .unwrap_or_else(|| "subagent".into());
+    Some(crate::convergence::SubAgentRow {
+        id: f.tool_call_id.clone(),
+        label,
+        detail: sub_type.map(String::from),
+        running: !matches!(f.status.as_deref(), Some("completed") | Some("failed")),
+        started_unix_ms: now_unix_ms,
+    })
+}
+
 fn tool_call_phase(f: &ToolCallFields) -> ExecutorPhase {
     match f.kind.as_deref() {
         Some("edit") => ExecutorPhase::Writing {
@@ -269,6 +330,69 @@ struct AcpTabSession {
     /// context (see `acp_world.rs`). std Mutex: short holds, never
     /// across an await — same pattern as `commands`/`models`.
     world: std::sync::Mutex<crate::acp_world::AcpWorldModel>,
+    /// The permission prompt this tab is currently blocked on, if any.
+    /// Set by the forwarder when a prompt reaches the human; cleared on
+    /// `acp_respond_permission` and on turn end (PromptDone) so a
+    /// cancelled prompt can't go stale. Read by Convergence.
+    pending_permission: std::sync::Mutex<Option<crate::convergence::PendingAcpPermission>>,
+    /// Live sub-agents (Task tool calls) this turn, bounded to the last
+    /// `SUBAGENT_CAP`. Fed by the forwarder; cleared on PromptDone.
+    subagents: std::sync::Mutex<std::collections::VecDeque<crate::convergence::SubAgentRow>>,
+}
+
+/// Ring bound for per-tab sub-agent rows — enough for any real fan-out
+/// display; older rows fall off the front.
+const SUBAGENT_CAP: usize = 8;
+
+impl AcpTabSession {
+    fn set_pending(&self, v: Option<crate::convergence::PendingAcpPermission>) {
+        match self.pending_permission.lock() {
+            Ok(mut g) => *g = v,
+            Err(poisoned) => *poisoned.into_inner() = v,
+        }
+    }
+
+    /// A fresh `tool_call`: classify; replace the row with the same id or
+    /// append (dropping the oldest past the cap).
+    fn feed_subagent_call(&self, f: &ToolCallFields, now_unix_ms: u64) {
+        let Some(row) = subagent_from_tool_call(f, now_unix_ms) else {
+            return;
+        };
+        let mut g = match self.subagents.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(existing) = g.iter_mut().find(|r| r.id == row.id) {
+            *existing = row;
+            return;
+        }
+        if g.len() >= SUBAGENT_CAP {
+            g.pop_front();
+        }
+        g.push_back(row);
+    }
+
+    /// A `tool_call_update`: updates never classify (they may omit
+    /// rawInput/title) — only flip `running` on a row already in the ring.
+    fn feed_subagent_update(&self, f: &ToolCallFields) {
+        let Some(status) = f.status.as_deref() else {
+            return;
+        };
+        let mut g = match self.subagents.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(row) = g.iter_mut().find(|r| r.id == f.tool_call_id) {
+            row.running = !matches!(status, "completed" | "failed");
+        }
+    }
+
+    fn clear_subagents(&self) {
+        match self.subagents.lock() {
+            Ok(mut g) => g.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
+    }
 }
 
 impl AcpTabSession {
@@ -337,6 +461,15 @@ pub struct AcpRegistry {
     inner: Arc<Mutex<HashMap<SessionId, Arc<AcpTabSession>>>>,
 }
 
+/// One live ACP tab's Convergence-facing metadata (see `list_meta`).
+pub struct AcpMeta {
+    pub session_id: SessionId,
+    pub executor: String,
+    pub cwd: Option<String>,
+    pub pending: Option<crate::convergence::PendingAcpPermission>,
+    pub subagents: Vec<crate::convergence::SubAgentRow>,
+}
+
 impl AcpRegistry {
     pub fn new() -> Self {
         Self::default()
@@ -352,6 +485,26 @@ impl AcpRegistry {
 
     async fn remove(&self, id: &SessionId) -> Option<Arc<AcpTabSession>> {
         self.inner.lock().await.remove(id)
+    }
+
+    /// Per-live-ACP-tab metadata — Convergence card + attention inputs.
+    pub async fn list_meta(&self) -> Vec<AcpMeta> {
+        let g = self.inner.lock().await;
+        g.iter()
+            .map(|(id, tab)| AcpMeta {
+                session_id: *id,
+                executor: tab.executor.clone(),
+                cwd: Some(tab.cwd.to_string_lossy().into_owned()),
+                pending: match tab.pending_permission.lock() {
+                    Ok(p) => p.clone(),
+                    Err(poisoned) => poisoned.into_inner().clone(),
+                },
+                subagents: match tab.subagents.lock() {
+                    Ok(s) => s.iter().cloned().collect(),
+                    Err(poisoned) => poisoned.into_inner().iter().cloned().collect(),
+                },
+            })
+            .collect()
     }
 
     /// Clone every live tab's world-model state for the operator's
@@ -1039,6 +1192,8 @@ pub async fn spawn_acp_session(
         perception_consecutive: AtomicU32::new(0),
         trust: trust.clone(),
         world: std::sync::Mutex::new(crate::acp_world::AcpWorldModel::new(executor.clone())),
+        pending_permission: std::sync::Mutex::new(None),
+        subagents: std::sync::Mutex::new(std::collections::VecDeque::new()),
     });
     let tab_for_task = tab_session.clone();
 
@@ -1168,6 +1323,14 @@ pub async fn spawn_acp_session(
                             Ok(mut w) => w.on_tool_call(title),
                             Err(poisoned) => poisoned.into_inner().on_tool_call(title),
                         }
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0);
+                        tab_for_task.feed_subagent_call(f, now);
+                    }
+                    SessionUpdate::ToolCallUpdate(f) => {
+                        tab_for_task.feed_subagent_update(f);
                     }
                     _ => {}
                 }
@@ -1277,6 +1440,17 @@ pub async fn spawn_acp_session(
                     break;
                 }
             };
+            if let AcpTabEvent::PermissionPending {
+                request_key,
+                request,
+            } = &payload
+            {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                tab_for_task.set_pending(Some(pending_from_request(request_key, request, now)));
+            }
             if let Err(e) = app_for_task.emit(&topic_for_task, &payload) {
                 tracing::warn!(?e, topic = %topic_for_task, "acp event emit failed");
             }
@@ -1461,6 +1635,11 @@ pub async fn acp_send_prompt(
             Err(e) => e.to_string(),
         };
         tab_for_flag.in_flight.store(false, Ordering::Release);
+        // Turn over → no permission can still be pending (covers prompts
+        // resolved by cancellation, which never hit respond_permission),
+        // and the turn's sub-agents are finished — drop their rows.
+        tab_for_flag.set_pending(None);
+        tab_for_flag.clear_subagents();
         // Turn boundary: fold the streamed chunks into one Agent turn.
         match tab_for_flag.world.lock() {
             Ok(mut w) => w.flush_agent_turn(),
@@ -1492,6 +1671,7 @@ pub async fn acp_respond_permission(
     let (_, tab) = require(&state, &session_id).await?;
     // A human click breaks the Perception auto-answer streak.
     tab.perception_consecutive.store(0, Ordering::Release);
+    tab.set_pending(None);
     tab.session
         .respond_permission(&request_key, &option_id)
         .await
@@ -1762,6 +1942,73 @@ mod tests {
 
     fn tool_call_fields(json: &str) -> ToolCallFields {
         serde_json::from_str(json).expect("tool call fixture parses")
+    }
+
+    #[test]
+    fn subagent_from_tool_call_classifies_task_calls_only() {
+        // Task via rawInput.subagent_type
+        let t = tool_call_fields(
+            r#"{"toolCallId":"t1","title":"Task","status":"in_progress",
+                "rawInput":{"subagent_type":"Explore","description":"find phase detection","prompt":"..."}}"#,
+        );
+        let row = subagent_from_tool_call(&t, 42).expect("classified");
+        assert_eq!(row.id, "t1");
+        assert_eq!(row.label, "find phase detection");
+        assert_eq!(row.detail.as_deref(), Some("Explore"));
+        assert!(row.running);
+        assert_eq!(row.started_unix_ms, 42);
+
+        // Task-title without subagent_type still counts
+        let bare =
+            tool_call_fields(r#"{"toolCallId":"t2","title":"Task(review)","status":"completed"}"#);
+        let row2 = subagent_from_tool_call(&bare, 0).expect("classified");
+        assert_eq!(row2.label, "Task(review)");
+        assert!(!row2.running); // completed → not running
+
+        // Ordinary tools never classify
+        let read = tool_call_fields(
+            r#"{"toolCallId":"t3","kind":"read","title":"Read","rawInput":{"fileName":"a.rs"}}"#,
+        );
+        assert!(subagent_from_tool_call(&read, 0).is_none());
+        let exec = tool_call_fields(
+            r#"{"toolCallId":"t4","kind":"execute","rawInput":{"command":"cargo test"}}"#,
+        );
+        assert!(subagent_from_tool_call(&exec, 0).is_none());
+    }
+
+    #[test]
+    fn pending_from_request_derives_title_and_choices() {
+        let req: PermissionRequest = serde_json::from_value(json!({
+            "sessionId": "s1",
+            "toolCall": { "toolCallId": "t1", "kind": "execute", "rawInput": { "command": "npm test" } },
+            "options": [
+                { "optionId": "allow_once", "kind": "allow_once", "name": "Allow once" },
+                { "optionId": "rej", "kind": "reject_once" }
+            ]
+        }))
+        .expect("fixture parses");
+        let p = pending_from_request("perm-7", &req, 1234);
+        assert_eq!(p.request_key, "perm-7");
+        assert_eq!(p.title, "npm test"); // no title → falls back to rawInput.command
+        assert_eq!(p.since_unix_ms, 1234);
+        assert_eq!(p.options.len(), 2);
+        assert_eq!(p.options[0].option_id, "allow_once");
+        assert_eq!(p.options[0].name.as_deref(), Some("Allow once"));
+        assert_eq!(p.options[1].name, None);
+    }
+
+    #[test]
+    fn pending_from_request_prefers_explicit_title() {
+        let req: PermissionRequest = serde_json::from_value(json!({
+            "sessionId": "s1",
+            "toolCall": { "toolCallId": "t1", "title": "Write src/main.rs", "kind": "edit" },
+            "options": [{ "optionId": "a", "kind": "allow_once" }]
+        }))
+        .expect("fixture parses");
+        assert_eq!(
+            pending_from_request("k", &req, 0).title,
+            "Write src/main.rs"
+        );
     }
 
     #[test]
