@@ -12,7 +12,14 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use rmcp::handler::server::wrapper::Parameters;
+use rmcp::model::{CallToolResult, ContentBlock};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use tauri::Manager;
+
+use crate::storage::Storage;
+use crate::teammate::{TaskId, TaskStatus};
 
 /// Port + token of the running server, managed as tauri state so spawn
 /// paths (ACP injection) and `mcp-config` printing can read them.
@@ -102,15 +109,60 @@ pub(crate) async fn require_bearer(
     }
 }
 
-/// The MCP handler. Tools arrive in Tasks 3–4; for now it serves an empty
-/// tool list so `initialize` + `tools/list` round-trip.
-// `app` and `tool_router` are unread until `#[tool]` methods land in Tasks
-// 3-4 (the tool_router macro wires `tool_router` in; tool bodies use `app`).
-#[allow(dead_code)]
+/// The MCP handler. Task tools land here in Task 3; notes tools follow in
+/// Task 4.
 #[derive(Clone)]
 pub struct CovenantMcp {
     pub app: tauri::AppHandle,
     tool_router: rmcp::handler::server::router::tool::ToolRouter<Self>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct TaskListArgs {
+    /// Filter: "draft" | "active" | "blocked" | "done" | "cancelled". Omit for all.
+    pub status: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct TaskCompleteArgs {
+    /// The task to mark done. If you were spawned by Covenant, this is $COVENANT_TASK_ID.
+    pub task_id: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct TaskCreateArgs {
+    /// Existing task this follow-up belongs to (usually your own task id).
+    pub parent_task_id: String,
+    pub title: String,
+    pub body: Option<String>,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Parse a task id, echoing the offending input on failure so the model can
+/// tell "I typo'd the id" from "the tool is broken".
+fn parse_task_id(s: &str) -> Result<TaskId, String> {
+    ulid::Ulid::from_string(s)
+        .map(TaskId)
+        .map_err(|e| format!("bad task id {s:?}: {e}"))
+}
+
+fn parse_status(s: &str) -> Result<TaskStatus, String> {
+    match s {
+        "draft" => Ok(TaskStatus::Draft),
+        "active" => Ok(TaskStatus::Active),
+        "blocked" => Ok(TaskStatus::Blocked),
+        "done" => Ok(TaskStatus::Done),
+        "cancelled" => Ok(TaskStatus::Cancelled),
+        other => Err(format!(
+            "bad status {other:?}: expected draft|active|blocked|done|cancelled"
+        )),
+    }
 }
 
 #[rmcp::tool_router]
@@ -121,9 +173,79 @@ impl CovenantMcp {
             tool_router: Self::tool_router(),
         }
     }
+
+    fn storage(&self) -> Arc<Storage> {
+        self.app.state::<Arc<Storage>>().inner().clone()
+    }
+
+    #[rmcp::tool(description = "List Covenant operator tasks, optionally filtered by status.")]
+    async fn task_list(
+        &self,
+        params: Parameters<TaskListArgs>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let status = match params.0.status.as_deref() {
+            None => None,
+            Some(s) => Some(parse_status(s).map_err(|e| rmcp::ErrorData::invalid_params(e, None))?),
+        };
+        match self.storage().teammate_list_tasks_all(status).await {
+            Ok(tasks) => Ok(CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&tasks).unwrap_or_default(),
+            )])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
+                e.to_string(),
+            )])),
+        }
+    }
+
+    #[rmcp::tool(
+        description = "Mark a Covenant task done — same effect as the UI 'Mark done', including operator release."
+    )]
+    async fn task_complete(
+        &self,
+        params: Parameters<TaskCompleteArgs>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = parse_task_id(&params.0.task_id)
+            .map_err(|e| rmcp::ErrorData::invalid_params(e, None))?;
+        match crate::teammate::commands::complete_task_full(&self.app, id).await {
+            Ok(()) => Ok(CallToolResult::success(vec![ContentBlock::text(
+                "task marked done",
+            )])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
+    }
+
+    #[rmcp::tool(
+        description = "Create a follow-up task on the Covenant board, owned by the parent task's operator."
+    )]
+    async fn task_create(
+        &self,
+        params: Parameters<TaskCreateArgs>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let parent = parse_task_id(&params.0.parent_task_id)
+            .map_err(|e| rmcp::ErrorData::invalid_params(e, None))?;
+        let storage = self.storage();
+        match crate::teammate::commands::create_followup_task_inner(
+            &storage,
+            parent,
+            params.0.title,
+            params.0.body.unwrap_or_default(),
+            now_ms(),
+        )
+        .await
+        {
+            Ok(task) => {
+                use tauri::Emitter;
+                let _ = self.app.emit("teammate-task", &task);
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    serde_json::to_string_pretty(&task).unwrap_or_default(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
+    }
 }
 
-#[rmcp::tool_handler]
+#[rmcp::tool_handler(router = self.tool_router)]
 impl rmcp::ServerHandler for CovenantMcp {
     fn get_info(&self) -> rmcp::model::ServerInfo {
         rmcp::model::ServerInfo::default().with_instructions(
@@ -224,5 +346,29 @@ mod tests {
             .unwrap();
         let res = app.oneshot(good).await.unwrap();
         assert_eq!(res.status(), 200);
+    }
+
+    #[test]
+    fn parse_task_id_roundtrips_a_valid_ulid() {
+        let id = TaskId::new();
+        let parsed = parse_task_id(&id.0.to_string()).expect("valid ulid parses");
+        assert_eq!(parsed, id);
+    }
+
+    #[test]
+    fn parse_task_id_bad_id_echoes_input() {
+        let err = parse_task_id("not-a-ulid").unwrap_err();
+        assert!(err.contains("not-a-ulid"), "got: {err}");
+    }
+
+    #[test]
+    fn parse_status_covers_all_variants_and_rejects_unknown() {
+        assert_eq!(parse_status("draft").unwrap(), TaskStatus::Draft);
+        assert_eq!(parse_status("active").unwrap(), TaskStatus::Active);
+        assert_eq!(parse_status("blocked").unwrap(), TaskStatus::Blocked);
+        assert_eq!(parse_status("done").unwrap(), TaskStatus::Done);
+        assert_eq!(parse_status("cancelled").unwrap(), TaskStatus::Cancelled);
+        let err = parse_status("bogus").unwrap_err();
+        assert!(err.contains("bogus"), "got: {err}");
     }
 }
