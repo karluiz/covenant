@@ -1,4 +1,4 @@
-import type { AgentCard, EscalationCard, TileStatus } from "../api";
+import type { AgentCard, TileStatus } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
 import { formatChord } from "../platform";
 import { CustomSelect } from "../ui/select";
@@ -25,21 +25,15 @@ export interface CardCallbacks {
   onStop: (sessionId: string) => void;
 }
 
-/// One card per agent session. Blocked operator sessions (joined to their
-/// escalation card) expand to show the question, the executor's tail, and
-/// a reply composer; agent-lane blocked cards show the waiting reason and
-/// rely on jump-to-tab (inline replies arrive with the P2 attention
-/// inbox).
-export function renderAgentCard(
-  card: AgentCard,
-  esc: EscalationCard | undefined,
-  cb: CardCallbacks,
-): HTMLElement {
+/// One grid card per agent session. Blocked sessions surface their full
+/// interaction (question, tail, composer) in the attention queue above
+/// the grid — the grid card stays informational.
+export function renderAgentCard(card: AgentCard, cb: CardCallbacks): HTMLElement {
   const root = document.createElement("article");
   root.className = `mc-card mc-card--${card.status}`;
   root.dataset.sessionId = card.session_id;
   root.append(renderHeader(card, cb));
-  root.append(renderBody(card, esc, cb));
+  root.append(renderBody(card));
   return root;
 }
 
@@ -92,29 +86,9 @@ function renderHeader(card: AgentCard, cb: CardCallbacks): HTMLElement {
   return head;
 }
 
-/// Card body: activity line, context chips, cost bar, and — when blocked
-/// with an escalation — the question, executor tail, and reply composer.
-function renderBody(
-  card: AgentCard,
-  esc: EscalationCard | undefined,
-  cb: CardCallbacks,
-): DocumentFragment {
+/// Card body: activity line, context chips, cost bar.
+function renderBody(card: AgentCard): DocumentFragment {
   const frag = document.createDocumentFragment();
-
-  if (card.status === "blocked" && esc) {
-    const q = document.createElement("p");
-    q.className = "mc-card__question";
-    q.textContent = esc.question ?? "(no question text)";
-    frag.append(q);
-    if (esc.executor_excerpt) {
-      const tail = document.createElement("pre");
-      tail.className = "mc-card__tail";
-      tail.textContent = esc.executor_excerpt;
-      frag.append(tail);
-    }
-    frag.append(renderReply(card.session_id, cb.onSubmit));
-    return frag;
-  }
 
   const act = document.createElement("div");
   act.className = "mc-card__activity";
@@ -172,7 +146,9 @@ function costBar(card: AgentCard): HTMLElement | null {
   return wrap;
 }
 
-function renderReply(
+/// Scoped operator-reply composer — shared with the attention queue's
+/// operator-escalation cards.
+export function renderReply(
   sessionId: string,
   onSubmit: CardCallbacks["onSubmit"],
 ): HTMLElement {
