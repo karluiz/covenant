@@ -350,6 +350,41 @@ The blocklist lives in `crates/agent/src/safety.rs` with full unit tests. Adding
 
 ---
 
+## Covenant MCP Server
+
+The app embeds an MCP **streamable-http** server (`rmcp`) so any executor —
+Covenant-spawned or a bare `claude`/`codex` opened by hand — can act on the
+app instead of just being watched by it. `crates/app/src/mcp_server.rs`.
+
+- **Endpoint**: `http://127.0.0.1:<ephemeral>/mcp`, bound fresh each boot.
+- **Discovery file**: `<app-data-dir>/mcp.json` (e.g.
+  `~/Library/Application Support/com.karluiz.covenant/mcp.json`), mode `0600`,
+  created atomically (no chmod-after-write window), removed on clean exit.
+  Contains `{"url": ..., "token": ...}` — the token is random per app boot.
+- **Auth**: `Authorization: Bearer <token>` required on every request;
+  localhost bind + per-boot token, nothing more.
+- **Tools**: `task_list`, `task_complete` (identical effect to the UI's "Mark
+  done", including operator release), `task_create` (drafts a follow-up task
+  that inherits the parent task's operator), `notes_read`, `notes_append`
+  (writes with source `"mcp"`). All tools take explicit ids — no ambient
+  session/task/group state on the server side.
+- **Spawn injection**: ACP executor spawns get the server's `mcpServers`
+  entry (name `covenant`, type `http`, Bearer header) injected into
+  `session/new`/`session/load`, plus a `COVENANT_SESSION_ID` env var.
+  `COVENANT_TASK_ID`/`COVENANT_GROUP_ID` are deferred — task/group attach
+  happens after spawn — so tool descriptions tell the model to read whichever
+  env vars are set if it's unsure which ids to pass. The headless
+  `dispatch_acp` path does not get the injection yet.
+- **External agents**: `covenant mcp-config` prints the ready-to-paste MCP
+  config entry for a hand-opened harness; exits 1 if the app isn't running
+  (no discovery file).
+- **Security posture**: the server can complete/create tasks and write notes
+  — it does **not** execute commands. Keep it that way; extending it toward
+  execution needs a safety review against the blocklist above
+  (`crates/agent/src/safety.rs`), not just a new tool.
+
+---
+
 ## Milestones
 
 ### M0 — PTY hello world *(1–2 days)*
