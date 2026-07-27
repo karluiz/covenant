@@ -1857,7 +1857,10 @@ mod tests {
             "options": [{ "optionId": "a", "kind": "allow_once" }]
         }))
         .expect("fixture parses");
-        assert_eq!(pending_from_request("k", &req, 0).title, "Write src/main.rs");
+        assert_eq!(
+            pending_from_request("k", &req, 0).title,
+            "Write src/main.rs"
+        );
     }
 
     #[test]
