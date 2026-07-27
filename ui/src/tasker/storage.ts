@@ -8,7 +8,7 @@ const STORAGE_KEY = "covenant.tasker.store";
 export const TASKER_SAVED_EVENT = "covenant:tasker-saved";
 const CURRENT_VERSION = 1;
 
-function generateId(): string {
+export function generateId(): string {
   return Math.random().toString(36).substring(2, 11);
 }
 

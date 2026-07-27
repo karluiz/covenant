@@ -365,6 +365,100 @@ body.theme-true-dark .tasker-task-selected {
   gap: 6px;
 }
 .tasker-notes-label { margin-top: 0; width: auto; align-self: flex-start; }
+
+/* —— Subtasks: label row + checklist, full sheet width like Notes —— */
+.tasker-kv-subs {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.tasker-subs-label {
+  width: auto;
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.tasker-subs-prog {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
+}
+.tasker-subs-prog.all { color: var(--accent); }
+.tasker-subs { display: flex; flex-direction: column; }
+.tasker-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+}
+.tasker-sub:hover { background: rgb(var(--ink-rgb) / 0.05); }
+.tasker-sub-cb {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+.tasker-sub.done .tasker-sub-cb {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.tasker-sub-title {
+  font-size: var(--fs-body);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tasker-sub.done .tasker-sub-title { color: var(--fg-dim); text-decoration: line-through; }
+.tasker-sub-del {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  visibility: hidden;
+}
+.tasker-sub:hover .tasker-sub-del { visibility: visible; }
+.tasker-sub-del:hover { color: var(--fail); }
+.tasker-sub-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+}
+.tasker-sub-plus {
+  width: 13px;
+  flex: none;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 13px;
+}
+.tasker-sub-add .tasker-sub-input {
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  font-size: var(--fs-body);
+  color: var(--fg);
+  width: 100%;
+  padding: 0;
+}
+.tasker-sub-add .tasker-sub-input::placeholder { color: var(--text-tertiary); }
+.tasker-sub-add:focus-within { box-shadow: inset 0 -1px 0 var(--border); }
 /* Notes is now a WYSIWYG markdown editor (Milkdown). The .md-editor child
    carries the border/background; the wrapper only owns sizing. */
 .tasker-edit-note {

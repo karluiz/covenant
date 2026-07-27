@@ -38,6 +38,16 @@ function fmtDue(ts: number): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** "2/5" subtask-progress chip, or "" when the task has none. Shared by the
+ * board card and the rail row — `cls` picks the surface's base class; a
+ * fully-checked list gets the extra `all` class. */
+export function renderSubsFraction(task: Task, cls: string): string {
+  const subs = task.subtasks ?? [];
+  if (subs.length === 0) return "";
+  const done = subs.filter((s) => s.completed).length;
+  return `<span class="${cls}${done === subs.length ? " all" : ""}" aria-label="Subtasks">${done}/${subs.length}</span>`;
+}
+
 export class BoardView {
   private host: HTMLElement | null = null;
   private addingStatus: TaskStatus | null = null;
@@ -93,7 +103,8 @@ export class BoardView {
     const note = task.description?.trim()
       ? `<span class="kb-note" aria-label="Has description">${Icons.noteText({ size: 12 })}</span>`
       : "";
-    const meta = due || tags || note ? `<div class="kb-card-meta">${due}${tags}${note}</div>` : "";
+    const subs = renderSubsFraction(task, "kb-badge kb-subs");
+    const meta = due || tags || note || subs ? `<div class="kb-card-meta">${due}${subs}${tags}${note}</div>` : "";
     return `
       <article class="kb-card kb-prio-${task.priority}${done ? " kb-card-done" : ""}${sel}"
         data-project-id="${projectId}" data-task-id="${task.id}">

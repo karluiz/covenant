@@ -1,9 +1,9 @@
 // TaskerPanel: right-rail task list with inline task details.
 
-import type { Task, Project, TaskStatus, TaskPriority } from "./types";
-import { TaskStorage } from "./storage";
+import type { Task, Project, SubTask, TaskStatus, TaskPriority } from "./types";
+import { TaskStorage, generateId } from "./storage";
 import { Icons } from "../icons";
-import { BoardView } from "./board";
+import { BoardView, renderSubsFraction } from "./board";
 import { MarkdownEditor } from "../ui/markdown-editor";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
@@ -468,6 +468,7 @@ export class TaskerPanel {
             ? `<input class="tasker-title-input" type="text" value="${escapeAttr(task.title)}" autocomplete="off" />`
             : `<span class="rail-ttl" role="button" tabindex="0">${escapeHtml(task.title)}</span>`}
           ${task.description?.trim() ? `<span class="rail-doc" aria-label="Has description">${Icons.noteText({ size: 13 })}</span>` : ""}
+          ${renderSubsFraction(task, "rail-subs")}
           ${dueDateHtml}
           ${task.status === "pending"
             ? `<button class="tasker-task-start" type="button" data-project-id="${projectId}" data-task-id="${task.id}" aria-label="Start task">${Icons.play({ size: 12 })}<span>start</span></button>`
@@ -501,6 +502,7 @@ export class TaskerPanel {
           <span class="tasker-kv-key">Due</span>
           <button class="tasker-chip tasker-chip-due${task.dueDate ? " tasker-chip-due-set" : ""}" type="button">${escapeHtml(dueLabel)}</button>
         </div>
+        ${this.renderSubtasks(task)}
         <div class="tasker-kv tasker-kv-notes">
           <span class="tasker-kv-key tasker-notes-label">Notes</span>
           <div class="tasker-edit-note" data-note-mount></div>
@@ -508,6 +510,35 @@ export class TaskerPanel {
         <button class="tasker-sheet-delete" type="button">Delete task</button>
       </div>
     `;
+  }
+
+  private renderSubtasks(task: Task): string {
+    const subs = task.subtasks ?? [];
+    const done = subs.filter((s) => s.completed).length;
+    const prog = subs.length
+      ? `<span class="tasker-subs-prog${done === subs.length ? " all" : ""}">${done}/${subs.length}</span>`
+      : "";
+    const rows = subs
+      .map(
+        (s) => `
+        <div class="tasker-sub${s.completed ? " done" : ""}" data-subtask-id="${s.id}">
+          <button class="tasker-sub-cb" type="button" aria-label="Toggle subtask">${s.completed ? Icons.check({ size: 10 }) : ""}</button>
+          <span class="tasker-sub-title">${escapeHtml(s.title)}</span>
+          <button class="tasker-sub-del" type="button" aria-label="Delete subtask">×</button>
+        </div>`,
+      )
+      .join("");
+    return `
+      <div class="tasker-kv tasker-kv-subs">
+        <span class="tasker-kv-key tasker-subs-label">Subtasks${prog}</span>
+        <div class="tasker-subs">
+          ${rows}
+          <form class="tasker-sub-add">
+            <span class="tasker-sub-plus" aria-hidden="true">+</span>
+            <input class="tasker-sub-input" type="text" placeholder="Add subtask" autocomplete="off" aria-label="Add subtask" />
+          </form>
+        </div>
+      </div>`;
   }
 
   private closeProjectMenu(): void {
@@ -1144,7 +1175,59 @@ export class TaskerPanel {
         this.openMenu = null;
         this.render();
       });
+
+      edit.querySelectorAll<HTMLButtonElement>(".tasker-sub-cb").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const subId = btn.closest<HTMLElement>(".tasker-sub")?.dataset.subtaskId;
+          if (!subId) return;
+          this.updateSubtasks(projectId, taskId, (subs) =>
+            subs.map((s) => (s.id === subId ? { ...s, completed: !s.completed } : s)),
+          );
+        });
+      });
+
+      edit.querySelectorAll<HTMLButtonElement>(".tasker-sub-del").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const subId = btn.closest<HTMLElement>(".tasker-sub")?.dataset.subtaskId;
+          if (!subId) return;
+          this.updateSubtasks(projectId, taskId, (subs) => subs.filter((s) => s.id !== subId));
+        });
+      });
+
+      edit.querySelector<HTMLFormElement>(".tasker-sub-add")?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const input = (e.currentTarget as HTMLFormElement).querySelector<HTMLInputElement>(".tasker-sub-input");
+        const title = input?.value.trim() ?? "";
+        if (!title) return;
+        this.updateSubtasks(projectId, taskId, (subs) => [
+          ...subs,
+          { id: generateId(), title, completed: false, createdAt: Date.now() },
+        ]);
+        // The render replaced the input — refocus the fresh one so the user
+        // can keep typing the next subtask.
+        queueMicrotask(() => {
+          this.host
+            .querySelector<HTMLInputElement>(
+              `.tasker-edit[data-task-id="${taskId}"] .tasker-sub-input`,
+            )
+            ?.focus();
+        });
+      });
     });
+  }
+
+  private updateSubtasks(
+    projectId: string,
+    taskId: string,
+    mutate: (subs: SubTask[]) => SubTask[],
+  ): void {
+    const task = this.storage.getTask(projectId, taskId);
+    if (!task) return;
+    const next = mutate(task.subtasks ?? []);
+    this.storage.updateTask(projectId, taskId, {
+      subtasks: next.length > 0 ? next : undefined,
+    });
+    this.render();
   }
 
   private saveNote(projectId: string, taskId: string, md: string): void {
