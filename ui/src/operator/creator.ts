@@ -1540,9 +1540,11 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
 }
 
 export interface ListHandlers {
-  onEdit(op: Operator): void;
-  onDelete(op: Operator): void;
-  onDuplicate(op: Operator): void;
+  /** Omitted handlers hide their button — the cockpit renders org rosters
+   *  read-only for plain members (owner-gated server writes). */
+  onEdit?(op: Operator): void;
+  onDelete?(op: Operator): void;
+  onDuplicate?(op: Operator): void;
   /** True when the operator's org is one we no longer know about (deleted
    *  server-side). Renders an "unassigned" badge so the org-scoped cockpit
    *  roster surfaces stale operators instead of silently hiding them. */
@@ -1655,9 +1657,9 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
       b.addEventListener("click", fn);
       return b;
     };
-    actions.append(mk("Edit", Icons.pencil(), () => h.onEdit(op)));
-    actions.append(mk("Duplicate", Icons.copy(), () => h.onDuplicate(op)));
-    actions.append(mk("Delete", Icons.trash(), () => h.onDelete(op), true));
+    if (h.onEdit) actions.append(mk("Edit", Icons.pencil(), () => h.onEdit!(op)));
+    if (h.onDuplicate) actions.append(mk("Duplicate", Icons.copy(), () => h.onDuplicate!(op)));
+    if (h.onDelete) actions.append(mk("Delete", Icons.trash(), () => h.onDelete!(op), true));
     card.append(actions);
     root.append(card);
   }
