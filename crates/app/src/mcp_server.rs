@@ -330,17 +330,29 @@ impl CovenantMcp {
     }
 }
 
+/// Advertise the tools capability explicitly: MCP clients (the Claude
+/// Agent SDK among them) skip tools/list entirely when initialize reports
+/// hasTools=false, leaving every tool invisible.
+fn server_info() -> rmcp::model::ServerInfo {
+    rmcp::model::ServerInfo::new(
+        rmcp::model::ServerCapabilities::builder()
+            .enable_tools()
+            .build(),
+    )
+    .with_instructions(
+        "Covenant terminal control surface. Task tools operate on \
+         operator tasks; notes tools on project notes. If you don't \
+         know your ids, call task_list and match a task's \
+         spawned_session field against $COVENANT_SESSION_ID (set in \
+         your environment) to find your own task. $COVENANT_TASK_ID / \
+         $COVENANT_GROUP_ID may also be set in some spawn modes.",
+    )
+}
+
 #[rmcp::tool_handler(router = self.tool_router)]
 impl rmcp::ServerHandler for CovenantMcp {
     fn get_info(&self) -> rmcp::model::ServerInfo {
-        rmcp::model::ServerInfo::default().with_instructions(
-            "Covenant terminal control surface. Task tools operate on \
-             operator tasks; notes tools on project notes. If you don't \
-             know your ids, call task_list and match a task's \
-             spawned_session field against $COVENANT_SESSION_ID (set in \
-             your environment) to find your own task. $COVENANT_TASK_ID / \
-             $COVENANT_GROUP_ID may also be set in some spawn modes.",
-        )
+        server_info()
     }
 }
 
@@ -386,6 +398,15 @@ async fn serve(app: tauri::AppHandle, token: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_info_advertises_tools_capability() {
+        // Regression: with hasTools=false the Claude Agent SDK connects but
+        // never calls tools/list — every tool silently vanishes.
+        let info = server_info();
+        assert!(info.capabilities.tools.is_some());
+        assert!(info.instructions.is_some());
+    }
 
     #[test]
     fn token_is_long_and_random() {
