@@ -4711,6 +4711,32 @@ pub fn run() {
         .with(fmt::layer().with_target(false))
         .init();
 
+    // Early-arg handling for CLI subcommands before Tauri builder / single-instance.
+    // `covenant mcp-config` prints the MCP entry for external agents and exits.
+    if std::env::args().nth(1).as_deref() == Some("mcp-config") {
+        // Same dir tauri's app_data_dir resolves to; keep in sync with mcp_server::discovery_path.
+        let path = dirs::data_dir()
+            .map(|d| d.join("com.karluiz.covenant").join("mcp.json"));
+        match path.and_then(|p| std::fs::read_to_string(p).ok()) {
+            Some(raw) => {
+                let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+                let output = serde_json::to_string_pretty(&serde_json::json!({
+                    "covenant": {
+                        "type": "http",
+                        "url": v["url"],
+                        "headers": { "Authorization": format!("Bearer {}", v["token"].as_str().unwrap_or_default()) }
+                    }
+                })).unwrap_or_default();
+                println!("{}", output);
+                std::process::exit(0);
+            }
+            None => {
+                eprintln!("Covenant is not running (no mcp.json discovery file).");
+                std::process::exit(1);
+            }
+        }
+    }
+
     install_crash_logger();
     raise_fd_limit();
 
