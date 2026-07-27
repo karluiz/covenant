@@ -19989,6 +19989,8 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 
 .mc-card__head { display: flex; align-items: center; gap: 9px; }
 .mc-card__name { color: var(--text-primary); font-size: 14px; font-weight: 600; }
+.mc-card__exec { color: var(--text-primary); font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+.mc-oplabel { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
 .mc-card__tab {
   margin-left: auto; background: transparent; border: 0; cursor: pointer;
   color: var(--accent); font: inherit; font-size: 12px; text-decoration: underline dotted;

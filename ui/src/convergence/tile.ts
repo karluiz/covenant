@@ -1,13 +1,7 @@
-import type {
-  EscalationCard,
-  OperatorRosterEntry,
-  SessionSummary,
-  TileStatus,
-} from "../api";
+import type { AgentCard, EscalationCard, TileStatus } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
 import { formatChord } from "../platform";
 import { CustomSelect } from "../ui/select";
-import { operatorStatus } from "./model";
 
 export type ReplyScope = "one-shot" | "mission" | "global";
 
@@ -24,131 +18,90 @@ const STATUS_LABEL: Record<TileStatus, string> = {
 export interface CardCallbacks {
   /// Jump to a session's tab. keepOpen=false closes the overlay.
   onFocus: (sessionId: string, keepOpen: boolean) => void;
-  /// Toggle expand/collapse for a multi-session operator.
-  onToggleExpand: (operatorId: string) => void;
-  /// Send a reply to a blocked session.
+  /// Send a reply to a blocked (escalated) operator session.
   onSubmit: (sessionId: string, text: string, scope: ReplyScope) => Promise<void>;
-  /// Disable the operator on the given session(s). Single-click, no confirm —
-  /// fully reversible (⌘O on the tab re-arms). Disabled sessions go inert and
-  /// drop out of the next roster poll, so the card leaves on its own.
-  onStop: (operatorId: string, sessionIds: string[]) => void;
+  /// Operator cards only: disable the operator on this session.
+  /// Single-click, no confirm — fully reversible (⌘O on the tab re-arms).
+  onStop: (sessionId: string) => void;
 }
 
-/// One card per operator. Single-session operators render their session
-/// inline; multi-session operators show an aggregate header and, when
-/// expanded, one sub-row per session. Blocked sessions expand to show the
-/// question, the executor's tail, and a reply composer.
-export function renderOperatorCard(
-  entry: OperatorRosterEntry,
-  esc: Map<string, EscalationCard>,
+/// One card per agent session. Blocked operator sessions (joined to their
+/// escalation card) expand to show the question, the executor's tail, and
+/// a reply composer; agent-lane blocked cards show the waiting reason and
+/// rely on jump-to-tab (inline replies arrive with the P2 attention
+/// inbox).
+export function renderAgentCard(
+  card: AgentCard,
+  esc: EscalationCard | undefined,
   cb: CardCallbacks,
-  expanded: ReadonlySet<string>,
 ): HTMLElement {
-  const status = operatorStatus(entry);
   const root = document.createElement("article");
-  root.className = `mc-card mc-card--${status}`;
-  root.dataset.operatorId = entry.operator_id;
-
-  const multi = entry.sessions.length > 1;
-  const isOpen = entry.has_escalation || expanded.has(entry.operator_id);
-
-  root.append(renderHeader(entry, status, multi, isOpen, cb));
-
-  if (!multi) {
-    const only = entry.sessions[0];
-    if (only) root.append(renderSessionBody(only, esc.get(only.session_id), cb));
-  } else if (isOpen) {
-    const sub = document.createElement("div");
-    sub.className = "mc-card__sub";
-    for (const s of entry.sessions) sub.append(renderSubRow(s, esc.get(s.session_id), cb));
-    root.append(sub);
-  }
+  root.className = `mc-card mc-card--${card.status}`;
+  root.dataset.sessionId = card.session_id;
+  root.append(renderHeader(card, cb));
+  root.append(renderBody(card, esc, cb));
   return root;
 }
 
-function renderHeader(
-  entry: OperatorRosterEntry,
-  status: TileStatus,
-  multi: boolean,
-  isOpen: boolean,
-  cb: CardCallbacks,
-): HTMLElement {
+function renderHeader(card: AgentCard, cb: CardCallbacks): HTMLElement {
   const head = document.createElement("div");
   head.className = "mc-card__head";
 
-  const avatar = document.createElement("span");
-  avatar.className = `mc-avatar mc-avatar--${status}`;
-  avatar.innerHTML = renderAvatarHtml(entry.operator_avatar ?? "👤", 28);
+  const dot = document.createElement("span");
+  dot.className = `mc-dot mc-dot--${card.status}`;
 
-  const name = document.createElement("strong");
-  name.className = "mc-card__name";
-  name.textContent = entry.operator_name;
+  const exec = document.createElement("strong");
+  exec.className = "mc-card__exec";
+  exec.textContent = card.executor ?? vendorLabel(card);
+
+  const tab = document.createElement("button");
+  tab.type = "button";
+  tab.className = "mc-card__tab";
+  tab.textContent = `→ ${card.tab_title}`;
+  tab.addEventListener("click", (e) => {
+    e.stopPropagation();
+    cb.onFocus(card.session_id, false);
+  });
 
   const pill = document.createElement("span");
-  pill.className = `mc-pill mc-pill--${status}`;
-  pill.textContent = status === "blocked" ? "NEEDS YOU" : STATUS_LABEL[status];
+  pill.className = `mc-pill mc-pill--${card.status}`;
+  pill.textContent = card.status === "blocked" ? "NEEDS YOU" : STATUS_LABEL[card.status];
 
-  head.append(avatar, name, pill);
+  head.append(dot, exec, tab, pill);
 
-  if (multi) {
-    const blocked = entry.sessions.filter((s) => s.status === "blocked").length;
-    const count = document.createElement("span");
-    count.className = "mc-card__count";
-    count.textContent =
-      `${entry.sessions.length} sessions` + (blocked ? ` · ${blocked} blocked` : "");
-    const caret = document.createElement("button");
-    caret.type = "button";
-    caret.className = "mc-card__caret";
-    caret.setAttribute("aria-label", isOpen ? "Collapse" : "Expand");
-    caret.textContent = isOpen ? "▾" : "▸";
-    caret.addEventListener("click", (e) => {
+  if (card.operator_id) {
+    const op = document.createElement("span");
+    op.className = "mc-oplabel";
+    op.innerHTML = `${renderAvatarHtml(card.operator_avatar ?? "👤", 18)}<span>${card.operator_name ?? ""}</span>`;
+    head.append(op);
+
+    // Stop: disable the operator on this session. The disabled session
+    // goes inert; the card itself stays (it's still an agent session).
+    const stop = document.createElement("button");
+    stop.type = "button";
+    stop.className = "mc-card__stop";
+    stop.textContent = "Stop";
+    stop.setAttribute("aria-label", "Stop operator");
+    stop.addEventListener("click", (e) => {
       e.stopPropagation();
-      cb.onToggleExpand(entry.operator_id);
+      cb.onStop(card.session_id);
     });
-    head.append(count, caret);
-  } else {
-    const only = entry.sessions[0];
-    if (only) {
-      const tab = document.createElement("button");
-      tab.type = "button";
-      tab.className = "mc-card__tab";
-      tab.textContent = `→ ${only.tab_title}`;
-      tab.addEventListener("click", (e) => {
-        e.stopPropagation();
-        cb.onFocus(only.session_id, false);
-      });
-      head.append(tab);
-    }
+    head.append(stop);
   }
-
-  // Stop: disable the operator on all its sessions. Single-click, no confirm
-  // (reversible via ⌘O). For a multi-session operator this stops every session
-  // at once. The disabled sessions go inert and drop from the next roster poll.
-  const stop = document.createElement("button");
-  stop.type = "button";
-  stop.className = "mc-card__stop";
-  stop.textContent = "Stop";
-  stop.setAttribute("aria-label", "Stop operator");
-  stop.addEventListener("click", (e) => {
-    e.stopPropagation();
-    cb.onStop(entry.operator_id, entry.sessions.map((s) => s.session_id));
-  });
-  head.append(stop);
 
   return head;
 }
 
-/// Body of a single-session card (or the detail inside a sub-row):
-/// activity line, context chips, cost bar, and — when blocked — the
-/// question, executor tail, and reply composer.
-function renderSessionBody(
-  s: SessionSummary,
+/// Card body: activity line, context chips, cost bar, and — when blocked
+/// with an escalation — the question, executor tail, and reply composer.
+function renderBody(
+  card: AgentCard,
   esc: EscalationCard | undefined,
   cb: CardCallbacks,
 ): DocumentFragment {
   const frag = document.createDocumentFragment();
 
-  if (s.status === "blocked" && esc) {
+  if (card.status === "blocked" && esc) {
     const q = document.createElement("p");
     q.className = "mc-card__question";
     q.textContent = esc.question ?? "(no question text)";
@@ -159,62 +112,35 @@ function renderSessionBody(
       tail.textContent = esc.executor_excerpt;
       frag.append(tail);
     }
-    frag.append(renderReply(s.session_id, cb.onSubmit));
+    frag.append(renderReply(card.session_id, cb.onSubmit));
     return frag;
   }
 
   const act = document.createElement("div");
   act.className = "mc-card__activity";
-  act.textContent = activityLine(s);
+  act.textContent = card.phase_label ?? activityLine(card);
   frag.append(act);
 
-  const chips = contextChips(s);
+  const chips = contextChips(card);
   if (chips) frag.append(chips);
 
-  const cost = costBar(s);
+  const cost = costBar(card);
   if (cost) frag.append(cost);
   return frag;
 }
 
-function renderSubRow(
-  s: SessionSummary,
-  esc: EscalationCard | undefined,
-  cb: CardCallbacks,
-): HTMLElement {
-  const row = document.createElement("div");
-  row.className = "mc-subrow";
-  row.dataset.sessionId = s.session_id;
-
-  const head = document.createElement("div");
-  head.className = "mc-subrow__head";
-  const dot = document.createElement("span");
-  dot.className = `mc-dot mc-dot--${s.status}`;
-  const tab = document.createElement("button");
-  tab.type = "button";
-  tab.className = "mc-subrow__tab";
-  tab.textContent = s.tab_title;
-  tab.addEventListener("click", () => cb.onFocus(s.session_id, false));
-  const st = document.createElement("span");
-  st.className = "mc-subrow__status";
-  st.textContent = STATUS_LABEL[s.status];
-  head.append(dot, tab, st);
-  row.append(head, renderSessionBody(s, esc, cb));
-  return row;
+function activityLine(card: AgentCard): string {
+  return card.last_command ?? card.last_output_line ?? "…";
 }
 
-function activityLine(s: SessionSummary): string {
-  const what = s.last_command ?? s.last_output_line ?? "…";
-  return `${vendorLabel(s)} · ${what}`;
+function vendorLabel(card: AgentCard): string {
+  if (card.vendor !== "unknown") return card.vendor;
+  return card.raw_command_label ?? "shell";
 }
 
-function vendorLabel(s: SessionSummary): string {
-  if (s.vendor !== "unknown") return s.vendor;
-  return s.raw_command_label ?? "shell";
-}
-
-function contextChips(s: SessionSummary): HTMLElement | null {
+function contextChips(card: AgentCard): HTMLElement | null {
   const labels: string[] = [];
-  if (s.mission_name) labels.push(`◈ ${s.mission_name}`);
+  if (card.mission_name) labels.push(`◈ ${card.mission_name}`);
   if (labels.length === 0) return null;
   const wrap = document.createElement("div");
   wrap.className = "mc-chips";
@@ -227,9 +153,9 @@ function contextChips(s: SessionSummary): HTMLElement | null {
   return wrap;
 }
 
-function costBar(s: SessionSummary): HTMLElement | null {
-  if (s.cost_usd == null || s.budget_usd == null) return null;
-  const pct = s.budget_usd > 0 ? Math.min(100, (s.cost_usd / s.budget_usd) * 100) : 0;
+function costBar(card: AgentCard): HTMLElement | null {
+  if (card.cost_usd == null || card.budget_usd == null) return null;
+  const pct = card.budget_usd > 0 ? Math.min(100, (card.cost_usd / card.budget_usd) * 100) : 0;
   const wrap = document.createElement("div");
   wrap.className = "mc-cost";
   const bar = document.createElement("div");
@@ -241,7 +167,7 @@ function costBar(s: SessionSummary): HTMLElement | null {
   bar.append(fill);
   const label = document.createElement("span");
   label.className = "mc-cost__label";
-  label.textContent = `$${s.cost_usd.toFixed(2)} / $${s.budget_usd.toFixed(2)}`;
+  label.textContent = `$${card.cost_usd.toFixed(2)} / $${card.budget_usd.toFixed(2)}`;
   wrap.append(bar, label);
   return wrap;
 }
