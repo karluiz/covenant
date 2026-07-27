@@ -1905,6 +1905,29 @@ export async function scoreSkillUsage(groupName: string | null): Promise<SkillUs
   const filter = { repo: null, branch: null, group_name: groupName, day: null, agent: null };
   return invoke<SkillUseCell[]>("score_skill_usage", { filter });
 }
+export interface CanonOrgDefault {
+  kind: CanonPkgKind;
+  name: string;
+}
+
+/** Owner-curated packages every repo of the org should have. */
+export function canonOrgDefaults(org: string): Promise<CanonOrgDefault[]> {
+  return invoke<CanonOrgDefault[]>("canon_org_defaults_list", { org });
+}
+
+export function canonOrgDefaultSet(org: string, kind: CanonPkgKind, name: string): Promise<void> {
+  return invoke<void>("canon_org_default_set", { org, kind, name });
+}
+
+export function canonOrgDefaultUnset(org: string, kind: CanonPkgKind, name: string): Promise<void> {
+  return invoke<void>("canon_org_default_unset", { org, kind, name });
+}
+
+/** Whether a canon unit already exists in the repo's `.covenant/canon/`. */
+export function canonUnitInstalled(cwd: string, kind: CanonPkgKind, name: string): Promise<boolean> {
+  return invoke<boolean>("canon_unit_installed", { cwd, kind, name });
+}
+
 export async function canonPublish(cwd: string, org: string, name: string, kind: CanonPkgKind): Promise<unknown> {
   return invoke<unknown>("canon_publish", { cwd, org, name, kind });
 }

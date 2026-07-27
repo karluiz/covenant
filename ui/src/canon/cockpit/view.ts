@@ -10,6 +10,10 @@
 import "./cockpit.css";
 import type { CanonStatus, Org, Member, Operator, PkgMeta, CanonPkgKind, CanonNewKind } from "../../api";
 import {
+  canonOrgDefaults,
+  canonOrgDefaultSet,
+  canonOrgDefaultUnset,
+  canonUnitInstalled,
   canonOrgMembers,
   canonAddMember,
   canonRemoveMember,
@@ -612,6 +616,7 @@ export class CanonCockpitView {
 
     // Switch organization — a labeled list of every org the caller belongs to.
     if (this.opts.orgs.length > 0) {
+      if (active) el.appendChild(this.renderOrgDefaultsBlock(active));
       el.appendChild(this.groupLabel("Switch organization"));
       const list = document.createElement("div");
       list.className = "canon-cockpit-list";
@@ -641,6 +646,72 @@ export class CanonCockpitView {
     // caller belongs to no org — don't render the button twice.
     if (active || this.opts.orgs.length > 0) el.appendChild(this.renderCreateOrgRow());
     return el;
+  }
+
+  /** Org defaults — owner-curated packages every repo of the org should
+   *  have, diffed against the current repo. Install stays an explicit click
+   *  (MCP configs project into `.mcp.json` that executors run). */
+  private renderOrgDefaultsBlock(active: Org): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.appendChild(this.groupLabel("Org defaults"));
+    const list = document.createElement("div");
+    list.className = "canon-cockpit-list";
+    list.appendChild(this.note("Loading…"));
+    wrap.appendChild(list);
+    const cwd = this.opts.groupRootDir;
+    void canonOrgDefaults(active.slug)
+      .then(async (defs) => {
+        list.replaceChildren();
+        if (defs.length === 0) {
+          list.appendChild(this.note(active.role === "owner"
+            ? "No defaults yet — pin packages from the Registry to suggest them in every repo."
+            : "No defaults defined for this org."));
+          return;
+        }
+        const installed = cwd
+          ? await Promise.all(defs.map((d) => canonUnitInstalled(cwd, d.kind, d.name).catch(() => false)))
+          : defs.map(() => false);
+        defs.forEach((d, i) => {
+          const row = document.createElement("div");
+          row.className = "canon-cockpit-listitem";
+          const name = document.createElement("span");
+          name.className = "canon-cockpit-listitem-name";
+          name.textContent = d.name;
+          const meta = document.createElement("span");
+          meta.className = "canon-cockpit-listitem-meta";
+          meta.textContent = d.kind;
+          row.append(name, meta);
+          if (cwd) {
+            if (installed[i]) {
+              const ok = document.createElement("span");
+              ok.className = "canon-cockpit-listitem-meta canon-default-ok";
+              ok.innerHTML = Icons.check({ size: 13 });
+              attachTooltip(ok, "Installed in this repo");
+              row.appendChild(ok);
+            } else {
+              const inst = iconButton(Icons.download({ size: 14 }), "Install into this repo", () => {
+                inst.disabled = true;
+                const install = d.kind === "skill"
+                  ? canonInstallRegistry(cwd, active.slug, d.name, "latest", this.opts.groupLabel, null).then(() => undefined)
+                  : canonInstallRegistryUnit(cwd, active.slug, d.name, "latest", d.kind);
+                void install
+                  .then(() => { inst.innerHTML = Icons.check({ size: 14 }); })
+                  .catch((e) => {
+                    inst.disabled = false;
+                    pushInfoToast({ message: `Install failed: ${this.friendlyError(e)}` });
+                  });
+              });
+              row.appendChild(inst);
+            }
+          }
+          list.appendChild(row);
+        });
+      })
+      .catch(() => {
+        list.replaceChildren();
+        list.appendChild(this.note("Org defaults unavailable (offline)."));
+      });
+    return wrap;
   }
 
   /** Refetch orgs so the just-created/renamed org is in the snapshot before
@@ -1374,6 +1445,12 @@ export class CanonCockpitView {
       { key: "mcp", label: "MCP", wire: "mcp", icon: Icons.radioTower({ size: 15 }) },
     ];
     let tab: RegTab = REG_TABS[0];
+    // Org defaults keyed `${kind}/${name}` — owners pin/unpin from the cards.
+    const defaults = new Set<string>();
+    void canonOrgDefaults(initialActive.slug)
+      .then((defs) => defs.forEach((d) => defaults.add(`${d.kind}/${d.name}`)))
+      .catch(() => {});
+    const isOwner = initialActive.role === "owner";
     const toggleRow = document.createElement("div");
     toggleRow.className = "canon-reg-kind-toggle";
     const tabBtns = new Map<string, HTMLButtonElement>();
@@ -1458,13 +1535,39 @@ export class CanonCockpitView {
             const stats = wire === "skill"
               ? [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)]
               : [`shared by ${r.publisher_login}`, installs];
+            const key = `${wire}/${r.name}`;
+            if (defaults.has(key)) stats.push("org default");
+            const actions = [inst];
+            if (isOwner) {
+              const pin = iconButton(Icons.pin({ size: 15 }), "Org default — suggested in every repo of the org", () => {
+                pin.disabled = true;
+                const on = !defaults.has(key);
+                const call = on
+                  ? canonOrgDefaultSet(active.slug, wire, r.name)
+                  : canonOrgDefaultUnset(active.slug, wire, r.name);
+                void call
+                  .then(() => {
+                    if (on) defaults.add(key); else defaults.delete(key);
+                    pin.classList.toggle("is-active", on);
+                    pin.disabled = false;
+                  })
+                  .catch((e) => {
+                    pin.disabled = false;
+                    errorEl.hidden = false;
+                    errorEl.textContent = this.friendlyError(e);
+                  });
+              });
+              pin.classList.add("canon-default-pin");
+              pin.classList.toggle("is-active", defaults.has(key));
+              actions.unshift(pin);
+            }
             results.appendChild(skillCard({
               name: r.name,
               meta,
               description: r.description,
               className: "canon-search-result",
               fetchPreview: () => canonPreview(active.slug, r.name, r.version, wire).then((p) => p.skill_md),
-              actions: [inst],
+              actions,
               stats,
             }));
           }
