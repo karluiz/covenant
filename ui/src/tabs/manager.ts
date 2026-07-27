@@ -723,12 +723,19 @@ function foldTweenActive(): boolean {
 /// NOT run on the reveal transition (host going 0x0 → real size when a
 /// hidden tab is activated): activate() already handles that case, and
 /// nudging there repaints the terminal right after it became visible.
+/// EXCEPT when bytes are still flagged as written-while-hidden at reveal
+/// time — that means this reveal was NOT activation-owned (activate()
+/// nudges and clears the flag synchronously before this observer fires),
+/// so the scroll area is stale and skipping would leave the viewport
+/// unable to reach the bottom until the next keystroke.
 export function shouldRoNudge(opts: {
   revealing: boolean;
   dimsChanged: boolean;
   rows: number;
+  wroteWhileHidden: boolean;
 }): boolean {
-  return !opts.revealing && !opts.dimsChanged && opts.rows > 1;
+  if (opts.dimsChanged || opts.rows <= 1) return false;
+  return !opts.revealing || opts.wroteWhileHidden;
 }
 
 /// Pure helper: which pane is actually painted on screen right now —
@@ -1246,8 +1253,10 @@ export class TabManager {
       }
     });
 
-    // Wire resize → backend.
+    // Wire resize → backend. Skip the activation nudge's transient
+    // rows-1/rows pair — dims-neutral, the PTY must not see the SIGWINCHes.
     term.onResize(({ cols, rows }) => {
+      if (tab.suppressPtyResize) return;
       if (sessionId) {
         void resizeSession(sessionId as SessionId, cols, rows).catch(() => {});
       }
@@ -4479,10 +4488,19 @@ export class TabManager {
           }
           // If fit() resolved to the same dimensions (sub-cell change),
           // nudge to force xterm to re-sync its viewport scroll area —
-          // but never on a reveal, where activate() owns the refit.
+          // on a reveal only when activate() didn't already own the refit
+          // (wroteWhileHidden still set = pane revealed without a tab
+          // switch; skipping left the scroll stuck short of the bottom).
           const dimsChanged = term.cols !== prevCols || term.rows !== prevRows;
-          if (shouldRoNudge({ revealing, dimsChanged, rows: prevRows })) {
-            const t = tabRef.current;
+          const t = tabRef.current;
+          if (
+            shouldRoNudge({
+              revealing,
+              dimsChanged,
+              rows: prevRows,
+              wroteWhileHidden: t?.wroteWhileHidden === true,
+            })
+          ) {
             if (t) t.suppressPtyResize = true;
             try {
               term.resize(prevCols, prevRows - 1);
@@ -4492,6 +4510,7 @@ export class TabManager {
             } finally {
               if (t) t.suppressPtyResize = false;
             }
+            if (t) t.wroteWhileHidden = false;
           }
           void resizeSession(sessionId, term.cols, term.rows).catch((e) =>
             // eslint-disable-next-line no-console
@@ -6813,6 +6832,33 @@ export class TabManager {
       tab.wroteWhileHidden = false;
     }
     if (plan.scrollToBottom) term.scrollToBottom();
+    // Split tabs: `term`/`fit` above are pane 0 only. Pane 1 shares the
+    // tab-level wroteWhileHidden flag (its write binder sets it), so give
+    // it the same refit + scroll-area nudge + bottom-pin restore — without
+    // this, output written to the second pane while the tab was hidden
+    // left its viewport unable to scroll to the bottom until a keystroke.
+    const term1 = tab.layout.kind === "split" ? tab.panes[1]?.xterm : undefined;
+    if (term1) {
+      const buf1 = term1.buffer.active;
+      const pinned1 = buf1.viewportY >= buf1.baseY;
+      try {
+        paneFitAddons.get(term1)?.fit();
+      } catch {
+        /* ignore */
+      }
+      if (plan.nudge && term1.rows > 1) {
+        tab.suppressPtyResize = true;
+        try {
+          term1.resize(term1.cols, term1.rows - 1);
+          term1.resize(term1.cols, term1.rows);
+        } catch {
+          /* ignore — terminal may be mid-dispose */
+        } finally {
+          tab.suppressPtyResize = false;
+        }
+      }
+      if (pinned1) term1.scrollToBottom();
+    }
     // Only tell the PTY about a size it doesn't already have. On the
     // common switch fit() resolves to the same dims the PTY was last
     // synced to; sending it again is a wasted IPC (the kernel skips the
