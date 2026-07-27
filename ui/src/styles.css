@@ -5557,7 +5557,7 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
   font-family: var(--ui-font);
   font-size: 11px;
   color: var(--accent);
-  background: rgba(122, 162, 247, 0.12);
+  background: color-mix(in srgb, var(--accent, #7aa2f7) 12%, transparent);
   border-radius: 0;
   padding: 3px 8px;
   letter-spacing: 0.04em;
@@ -5872,13 +5872,13 @@ body.theme-true-dark .cp-tile.current {
   background: rgb(var(--ink-rgb) / 0.08);
 }
 .workspace-confirm-confirm {
-  background: rgba(229, 83, 75, 0.14);
-  border: 1px solid rgba(229, 83, 75, 0.5);
+  background: color-mix(in srgb, var(--danger, #e5534b) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger, #e5534b) 50%, transparent);
   color: var(--danger, #e5534b);
 }
 .workspace-confirm-confirm:hover:not(:disabled),
 .workspace-confirm-confirm:focus-visible {
-  background: rgba(229, 83, 75, 0.24);
+  background: color-mix(in srgb, var(--danger, #e5534b) 24%, transparent);
   outline: none;
 }
 .workspace-confirm-confirm:disabled {
