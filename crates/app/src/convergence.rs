@@ -151,33 +151,47 @@ pub struct AgentCard {
     pub budget_usd: Option<f64>,
 }
 
+/// What kind of blocked signal an attention item carries. Determines the
+/// inline affordance: option buttons (acp-permission), PTY reply
+/// (pty-waiting), or the scoped operator composer (operator-escalation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AttentionKind {
+    AcpPermission,
+    PtyWaiting,
+    OperatorEscalation,
+}
+
+/// One row of the "needs you" queue — a session blocked on the human,
+/// from any lane, answerable inline.
 #[derive(Debug, Clone, Serialize)]
-pub struct EscalationCard {
+pub struct AttentionItem {
     pub session_id: String,
     pub tab_title: String,
     pub tab_color: Option<String>,
-    pub operator_id: String,
-    pub operator_name: String,
-    pub operator_avatar: Option<String>,
-    pub vendor: Vendor,
-    pub raw_command_label: Option<String>,
-    /// The operator's open question — `last_decision_rationale` of the
-    /// escalating decision, full text (no truncation in backend).
+    pub lane: Lane,
+    pub executor: Option<String>,
+    pub kind: AttentionKind,
+    /// What's being asked: operator question / permission title /
+    /// waiting reason.
     pub question: Option<String>,
-    /// Last ~15 non-empty lines of the executor's screen at escalation
-    /// time, ANSI-stripped. Distinct from `question` (operator's
-    /// rationale) — this is the raw context the user needs to reply.
-    pub executor_excerpt: Option<String>,
+    /// Raw context: last ~15 screen lines, ANSI-stripped (PTY lanes);
+    /// None for ACP.
+    pub excerpt: Option<String>,
+    /// ACP only: the pending permission (options answer inline).
+    pub permission: Option<PendingAcpPermission>,
+    pub operator_name: Option<String>,
+    pub operator_avatar: Option<String>,
     pub mission_name: Option<String>,
-    /// Unix ms of the escalating decision row, used by the UI for
-    /// "2m ago" labels and oldest-first sort.
-    pub escalated_at_unix_ms: u64,
+    /// None when the lane keeps no wall-clock for the blocked moment
+    /// (PTY waiting) — those sort after timestamped items.
+    pub since_unix_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ConvergenceSnapshot {
     pub agents: Vec<AgentCard>,
-    pub escalations: Vec<EscalationCard>,
+    pub attention: Vec<AttentionItem>,
 }
 
 /// Inputs the classifier needs. Kept separate from `OperatorState` so
@@ -402,39 +416,89 @@ pub struct BuiltRow {
     pub question: Option<String>,
 }
 
-/// Pure second pass: escalations from blocked operator rows (P1: agent
-/// lanes never escalate), then one flat card list. Sorting is the
-/// frontend's job — only escalations get their oldest-first order here.
+/// Agent-lane card plus attention carriers that don't belong on the wire
+/// card (the pending permission and the waiting-screen excerpt feed the
+/// queue, not the grid).
+pub struct AgentCardInput {
+    pub card: AgentCard,
+    pub permission_for_attention: Option<PendingAcpPermission>,
+    pub waiting_excerpt: Option<String>,
+}
+
+fn attention_from(item_base: &AgentCard) -> AttentionItem {
+    AttentionItem {
+        session_id: item_base.session_id.clone(),
+        tab_title: item_base.tab_title.clone(),
+        tab_color: item_base.tab_color.clone(),
+        lane: item_base.lane,
+        executor: item_base.executor.clone(),
+        kind: AttentionKind::PtyWaiting, // caller overrides
+        question: None,
+        excerpt: None,
+        permission: None,
+        operator_name: item_base.operator_name.clone(),
+        operator_avatar: item_base.operator_avatar.clone(),
+        mission_name: item_base.mission_name.clone(),
+        since_unix_ms: None,
+    }
+}
+
+/// Pure second pass: one unified attention queue (blocked sessions from
+/// every lane, timestamped items oldest-first, timestamp-less last) plus
+/// one flat card list. Grid sorting is the frontend's job.
 pub fn assemble_snapshot(
     op_rows: Vec<BuiltRow>,
-    agent_cards: Vec<AgentCard>,
+    agent_inputs: Vec<AgentCardInput>,
 ) -> ConvergenceSnapshot {
-    let mut escalations: Vec<EscalationCard> = op_rows
-        .iter()
-        .filter(|b| matches!(b.card.status, TileStatus::Blocked))
-        .map(|b| EscalationCard {
-            session_id: b.card.session_id.clone(),
-            tab_title: b.card.tab_title.clone(),
-            tab_color: b.card.tab_color.clone(),
-            operator_id: b.card.operator_id.clone().unwrap_or_default(),
-            operator_name: b.card.operator_name.clone().unwrap_or_default(),
-            operator_avatar: b.card.operator_avatar.clone(),
-            vendor: b.card.vendor,
-            raw_command_label: b.card.raw_command_label.clone(),
-            question: b.question.clone(),
-            executor_excerpt: b.executor_excerpt.clone(),
-            mission_name: b.card.mission_name.clone(),
-            escalated_at_unix_ms: b.escalated_at_unix_ms,
-        })
-        .collect();
-    escalations.sort_by_key(|e| e.escalated_at_unix_ms);
+    let mut attention: Vec<AttentionItem> = Vec::new();
+
+    for b in &op_rows {
+        if !matches!(b.card.status, TileStatus::Blocked) {
+            continue;
+        }
+        let mut item = attention_from(&b.card);
+        item.kind = AttentionKind::OperatorEscalation;
+        item.question = b.question.clone();
+        item.excerpt = b.executor_excerpt.clone();
+        item.since_unix_ms = Some(b.escalated_at_unix_ms);
+        attention.push(item);
+    }
+
+    for a in &agent_inputs {
+        if !matches!(a.card.status, TileStatus::Blocked) {
+            continue;
+        }
+        let mut item = attention_from(&a.card);
+        match &a.permission_for_attention {
+            Some(p) => {
+                item.kind = AttentionKind::AcpPermission;
+                item.question = Some(p.title.clone());
+                item.since_unix_ms = Some(p.since_unix_ms);
+                item.permission = Some(p.clone());
+            }
+            None => {
+                item.kind = AttentionKind::PtyWaiting;
+                item.question = a.card.phase_label.clone();
+                item.excerpt = a.waiting_excerpt.clone();
+            }
+        }
+        attention.push(item);
+    }
+
+    attention.sort_by(|a, b| {
+        let key = |i: &AttentionItem| {
+            (
+                i.since_unix_ms.is_none(),
+                i.since_unix_ms.unwrap_or(u64::MAX),
+                i.session_id.clone(),
+            )
+        };
+        key(a).cmp(&key(b))
+    });
 
     let mut agents: Vec<AgentCard> = op_rows.into_iter().map(|b| b.card).collect();
-    agents.extend(agent_cards);
-    ConvergenceSnapshot {
-        agents,
-        escalations,
-    }
+    agents.extend(agent_inputs.into_iter().map(|a| a.card));
+    ConvergenceSnapshot { agents, attention }
 }
 
 /// Lock a `std::sync::Mutex`, recovering from poisoning instead of
@@ -467,7 +531,7 @@ pub async fn build_convergence_snapshot(
     let now = Instant::now();
 
     let mut built: Vec<BuiltRow> = Vec::with_capacity(sessions.len());
-    let mut agent_cards: Vec<AgentCard> = Vec::new();
+    let mut agent_inputs: Vec<AgentCardInput> = Vec::new();
     for s in sessions {
         let Some(op_id) = s.operator_id else {
             // Operator-less PTY session: a card iff NotchHub sees a
@@ -479,7 +543,19 @@ pub async fn build_convergence_snapshot(
                 s.notch_agent.clone(),
                 s.notch_phase.clone(),
             ) {
-                agent_cards.push(c);
+                // Waiting on the human → carry the screen tail so the
+                // attention card has context to reply against.
+                let waiting_excerpt = matches!(c.status, TileStatus::Blocked)
+                    .then(|| {
+                        let tail = lock_recover(&s.op_state).snapshot_tail(8 * 1024);
+                        last_non_empty_lines(&tail, 15, 200)
+                    })
+                    .flatten();
+                agent_inputs.push(AgentCardInput {
+                    card: c,
+                    permission_for_attention: None,
+                    waiting_excerpt,
+                });
             }
             continue;
         };
@@ -561,8 +637,21 @@ pub async fn build_convergence_snapshot(
         });
     }
 
-    agent_cards.extend(acp_sessions.into_iter().map(acp_agent_card));
-    assemble_snapshot(built, agent_cards)
+    agent_inputs.extend(acp_sessions.into_iter().map(|mut inp| {
+        let pending = inp.pending.take();
+        let mut card = acp_agent_card(inp);
+        // A recorded pending permission IS blocked, even if the notch
+        // phase hasn't caught up (or flapped) — card and queue must agree.
+        if pending.is_some() && !matches!(card.status, TileStatus::Blocked) {
+            card.status = TileStatus::Blocked;
+        }
+        AgentCardInput {
+            card,
+            permission_for_attention: pending,
+            waiting_excerpt: None,
+        }
+    }));
+    assemble_snapshot(built, agent_inputs)
 }
 
 fn shorten6(id: &str) -> String {
@@ -825,40 +914,76 @@ mod tests {
         assert!(matches!(c.lane, Lane::Pty));
     }
 
-    #[test]
-    fn assemble_concats_operator_rows_then_agent_cards() {
-        let snap = assemble_snapshot(
-            vec![op_row("a", TileStatus::Working, "o1", 0)],
-            vec![card("b", TileStatus::Idle, None)],
-        );
-        assert_eq!(snap.agents.len(), 2);
-        assert_eq!(snap.agents[0].session_id, "a");
-        assert_eq!(snap.agents[1].session_id, "b");
-        assert!(snap.escalations.is_empty());
+    fn plain_input(card: AgentCard) -> AgentCardInput {
+        AgentCardInput {
+            card,
+            permission_for_attention: None,
+            waiting_excerpt: None,
+        }
     }
 
     #[test]
-    fn assemble_builds_escalations_from_blocked_operator_rows_only() {
-        let blocked_op = BuiltRow {
-            card: card("a", TileStatus::Blocked, Some("o1")),
+    fn assemble_attention_unifies_three_kinds_timestamped_first() {
+        // operator escalation @200
+        let op = BuiltRow {
+            card: card("op1", TileStatus::Blocked, Some("o1")),
             escalated_at_unix_ms: 200,
             executor_excerpt: Some("tail".into()),
             question: Some("q?".into()),
         };
-        let older = op_row("b", TileStatus::Blocked, "o2", 100);
-        // Agent-lane blocked (Waiting) produces NO escalation in P1.
-        let snap = assemble_snapshot(
-            vec![blocked_op, older],
-            vec![card("c", TileStatus::Blocked, None)],
-        );
-        assert_eq!(snap.escalations.len(), 2);
-        assert_eq!(snap.escalations[0].session_id, "b"); // oldest first
+        // acp permission @100 (older → leads)
+        let mut acp_card = card("acp1", TileStatus::Blocked, None);
+        acp_card.lane = Lane::Acp;
+        let acp = AgentCardInput {
+            card: acp_card,
+            permission_for_attention: Some(PendingAcpPermission {
+                request_key: "k1".into(),
+                title: "npm test".into(),
+                options: vec![],
+                since_unix_ms: 100,
+            }),
+            waiting_excerpt: None,
+        };
+        // pty waiting, no timestamp → last
+        let mut pty_card = card("pty1", TileStatus::Blocked, None);
+        pty_card.phase_label = Some("waiting: permission".into());
+        let pty = AgentCardInput {
+            card: pty_card,
+            permission_for_attention: None,
+            waiting_excerpt: Some("[y/N]".into()),
+        };
+
+        let snap = assemble_snapshot(vec![op], vec![acp, pty]);
+        let kinds: Vec<_> = snap
+            .attention
+            .iter()
+            .map(|a| (a.session_id.as_str(), a.kind))
+            .collect();
         assert_eq!(
-            snap.escalations[1].executor_excerpt.as_deref(),
-            Some("tail")
+            kinds,
+            vec![
+                ("acp1", AttentionKind::AcpPermission),
+                ("op1", AttentionKind::OperatorEscalation),
+                ("pty1", AttentionKind::PtyWaiting),
+            ]
         );
-        assert_eq!(snap.escalations[1].question.as_deref(), Some("q?"));
-        assert_eq!(snap.agents.len(), 3);
+        assert_eq!(snap.attention[0].question.as_deref(), Some("npm test"));
+        assert!(snap.attention[0].permission.is_some());
+        assert_eq!(snap.attention[1].excerpt.as_deref(), Some("tail"));
+        assert_eq!(snap.attention[1].question.as_deref(), Some("q?"));
+        assert_eq!(snap.attention[2].since_unix_ms, None);
+        assert_eq!(snap.attention[2].excerpt.as_deref(), Some("[y/N]"));
+        assert_eq!(snap.agents.len(), 3); // every attention session keeps its card
+    }
+
+    #[test]
+    fn assemble_non_blocked_produce_no_attention() {
+        let snap = assemble_snapshot(
+            vec![op_row("a", TileStatus::Working, "o1", 0)],
+            vec![plain_input(card("b", TileStatus::Idle, None))],
+        );
+        assert!(snap.attention.is_empty());
+        assert_eq!(snap.agents.len(), 2);
     }
 
     #[test]

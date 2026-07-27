@@ -2023,10 +2023,11 @@ async fn get_convergence_snapshot(
 }
 
 /// 3.14 — light poll surface for the tab strip. Returns session ids
-/// (as strings) whose convergence status would resolve to `Blocked`,
-/// so the tab chip can render its escalation dot independent of the
-/// convergence overlay's lifecycle. Reuses `build_convergence_snapshot`
-/// — at 1 Hz the cost is negligible and we get the exact same logic.
+/// (as strings) with a pending attention item — operator escalation,
+/// ACP permission, or PTY waiting — so the tab chip can render its
+/// needs-you dot independent of the convergence overlay's lifecycle.
+/// Reuses `build_convergence_snapshot` — at 1 Hz the cost is negligible
+/// and we get the exact same logic.
 /// Frontend MUST supply `tabs` — see `get_convergence_snapshot` note.
 #[tauri::command]
 async fn get_blocked_session_ids(
@@ -2043,7 +2044,7 @@ async fn get_blocked_session_ids(
         &state.aom,
     )
     .await;
-    Ok(snap.escalations.into_iter().map(|e| e.session_id).collect())
+    Ok(snap.attention.into_iter().map(|a| a.session_id).collect())
 }
 
 /// 3.13 Task 3 — pure scope-resolution helper. UI sends literal
