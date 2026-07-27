@@ -112,7 +112,9 @@ async fn zsh_worktree_prompt_full_when_gate_unset() {
 #[test]
 fn bash_dirtrim_set_inside_worktree_and_restored_outside() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let wt = dir.path().join("groowcity/.covenant/worktrees/agent-claude-x");
+    let wt = dir
+        .path()
+        .join("groowcity/.covenant/worktrees/agent-claude-x");
     std::fs::create_dir_all(&wt).expect("mk worktree");
 
     let script = format!(
@@ -142,7 +144,9 @@ echo "OUT=${{PROMPT_DIRTRIM:-unset}}"
 #[test]
 fn bash_dirtrim_untouched_when_gate_unset() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let wt = dir.path().join("groowcity/.covenant/worktrees/agent-claude-x");
+    let wt = dir
+        .path()
+        .join("groowcity/.covenant/worktrees/agent-claude-x");
     std::fs::create_dir_all(&wt).expect("mk worktree");
 
     let script = format!(
@@ -170,7 +174,9 @@ echo "IN=${{PROMPT_DIRTRIM:-unset}}"
 #[test]
 fn bash_exit_code_preserved_with_dirtrim_hook() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let wt = dir.path().join("groowcity/.covenant/worktrees/agent-claude-x");
+    let wt = dir
+        .path()
+        .join("groowcity/.covenant/worktrees/agent-claude-x");
     std::fs::create_dir_all(&wt).expect("mk worktree");
 
     let script = format!(
@@ -208,7 +214,9 @@ _karl_cmd_active=1; false; eval "$PROMPT_COMMAND" 2>&1
 #[test]
 fn bash_prompt_command_trailing_semicolon_does_not_break_chain() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let wt = dir.path().join("groowcity/.covenant/worktrees/agent-claude-x");
+    let wt = dir
+        .path()
+        .join("groowcity/.covenant/worktrees/agent-claude-x");
     std::fs::create_dir_all(&wt).expect("mk worktree");
 
     let script = format!(

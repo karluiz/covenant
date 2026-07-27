@@ -1251,7 +1251,12 @@ pub fn worktree_detail(path: &Path) -> WorktreeDetail {
     let commits_ahead = if ahead > 0 {
         git(
             path,
-            &["log", "--format=%ct%x09%s", "-8", &format!("{base_branch}..HEAD")],
+            &[
+                "log",
+                "--format=%ct%x09%s",
+                "-8",
+                &format!("{base_branch}..HEAD"),
+            ],
         )
         .ok()
         .map(|out| {

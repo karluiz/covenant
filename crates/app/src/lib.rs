@@ -2891,7 +2891,9 @@ async fn canon_org_default_unset(org: String, kind: String, name: String) -> Res
 #[tauri::command]
 async fn canon_unit_installed(cwd: String, kind: String, name: String) -> Result<bool, String> {
     let k = parse_unit_kind(&kind)?;
-    let base = std::path::PathBuf::from(cwd).join(".covenant/canon").join(k.dir());
+    let base = std::path::PathBuf::from(cwd)
+        .join(".covenant/canon")
+        .join(k.dir());
     Ok(match k {
         karl_canon::ContextKind::Skill => base.join(&name).join("SKILL.md").exists(),
         karl_canon::ContextKind::Mcp => base.join(format!("{name}.json")).exists(),

@@ -103,8 +103,12 @@ pub(crate) const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills", ".curso
 /// Executors that read a multi-file COMMAND dir as file-per-item `<name>.md`
 /// slash commands. Codex has no project-level commands; Copilot uses a
 /// different extension/frontmatter — both deferred. Add an executor here.
-pub(crate) const COMMAND_DIRS: &[&str] =
-    &[".claude/commands", ".opencode/commands", ".pi/prompts", ".cursor/commands"];
+pub(crate) const COMMAND_DIRS: &[&str] = &[
+    ".claude/commands",
+    ".opencode/commands",
+    ".pi/prompts",
+    ".cursor/commands",
+];
 
 /// Write each `<stem>.md` (covenant block stripped) into every dir in `dirs`.
 /// Shared by agents and commands — the two file-per-item projection kinds.
@@ -543,7 +547,9 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         ));
         files.push((
             "cursor",
-            repo_root.join(".cursor/commands").join(format!("{stem}.md")),
+            repo_root
+                .join(".cursor/commands")
+                .join(format!("{stem}.md")),
             content,
         ));
     }

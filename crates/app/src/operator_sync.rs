@@ -31,7 +31,11 @@ pub struct PullSummary {
 }
 
 pub async fn fetch_roster(org: &str) -> Result<Vec<RosterRow>, String> {
-    let url = format!("{}/orgs/{}/operators", auth::backend_url(), urlencoding(org));
+    let url = format!(
+        "{}/orgs/{}/operators",
+        auth::backend_url(),
+        urlencoding(org)
+    );
     send_authed(|j| client().get(&url).bearer_auth(j))
         .await?
         .json()
@@ -159,7 +163,10 @@ pub async fn pull_org(
             continue;
         };
         let local = registry.get(id);
-        match decide(local.as_ref().map(|l| l.updated_at_unix_ms), row.updated_at_ms) {
+        match decide(
+            local.as_ref().map(|l| l.updated_at_unix_ms),
+            row.updated_at_ms,
+        ) {
             SyncAction::Skip => summary.unchanged += 1,
             SyncAction::PushLocal => {
                 if let Some(soul_md) = registry.read_soul(id) {

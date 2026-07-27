@@ -52,7 +52,11 @@ pub fn decide(
         // the parser's unique-`(recommended)` guarantee — exactly one option,
         // marked "recommended". The judge (below) still gates triviality.
         Some("choice") => {
-            let rec = req.options.iter().filter(|o| o.kind == "recommended").count();
+            let rec = req
+                .options
+                .iter()
+                .filter(|o| o.kind == "recommended")
+                .count();
             if rec != 1 {
                 return PerceptionDecision::Escalate;
             }
@@ -379,7 +383,14 @@ mod tests {
     #[test]
     fn choice_with_one_recommended_auto_answers() {
         let r = req("choice", None, vec![opt("1", "recommended")]);
-        let d = decide(&r, &JudgeVerdict::Trivial { option_id: "1".into() }, 0, 5);
+        let d = decide(
+            &r,
+            &JudgeVerdict::Trivial {
+                option_id: "1".into(),
+            },
+            0,
+            5,
+        );
         assert!(matches!(d, PerceptionDecision::AutoAnswer { option_id, .. } if option_id == "1"));
     }
 
@@ -387,7 +398,14 @@ mod tests {
     fn choice_without_recommended_escalates() {
         // Floor guards even if the judge is fooled: no recommended option.
         let r = req("choice", None, vec![opt("1", ""), opt("2", "")]);
-        let d = decide(&r, &JudgeVerdict::Trivial { option_id: "1".into() }, 0, 5);
+        let d = decide(
+            &r,
+            &JudgeVerdict::Trivial {
+                option_id: "1".into(),
+            },
+            0,
+            5,
+        );
         assert!(matches!(d, PerceptionDecision::Escalate));
     }
 

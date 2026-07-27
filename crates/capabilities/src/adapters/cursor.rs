@@ -102,7 +102,11 @@ fn scan_skills(dir: &Path, scope: CursorScope, out: &mut Vec<Capability>) -> Cap
     Ok(())
 }
 
-fn scan_commands(dir: &Path, scope: CursorScope, out: &mut Vec<Capability>) -> CapabilityResult<()> {
+fn scan_commands(
+    dir: &Path,
+    scope: CursorScope,
+    out: &mut Vec<Capability>,
+) -> CapabilityResult<()> {
     if !dir.is_dir() {
         return Ok(());
     }
