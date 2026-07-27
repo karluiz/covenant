@@ -392,3 +392,98 @@ describe("board share control", () => {
     expect(document.querySelector(".tasker-share-menu")).toBeNull();
   });
 });
+
+describe("TaskerPanel subtasks", () => {
+  function openTask(host: HTMLElement, tid: string): void {
+    host
+      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .rail-task`)!
+      .click();
+  }
+
+  function addSub(host: HTMLElement, title: string): void {
+    const input = host.querySelector<HTMLInputElement>(".tasker-sub-input")!;
+    input.value = title;
+    host
+      .querySelector<HTMLFormElement>(".tasker-sub-add")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  }
+
+  it("adds a subtask via the sheet input and persists it", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Motor de Loyalty");
+    panel.render();
+    openTask(host, tid);
+
+    addSub(host, "Cotizar motor de puntos");
+
+    const subs = storageOf(panel).getTask(pid, tid).subtasks;
+    expect(subs).toHaveLength(1);
+    expect(subs[0].title).toBe("Cotizar motor de puntos");
+    expect(subs[0].completed).toBe(false);
+    expect(typeof subs[0].id).toBe("string");
+    // survives a storage reload (localStorage round-trip)
+    const raw = JSON.parse(localStorage.getItem("covenant.tasker.store")!);
+    expect(raw.projects[0].tasks[0].subtasks[0].title).toBe("Cotizar motor de puntos");
+  });
+
+  it("ignores an empty submit", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Motor de Loyalty");
+    panel.render();
+    openTask(host, tid);
+
+    addSub(host, "   ");
+    expect(storageOf(panel).getTask(pid, tid).subtasks).toBeUndefined();
+  });
+
+  it("checkbox toggles completed and the progress fraction follows", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Motor de Loyalty");
+    panel.render();
+    openTask(host, tid);
+    addSub(host, "uno");
+    addSub(host, "dos");
+
+    host.querySelector<HTMLButtonElement>(".tasker-sub .tasker-sub-cb")!.click();
+    const subs = storageOf(panel).getTask(pid, tid).subtasks;
+    expect(subs.map((s: { completed: boolean }) => s.completed)).toEqual([true, false]);
+    expect(host.querySelector(".tasker-subs-prog")!.textContent).toBe("1/2");
+
+    // untoggle
+    host.querySelector<HTMLButtonElement>(".tasker-sub .tasker-sub-cb")!.click();
+    expect(storageOf(panel).getTask(pid, tid).subtasks[0].completed).toBe(false);
+  });
+
+  it("delete removes one subtask; removing the last clears the field", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Motor de Loyalty");
+    panel.render();
+    openTask(host, tid);
+    addSub(host, "uno");
+
+    host.querySelector<HTMLButtonElement>(".tasker-sub-del")!.click();
+    expect(storageOf(panel).getTask(pid, tid).subtasks).toBeUndefined();
+  });
+
+  it("rail row shows the fraction chip, accented when all done", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Motor de Loyalty");
+    panel.render();
+    openTask(host, tid);
+    addSub(host, "uno");
+
+    let chip = host.querySelector(`.tasker-task[data-task-id="${tid}"] .rail-subs`)!;
+    expect(chip.textContent).toBe("0/1");
+    expect(chip.classList.contains("all")).toBe(false);
+
+    host.querySelector<HTMLButtonElement>(".tasker-sub .tasker-sub-cb")!.click();
+    chip = host.querySelector(`.tasker-task[data-task-id="${tid}"] .rail-subs`)!;
+    expect(chip.textContent).toBe("1/1");
+    expect(chip.classList.contains("all")).toBe(true);
+  });
+});
