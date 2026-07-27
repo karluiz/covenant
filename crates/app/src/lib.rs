@@ -42,6 +42,7 @@ mod fix_proposer;
 mod git_tools;
 mod history_import;
 mod lsp_commands;
+mod mcp_server;
 mod memory;
 mod mission_pair;
 mod mission_persistence;
@@ -4710,6 +4711,31 @@ pub fn run() {
         .with(fmt::layer().with_target(false))
         .init();
 
+    // Early-arg handling for CLI subcommands before Tauri builder / single-instance.
+    // `covenant mcp-config` prints the MCP entry for external agents and exits.
+    if std::env::args().nth(1).as_deref() == Some("mcp-config") {
+        // Same dir tauri's app_data_dir resolves to; keep in sync with mcp_server::discovery_path.
+        let path = dirs::data_dir().map(|d| d.join("com.karluiz.covenant").join("mcp.json"));
+        match path.and_then(|p| std::fs::read_to_string(p).ok()) {
+            Some(raw) => {
+                let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+                let output = serde_json::to_string_pretty(&serde_json::json!({
+                    "covenant": {
+                        "type": "http",
+                        "url": v["url"],
+                        "headers": { "Authorization": format!("Bearer {}", v["token"].as_str().unwrap_or_default()) }
+                    }
+                })).unwrap_or_default();
+                println!("{}", output);
+                std::process::exit(0);
+            }
+            None => {
+                eprintln!("Covenant is not running (no mcp.json discovery file).");
+                std::process::exit(1);
+            }
+        }
+    }
+
     install_crash_logger();
     raise_fd_limit();
 
@@ -5432,6 +5458,10 @@ pub fn run() {
             rc_agent::spawn(app.handle().clone());
             term_share::spawn_startup_revoke(app.handle());
 
+            if let Err(e) = crate::mcp_server::start(app.handle().clone()) {
+                tracing::warn!(error = %e, "mcp server did not start");
+            }
+
             // Deferred traffic-light heal for cold launch. The on_window_event
             // handler re-applies the inset on the launch Focused/Resized burst,
             // but those can fire before macOS has settled the buttons to their
@@ -6067,6 +6097,8 @@ pub fn run() {
                 if code.is_none() {
                     api.prevent_exit();
                     let _ = app.emit("menu://quit-request", ());
+                } else {
+                    crate::mcp_server::remove_discovery_file(app);
                 }
             }
         });

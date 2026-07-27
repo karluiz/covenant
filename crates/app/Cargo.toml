@@ -70,6 +70,9 @@ karl-lsp = { workspace = true }
 hostname = "0.4"
 discord-rich-presence = "1.1.0"
 tauri-plugin-os = "2.3.2"
+rmcp = { version = "2.2.0", features = ["server", "transport-streamable-http-server"] }
+axum = "0.8.9"
+schemars = "1.2.2"
 
 [features]
 default = ["embeddings"]
@@ -94,3 +97,4 @@ mockito = "1"
 wiremock = "0.6"
 tokio = { version = "1", features = ["full", "test-util"] }
 trybuild = "1"
+tower = { version = "0.5.3", features = ["util"] }

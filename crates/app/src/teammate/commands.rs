@@ -542,7 +542,7 @@ pub async fn teammate_list_tasks(
 // ── Task-lifecycle helpers + Tauri commands ───────────────────────────────────
 
 use crate::teammate::runtime::TeammateRuntime;
-use crate::teammate::types::{ProposeTask, Task, TaskId, TaskStatus, UpdateKind};
+use crate::teammate::types::{ProposeTask, Task, TaskId, TaskScope, TaskStatus, UpdateKind};
 
 fn now_unix_ms() -> u64 {
     std::time::SystemTime::now()
@@ -637,6 +637,43 @@ pub(crate) async fn confirm_task_inner(
     };
     storage
         .teammate_insert_message(&started)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(task)
+}
+
+/// Pure inner: create a follow-up task on the board, owned by `parent`'s
+/// operator and left `Draft` — the UI (or the executor that called this via
+/// MCP) attaches a session to it explicitly, same as any other draft task.
+pub(crate) async fn create_followup_task_inner(
+    storage: &Arc<Storage>,
+    parent: TaskId,
+    title: String,
+    body: String,
+    now_ms: u64,
+) -> Result<Task, String> {
+    let parent_task = storage
+        .teammate_get_task(parent)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "parent task not found".to_string())?;
+    let task = Task {
+        id: TaskId::new(),
+        operator_id: parent_task.operator_id,
+        archetype: parent_task.archetype,
+        title,
+        body,
+        deliverable: String::new(),
+        status: TaskStatus::Draft,
+        scope: TaskScope::default(),
+        spawned_session: None,
+        created_at_unix_ms: now_ms,
+        updated_at_unix_ms: now_ms,
+        completed_at_unix_ms: None,
+        cost_usd_cents: 0,
+    };
+    storage
+        .teammate_insert_task(&task)
         .await
         .map_err(|e| e.to_string())?;
     Ok(task)
@@ -975,19 +1012,22 @@ pub async fn teammate_cancel_active_task(
     Ok(())
 }
 
-/// Mark an active/blocked task as done, releasing the operator so it can
-/// pick up the next task. Used by the task-detail "Mark done" button.
-#[tauri::command]
-pub async fn teammate_complete_task(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, crate::AppState>,
-    storage: State<'_, Arc<Storage>>,
-    runtime: State<'_, Arc<TeammateRuntime>>,
-    supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
-    spec_tracker: State<'_, Arc<crate::teammate::spec_edit_tracker::SpecEditTracker>>,
+/// Full completion path shared by the Tauri command and the MCP tool.
+///
+/// Marks an active/blocked task as done, releasing the operator so it can
+/// pick up the next task: runtime release, achievement emits,
+/// supervisor/spec-tracker cleanup, operator disable, and
+/// `teammate-task`/`teammate-message` emits.
+pub(crate) async fn complete_task_full(
+    app: &tauri::AppHandle,
     task_id: crate::teammate::TaskId,
 ) -> Result<(), String> {
-    use tauri::Emitter;
+    use tauri::{Emitter, Manager};
+    let state = app.state::<crate::AppState>();
+    let storage = app.state::<Arc<Storage>>();
+    let runtime = app.state::<Arc<TeammateRuntime>>();
+    let supervisor = app.state::<Arc<crate::teammate::task_supervisor::TaskSupervisor>>();
+    let spec_tracker = app.state::<Arc<crate::teammate::spec_edit_tracker::SpecEditTracker>>();
     let (task, msg) =
         complete_task_inner(storage.inner(), runtime.inner(), task_id, now_unix_ms()).await?;
     if let Some(s) = task.spawned_session {
@@ -1020,12 +1060,22 @@ pub async fn teammate_complete_task(
         supervisor.forget_task(s);
         state
             .operator
-            .disable_for_session(&app, s, "task_completed")
+            .disable_for_session(app, s, "task_completed")
             .await;
     }
     let _ = app.emit("teammate-task", &task);
     let _ = app.emit("teammate-message", &msg);
     Ok(())
+}
+
+/// Mark an active/blocked task as done. Used by the task-detail "Mark done"
+/// button; delegates to [`complete_task_full`].
+#[tauri::command]
+pub async fn teammate_complete_task(
+    app: tauri::AppHandle,
+    task_id: crate::teammate::TaskId,
+) -> Result<(), String> {
+    complete_task_full(&app, task_id).await
 }
 
 #[tauri::command]
@@ -1389,6 +1439,40 @@ mod task_lifecycle_tests {
         runtime
             .start_task(op_id, crate::teammate::types::TaskId::new(), None)
             .expect("operator should be Idle after cancelling its task");
+    }
+
+    #[tokio::test]
+    async fn followup_task_inherits_operator_and_is_draft() {
+        let (storage, op_id, msg_id) = seed_storage().await;
+        let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
+        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1)
+            .await
+            .unwrap();
+
+        let f = create_followup_task_inner(&storage, task.id, "follow".into(), "body".into(), 7)
+            .await
+            .unwrap();
+        assert_eq!(f.operator_id, task.operator_id);
+        assert!(matches!(
+            f.status,
+            crate::teammate::types::TaskStatus::Draft
+        ));
+        assert_eq!(f.title, "follow");
+    }
+
+    #[tokio::test]
+    async fn followup_task_missing_parent_errors() {
+        let (storage, _op_id, _msg_id) = seed_storage().await;
+        let err = create_followup_task_inner(
+            &storage,
+            crate::teammate::types::TaskId::new(),
+            "t".into(),
+            "".into(),
+            1,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("not found"), "got: {err}");
     }
 
     #[tokio::test]
