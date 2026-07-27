@@ -58,17 +58,23 @@ The Tauri app hosts an MCP **streamable-http** server on localhost.
 
 ## Tool surface v1
 
-Scoping rule: every tool resolves its project/group from `COVENANT_TASK_ID`
-when present, else from the caller-supplied `cwd` argument (repo root →
-group), else errors asking for one.
+Scoping rule: the server cannot see the caller's environment, so tools take
+explicit ids. The env vars (`COVENANT_TASK_ID`, `COVENANT_GROUP_ID`,
+`COVENANT_SESSION_ID`) are for the *agent* to discover its own ids (read via
+its shell) and pass as arguments; tool descriptions say so. No cwd→scope
+magic in v1.
 
 | Tool | Args | Behavior |
 |---|---|---|
-| `task_list` | `status?` | Tasks for the current project/operator scope, from the teammate store |
-| `task_complete` | `task_id?`, `report?` | Marks done via the same path the UI "Mark done" uses (runtime release included). Defaults to `COVENANT_TASK_ID`. |
-| `task_create` | `title`, `body?` | Creates a follow-up task on the board |
-| `notes_read` | `limit?` | Recent project notes (`project_notes.rs`), newest first |
-| `notes_append` | `body` | Appends a note; `source` set to `"mcp:<executor/operator id if known>"` |
+| `task_list` | `status?` | All operator tasks from the teammate store, optionally filtered by status |
+| `task_complete` | `task_id` | Marks done via the same path the UI "Mark done" uses (runtime release included) |
+| `task_create` | `parent_task_id`, `title`, `body?` | Creates a Draft follow-up task owned by the parent's operator |
+| `notes_read` | `group_id`, `limit?` | Recent project notes (`project_notes.rs`), newest first |
+| `notes_append` | `group_id`, `body` | Appends a note; `source` set to `"mcp"` |
+
+Note: tasks here are **operator tasks** (teammate store, SQLite). The Tasker
+kanban board is frontend localStorage and is out of reach of the backend —
+explicitly out of scope for this server.
 
 Tool handlers call the existing logic in `teammate/` and `project_notes.rs`
 directly (same process). No new storage, no new domain types — request/response
