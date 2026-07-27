@@ -1683,7 +1683,15 @@ async function boot(): Promise<void> {
   statusBar.onMissionClearRequested = (sessionId) =>
     manager.clearMissionForSession(sessionId);
   statusBar.onOpenGitWorktree = (path, label) => {
-    void manager.createTab({ cwd: path, customName: label });
+    // Keep the tab inside the group the user is working in — the popover
+    // and worktrees page both operate on the active tab's repo.
+    const group = manager.activeGroup();
+    void manager.createTab({
+      cwd: path,
+      customName: label,
+      groupId: group?.id ?? null,
+      color: group?.color ?? null,
+    });
   };
   // "Agent" on a worktree row: launch the default spawn IN the existing
   // worktree. Deliberately skips resolveLaunch — no worktree is cut, we reuse
@@ -1692,11 +1700,20 @@ async function boot(): Promise<void> {
   // default spawn has no runnable command.
   statusBar.onResumeWorktreeAgent = (path, label) => {
     void (async () => {
+      // Same group placement as onOpenGitWorktree — read before the awaits
+      // so a mid-flight tab switch can't change the answer.
+      const group = manager.activeGroup();
       const specs = await listSpawns();
       const spec = specs.find((s) => s.default) ?? specs[0];
       const acpExec = spec?.acp ? acpExecutorFor(spec) : null;
       if (acpExec) {
-        await manager.createAcpTab({ cwd: path, customName: label, executor: acpExec });
+        await manager.createAcpTab({
+          cwd: path,
+          customName: label,
+          executor: acpExec,
+          groupId: group?.id ?? null,
+          color: group?.color ?? null,
+        });
         return;
       }
       const cmdline = spec?.command
@@ -1707,6 +1724,8 @@ async function boot(): Promise<void> {
         customName: label,
         initialCommand: cmdline,
         scrubLaunch: !!cmdline,
+        groupId: group?.id ?? null,
+        color: group?.color ?? null,
       });
     })();
   };
@@ -2067,33 +2086,11 @@ async function boot(): Promise<void> {
   // Worktrees management page — ⌘⌥W toggle. Own fixed-overlay host on body.
   const worktreesHost = document.createElement("div");
   document.body.appendChild(worktreesHost);
-  // "Agent" on a worktree: launch the default spawn IN the existing worktree.
-  // Deliberately skips resolveLaunch — no worktree is cut, we reuse the one git
-  // already reported. ACP default → chat tab; PTY default → terminal preloaded
-  // with the cmdline. Mirrors the git popover's row action (main.ts a5088847).
-  const resumeWorktreeAgent = (path: string, label: string): void => {
-    void (async () => {
-      const specs = await listSpawns();
-      const spec = specs.find((s) => s.default) ?? specs[0];
-      const acpExec = spec?.acp ? acpExecutorFor(spec) : null;
-      if (acpExec) {
-        await manager.createAcpTab({ cwd: path, customName: label, executor: acpExec });
-        return;
-      }
-      const cmdline = spec?.command
-        ? buildSpawnCmdline(spec, claudeThemeFor(resolveTheme(activeThemeMode, activeSpecialId))) + "\n"
-        : null;
-      await manager.createTab({
-        cwd: path,
-        customName: label,
-        initialCommand: cmdline,
-        scrubLaunch: !!cmdline,
-      });
-    })();
-  };
   const worktreesSurface = new WorktreesSurface(worktreesHost, {
     onOpenTab: (path, label) => { statusBar.onOpenGitWorktree?.(path, label); },
-    onResumeAgent: resumeWorktreeAgent,
+    // Same handler as the git popover's "Agent" row action — launch the
+    // default spawn IN the existing worktree, placed in the active group.
+    onResumeAgent: (path, label) => { statusBar.onResumeWorktreeAgent?.(path, label); },
     getOccupiedCwds: () => new Set(statusBar.getOccupiedCwds?.() ?? []),
     getTabForCwd: (path) => {
       const t = manager.listTabSnapshots().find((s) => s.cwd === path);
