@@ -41,12 +41,27 @@ pub(crate) fn write_discovery_file(path: &Path, port: u16, token: &str) -> Resul
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(path, rendered).map_err(|e| e.to_string())?;
+
+    // Create at 0600 in the same syscall that creates the file — a
+    // create-then-chmod sequence has a window where the token sits in a
+    // world-readable file at the umask-default mode.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
             .map_err(|e| e.to_string())?;
+        file.write_all(rendered.as_bytes())
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, rendered).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -181,6 +196,9 @@ mod tests {
         assert_eq!(v["token"], "tok123");
         #[cfg(unix)]
         {
+            // Exercises the atomic OpenOptions().mode(0o600) create path —
+            // there is no create-then-chmod window for a concurrent reader
+            // to observe a wider mode.
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
