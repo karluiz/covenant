@@ -172,6 +172,13 @@ pub struct NotesAppendArgs {
     pub body: String,
 }
 
+#[derive(Deserialize, JsonSchema)]
+pub struct CommandsListArgs {
+    /// Project group id. If Covenant spawned you, read $COVENANT_GROUP_ID
+    /// from your environment.
+    pub group_id: String,
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -301,6 +308,23 @@ impl CovenantMcp {
         {
             Ok(notes) => Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::to_string_pretty(&notes).unwrap_or_default(),
+            )])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
+                e.to_string(),
+            )])),
+        }
+    }
+
+    #[rmcp::tool(
+        description = "List the saved project commands (the user's runbook) for a Covenant group: how things are built, run, and deployed here."
+    )]
+    async fn commands_list(
+        &self,
+        params: Parameters<CommandsListArgs>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.notes().snapshot(&params.0.group_id).await {
+            Ok(snap) => Ok(CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&snap.commands).unwrap_or_default(),
             )])),
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
                 e.to_string(),
