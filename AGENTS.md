@@ -367,8 +367,13 @@ app instead of just being watched by it. `crates/app/src/mcp_server.rs`.
   `task_complete` (identical effect to the UI's "Mark done", including
   operator release), `task_create` (drafts a follow-up task that inherits the
   parent task's operator), `notes_read`, `notes_append` (writes with source
-  `"mcp"`). All tools take explicit ids — no ambient session/task/group state
-  on the server side.
+  `"mcp"`), `commands_list` (the group's saved runbook commands, read-only),
+  `session_list` + `session_output` (cross-session visibility: other PTY
+  tabs' recent blocks, ANSI-free, truncated, and passed through
+  `safety::mask_secrets` — strictly read-only, there is no write-to-session
+  tool and adding one requires the full policy framework, not a new tool).
+  All tools take explicit ids — no ambient session/task/group state on the
+  server side.
 - **Spawn injection**: ACP executor spawns get the server's `mcpServers`
   entry (name `covenant`, type `http`, Bearer header) injected into
   `session/new`/`session/load`, plus `COVENANT_SESSION_ID` and — when the
