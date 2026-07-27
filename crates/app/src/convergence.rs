@@ -383,7 +383,10 @@ pub struct BuiltRow {
 /// Pure second pass: escalations from blocked operator rows (P1: agent
 /// lanes never escalate), then one flat card list. Sorting is the
 /// frontend's job — only escalations get their oldest-first order here.
-pub fn assemble_snapshot(op_rows: Vec<BuiltRow>, agent_cards: Vec<AgentCard>) -> ConvergenceSnapshot {
+pub fn assemble_snapshot(
+    op_rows: Vec<BuiltRow>,
+    agent_cards: Vec<AgentCard>,
+) -> ConvergenceSnapshot {
     let mut escalations: Vec<EscalationCard> = op_rows
         .iter()
         .filter(|b| matches!(b.card.status, TileStatus::Blocked))
@@ -789,7 +792,9 @@ mod tests {
             "tab",
             None,
             Some("claude".into()),
-            Some(P::Writing { file: "a.rs".into() }),
+            Some(P::Writing {
+                file: "a.rs".into(),
+            }),
         )
         .expect("card");
         assert_eq!(c.status, TileStatus::Working);
@@ -826,7 +831,10 @@ mod tests {
         );
         assert_eq!(snap.escalations.len(), 2);
         assert_eq!(snap.escalations[0].session_id, "b"); // oldest first
-        assert_eq!(snap.escalations[1].executor_excerpt.as_deref(), Some("tail"));
+        assert_eq!(
+            snap.escalations[1].executor_excerpt.as_deref(),
+            Some("tail")
+        );
         assert_eq!(snap.escalations[1].question.as_deref(), Some("q?"));
         assert_eq!(snap.agents.len(), 3);
     }
@@ -877,11 +885,15 @@ mod tests {
             TileStatus::Working
         );
         assert_eq!(
-            phase_to_status(&P::Writing { file: "a.rs".into() }),
+            phase_to_status(&P::Writing {
+                file: "a.rs".into()
+            }),
             TileStatus::Working
         );
         assert_eq!(
-            phase_to_status(&P::Reading { file: "a.rs".into() }),
+            phase_to_status(&P::Reading {
+                file: "a.rs".into()
+            }),
             TileStatus::Working
         );
         assert_eq!(
@@ -910,11 +922,17 @@ mod tests {
             Some("running cargo test")
         );
         assert_eq!(
-            phase_label(&P::Writing { file: "a.rs".into() }).as_deref(),
+            phase_label(&P::Writing {
+                file: "a.rs".into()
+            })
+            .as_deref(),
             Some("writing a.rs")
         );
         assert_eq!(
-            phase_label(&P::Reading { file: "a.rs".into() }).as_deref(),
+            phase_label(&P::Reading {
+                file: "a.rs".into()
+            })
+            .as_deref(),
             Some("reading a.rs")
         );
         assert_eq!(

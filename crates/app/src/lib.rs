@@ -1930,16 +1930,15 @@ async fn build_convergence_inputs(
         .map(|t| (t.session_id.clone(), t))
         .collect();
 
-    let pinned_operator = |id: karl_session::SessionId| {
-        match registry.pinned(id).and_then(|oid| registry.get(oid)) {
+    let pinned_operator =
+        |id: karl_session::SessionId| match registry.pinned(id).and_then(|oid| registry.get(oid)) {
             Some(op) => (
                 Some(op.id.to_string()),
                 Some(op.name.clone()),
                 Some(op.emoji.clone()),
             ),
             None => (None, None, None),
-        }
-    };
+        };
 
     // Collect (id, op_state) under the lock, then drop it — `&ManagedSession`
     // is not Sync, so it must not live across the notch awaits below.
