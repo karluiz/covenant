@@ -363,11 +363,12 @@ app instead of just being watched by it. `crates/app/src/mcp_server.rs`.
   Contains `{"url": ..., "token": ...}` — the token is random per app boot.
 - **Auth**: `Authorization: Bearer <token>` required on every request;
   localhost bind + per-boot token, nothing more.
-- **Tools**: `task_list`, `task_complete` (identical effect to the UI's "Mark
-  done", including operator release), `task_create` (drafts a follow-up task
-  that inherits the parent task's operator), `notes_read`, `notes_append`
-  (writes with source `"mcp"`). All tools take explicit ids — no ambient
-  session/task/group state on the server side.
+- **Tools**: `task_list` (capped at the 200 most recently created tasks),
+  `task_complete` (identical effect to the UI's "Mark done", including
+  operator release), `task_create` (drafts a follow-up task that inherits the
+  parent task's operator), `notes_read`, `notes_append` (writes with source
+  `"mcp"`). All tools take explicit ids — no ambient session/task/group state
+  on the server side.
 - **Spawn injection**: ACP executor spawns get the server's `mcpServers`
   entry (name `covenant`, type `http`, Bearer header) injected into
   `session/new`/`session/load`, plus a `COVENANT_SESSION_ID` env var.

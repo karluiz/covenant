@@ -143,7 +143,9 @@ pub struct TaskListArgs {
 
 #[derive(Deserialize, JsonSchema)]
 pub struct TaskCompleteArgs {
-    /// The task to mark done. If you were spawned by Covenant, this is $COVENANT_TASK_ID.
+    /// The task to mark done. If you don't know it, call task_list and find
+    /// the task whose spawned_session matches $COVENANT_SESSION_ID (set in
+    /// your environment). $COVENANT_TASK_ID may also be set in some spawn modes.
     pub task_id: String,
 }
 
@@ -157,7 +159,10 @@ pub struct TaskCreateArgs {
 
 #[derive(Deserialize, JsonSchema)]
 pub struct NotesReadArgs {
-    /// Project group id. If spawned by Covenant, $COVENANT_GROUP_ID.
+    /// Project group id. To find your own task's context, call task_list and
+    /// match a task's spawned_session field against $COVENANT_SESSION_ID (set
+    /// in your environment). $COVENANT_GROUP_ID may also be set in some
+    /// spawn modes.
     pub group_id: String,
     /// Max notes to return, newest first. Default 20.
     pub limit: Option<u32>,
@@ -217,7 +222,9 @@ impl CovenantMcp {
             .clone()
     }
 
-    #[rmcp::tool(description = "List Covenant operator tasks, optionally filtered by status.")]
+    #[rmcp::tool(
+        description = "List Covenant operator tasks, optionally filtered by status. Capped at the 200 most recently created tasks."
+    )]
     async fn task_list(
         &self,
         params: Parameters<TaskListArgs>,
@@ -329,7 +336,10 @@ impl rmcp::ServerHandler for CovenantMcp {
         rmcp::model::ServerInfo::default().with_instructions(
             "Covenant terminal control surface. Task tools operate on \
              operator tasks; notes tools on project notes. If you don't \
-             know your ids, read $COVENANT_TASK_ID / $COVENANT_GROUP_ID.",
+             know your ids, call task_list and match a task's \
+             spawned_session field against $COVENANT_SESSION_ID (set in \
+             your environment) to find your own task. $COVENANT_TASK_ID / \
+             $COVENANT_GROUP_ID may also be set in some spawn modes.",
         )
     }
 }
