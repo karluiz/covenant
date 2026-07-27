@@ -13,6 +13,14 @@ describe("cwdUnderRoot", () => {
   it("rejects a sibling worktree with a shared prefix", () => {
     expect(cwdUnderRoot(ROOT + "-2", ROOT)).toBe(false);
   });
+  it("rejects a linked worktree physically nested under the main root", () => {
+    const MAIN = "/Users/k/Sources/karlTerminal";
+    expect(cwdUnderRoot(MAIN + "/.covenant/worktrees/agent-bar", MAIN)).toBe(false);
+    expect(cwdUnderRoot(MAIN + "/.covenant/worktrees/agent-bar/ui/src", MAIN)).toBe(false);
+    expect(cwdUnderRoot(MAIN + "/.claude/worktrees/agent-bar", MAIN)).toBe(false);
+    // main-root subdirs still match
+    expect(cwdUnderRoot(MAIN + "/ui/src", MAIN)).toBe(true);
+  });
   it("rejects when either side is empty/null", () => {
     expect(cwdUnderRoot("", ROOT)).toBe(false);
     expect(cwdUnderRoot(ROOT, null)).toBe(false);

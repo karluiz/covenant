@@ -8641,6 +8641,9 @@ mark.mv-find-hit.is-active {
     align-items: center;
     gap: 5px;
     max-width: 100%;
+    /* No global border-box reset in this app: without this, max-width:100%
+       + padding/border overflows the footer and clips the chip's right edge. */
+    box-sizing: border-box;
     padding: 2px 7px;
     font-size: 10.5px;
     color: var(--text-primary);
