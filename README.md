@@ -43,7 +43,7 @@ This unlocks things a chat-bolted-on terminal cannot do:
 
 Pre-1.0. Active development on macOS. Windows support is architected for but deferred until the macOS path is solid (see `CLAUDE.md` → M8).
 
-Current capabilities include multi-session tabs with persistence, OSC 133 block parsing, mission-driven autonomous operation with cost caps, command recall over shell history, OS notifications, and a Familiars roster for per-session agents. See `CHANGELOG.md` for the running log.
+Current capabilities include multi-session tabs with persistence, OSC 133 block parsing, mission-driven autonomous operation with cost caps, command recall over shell history, and OS notifications. See `CHANGELOG.md` for the running log.
 
 ---
 

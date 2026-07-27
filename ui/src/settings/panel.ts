@@ -190,8 +190,6 @@ interface Settings {
   folded_rail_style?: FoldedRailStyle;
   ui_font_family: string | null;
   discord_presence_enabled?: boolean;
-  familiars_enabled: boolean;
-  is_premium: boolean;
   telegram?: TelegramSettings;
   providers?: Record<string, ProviderEntry>;
   model_routes?: Record<string, RouteEntry>;
@@ -391,8 +389,6 @@ export class SettingsPanel {
         tabbar_position: "top",
         ui_font_family: null,
         discord_presence_enabled: false,
-        familiars_enabled: false,
-        is_premium: false,
         experimental: { split_panes: false, internal_browser: false },
       };
     }
@@ -2447,8 +2443,6 @@ export class SettingsPanel {
             ?.value as FoldedRailStyle) || "legacy",
         ui_font_family: uiFont.value.trim() === "" ? null : uiFont.value.trim(),
         discord_presence_enabled: discordPresenceEnabled.checked,
-        familiars_enabled: this.current!.familiars_enabled,
-        is_premium: this.current!.is_premium,
         telegram: this.current!.telegram,
         providers: this.current!.providers,
         model_routes: this.current!.model_routes,

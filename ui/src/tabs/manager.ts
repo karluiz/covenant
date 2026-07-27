@@ -112,8 +112,6 @@ import { closeAcpSession, spawnAcpSession, type AcpExecutor, type AcpTrust } fro
 import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
-import { Familiars } from "../familiars/api";
-import { setFamiliarFor } from "../familiars/registry";
 import { attachTooltip } from "../tooltip/tooltip";
 import {
   TERM_SHARE_EVENT,
@@ -137,22 +135,6 @@ import { installPaneSplitter } from "./pane-splitter";
 import { positionGlassIndicator } from "./glass-indicator";
 import { sessionHintsFromTabs, type SessionHint } from "../convergence/hints";
 import type { SpecialTermTheme } from "../theme/special";
-
-/// Ensure a Familiar exists for the given session. If one is already
-/// registered backend-side (e.g. survived a relaunch), reuse it;
-/// otherwise spawn a fresh "Familiar" with conversational defaults.
-/// Always populates the session->familiar registry.
-async function ensureFamiliarFor(sessionId: string): Promise<string> {
-  const list = await Familiars.list();
-  const existing = list.find((f) => f.session_id === sessionId);
-  if (existing) {
-    setFamiliarFor(sessionId, existing.id);
-    return existing.id;
-  }
-  const id = await Familiars.spawn(sessionId, "Familiar", "conversational", 5.0);
-  setFamiliarFor(sessionId, id);
-  return id;
-}
 
 const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
@@ -2001,8 +1983,7 @@ export class TabManager {
 
   /// Fires whenever the active tab changes (including when the active tab
   /// closes and there is no replacement). Receives the new active tab's
-  /// sessionId, or null when no tab is active. Used by FamiliarPanel to
-  /// re-bind its chat/status/audit to the per-tab Familiar.
+  /// sessionId, or null when no tab is active.
   public onActiveSessionChange:
     | ((sessionId: SessionId | null) => void)
     | null = null;
@@ -2788,25 +2769,10 @@ export class TabManager {
       const mission = await getSessionMission(sessionId as SessionId).catch(
         () => pane.mission,
       );
-      const wasEnabled = pane.operatorEnabled;
       pane.operatorEnabled = enabled;
       pane.operatorLive = live;
       pane.aomExcluded = excluded;
       pane.mission = mission;
-      // Auto-spawn a Familiar when the operator transitions OFF→ON,
-      // gated on the user's familiars-enabled setting (BYOK).
-      // Failures are non-fatal — the operator stays enabled either way.
-      if (!wasEnabled && enabled) {
-        try {
-          const s = await getSettings();
-          if (s.familiars_enabled) {
-            await ensureFamiliarFor(sessionId);
-          }
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn("ensureFamiliarFor failed", err);
-        }
-      }
     }
     this.renderTabbar();
     this.pushExcludedToStatusBar();

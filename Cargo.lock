@@ -896,7 +896,6 @@ dependencies = [
  "karl-blocks",
  "karl-canon",
  "karl-capabilities",
- "karl-familiar",
  "karl-lsp",
  "karl-metrics",
  "karl-pty",
@@ -3104,29 +3103,6 @@ dependencies = [
  "tokio",
  "toml 0.8.2",
  "tracing",
-]
-
-[[package]]
-name = "karl-familiar"
-version = "0.9.75"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "futures-util",
- "karl-agent",
- "karl-blocks",
- "karl-session",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "strip-ansi-escapes",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "ulid",
 ]
 
 [[package]]

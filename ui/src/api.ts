@@ -1272,11 +1272,6 @@ export interface Settings {
   /// Discord Rich Presence toggle. Off by default; publishes only
   /// workspace name + session count, never commands or paths.
   discord_presence_enabled?: boolean;
-  /// Familiars feature flag. Both this AND `is_premium` must be true
-  /// for the auto-spawn-on-operator-start flow to fire.
-  familiars_enabled: boolean;
-  /// Premium gate for Familiars (and any other premium-only features).
-  is_premium: boolean;
   /// Local LLM provider registry. Keys are provider ids.
   providers?: Record<string, ProviderEntry>;
   /// Model routing table mapping role names to provider+model.
@@ -2459,11 +2454,6 @@ export async function submitConvergenceReply(
 ): Promise<void> {
   await invoke<void>("submit_convergence_reply", { sessionId, text, scope });
 }
-
-export { Familiars } from "./familiars/api";
-export type {
-  FamiliarSummary, ChatOutput, MissionOut, SnapshotOut, DirectiveOut, Style,
-} from "./familiars/api";
 
 // 3.18 Agentic spec creation -----------------------------------------
 

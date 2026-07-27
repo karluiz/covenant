@@ -27,7 +27,6 @@ Every terminal session emits structured events — commands, outputs, exit codes
 
 - Multi-session terminal tabs and block-based command history.
 - Master/operator workflows and autonomous mission execution.
-- Familiars and higher-level capability surfaces.
 - Spec chat, docs hub, project notes, command recall, notifications, and convergence/status views.
 
 ## Out-of-scope by default

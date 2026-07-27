@@ -36,7 +36,6 @@ pub mod email;
 mod embedder;
 mod exec_vitals;
 mod executor_idle;
-mod familiar_commands;
 mod favorites_commands;
 mod file_search;
 mod fix_proposer;
@@ -384,69 +383,6 @@ pub(crate) async fn get_embedder_from_cell(
 #[allow(dead_code)] // wired up in 3.13 follow-up tasks
 async fn get_embedder(state: &AppState) -> Result<Arc<embedder::Embedder>, String> {
     get_embedder_from_cell(&state.embedder).await
-}
-
-/// Spawn a Familiar observer task bound to a specific session's
-/// `SessionEvent` bus. The observer drains the bus, filters to events
-/// for `session_id`, and persists rolling summaries into the Familiar's
-/// memory via Haiku.
-///
-/// The caller is responsible for matching the lifetime of this task to
-/// the underlying session — when the bus sender drops, `obs.run`
-/// returns and the spawned task ends.
-pub fn spawn_familiar_observer_for(
-    manager: Arc<karl_familiar::FamiliarManager>,
-    bus_tx: tokio::sync::broadcast::Sender<karl_session::SessionEvent>,
-    session_id: String,
-    familiar_id: karl_familiar::FamiliarId,
-    api_key: String,
-) {
-    // The Familiar observer holds a `MutexGuard<Memory>` across awaits,
-    // and `Memory` wraps a rusqlite `Connection` which is `!Sync` — so
-    // the observer future is not `Send` and can't run on the shared
-    // multi-thread runtime. Park it on a dedicated OS thread with its
-    // own current-thread runtime; the bus subscription keeps it alive
-    // until the sender drops.
-    std::thread::Builder::new()
-        .name(format!("familiar-observer-{}", session_id))
-        .spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt,
-                Err(e) => {
-                    tracing::warn!(error = %e, "familiar observer runtime build failed");
-                    return;
-                }
-            };
-            rt.block_on(async move {
-                let mem = match manager.memory_of(familiar_id).await {
-                    Ok(m) => m,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "spawn_familiar_observer_for: memory_of failed");
-                        return;
-                    }
-                };
-                let llm = Arc::new(karl_familiar::summarizer::AnthropicLlm::haiku(api_key));
-                let shutdown = manager.shutdown_signal(familiar_id).await.ok();
-                let obs = karl_familiar::observer::Observer {
-                    memory: mem,
-                    llm,
-                    session_filter: session_id,
-                    flush_every: 5,
-                    flush_after: Duration::from_secs(60),
-                    shutdown,
-                };
-                if let Err(e) = obs.run(bus_tx.subscribe()).await {
-                    tracing::warn!(error = %e, "familiar observer exited with error");
-                }
-            });
-        })
-        .map(|_| ())
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "spawn familiar observer thread failed");
-        });
 }
 
 /// Per-session sliding-window call counter. Resets every 60s.
@@ -4998,21 +4934,6 @@ pub fn run() {
             supervisor.clone().spawn(supervisor_bus_rx);
             app.manage(supervisor);
 
-            // Familiars: per-session AI companion with persistent
-            // SQLite-backed memory. Storage root is under the user's
-            // home; falls back to a relative dir on exotic systems
-            // where home_dir() returns None.
-            let familiars_root = dirs::home_dir()
-                .map(|p| p.join(".karlTerminal").join("familiars"))
-                .unwrap_or_else(|| PathBuf::from("./.familiars"));
-            if let Err(e) = std::fs::create_dir_all(&familiars_root) {
-                tracing::warn!(error = %e, "create familiars root failed; continuing");
-            }
-            let familiar_manager = Arc::new(
-                karl_familiar::FamiliarManager::new(familiars_root),
-            );
-            app.manage(familiar_manager.clone());
-
             let aom_handle = aom::new_handle();
             let connectivity_handle = connectivity::new_handle();
             let notifier = Notifier::new(app.handle().clone(), settings_arc.clone());
@@ -5937,16 +5858,6 @@ pub fn run() {
             teammate::commands::teammate_list_decisions_for_session,
             spec_detector::start_spec_detector,
             spec_detector::mark_spec_seen,
-            familiar_commands::familiar_list,
-            familiar_commands::familiar_spawn,
-            familiar_commands::familiar_update_config,
-            familiar_commands::familiar_chat,
-            familiar_commands::familiar_approve_directive,
-            familiar_commands::familiar_reject_directive,
-            familiar_commands::familiar_snapshot,
-            familiar_commands::familiar_audit,
-            familiar_commands::familiar_mark_executed,
-            familiar_commands::familiar_has_recent_closed_mission,
             spec_author_step,
             spec_author_stream_step,
             spec_author_load_draft,

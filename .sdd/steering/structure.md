@@ -7,7 +7,7 @@
 - `crates/blocks/` — OSC 133/OSC 7 parsing and terminal block types.
 - `crates/session/` — session lifecycle and event bus.
 - `crates/agent/` — LLM client, dispatch path, super-agent/world-model logic.
-- `crates/capabilities/`, `crates/familiar/`, `crates/score/` — higher-level operator/familiar/capability features.
+- `crates/capabilities/`, `crates/score/` — higher-level operator/capability features.
 - `ui/src/` — frontend TypeScript features (`terminal`, `operator`, `settings`, `spec-chat`, `project-notes`, etc.).
 - `shell-integration/` — shell snippets for OSC markers.
 - `docs/specs/` — implementation-ready feature specs.

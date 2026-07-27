@@ -346,12 +346,6 @@ pub struct Settings {
     #[serde(default)]
     pub discord_presence_enabled: bool,
 
-    /// Familiars: per-session AI companion with its own memory.
-    /// BYOK — the user pays Anthropic directly via their own API key,
-    /// so there is no premium gate; the feature is purely opt-in.
-    #[serde(default)]
-    pub familiars_enabled: bool,
-
     #[serde(default)]
     pub telegram: TelegramSettings,
 
@@ -464,10 +458,6 @@ impl Default for CloudSyncConfig {
 }
 
 impl Settings {
-    pub fn familiars_active(&self) -> bool {
-        self.familiars_enabled
-    }
-
     pub fn acp_executor(&self, executor: &str) -> AcpExecutorConfig {
         self.acp_executors
             .get(executor)
@@ -785,7 +775,6 @@ impl Default for Settings {
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,
             discord_presence_enabled: false,
-            familiars_enabled: false,
             telegram: TelegramSettings::default(),
             cloud_sync: CloudSyncConfig::default(),
             onboarding_completed: false,
@@ -793,24 +782,6 @@ impl Default for Settings {
             code_intelligence: CodeIntelligenceConfig::default(),
             acp_executors: HashMap::new(),
         }
-    }
-}
-
-#[cfg(test)]
-mod familiars_tests {
-    use super::*;
-
-    #[test]
-    fn familiars_inactive_by_default() {
-        let s = Settings::default();
-        assert!(!s.familiars_active());
-    }
-
-    #[test]
-    fn familiars_active_when_enabled() {
-        let mut s = Settings::default();
-        s.familiars_enabled = true;
-        assert!(s.familiars_active());
     }
 }
 
