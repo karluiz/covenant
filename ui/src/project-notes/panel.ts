@@ -177,6 +177,16 @@ export class ProjectNotesPanel {
     const content = document.createElement("section");
     content.className = "canon-cockpit-content";
 
+    // In-flow inside each tab's sticky sec-head (same fix as the Canon
+    // cockpit): overlaying the pill above scrolling content made it
+    // flicker on WebKit when hover effects repainted beneath it.
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "canon-cockpit-close";
+    close.setAttribute("aria-label", "Close (Esc)");
+    close.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
+    close.addEventListener("click", () => this.collapseExpanded());
+
     const buttons: Partial<Record<PanelTab, HTMLButtonElement>> = {};
     const select = (key: PanelTab, label: string, desc: string): void => {
       for (const b of nav.querySelectorAll(".canon-cockpit-nav-btn")) b.classList.remove("is-active");
@@ -194,7 +204,10 @@ export class ProjectNotesPanel {
       const text = document.createElement("div");
       text.className = "canon-cockpit-sec-text";
       text.append(h, p);
-      head.append(text);
+      const actions = document.createElement("div");
+      actions.className = "canon-cockpit-sec-actions";
+      actions.appendChild(close);
+      head.append(text, actions);
       const body = document.createElement("div");
       body.className = "pn-body pn-body--flush";
       if (key === "commands") new CommandsTab({ groupId: this.opts.groupId }).mount(body);
@@ -220,14 +233,7 @@ export class ProjectNotesPanel {
       }
     }
 
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "canon-cockpit-close";
-    close.setAttribute("aria-label", "Close (Esc)");
-    close.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
-    close.addEventListener("click", () => this.collapseExpanded());
-
-    root.append(nav, content, close);
+    root.append(nav, content);
     document.body.appendChild(root);
     document.body.classList.add("canon-cockpit-open");
     this.expandRoot = root;

@@ -114,10 +114,16 @@ body.tabbar-left .canon-cockpit {
   background: var(--bg-overlay, #11141a);
   border-bottom: 1px solid var(--border);
 }
-/* Reserve room at the top-right for the absolute `esc` pill so a header
-   action (Skills "+ Add", Context "New context") sits just to its left —
-   ~12px gap between the two (pill is right:12 + ~50px wide). */
-.canon-cockpit-sec-head:has(.canon-sec-head-action) { padding-right: 74px; }
+/* Right-side header group: optional section action ("+ New", "+ Add") and
+   the esc pill, in flow. The pill used to be an absolute overlay on the
+   cockpit root; card-hover repaints beneath it made it flicker on WebKit. */
+.canon-cockpit-sec-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  margin-top: -10px; /* onto the title's line, matching the old top:10 pill */
+}
 .canon-cockpit-sec-text { min-width: 0; }
 .canon-cockpit-sec-title {
   margin: 0 0 3px;
@@ -462,16 +468,14 @@ body.tabbar-left .canon-cockpit {
 .canon-filter-none { margin-top: 8px; }
 
 /* Header "Add" button (Skills) — matched to the esc pill for one clean
-   [ Add ] [ esc ] row: same 26px height, and pulled up 10px onto the pill's
-   line (pill sits at top:10; this button inherits the header's 20px
-   padding-top). */
+   [ Add ] [ esc ] row: same 26px height; vertical placement comes from the
+   shared .canon-cockpit-sec-actions group. */
 .canon-cockpit-sec-head .canon-sec-head-action {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 26px;
   padding: 0 12px;
-  margin-top: -10px;
 }
 .canon-cockpit-sec-head .canon-sec-head-action svg { display: block; }
 
@@ -669,20 +673,12 @@ body.tabbar-left.canon-cockpit-open .canon-reader {
 /* ── Close ──────────────────────────────────────────────────────────── */
 
 /* Bare button; the visible pill is the inner .settings-esc, shared with
-   Settings / Releases / Capabilities for a consistent esc affordance. */
+   Settings / Releases / Capabilities for a consistent esc affordance.
+   Sits IN FLOW inside the sticky section header (.canon-cockpit-sec-actions,
+   also used by Project Notes' expanded view) — as an absolute overlay above
+   the scrolling cards it flickered on WebKit whenever a card hover repainted
+   beneath it, translateZ(0) promotion included. */
 .canon-cockpit-close {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  /* Above the sticky section header (z-index 5) — its opaque fill would
-     otherwise paint over the esc pill and hide it. */
-  z-index: 10;
-  /* ponytail: own compositing layer. The header below is sticky (its own
-     WebKit layer); row hover animates opacity on the card actions and the
-     accent spine, which repaints that layer and made this overlapping,
-     non-composited pill flicker. Promote instead of restructuring — the
-     structural fix is moving the pill inside .canon-cockpit-sec-head. */
-  transform: translateZ(0);
   display: inline-flex;
   align-items: center;
   border: 0;

@@ -150,6 +150,7 @@ export class CanonCockpitView {
   private root: HTMLElement;
   private nav: HTMLElement;
   private content: HTMLElement;
+  private closeBtn: HTMLButtonElement;
   private current: SectionKey = "org";
 
   /** The root element of the overlay — used by tests and by callers that
@@ -179,14 +180,20 @@ export class CanonCockpitView {
     this.content = document.createElement("section");
     this.content.className = "canon-cockpit-content";
 
+    // The esc pill lives INSIDE each section's sticky header (sectionHead
+    // re-parents this one instance), not as an absolute overlay on the root.
+    // Overlaying it above the scrolling cards made it flicker on WebKit
+    // whenever a card hover animated beneath it (see cockpit.css history —
+    // the translateZ(0) promotion only papered over it).
     const close = document.createElement("button");
     close.type = "button";
     close.className = "canon-cockpit-close";
     close.setAttribute("aria-label", "Close (Esc)");
     close.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
     close.addEventListener("click", () => this.close());
+    this.closeBtn = close;
 
-    this.root.append(this.nav, this.content, close);
+    this.root.append(this.nav, this.content);
   }
 
   private readonly onKey = (e: KeyboardEvent): void => {
@@ -299,7 +306,11 @@ export class CanonCockpitView {
     p.textContent = desc;
     text.append(h, p);
     head.appendChild(text);
-    if (action) head.appendChild(action);
+    const actions = document.createElement("div");
+    actions.className = "canon-cockpit-sec-actions";
+    if (action) actions.appendChild(action);
+    actions.appendChild(this.closeBtn);
+    head.appendChild(actions);
     return head;
   }
 
