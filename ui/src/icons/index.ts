@@ -563,4 +563,30 @@ export const Icons = {
       `<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>`,
       o,
     ),
+
+  /** Diagonal slash — sketch line tool. Lucide `slash`. */
+  slash: (o?: IconOptions): string => svg(`<path d="M22 2 2 22"/>`, o),
+
+  /** Arrow up-right — sketch arrow tool. Lucide `arrow-up-right`. */
+  arrowUpRight: (o?: IconOptions): string =>
+    svg(`<path d="M7 7h10v10"/><path d="M7 17 17 7"/>`, o),
+
+  /** Circle outline — sketch ellipse tool. Lucide `circle`. */
+  circle: (o?: IconOptions): string =>
+    svg(`<circle cx="12" cy="12" r="10"/>`, o),
+
+  /** Eraser — sketch eraser tool. Lucide `eraser`. */
+  eraser: (o?: IconOptions): string =>
+    svg(
+      `<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/>`,
+      o,
+    ),
+
+  /** Undo — sketch history back. Lucide `undo-2`. */
+  undo2: (o?: IconOptions): string =>
+    svg(`<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>`, o),
+
+  /** Redo — sketch history forward. Lucide `redo-2`. */
+  redo2: (o?: IconOptions): string =>
+    svg(`<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>`, o),
 };
