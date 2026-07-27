@@ -7,8 +7,8 @@ import {
 import type { SessionId } from "../api";
 import { Icons } from "../icons";
 import { formatChord } from "../platform";
-import { escalationIndex, sortOperators } from "./model";
-import { renderOperatorCard, type ReplyScope } from "./tile";
+import { escalationIndex, sortAgents } from "./model";
+import { renderAgentCard, type ReplyScope } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
@@ -35,8 +35,7 @@ export class ConvergenceOverlay {
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
   private snap: ConvergenceSnapshot | null = null; // last-good
   private filter: Filter = "all";
-  private expanded = new Set<string>();
-  private activeOperatorId: string | null = null;
+  private activeSessionId: string | null = null;
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
@@ -63,8 +62,7 @@ export class ConvergenceOverlay {
     this.root = this.gridEl = this.summaryEl = this.empty = this.reconnectEl = null;
     this.snap = null;
     this.filter = "all";
-    this.expanded.clear();
-    this.activeOperatorId = null;
+    this.activeSessionId = null;
   }
 
   private mount(): void {
@@ -115,10 +113,10 @@ export class ConvergenceOverlay {
     empty.hidden = true;
     empty.innerHTML = `
       <div class="convergence-overlay__empty-icon">${Icons.link2({ size: 56 })}</div>
-      <div class="convergence-overlay__empty-title">Nothing to converge</div>
+      <div class="convergence-overlay__empty-title">No agents running</div>
       <div class="convergence-overlay__empty-body">
-        Mission Control shows every operator across your tabs.<br/>
-        Enable an operator on a tab (${formatChord(["mod", "O"])}) to populate this view.
+        Convergence shows every agent across your tabs.<br/>
+        Run an executor in any terminal (claude, codex, …) or open an ACP chat — it appears here automatically.
       </div>
       <kbd class="convergence-overlay__empty-hint">${formatChord(["mod", "shift", "M"])} to toggle convergence</kbd>`;
 
@@ -143,12 +141,11 @@ export class ConvergenceOverlay {
         e.preventDefault();
         this.moveActive(e.key === "ArrowDown" ? 1 : -1);
       }
-      if (e.key === "Enter" && this.activeOperatorId) {
+      if (e.key === "Enter" && this.activeSessionId) {
         const active = document.activeElement as HTMLElement | null;
         if (active?.closest(".mc-reply") || active?.closest("button, input, select, textarea")) return;
-        const op = this.visibleOperators().find((o) => o.operator_id === this.activeOperatorId);
-        const first = op?.sessions[0];
-        if (first) { this.bridge.activateBySessionId(first.session_id); this.close(); }
+        this.bridge.activateBySessionId(this.activeSessionId);
+        this.close();
       }
     };
     document.addEventListener("keydown", this.escHandler, { capture: true });
@@ -176,23 +173,23 @@ export class ConvergenceOverlay {
     this.render();
   }
 
-  private visibleOperators() {
+  private visibleAgents() {
     if (!this.snap) return [];
-    const sorted = sortOperators(this.snap.roster, this.snap.escalations);
-    return sorted.filter((entry) => {
+    const sorted = sortAgents(this.snap.agents, this.snap.escalations);
+    return sorted.filter((card) => {
       switch (this.filter) {
         case "all": return true;
-        case "needs you": return entry.has_escalation;
-        case "working": return entry.sessions.some((s) => s.status === "working");
-        case "idle": return entry.sessions.every((s) => s.status === "idle");
+        case "needs you": return card.status === "blocked";
+        case "working": return card.status === "working";
+        case "idle": return card.status === "idle";
       }
     });
   }
 
   private render(): void {
     if (!this.gridEl || !this.empty || !this.summaryEl || !this.snap) return;
-    const roster = this.snap.roster;
-    if (roster.length === 0) {
+    const agents = this.snap.agents;
+    if (agents.length === 0) {
       this.gridEl.replaceChildren();
       this.gridEl.hidden = true;
       this.empty.hidden = false;
@@ -202,13 +199,12 @@ export class ConvergenceOverlay {
     this.empty.hidden = true;
     this.gridEl.hidden = false;
 
-    const sessions = roster.flatMap((r) => r.sessions);
-    const needs = roster.filter((r) => r.has_escalation).length;
-    const working = sessions.filter((s) => s.status === "working").length;
-    const idle = sessions.filter((s) => s.status === "idle").length;
-    const cost = sessions.reduce((a, s) => a + (s.cost_usd ?? 0), 0);
+    const needs = agents.filter((a) => a.status === "blocked").length;
+    const working = agents.filter((a) => a.status === "working").length;
+    const idle = agents.filter((a) => a.status === "idle").length;
+    const cost = agents.reduce((acc, a) => acc + (a.cost_usd ?? 0), 0);
     this.summaryEl.innerHTML =
-      `<b>${roster.length}</b> operators · ` +
+      `<b>${agents.length}</b> agents · ` +
       (needs ? `<b class="mc-strip__alert">${needs} needs you</b> · ` : "") +
       `${working} working · ${idle} idle` +
       (cost >= 0.005 ? ` · <b>$${cost.toFixed(2)}</b>` : "");
@@ -218,35 +214,30 @@ export class ConvergenceOverlay {
     });
 
     const esc = escalationIndex(this.snap.escalations);
-    const list = this.visibleOperators();
-    if (!this.activeOperatorId || !list.some((o) => o.operator_id === this.activeOperatorId)) {
-      this.activeOperatorId = list[0]?.operator_id ?? null;
+    const list = this.visibleAgents();
+    if (!this.activeSessionId || !list.some((a) => a.session_id === this.activeSessionId)) {
+      this.activeSessionId = list[0]?.session_id ?? null;
     }
     this.gridEl.replaceChildren();
     if (list.length === 0) {
       const none = document.createElement("div");
       none.className = "mc-grid__empty";
-      none.innerHTML = `No operators match <code>${this.filter}</code>. <button type="button" class="mc-grid__reset">Show all</button>`;
+      none.innerHTML = `No agents match <code>${this.filter}</code>. <button type="button" class="mc-grid__reset">Show all</button>`;
       none.querySelector(".mc-grid__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
       this.gridEl.append(none);
       return;
     }
-    for (const entry of list) {
-      const card = renderOperatorCard(entry, esc, {
+    for (const card of list) {
+      const el = renderAgentCard(card, esc.get(card.session_id), {
         onFocus: (sid, keepOpen) => {
           const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
           if (ok && !keepOpen) this.close();
         },
-        onToggleExpand: (opId) => {
-          if (this.expanded.has(opId)) this.expanded.delete(opId);
-          else this.expanded.add(opId);
-          this.render();
-        },
         onSubmit: this.submitReply.bind(this),
         onStop: this.stopOperator.bind(this),
-      }, this.expanded);
-      if (entry.operator_id === this.activeOperatorId) card.classList.add("mc-card--active");
-      this.gridEl.append(card);
+      });
+      if (card.session_id === this.activeSessionId) el.classList.add("mc-card--active");
+      this.gridEl.append(el);
     }
   }
 
@@ -258,29 +249,27 @@ export class ConvergenceOverlay {
     this.gridEl.replaceChildren();
     const err = document.createElement("div");
     err.className = "mc-grid__empty";
-    err.innerHTML = `Couldn't load operator status. <button type="button" class="mc-grid__reset">Retry</button>`;
+    err.innerHTML = `Couldn't load agent status. <button type="button" class="mc-grid__reset">Retry</button>`;
     err.querySelector(".mc-grid__reset")?.addEventListener("click", () => void this.refresh());
     this.gridEl.append(err);
   }
 
   private moveActive(delta: number): void {
-    const list = this.visibleOperators();
+    const list = this.visibleAgents();
     if (list.length === 0) return;
-    const idx = list.findIndex((o) => o.operator_id === this.activeOperatorId);
+    const idx = list.findIndex((a) => a.session_id === this.activeSessionId);
     const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
-    this.activeOperatorId = list[next].operator_id;
+    this.activeSessionId = list[next].session_id;
     this.render();
   }
 
-  /// Disable the operator on every one of its sessions. Fire-and-forget per
-  /// session; the next 1s poll drops the now-inert sessions from the roster so
-  /// the card leaves on its own — no optimistic mutation needed.
-  private stopOperator(_operatorId: string, sessionIds: string[]): void {
-    for (const sid of sessionIds) {
-      void setOperatorEnabled(sid as SessionId, false).catch((err) =>
-        console.warn("[convergence] stopOperator failed", sid, err),
-      );
-    }
+  /// Disable the operator on this session. Fire-and-forget; the next 1s
+  /// poll re-renders the card without its operator badge (the card stays —
+  /// it's still an agent session).
+  private stopOperator(sessionId: string): void {
+    void setOperatorEnabled(sessionId as SessionId, false).catch((err) =>
+      console.warn("[convergence] stopOperator failed", sessionId, err),
+    );
     void this.refresh();
   }
 
