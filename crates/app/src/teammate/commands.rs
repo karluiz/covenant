@@ -975,19 +975,22 @@ pub async fn teammate_cancel_active_task(
     Ok(())
 }
 
-/// Mark an active/blocked task as done, releasing the operator so it can
-/// pick up the next task. Used by the task-detail "Mark done" button.
-#[tauri::command]
-pub async fn teammate_complete_task(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, crate::AppState>,
-    storage: State<'_, Arc<Storage>>,
-    runtime: State<'_, Arc<TeammateRuntime>>,
-    supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
-    spec_tracker: State<'_, Arc<crate::teammate::spec_edit_tracker::SpecEditTracker>>,
+/// Full completion path shared by the Tauri command and the MCP tool.
+///
+/// Marks an active/blocked task as done, releasing the operator so it can
+/// pick up the next task: runtime release, achievement emits,
+/// supervisor/spec-tracker cleanup, operator disable, and
+/// `teammate-task`/`teammate-message` emits.
+pub(crate) async fn complete_task_full(
+    app: &tauri::AppHandle,
     task_id: crate::teammate::TaskId,
 ) -> Result<(), String> {
-    use tauri::Emitter;
+    use tauri::{Emitter, Manager};
+    let state = app.state::<crate::AppState>();
+    let storage = app.state::<Arc<Storage>>();
+    let runtime = app.state::<Arc<TeammateRuntime>>();
+    let supervisor = app.state::<Arc<crate::teammate::task_supervisor::TaskSupervisor>>();
+    let spec_tracker = app.state::<Arc<crate::teammate::spec_edit_tracker::SpecEditTracker>>();
     let (task, msg) =
         complete_task_inner(storage.inner(), runtime.inner(), task_id, now_unix_ms()).await?;
     if let Some(s) = task.spawned_session {
@@ -1020,12 +1023,22 @@ pub async fn teammate_complete_task(
         supervisor.forget_task(s);
         state
             .operator
-            .disable_for_session(&app, s, "task_completed")
+            .disable_for_session(app, s, "task_completed")
             .await;
     }
     let _ = app.emit("teammate-task", &task);
     let _ = app.emit("teammate-message", &msg);
     Ok(())
+}
+
+/// Mark an active/blocked task as done. Used by the task-detail "Mark done"
+/// button; delegates to [`complete_task_full`].
+#[tauri::command]
+pub async fn teammate_complete_task(
+    app: tauri::AppHandle,
+    task_id: crate::teammate::TaskId,
+) -> Result<(), String> {
+    complete_task_full(&app, task_id).await
 }
 
 #[tauri::command]
