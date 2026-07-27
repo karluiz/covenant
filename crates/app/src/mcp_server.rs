@@ -179,6 +179,59 @@ pub struct CommandsListArgs {
     pub group_id: String,
 }
 
+#[derive(Deserialize, JsonSchema)]
+pub struct SessionOutputArgs {
+    /// Terminal session id, from session_list (or your own
+    /// $COVENANT_SESSION_ID).
+    pub session_id: String,
+    /// Most recent finished blocks to return. Default 5, max 16.
+    pub max_blocks: Option<u32>,
+    /// Per-block output tail size in characters. Default 4000.
+    pub max_output_chars: Option<u32>,
+}
+
+/// One session_list row. Everything textual passes through
+/// `safety::mask_secrets` — terminal content routinely carries tokens.
+fn session_row(id: &str, world: &crate::world::SessionWorldModel) -> serde_json::Value {
+    let last = world.blocks.back();
+    serde_json::json!({
+        "session_id": id,
+        "cwd": world.cwd.to_string_lossy(),
+        "title": world.title,
+        "running_command": world
+            .in_flight
+            .as_ref()
+            .map(|f| crate::safety::mask_secrets(&f.command)),
+        "last_command": last.map(|b| crate::safety::mask_secrets(&b.command)),
+        "last_exit_code": last.and_then(|b| b.exit_code),
+        "finished_blocks": world.blocks.len(),
+    })
+}
+
+/// One session_output block: output tail truncated (from the end — the
+/// interesting part of long output) then secret-masked.
+fn render_block(b: &crate::world::BlockSnapshot, max_chars: usize) -> serde_json::Value {
+    let text = &b.output_text;
+    let (truncated, tail) = if text.chars().count() > max_chars {
+        let tail: String = text
+            .chars()
+            .skip(text.chars().count() - max_chars)
+            .collect();
+        (true, tail)
+    } else {
+        (false, text.clone())
+    };
+    serde_json::json!({
+        "command": crate::safety::mask_secrets(&b.command),
+        "cwd": b.cwd.to_string_lossy(),
+        "exit_code": b.exit_code,
+        "duration_ms": b.duration_ms,
+        "inherited": b.inherited,
+        "output_truncated": truncated,
+        "output": crate::safety::mask_secrets(&tail),
+    })
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -293,6 +346,84 @@ impl CovenantMcp {
             }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         }
+    }
+
+    #[rmcp::tool(
+        description = "List the user's open terminal sessions (PTY tabs): id, cwd, activity title, the command currently running (if any), and the last finished command. Use session_output to read a session's recent output. All text is secret-masked."
+    )]
+    async fn session_list(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        let state = self.app.state::<crate::AppState>();
+        // Clone the world handles out and drop the sessions guard before any
+        // further await: ManagedSession holds non-Sync PTY types, so keeping
+        // the guard across an await would make this future non-Send.
+        let worlds: Vec<(
+            String,
+            Arc<tokio::sync::Mutex<crate::world::SessionWorldModel>>,
+        )> = {
+            let sessions = state.sessions.lock().await;
+            sessions
+                .iter()
+                .map(|(id, m)| (id.to_string(), m.world.clone()))
+                .collect()
+        };
+        let mut rows = Vec::with_capacity(worlds.len());
+        for (id, world) in &worlds {
+            let world = world.lock().await;
+            rows.push(session_row(id, &world));
+        }
+        // Stable order for the caller (HashMap iteration is arbitrary).
+        rows.sort_by(|a, b| {
+            a["session_id"]
+                .as_str()
+                .unwrap_or_default()
+                .cmp(b["session_id"].as_str().unwrap_or_default())
+        });
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            serde_json::to_string_pretty(&rows).unwrap_or_default(),
+        )]))
+    }
+
+    #[rmcp::tool(
+        description = "Recent finished command blocks of one terminal session, oldest first: command, exit code, duration, output tail. Output is ANSI-free and secret-masked. Read-only — there is no way to write to a session."
+    )]
+    async fn session_output(
+        &self,
+        params: Parameters<SessionOutputArgs>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id: karl_session::SessionId = params.0.session_id.parse().map_err(|_| {
+            rmcp::ErrorData::invalid_params(
+                format!("bad session id {:?}", params.0.session_id),
+                None,
+            )
+        })?;
+        let max_blocks = params.0.max_blocks.unwrap_or(5).clamp(1, 16) as usize;
+        let max_chars = params.0.max_output_chars.unwrap_or(4000).clamp(200, 20_000) as usize;
+        let state = self.app.state::<crate::AppState>();
+        // Same non-Sync-guard rule as session_list: take the world handle,
+        // drop the sessions guard, then lock.
+        let world = {
+            let sessions = state.sessions.lock().await;
+            sessions.get(&id).map(|m| m.world.clone())
+        };
+        let Some(world) = world else {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "no live session {id}"
+            ))]));
+        };
+        let world = world.lock().await;
+        let blocks: Vec<serde_json::Value> = world
+            .blocks
+            .iter()
+            .rev()
+            .take(max_blocks)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .map(|b| render_block(b, max_chars))
+            .collect();
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            serde_json::to_string_pretty(&blocks).unwrap_or_default(),
+        )]))
     }
 
     #[rmcp::tool(description = "Read recent Covenant project notes for a group, newest first.")]
@@ -427,6 +558,46 @@ mod tests {
         let info = server_info();
         assert!(info.capabilities.tools.is_some());
         assert!(info.instructions.is_some());
+    }
+
+    fn block(command: &str, output: &str) -> crate::world::BlockSnapshot {
+        crate::world::BlockSnapshot {
+            command: command.into(),
+            cwd: std::path::PathBuf::from("/repo"),
+            exit_code: Some(0),
+            duration_ms: 12,
+            output_text: output.into(),
+            inherited: false,
+        }
+    }
+
+    #[test]
+    fn render_block_masks_secrets_and_keeps_the_tail() {
+        let long = format!("{}THE-END", "x".repeat(5000));
+        let v = render_block(
+            &block("export T=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA", &long),
+            100,
+        );
+        assert!(!v["command"].as_str().unwrap().contains("sk-ant-api03"));
+        assert!(v["output"].as_str().unwrap().ends_with("THE-END"));
+        assert_eq!(v["output"].as_str().unwrap().chars().count(), 100);
+        assert_eq!(v["output_truncated"], true);
+    }
+
+    #[test]
+    fn session_row_masks_running_and_last_command() {
+        let mut world = crate::world::SessionWorldModel {
+            cwd: std::path::PathBuf::from("/repo"),
+            ..Default::default()
+        };
+        world.blocks.push_back(block(
+            "curl -H 'Authorization: Bearer ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'",
+            "ok",
+        ));
+        let v = session_row("01ARZ3", &world);
+        assert!(!v["last_command"].as_str().unwrap().contains("ghp_"));
+        assert_eq!(v["finished_blocks"], 1);
+        assert_eq!(v["last_exit_code"], 0);
     }
 
     #[test]
