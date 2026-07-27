@@ -1047,6 +1047,124 @@
 }
 .acp-chat-cancel[hidden] { display: none; }
 
+/* ---- Composer toolbar (attach + sketch) ---- */
+.acp-tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-tertiary, rgb(var(--ink-rgb) / 0.4));
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 140ms ease, background 140ms ease;
+}
+.acp-tb-btn:hover {
+  color: var(--text-secondary, rgb(var(--ink-rgb) / 0.7));
+  background: rgb(var(--ink-rgb) / 0.06);
+}
+.acp-tb-btn:active {
+  color: var(--text-primary);
+}
+.acp-tb-btn svg { display: block; }
+
+/* ---- Prompt badge in slash menu ---- */
+.acp-slash-divider {
+  padding: 3px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-tertiary, rgb(var(--ink-rgb) / 0.4));
+  border-top: 1px solid rgb(var(--ink-rgb) / 0.08);
+  margin-top: 2px;
+  user-select: none;
+}
+.acp-slash-prompt-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 0;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+/* ---- Sketch overlay ---- */
+.acp-sketch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.acp-sketch-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-overlay, #13151a);
+  border: 1px solid rgb(var(--ink-rgb) / 0.14);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  width: min(760px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+  overflow: hidden;
+}
+.acp-sketch-header {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid rgb(var(--ink-rgb) / 0.1);
+  color: var(--text-primary);
+  user-select: none;
+}
+.acp-sketch-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 720 / 400;
+  cursor: crosshair;
+  background: #ffffff;
+}
+.acp-sketch-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid rgb(var(--ink-rgb) / 0.1);
+}
+.acp-sketch-footer button {
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  border-radius: 0;
+  border: 1px solid rgb(var(--ink-rgb) / 0.15);
+  background: rgb(var(--ink-rgb) / 0.05);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.acp-sketch-footer button:hover {
+  background: rgb(var(--ink-rgb) / 0.1);
+  border-color: rgb(var(--ink-rgb) / 0.25);
+}
+.acp-sketch-footer .acp-sketch-attach-btn {
+  margin-left: auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+.acp-sketch-footer .acp-sketch-attach-btn:hover {
+  background: color-mix(in srgb, var(--accent) 86%, #ffffff);
+  border-color: color-mix(in srgb, var(--accent) 86%, #ffffff);
+}
+
 /* ---- Background consoles — execute calls that left a process alive ---- */
 /* Chip variant in the exit-chip slot: amber, pulsing dot. Mutates back
    to a normal `exit N` chip if a later update carries the shell_exit. */

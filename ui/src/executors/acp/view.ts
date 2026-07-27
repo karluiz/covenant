@@ -54,6 +54,7 @@ import type {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { brandIconSvg } from "../../icons/brands";
 import { Icons } from "../../icons";
+import { promptsApi, type Prompt } from "../../project-notes/api";
 import { formatChord } from "../../platform";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { renderMarkdown } from "../../ui/markdown";
@@ -275,6 +276,14 @@ export function mentionFragmentAt(value: string, caret: number): MentionFragment
   const m = /(?:^|\s)@([^\s@]*)$/.exec(upTo);
   if (!m) return null;
   return { start: caret - m[1].length - 1, fragment: m[1] };
+}
+
+type SlashEntry =
+  | { kind: "cmd"; data: AcpAvailableCommand }
+  | { kind: "prompt"; data: Prompt };
+
+function slugify(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
 /// Prefix-filter the slash roster against the composer's current `/token`.
@@ -689,8 +698,10 @@ export class AcpChatView {
   private readonly permDoms: Map<string, PermCardDom> = new Map();
 
   private slashEl!: HTMLElement;
-  private slashItems: AcpAvailableCommand[] = [];
+  private slashItems: SlashEntry[] = [];
   private slashSel = 0;
+  private cachedPrompts: Prompt[] = [];
+  private sketchOverlay: HTMLElement | null = null;
 
   private mentionEl!: HTMLElement;
   private mentionItems: DirEntry[] = [];
@@ -736,6 +747,7 @@ export class AcpChatView {
     this.onRename = opts.onRename;
     this.mount();
     void this.subscribe();
+    void promptsApi.list().then((ps) => { this.cachedPrompts = ps; }).catch(() => {});
     window.addEventListener("covenant:acp-file-drop", this.onFileDrop);
   }
 
@@ -848,6 +860,8 @@ export class AcpChatView {
             aria-label="Message ${brand.title}"
           ></textarea>
           <div class="acp-chat-actions">
+            <button type="button" class="acp-tb-btn acp-tb-attach" aria-label="Attach file" title="Attach file">${Icons.paperclip({ size: 13 })}</button>
+            <button type="button" class="acp-tb-btn acp-tb-sketch" aria-label="Sketch" title="Sketch">${Icons.penLine({ size: 13 })}</button>
             <span class="acp-composer-hint"><kbd>${formatChord(["enter"])}</kbd> send · <kbd>${formatChord(["shift", "enter"])}</kbd> newline</span>
             <button type="button" class="acp-chat-cancel" hidden aria-label="Stop" title="Stop">
               <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg>
@@ -942,6 +956,10 @@ export class AcpChatView {
       void this.handleSend();
     });
     this.cancelBtn.addEventListener("click", () => void this.handleCancel());
+    (requireChild(this.host, ".acp-tb-attach") as HTMLButtonElement)
+      .addEventListener("click", () => this.openFilePicker());
+    (requireChild(this.host, ".acp-tb-sketch") as HTMLButtonElement)
+      .addEventListener("click", () => this.openSketch());
     this.slashEl = requireChild(this.host, ".acp-slash-menu");
     this.mentionEl = requireChild(this.host, ".acp-mention-menu");
     this.inputEl.addEventListener("input", () => {
@@ -1024,7 +1042,7 @@ export class AcpChatView {
         }
         if (e.key === "Enter" || e.key === "Tab") {
           e.preventDefault();
-          this.pickSlashCommand(this.slashItems[this.slashSel]);
+          this.pickSlashEntry(this.slashItems[this.slashSel]);
           return;
         }
         if (e.key === "Escape") {
@@ -1061,7 +1079,7 @@ export class AcpChatView {
   private updateSlashMenu(): void {
     // Synthesize /model when the agent has a model roster but doesn't
     // advertise a "model" command (pi-acp) — it routes to our native
-    // picker in pickSlashCommand, never to the wire as prompt text.
+    // picker in pickSlashEntry, never to the wire as prompt text.
     // Same for /resume: all three agents implement session/list (verified
     // live), but none advertises a slash command for it.
     let roster = this.state.commands;
@@ -1076,7 +1094,16 @@ export class AcpChatView {
     if (!roster.some((c) => c.name === "rename")) {
       roster = [...roster, { name: "rename", description: "Rename this tab", input: { hint: "<name>" } }];
     }
-    this.slashItems = filterSlashCommands(roster, this.inputEl.value);
+    const matchedCmds = filterSlashCommands(roster, this.inputEl.value);
+    const m = /^\/(\S*)$/.exec(this.inputEl.value);
+    const prefix = m ? m[1].toLowerCase() : null;
+    const matchedPrompts = prefix !== null
+      ? this.cachedPrompts.filter((p) => slugify(p.title).startsWith(prefix))
+      : [];
+    this.slashItems = [
+      ...matchedCmds.map((data): SlashEntry => ({ kind: "cmd", data })),
+      ...matchedPrompts.map((data): SlashEntry => ({ kind: "prompt", data })),
+    ];
     if (this.slashItems.length === 0) {
       this.hideSlashMenu();
       return;
@@ -1088,40 +1115,72 @@ export class AcpChatView {
 
   private renderSlashMenu(): void {
     this.slashEl.textContent = "";
-    this.slashItems.forEach((cmd, i) => {
+    let promptDividerAdded = false;
+    this.slashItems.forEach((entry, i) => {
+      if (!promptDividerAdded && entry.kind === "prompt" && i > 0) {
+        promptDividerAdded = true;
+        const divider = document.createElement("div");
+        divider.className = "acp-slash-divider";
+        divider.textContent = "Prompts";
+        this.slashEl.appendChild(divider);
+      }
       const row = document.createElement("div");
       row.className = "acp-slash-row";
       row.setAttribute("role", "option");
       if (i === this.slashSel) row.classList.add("acp-slash-selected");
-      const name = document.createElement("span");
-      name.className = "acp-slash-name";
-      name.textContent = `/${cmd.name}`;
-      row.appendChild(name);
-      const hint = cmd.input?.hint;
-      if (hint) {
-        const hintEl = document.createElement("span");
-        hintEl.className = "acp-slash-hint";
-        hintEl.textContent = hint;
-        row.appendChild(hintEl);
-      }
-      if (cmd.description) {
+      if (entry.kind === "cmd") {
+        const cmd = entry.data;
+        const name = document.createElement("span");
+        name.className = "acp-slash-name";
+        name.textContent = `/${cmd.name}`;
+        row.appendChild(name);
+        const hint = cmd.input?.hint;
+        if (hint) {
+          const hintEl = document.createElement("span");
+          hintEl.className = "acp-slash-hint";
+          hintEl.textContent = hint;
+          row.appendChild(hintEl);
+        }
+        if (cmd.description) {
+          const desc = document.createElement("span");
+          desc.className = "acp-slash-desc";
+          desc.textContent = cmd.description;
+          row.appendChild(desc);
+        }
+      } else {
+        const p = entry.data;
+        const badge = document.createElement("span");
+        badge.className = "acp-slash-prompt-badge";
+        badge.textContent = "prompt";
+        row.appendChild(badge);
+        const name = document.createElement("span");
+        name.className = "acp-slash-name";
+        name.textContent = `/${slugify(p.title)}`;
+        row.appendChild(name);
         const desc = document.createElement("span");
         desc.className = "acp-slash-desc";
-        desc.textContent = cmd.description;
+        desc.textContent = p.title;
         row.appendChild(desc);
       }
       // mousedown (not click) so the textarea never loses focus.
       row.addEventListener("mousedown", (e) => {
         e.preventDefault();
-        this.pickSlashCommand(cmd);
+        this.pickSlashEntry(entry);
       });
       this.slashEl.appendChild(row);
     });
   }
 
-  private pickSlashCommand(cmd: AcpAvailableCommand | undefined): void {
-    if (!cmd) return;
+  private pickSlashEntry(entry: SlashEntry | undefined): void {
+    if (!entry) return;
     this.hideSlashMenu();
+    if (entry.kind === "prompt") {
+      this.inputEl.value = entry.data.body;
+      this.syncComposer();
+      this.inputEl.focus();
+      return;
+    }
+    const cmd = entry.data;
     // Commands with interactive sub-selection in the copilot TUI can't
     // ride a text prompt — route them to our native pickers instead.
     if (cmd.name === "model") {
@@ -1261,6 +1320,158 @@ export class AcpChatView {
     this.syncComposer();
     this.mentions.add(rel);
     this.inputEl.focus();
+  }
+
+  /// Open a native file picker; image files become pending image chips,
+  /// text/code files become bulky-paste tokens in the composer.
+  private openFilePicker(): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.accept = "image/*,text/*,.md,.ts,.tsx,.js,.py,.rs,.go,.json,.yaml,.yml,.toml,.sh";
+    input.style.cssText = "position:absolute;visibility:hidden;pointer-events:none";
+    document.body.appendChild(input);
+    input.addEventListener("change", () => {
+      document.body.removeChild(input);
+      for (const f of [...(input.files ?? [])]) {
+        const reader = new FileReader();
+        if (f.type.startsWith("image/")) {
+          reader.onload = () => {
+            const url = String(reader.result ?? "");
+            const comma = url.indexOf(",");
+            if (comma < 0) return;
+            this.pendingImages.push({ mimeType: f.type, data: url.slice(comma + 1) });
+            this.renderImageStrip();
+          };
+          reader.readAsDataURL(f);
+        } else {
+          reader.onload = () => {
+            const text = String(reader.result ?? "");
+            if (!text) return;
+            const entry = { id: ++this.pasteSeq, text: `${f.name}:\n${text}` };
+            this.pendingPastes.push(entry);
+            this.inputEl.setRangeText(
+              pasteToken(entry),
+              this.inputEl.selectionStart ?? 0,
+              this.inputEl.selectionEnd ?? 0,
+              "end",
+            );
+            this.renderImageStrip();
+            this.syncComposer();
+          };
+          reader.readAsText(f);
+        }
+      }
+      this.inputEl.focus();
+    });
+    input.click();
+  }
+
+  /// Open a minimal sketch canvas; the result is attached as a PNG image chip.
+  private openSketch(): void {
+    if (this.sketchOverlay) return;
+    const overlay = document.createElement("div");
+    overlay.className = "acp-sketch-overlay";
+
+    const card = document.createElement("div");
+    card.className = "acp-sketch-card";
+
+    const header = document.createElement("div");
+    header.className = "acp-sketch-header";
+    header.textContent = "Sketch";
+
+    const canvas = document.createElement("canvas");
+    canvas.className = "acp-sketch-canvas";
+    canvas.width = 720;
+    canvas.height = 400;
+
+    const footer = document.createElement("div");
+    footer.className = "acp-sketch-footer";
+
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.textContent = "Clear";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.textContent = "Cancel";
+
+    const attachBtn = document.createElement("button");
+    attachBtn.type = "button";
+    attachBtn.className = "acp-sketch-attach-btn";
+    attachBtn.textContent = "Attach";
+
+    footer.append(clearBtn, cancelBtn, attachBtn);
+    card.append(header, canvas, footer);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    this.sketchOverlay = overlay;
+
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#1a1a2e";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    let drawing = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    const getPos = (e: PointerEvent): { x: number; y: number } => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (canvas.width / rect.width),
+        y: (e.clientY - rect.top) * (canvas.height / rect.height),
+      };
+    };
+    canvas.addEventListener("pointerdown", (e) => {
+      drawing = true;
+      const p = getPos(e);
+      lastX = p.x; lastY = p.y;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (!drawing) return;
+      const p = getPos(e);
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      lastX = p.x; lastY = p.y;
+    });
+    canvas.addEventListener("pointerup", () => { drawing = false; });
+    canvas.addEventListener("pointercancel", () => { drawing = false; });
+
+    clearBtn.addEventListener("click", () => {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    });
+
+    const close = () => {
+      overlay.remove();
+      this.sketchOverlay = null;
+    };
+    cancelBtn.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+    attachBtn.addEventListener("click", () => {
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const url = String(reader.result ?? "");
+          const comma = url.indexOf(",");
+          if (comma < 0) return;
+          this.pendingImages.push({ mimeType: "image/png", data: url.slice(comma + 1) });
+          this.renderImageStrip();
+          this.inputEl.focus();
+        };
+        reader.readAsDataURL(blob);
+      }, "image/png");
+      close();
+    });
   }
 
   /// Header meta — plain textContent, wire/user strings never hit

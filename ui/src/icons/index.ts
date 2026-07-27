@@ -211,6 +211,20 @@ export const Icons = {
       o,
     ),
 
+  /** Paperclip — attach file. */
+  paperclip: (o?: IconOptions): string =>
+    svg(
+      `<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>`,
+      o,
+    ),
+
+  /** PenLine — sketch / draw. */
+  penLine: (o?: IconOptions): string =>
+    svg(
+      `<path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/>`,
+      o,
+    ),
+
   /** Folder — group / collection. */
   folder: (o?: IconOptions): string =>
     svg(
