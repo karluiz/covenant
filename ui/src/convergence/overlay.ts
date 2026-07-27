@@ -1,13 +1,16 @@
 import {
+  acpRespondPermission,
   getConvergenceSnapshot,
   setOperatorEnabled,
   submitConvergenceReply,
+  writeToSession,
   type ConvergenceSnapshot,
 } from "../api";
 import type { SessionId } from "../api";
 import { Icons } from "../icons";
 import { formatChord } from "../platform";
-import { escalationIndex, sortAgents } from "./model";
+import { renderAttentionCard } from "./attention";
+import { attentionIndex, sortAgents } from "./model";
 import { renderAgentCard, type ReplyScope } from "./tile";
 
 export interface TabMeta {
@@ -26,6 +29,7 @@ const POLL_MS = 1000;
 
 export class ConvergenceOverlay {
   private root: HTMLElement | null = null;
+  private attentionEl: HTMLElement | null = null;
   private gridEl: HTMLElement | null = null;
   private summaryEl: HTMLElement | null = null;
   private empty: HTMLElement | null = null;
@@ -59,7 +63,7 @@ export class ConvergenceOverlay {
       this.escHandler = null;
     }
     this.root?.remove();
-    this.root = this.gridEl = this.summaryEl = this.empty = this.reconnectEl = null;
+    this.root = this.attentionEl = this.gridEl = this.summaryEl = this.empty = this.reconnectEl = null;
     this.snap = null;
     this.filter = "all";
     this.activeSessionId = null;
@@ -105,6 +109,10 @@ export class ConvergenceOverlay {
     }
     strip.append(summary, reconnect, filters);
 
+    const attention = document.createElement("div");
+    attention.className = "mc-attention";
+    attention.hidden = true;
+
     const grid = document.createElement("div");
     grid.className = "mc-grid";
 
@@ -120,10 +128,11 @@ export class ConvergenceOverlay {
       </div>
       <kbd class="convergence-overlay__empty-hint">${formatChord(["mod", "shift", "M"])} to toggle convergence</kbd>`;
 
-    root.append(header, strip, grid, empty);
+    root.append(header, strip, attention, grid, empty);
     document.body.append(root);
 
     this.root = root;
+    this.attentionEl = attention;
     this.gridEl = grid;
     this.summaryEl = summary;
     this.empty = empty;
@@ -173,13 +182,18 @@ export class ConvergenceOverlay {
     this.render();
   }
 
+  /// Grid population: queued (attention) sessions are excluded — the
+  /// queue owns them. Under "needs you" the grid is empty by design and
+  /// only the queue shows.
   private visibleAgents() {
     if (!this.snap) return [];
-    const sorted = sortAgents(this.snap.agents, this.snap.escalations);
+    const queued = attentionIndex(this.snap.attention);
+    const sorted = sortAgents(this.snap.agents, this.snap.attention)
+      .filter((card) => !queued.has(card.session_id));
     return sorted.filter((card) => {
       switch (this.filter) {
         case "all": return true;
-        case "needs you": return card.status === "blocked";
+        case "needs you": return false;
         case "working": return card.status === "working";
         case "idle": return card.status === "idle";
       }
@@ -187,9 +201,12 @@ export class ConvergenceOverlay {
   }
 
   private render(): void {
-    if (!this.gridEl || !this.empty || !this.summaryEl || !this.snap) return;
+    if (!this.attentionEl || !this.gridEl || !this.empty || !this.summaryEl || !this.snap) return;
     const agents = this.snap.agents;
-    if (agents.length === 0) {
+    const attention = this.snap.attention;
+    if (agents.length === 0 && attention.length === 0) {
+      this.attentionEl.replaceChildren();
+      this.attentionEl.hidden = true;
       this.gridEl.replaceChildren();
       this.gridEl.hidden = true;
       this.empty.hidden = false;
@@ -199,13 +216,12 @@ export class ConvergenceOverlay {
     this.empty.hidden = true;
     this.gridEl.hidden = false;
 
-    const needs = agents.filter((a) => a.status === "blocked").length;
     const working = agents.filter((a) => a.status === "working").length;
     const idle = agents.filter((a) => a.status === "idle").length;
     const cost = agents.reduce((acc, a) => acc + (a.cost_usd ?? 0), 0);
     this.summaryEl.innerHTML =
       `<b>${agents.length}</b> agents · ` +
-      (needs ? `<b class="mc-strip__alert">${needs} needs you</b> · ` : "") +
+      (attention.length ? `<b class="mc-strip__alert">${attention.length} needs you</b> · ` : "") +
       `${working} working · ${idle} idle` +
       (cost >= 0.005 ? ` · <b>$${cost.toFixed(2)}</b>` : "");
 
@@ -213,22 +229,51 @@ export class ConvergenceOverlay {
       c.classList.toggle("mc-fchip--on", c.dataset.filter === this.filter);
     });
 
-    const esc = escalationIndex(this.snap.escalations);
+    // The queue: backend pre-sorts (timestamped oldest-first).
+    this.attentionEl.replaceChildren();
+    this.attentionEl.hidden = attention.length === 0;
+    for (const item of attention) {
+      this.attentionEl.append(
+        renderAttentionCard(item, {
+          onFocus: (sid, keepOpen) => {
+            const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
+            if (ok && !keepOpen) this.close();
+          },
+          onOperatorReply: this.submitReply.bind(this),
+          onPermission: (sid, key, opt) => {
+            void acpRespondPermission(sid as SessionId, key, opt).catch((err) =>
+              console.warn("[convergence] respond permission failed", sid, err),
+            );
+            void this.refresh();
+          },
+          onPtyReply: (sid, text) => {
+            void writeToSession(sid as SessionId, new TextEncoder().encode(text + "\r")).catch(
+              (err) => console.warn("[convergence] pty reply failed", sid, err),
+            );
+            void this.refresh();
+          },
+        }),
+      );
+    }
+
     const list = this.visibleAgents();
     if (!this.activeSessionId || !list.some((a) => a.session_id === this.activeSessionId)) {
       this.activeSessionId = list[0]?.session_id ?? null;
     }
     this.gridEl.replaceChildren();
     if (list.length === 0) {
-      const none = document.createElement("div");
-      none.className = "mc-grid__empty";
-      none.innerHTML = `No agents match <code>${this.filter}</code>. <button type="button" class="mc-grid__reset">Show all</button>`;
-      none.querySelector(".mc-grid__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
-      this.gridEl.append(none);
+      // Under "needs you" the queue IS the content — no grid nudge.
+      if (this.filter !== "needs you" && attention.length === 0) {
+        const none = document.createElement("div");
+        none.className = "mc-grid__empty";
+        none.innerHTML = `No agents match <code>${this.filter}</code>. <button type="button" class="mc-grid__reset">Show all</button>`;
+        none.querySelector(".mc-grid__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
+        this.gridEl.append(none);
+      }
       return;
     }
     for (const card of list) {
-      const el = renderAgentCard(card, esc.get(card.session_id), {
+      const el = renderAgentCard(card, {
         onFocus: (sid, keepOpen) => {
           const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
           if (ok && !keepOpen) this.close();
