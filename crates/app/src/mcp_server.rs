@@ -159,10 +159,8 @@ pub struct TaskCreateArgs {
 
 #[derive(Deserialize, JsonSchema)]
 pub struct NotesReadArgs {
-    /// Project group id. To find your own task's context, call task_list and
-    /// match a task's spawned_session field against $COVENANT_SESSION_ID (set
-    /// in your environment). $COVENANT_GROUP_ID may also be set in some
-    /// spawn modes.
+    /// Project group id. If Covenant spawned you, read $COVENANT_GROUP_ID
+    /// from your environment.
     pub group_id: String,
     /// Max notes to return, newest first. Default 20.
     pub limit: Option<u32>,
@@ -341,11 +339,10 @@ fn server_info() -> rmcp::model::ServerInfo {
     )
     .with_instructions(
         "Covenant terminal control surface. Task tools operate on \
-         operator tasks; notes tools on project notes. If you don't \
-         know your ids, call task_list and match a task's \
-         spawned_session field against $COVENANT_SESSION_ID (set in \
-         your environment) to find your own task. $COVENANT_TASK_ID / \
-         $COVENANT_GROUP_ID may also be set in some spawn modes.",
+         operator tasks; notes tools on project notes. Your ids live in \
+         your environment: $COVENANT_GROUP_ID scopes the notes tools, and \
+         to find your own task, call task_list and match a task's \
+         spawned_session field against $COVENANT_SESSION_ID.",
     )
 }
 
