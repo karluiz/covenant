@@ -42,6 +42,7 @@ mod fix_proposer;
 mod git_tools;
 mod history_import;
 mod lsp_commands;
+mod mcp_server;
 mod memory;
 mod mission_pair;
 mod mission_persistence;
@@ -5432,6 +5433,10 @@ pub fn run() {
             rc_agent::spawn(app.handle().clone());
             term_share::spawn_startup_revoke(app.handle());
 
+            if let Err(e) = crate::mcp_server::start(app.handle().clone()) {
+                tracing::warn!(error = %e, "mcp server did not start");
+            }
+
             // Deferred traffic-light heal for cold launch. The on_window_event
             // handler re-applies the inset on the launch Focused/Resized burst,
             // but those can fire before macOS has settled the buttons to their
@@ -6067,6 +6072,8 @@ pub fn run() {
                 if code.is_none() {
                     api.prevent_exit();
                     let _ = app.emit("menu://quit-request", ());
+                } else {
+                    crate::mcp_server::remove_discovery_file(app);
                 }
             }
         });
