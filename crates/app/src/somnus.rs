@@ -858,6 +858,235 @@ pub async fn somnus_env_activate(
     store.env_activate(id).await.map_err(|e| e.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// Saved-draft compilation (Rust mirror of ui/src/somnus/draft.ts::buildRequest)
+// Used by the MCP `somnus_run` tool, which has no frontend in the loop. Keep
+// the semantics in lockstep with the FE pipeline: lenient draft parse →
+// compileAuth (explicit header wins) → auto Content-Type → single-pass
+// {{var}} resolution (no recursion, unknown vars stay literal).
+// ---------------------------------------------------------------------------
+
+fn var_re() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"\{\{\s*([A-Za-z0-9_][A-Za-z0-9_.-]*)\s*\}\}").expect("static regex")
+    })
+}
+
+/// Single-pass `{{var}}` substitution; unknown vars stay literal.
+pub fn resolve_vars(text: &str, vars: &std::collections::HashMap<String, String>) -> String {
+    var_re()
+        .replace_all(text, |caps: &regex::Captures| {
+            vars.get(&caps[1])
+                .cloned()
+                .unwrap_or_else(|| caps[0].to_string())
+        })
+        .into_owned()
+}
+
+/// Parse a SomnusEnvironment.vars blob (`[{key, value, ...}]`) into a map.
+/// Garbage → empty map, same as the FE.
+pub fn env_vars_map(json: &str) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    if let Ok(serde_json::Value::Array(rows)) = serde_json::from_str::<serde_json::Value>(json) {
+        for row in rows {
+            let (Some(key), Some(value)) = (
+                row.get("key").and_then(|v| v.as_str()),
+                row.get("value").and_then(|v| v.as_str()),
+            ) else {
+                continue;
+            };
+            if !key.trim().is_empty() {
+                out.insert(key.trim().to_string(), value.to_string());
+            }
+        }
+    }
+    out
+}
+
+fn has_header(headers: &[(String, String)], name: &str) -> bool {
+    headers
+        .iter()
+        .any(|(k, _)| k.trim().eq_ignore_ascii_case(name))
+}
+
+/// Compile a saved tree-node draft blob into a sendable request. Lenient on
+/// shape like the FE's parseDraft: missing fields default, garbage errors.
+pub fn compile_saved_request(
+    draft_json: &str,
+    vars: &std::collections::HashMap<String, String>,
+) -> Result<SomnusRequest, String> {
+    let d: serde_json::Value =
+        serde_json::from_str(draft_json).map_err(|e| format!("saved request is not JSON: {e}"))?;
+    let method = d
+        .get("method")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("GET")
+        .to_string();
+    let mut url = d
+        .get("url")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let mut headers: Vec<(String, String)> = d
+        .get("headers")
+        .and_then(|v| v.as_array())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|r| {
+                    let k = r.get(0).and_then(|v| v.as_str())?;
+                    let v = r.get(1).and_then(|v| v.as_str())?;
+                    (!k.trim().is_empty()).then(|| (k.to_string(), v.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let body_mode = d
+        .get("body_mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none");
+    let body_raw = d.get("body").and_then(|v| v.as_str()).unwrap_or_default();
+
+    // Auth compile — explicit header always wins (FE spec §3).
+    let auth = d.get("auth").cloned().unwrap_or_default();
+    match auth.get("type").and_then(|v| v.as_str()).unwrap_or("none") {
+        "bearer" => {
+            let token = auth.get("token").and_then(|v| v.as_str()).unwrap_or("");
+            if !token.is_empty() && !has_header(&headers, "Authorization") {
+                headers.push(("Authorization".into(), format!("Bearer {token}")));
+            }
+        }
+        "basic" => {
+            let user = auth.get("username").and_then(|v| v.as_str()).unwrap_or("");
+            let pass = auth.get("password").and_then(|v| v.as_str()).unwrap_or("");
+            if (!user.is_empty() || !pass.is_empty()) && !has_header(&headers, "Authorization") {
+                use base64::Engine as _;
+                let b64 =
+                    base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"));
+                headers.push(("Authorization".into(), format!("Basic {b64}")));
+            }
+        }
+        "apikey" => {
+            let key = auth.get("key").and_then(|v| v.as_str()).unwrap_or("");
+            let value = auth.get("value").and_then(|v| v.as_str()).unwrap_or("");
+            if !key.is_empty() {
+                if auth.get("placement").and_then(|v| v.as_str()) == Some("query") {
+                    // ponytail: naive append — param order on the wire is
+                    // irrelevant, so we skip the FE's URLSearchParams
+                    // round-trip (which exists for brace-escaping reasons
+                    // that don't apply here).
+                    let sep = if url.contains('?') { '&' } else { '?' };
+                    let enc: String =
+                        url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
+                    let enc_key: String =
+                        url::form_urlencoded::byte_serialize(key.as_bytes()).collect();
+                    url = format!("{url}{sep}{enc_key}={enc}");
+                } else if !has_header(&headers, key) {
+                    headers.push((key.to_string(), value.to_string()));
+                }
+            }
+        }
+        _ => {}
+    }
+
+    let body = (body_mode != "none" && !body_raw.is_empty()).then(|| body_raw.to_string());
+    if body.is_some() && !has_header(&headers, "Content-Type") {
+        let auto = match body_mode {
+            "json" => Some("application/json"),
+            "form" => Some("application/x-www-form-urlencoded"),
+            _ => None,
+        };
+        if let Some(ct) = auto {
+            headers.push(("Content-Type".into(), ct.into()));
+        }
+    }
+
+    Ok(SomnusRequest {
+        method,
+        url: resolve_vars(&url, vars),
+        headers: headers
+            .into_iter()
+            .map(|(k, v)| (resolve_vars(&k, vars), resolve_vars(&v, vars)))
+            .collect(),
+        body: body.map(|b| resolve_vars(&b, vars)),
+    })
+}
+
+#[cfg(test)]
+mod compile_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn vars(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn bearer_auth_and_vars_resolve_like_the_fe() {
+        let draft = r#"{"method":"POST","url":"{{base}}/users","headers":[["X-Trace","1"]],
+            "body":"{\"name\":\"{{who}}\"}","body_mode":"json",
+            "auth":{"type":"bearer","token":"{{tok}}"}}"#;
+        let req = compile_saved_request(
+            draft,
+            &vars(&[("base", "https://api.test"), ("tok", "T9"), ("who", "ana")]),
+        )
+        .unwrap();
+        assert_eq!(req.method, "POST");
+        assert_eq!(req.url, "https://api.test/users");
+        assert!(req
+            .headers
+            .contains(&("Authorization".into(), "Bearer T9".into())));
+        assert!(req
+            .headers
+            .contains(&("Content-Type".into(), "application/json".into())));
+        assert_eq!(req.body.as_deref(), Some("{\"name\":\"ana\"}"));
+    }
+
+    #[test]
+    fn explicit_authorization_header_wins_over_auth_tab() {
+        let draft = r#"{"url":"https://x.test","headers":[["Authorization","custom"]],
+            "auth":{"type":"bearer","token":"nope"}}"#;
+        let req = compile_saved_request(draft, &HashMap::new()).unwrap();
+        let auths: Vec<_> = req
+            .headers
+            .iter()
+            .filter(|(k, _)| k == "Authorization")
+            .collect();
+        assert_eq!(auths.len(), 1);
+        assert_eq!(auths[0].1, "custom");
+    }
+
+    #[test]
+    fn apikey_query_appends_urlencoded() {
+        let draft = r#"{"url":"https://x.test/p?a=1",
+            "auth":{"type":"apikey","key":"api key","value":"v&1","placement":"query"}}"#;
+        let req = compile_saved_request(draft, &HashMap::new()).unwrap();
+        assert_eq!(req.url, "https://x.test/p?a=1&api+key=v%261");
+    }
+
+    #[test]
+    fn unknown_vars_stay_literal_and_garbage_errors() {
+        let req =
+            compile_saved_request(r#"{"url":"https://x/{{missing}}"}"#, &HashMap::new()).unwrap();
+        assert_eq!(req.url, "https://x/{{missing}}");
+        assert_eq!(req.method, "GET");
+        assert!(compile_saved_request("not json", &HashMap::new()).is_err());
+    }
+
+    #[test]
+    fn env_vars_map_parses_fe_blob_shape() {
+        let m = env_vars_map(r#"[{"key":" base ","value":"http://a"},{"key":"","value":"x"},7]"#);
+        assert_eq!(m.get("base").map(String::as_str), Some("http://a"));
+        assert_eq!(m.len(), 1);
+        assert!(env_vars_map("garbage").is_empty());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

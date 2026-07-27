@@ -371,9 +371,13 @@ app instead of just being watched by it. `crates/app/src/mcp_server.rs`.
   `session_list` + `session_output` (cross-session visibility: other PTY
   tabs' recent blocks, ANSI-free, truncated, and passed through
   `safety::mask_secrets` — strictly read-only, there is no write-to-session
-  tool and adding one requires the full policy framework, not a new tool).
-  All tools take explicit ids — no ambient session/task/group state on the
-  server side.
+  tool and adding one requires the full policy framework, not a new tool),
+  `somnus_list` + `somnus_run` (execute a saved Somnus request with the
+  active environment's vars + configured auth, recorded in Somnus history;
+  **GET/HEAD only** — the mutating-verbs gate follows blocklist rules:
+  loosening it needs a review, not a flag. Response bodies come back
+  secret-masked; compiled auth headers are never returned). All tools take
+  explicit ids — no ambient session/task/group state on the server side.
 - **Spawn injection**: ACP executor spawns get the server's `mcpServers`
   entry (name `covenant`, type `http`, Bearer header) injected into
   `session/new`/`session/load`, plus `COVENANT_SESSION_ID` and — when the
