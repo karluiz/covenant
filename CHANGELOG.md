@@ -6,6 +6,67 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.76 — ACP sketch v2, composer shortcuts, org defaults
+
+### Added
+
+- **ACP sketch v2 — a real annotation tool**: the composer's sketch overlay
+  grows from a fixed black pen into pen/line/arrow/rect/ellipse/eraser with
+  live shape preview, 7 color swatches, 3 stroke widths, snapshot-based
+  undo/redo (⌘Z / ⇧⌘Z, 50 deep, Clear is undoable), and ⌘V paste of a
+  clipboard image fitted onto the canvas for screenshot annotation. Tool keys
+  P/L/A/R/O/E, Esc closes, canvas backs at 2× for retina-crisp strokes
+  (`ui/src/executors/acp/view.ts`, `acp.css`, new lucide icons in
+  `ui/src/icons/index.ts`).
+
+- **ACP composer shortcuts**: the slash menu surfaces saved prompts from
+  Project Notes alongside agent commands; a paperclip button opens the native
+  file picker (images attach as chips, text/code files become collapsible
+  paste tokens); the pen button opens the sketch overlay
+  (`ui/src/executors/acp/view.ts`).
+
+- **Canon org defaults**: org owners pin registry packages as defaults from
+  the package card; the Organization section diffs the default set against
+  the current repo and offers one-click installs for what's missing —
+  explicit install only, never auto (`crates/app/src/canon_registry.rs`).
+
+- **Owner-curated org roster**: org operator rosters render read-only for
+  plain members (no edit/delete/new; duplicate copies into the personal
+  roster), and a member's sync tolerates the server's owner-only write gate
+  (`crates/app/src/operator_sync.rs`, `ui/src/canon/cockpit/view.ts`).
+
+### Changed
+
+- **Familiars surface removed**: the per-session Familiar companion
+  (`crates/familiar`, its Tauri commands, UI module, CSS, and settings
+  flags) never shipped past its BYOK gate and is deleted outright.
+
+- **Operator marketplace removed**: operators are shared org-first via the
+  roster sync, so the public marketplace lane goes — card Publish action,
+  Operators registry tab with its review queue, and the
+  `crates/app/src/marketplace.rs` client. Skills/units registry publish is
+  untouched.
+
+### Fixed
+
+- **Stale xterm scroll area**: scroll no longer sticks short of the bottom
+  (last rows clipped under the status bar) after bytes arrive while a pane
+  is unmeasurable — the reveal re-sync nudge fires again when a pane regains
+  size without a tab switch, and split-tab pane 1 gets the same fit +
+  PTY-silent nudge as pane 0 (`ui/src/tabs/live-worktree.ts` gates in the
+  tabs module).
+
+- **Command-palette skin follows special themes**: the ⌘⌥T switcher and the
+  modals reusing its skin derive `--cp-*` surface tokens from the composited
+  ground instead of a fixed dark-navy fallback, and label/danger tints
+  color-mix over `--accent`/`--danger` (`ui/src/theme/`).
+
+- **Worktree-aware cwd matching**: `cwdUnderRoot` no longer treats a cwd
+  inside `.covenant/worktrees/<slug>` or `.claude/worktrees/<slug>` as
+  "under" the main checkout root, and the footer worktree chip gets
+  `box-sizing: border-box` so its right edge stops clipping
+  (`ui/src/tabs/live-worktree.ts`, `ui/src/styles.css`).
+
 ## v0.9.75 — Worktrees rich detail panel + Changes worktree selector
 
 ### Added
