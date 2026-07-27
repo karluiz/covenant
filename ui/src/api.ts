@@ -2340,28 +2340,29 @@ export type TileStatus =
 
 export type Vendor = "claude" | "copilot" | "opencode" | "aider" | "codex" | "unknown";
 
-export interface SessionSummary {
+export type Lane = "pty" | "acp";
+
+/// One Convergence card — an agent session from any lane. The operator,
+/// when present, is a badge on the card, not its grouping key.
+export interface AgentCard {
   session_id: string;
   tab_title: string;
   tab_color: string | null;
+  lane: Lane;
+  executor: string | null;
   status: TileStatus;
+  phase_label: string | null;
+  cwd: string | null;
   vendor: Vendor;
   raw_command_label: string | null;
   last_command: string | null;
   last_output_line: string | null;
-  last_decision_action: string | null;
-  last_decision_rationale: string | null;
   mission_name: string | null;
+  operator_id: string | null;
+  operator_name: string | null;
+  operator_avatar: string | null;
   cost_usd: number | null;
   budget_usd: number | null;
-}
-
-export interface OperatorRosterEntry {
-  operator_id: string;
-  operator_name: string;
-  operator_avatar: string | null;
-  sessions: SessionSummary[];
-  has_escalation: boolean;
 }
 
 export interface EscalationCard {
@@ -2384,7 +2385,7 @@ export interface EscalationCard {
 }
 
 export interface ConvergenceSnapshot {
-  roster: OperatorRosterEntry[];
+  agents: AgentCard[];
   escalations: EscalationCard[];
 }
 

@@ -13,16 +13,17 @@ export interface SessionHint {
 /// Minimal structural view of a tab — only what hint-building reads.
 /// Structural so tests pass plain objects without a full `Tab`.
 export interface HintTab {
-  panes: ReadonlyArray<{ sessionId: string | null }>;
+  panes: ReadonlyArray<{ sessionId: string | null; acpSessionId?: string | null }>;
   defaultTitle: string;
   customName: string | null;
   color: string | null;
 }
 
 /// One hint per *pane* that owns a live session. Split tabs contribute
-/// both panes; panes with `sessionId === null` (browser panes) are
-/// skipped — that skip is exactly what prevents an undefined session id
-/// from reaching the backend.
+/// both panes; ACP panes (xterm-less) hint via their `acpSessionId`.
+/// Panes with neither id (browser panes) are skipped — that skip is
+/// exactly what prevents an undefined session id from reaching the
+/// backend.
 export function sessionHintsFromTabs(
   tabs: ReadonlyArray<HintTab>,
 ): SessionHint[] {
@@ -30,8 +31,9 @@ export function sessionHintsFromTabs(
   for (const t of tabs) {
     const title = t.customName?.trim() || t.defaultTitle || "untitled";
     for (const p of t.panes) {
-      if (!p.sessionId) continue;
-      out.push({ sessionId: p.sessionId, title, color: t.color });
+      const sid = p.sessionId ?? p.acpSessionId;
+      if (!sid) continue;
+      out.push({ sessionId: sid, title, color: t.color });
     }
   }
   return out;

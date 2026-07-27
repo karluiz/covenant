@@ -46,4 +46,17 @@ describe("sessionHintsFromTabs", () => {
     const out = sessionHintsFromTabs([tab({ panes: [{ sessionId: null }] })]);
     expect(out).toEqual([]);
   });
+
+  it("emits a hint for acp panes using acpSessionId", () => {
+    const out = sessionHintsFromTabs([
+      tab({
+        panes: [{ sessionId: null, acpSessionId: "acp-1" }],
+        defaultTitle: "copilot chat",
+        color: "#123456",
+      }),
+    ]);
+    expect(out).toEqual([
+      { sessionId: "acp-1", title: "copilot chat", color: "#123456" },
+    ]);
+  });
 });
