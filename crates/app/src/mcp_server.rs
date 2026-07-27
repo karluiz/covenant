@@ -180,6 +180,57 @@ pub struct CommandsListArgs {
 }
 
 #[derive(Deserialize, JsonSchema)]
+pub struct SomnusRunArgs {
+    /// Saved request id, from somnus_list.
+    pub request_id: String,
+}
+
+/// Flatten the Somnus tree into request rows with a folder path. Draft blobs
+/// are parsed leniently just for display (method + url); the URL is masked.
+fn somnus_rows(nodes: &[crate::somnus::SomnusTreeNode]) -> Vec<serde_json::Value> {
+    use std::collections::HashMap;
+    let names: HashMap<&str, (&str, Option<&str>)> = nodes
+        .iter()
+        .map(|n| (n.id.as_str(), (n.name.as_str(), n.parent_id.as_deref())))
+        .collect();
+    fn path_of<'a>(
+        names: &HashMap<&'a str, (&'a str, Option<&'a str>)>,
+        mut parent: Option<&'a str>,
+    ) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        while let Some(id) = parent {
+            let Some((name, up)) = names.get(id) else {
+                break;
+            };
+            parts.push(name);
+            parent = *up;
+        }
+        parts.reverse();
+        parts.join("/")
+    }
+    nodes
+        .iter()
+        .filter(|n| n.kind == "request")
+        .map(|n| {
+            let draft: serde_json::Value = n
+                .request
+                .as_deref()
+                .and_then(|r| serde_json::from_str(r).ok())
+                .unwrap_or_default();
+            serde_json::json!({
+                "id": n.id,
+                "name": n.name,
+                "folder": path_of(&names, n.parent_id.as_deref()),
+                "method": draft.get("method").and_then(|v| v.as_str()).unwrap_or("GET"),
+                "url": crate::safety::mask_secrets(
+                    draft.get("url").and_then(|v| v.as_str()).unwrap_or_default(),
+                ),
+            })
+        })
+        .collect()
+}
+
+#[derive(Deserialize, JsonSchema)]
 pub struct SessionOutputArgs {
     /// Terminal session id, from session_list (or your own
     /// $COVENANT_SESSION_ID).
@@ -426,6 +477,93 @@ impl CovenantMcp {
         )]))
     }
 
+    #[rmcp::tool(
+        description = "List the user's saved Somnus REST requests: id, name, folder, method, url. Use somnus_run to execute one."
+    )]
+    async fn somnus_list(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.app.state::<crate::somnus::Store>().inner().clone();
+        match store.tree_list().await {
+            Ok(nodes) => Ok(CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&somnus_rows(&nodes)).unwrap_or_default(),
+            )])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
+                e.to_string(),
+            )])),
+        }
+    }
+
+    #[rmcp::tool(
+        description = "Execute one saved Somnus request by id, with the active environment's {{vars}} and its configured auth. GET/HEAD only — mutating requests must be run by the user from the Somnus UI. Returns status + body (secret-masked); the run is recorded in Somnus history."
+    )]
+    async fn somnus_run(
+        &self,
+        params: Parameters<SomnusRunArgs>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.app.state::<crate::somnus::Store>().inner().clone();
+        let nodes = match store.tree_list().await {
+            Ok(n) => n,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
+                    e.to_string(),
+                )]))
+            }
+        };
+        let Some(node) = nodes
+            .iter()
+            .find(|n| n.id == params.0.request_id && n.kind == "request")
+        else {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "no saved request {:?} — call somnus_list for valid ids",
+                params.0.request_id
+            ))]));
+        };
+        let Some(draft) = node.request.as_deref() else {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "saved node has no request payload",
+            )]));
+        };
+        let vars = match store.env_list().await {
+            Ok(envs) => envs
+                .iter()
+                .find(|e| e.is_active)
+                .map(|e| crate::somnus::env_vars_map(&e.vars))
+                .unwrap_or_default(),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
+                    e.to_string(),
+                )]))
+            }
+        };
+        let req = match crate::somnus::compile_saved_request(draft, &vars) {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        // Safety gate: agents only fire idempotent reads. The blocklist
+        // philosophy applies — loosening this needs a review, not a flag.
+        let method = req.method.to_ascii_uppercase();
+        if method != "GET" && method != "HEAD" {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "somnus_run only executes GET/HEAD (this request is {method}). \
+                 Ask the user to run it from the Somnus UI."
+            ))]));
+        }
+        match crate::somnus::send_and_record(&store, req).await {
+            Ok(resp) => Ok(CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "status": resp.status,
+                    "status_text": resp.status_text,
+                    "duration_ms": resp.duration_ms,
+                    "size_bytes": resp.size_bytes,
+                    "body_truncated": resp.body_truncated,
+                    "body_binary": resp.body_binary,
+                    "body": crate::safety::mask_secrets(&resp.body),
+                }))
+                .unwrap_or_default(),
+            )])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
+    }
+
     #[rmcp::tool(description = "Read recent Covenant project notes for a group, newest first.")]
     async fn notes_read(
         &self,
@@ -598,6 +736,38 @@ mod tests {
         assert!(!v["last_command"].as_str().unwrap().contains("ghp_"));
         assert_eq!(v["finished_blocks"], 1);
         assert_eq!(v["last_exit_code"], 0);
+    }
+
+    #[test]
+    fn somnus_rows_builds_folder_paths_and_masks_urls() {
+        let node = |id: &str, parent: Option<&str>, kind: &str, name: &str, req: Option<&str>| {
+            crate::somnus::SomnusTreeNode {
+                id: id.into(),
+                parent_id: parent.map(String::from),
+                kind: kind.into(),
+                name: name.into(),
+                sort: 0,
+                request: req.map(String::from),
+                updated_at: 0,
+            }
+        };
+        let nodes = vec![
+            node("f1", None, "folder", "Prod", None),
+            node(
+                "r1",
+                Some("f1"),
+                "request",
+                "health",
+                Some(
+                    r#"{"method":"GET","url":"https://api.x/health?tok=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#,
+                ),
+            ),
+        ];
+        let rows = somnus_rows(&nodes);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["folder"], "Prod");
+        assert_eq!(rows[0]["method"], "GET");
+        assert!(!rows[0]["url"].as_str().unwrap().contains("ghp_A"));
     }
 
     #[test]
