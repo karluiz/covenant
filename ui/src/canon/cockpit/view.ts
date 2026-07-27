@@ -822,19 +822,22 @@ export class CanonCockpitView {
           : null;
         const active = this.activeOrg();
         const ops = operatorsForOrg(all, active, known);
+        // Server writes are owner-gated: members see the org roster
+        // read-only and can only duplicate into their personal roster.
+        const canManage = this.canCreate();
         list.replaceChildren();
         if (ops.length === 0) {
           list.appendChild(this.emptyState({
             icon: Icons.headphones({ size: 28 }),
             title: "No operators in this org",
             hint: "Operators are versions of you — org-scoped personas that direct your executors.",
-            action: { label: "New operator", onClick: () => this.openNewOperator() },
+            action: canManage ? { label: "New operator", onClick: () => this.openNewOperator() } : undefined,
           }));
           return;
         }
         list.appendChild(renderOperatorList(ops, {
           isStale: (op) => isStaleOrg(op, known),
-          onEdit: (op) => {
+          onEdit: canManage ? (op) => {
             const handle = openOperatorModal({ mode: "edit", existing: op });
             wireOperatorModal(handle, {
               // Rescue stale-org operators: saving from the personal view
@@ -843,15 +846,16 @@ export class CanonCockpitView {
               onSaved: () => this.showSection("operators"),
               onDelete: (o) => this.deleteOperator(o),
             });
-          },
+          } : undefined,
           onDuplicate: (op) => {
             const handle = openOperatorModal({ mode: "create", existing: { ...op, name: `${op.name} copy` } });
             wireOperatorModal(handle, {
-              assignOrgSlug: active && !active.personal ? active.slug : null,
+              // Members duplicate into their personal roster; owners into the org.
+              assignOrgSlug: canManage && active && !active.personal ? active.slug : null,
               onSaved: () => this.showSection("operators"),
             });
           },
-          onDelete: (op) => this.deleteOperator(op),
+          onDelete: canManage ? (op) => this.deleteOperator(op) : undefined,
         }));
       })
       .catch((e) => {

@@ -191,6 +191,47 @@ describe("CanonCockpitView Registry section", () => {
   });
 });
 
+describe("CanonCockpitView Operators section gating", () => {
+  it("renders the org roster read-only for plain members (no edit/delete, duplicate stays)", async () => {
+    vi.mocked(operatorList).mockResolvedValue([
+      { ...OPERATOR_FIXTURE, org_slug: "cleverit", is_default: false },
+    ]);
+    const memberOpts = { ...opts,
+      orgs: [{ id: 2, slug: "cleverit", name: "Cleverit", role: "member", personal: false }],
+      getActiveOrg: () => "cleverit" };
+    const v = new CanonCockpitView(memberOpts);
+    v.open();
+    v.showSection("operators");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".op-card-grid")).toBeTruthy();
+    });
+    const labels = [...v.element.querySelectorAll(".op-card-grid button")]
+      .map((b) => b.getAttribute("aria-label"));
+    expect(labels).not.toContain("Edit");
+    expect(labels).not.toContain("Delete");
+    expect(labels).toContain("Duplicate");
+  });
+
+  it("keeps edit/delete for the org owner", async () => {
+    vi.mocked(operatorList).mockResolvedValue([
+      { ...OPERATOR_FIXTURE, org_slug: "cleverit", is_default: false },
+    ]);
+    const ownerOpts = { ...opts,
+      orgs: [{ id: 2, slug: "cleverit", name: "Cleverit", role: "owner", personal: false }],
+      getActiveOrg: () => "cleverit" };
+    const v = new CanonCockpitView(ownerOpts);
+    v.open();
+    v.showSection("operators");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".op-card-grid")).toBeTruthy();
+    });
+    const labels = [...v.element.querySelectorAll(".op-card-grid button")]
+      .map((b) => b.getAttribute("aria-label"));
+    expect(labels).toContain("Edit");
+    expect(labels).toContain("Delete");
+  });
+});
+
 describe("CanonCockpitView Context section", () => {
   it("lists context files and invokes onNewContext via the section-head action (moved from the rail — see panel.test.ts)", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({ installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] });

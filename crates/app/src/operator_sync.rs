@@ -164,8 +164,13 @@ pub async fn pull_org(
             SyncAction::PushLocal => {
                 if let Some(soul_md) = registry.read_soul(id) {
                     let ts = local.map(|l| l.updated_at_unix_ms).unwrap_or(0);
-                    put_operator(org, &row.operator_id, &soul_md, ts).await?;
-                    summary.pushed += 1;
+                    // Tolerate push failures (members are read-only — the
+                    // server owner-gates writes): keep pulling the rest.
+                    match put_operator(org, &row.operator_id, &soul_md, ts).await {
+                        Ok(_) => summary.pushed += 1,
+                        Err(e) => tracing::debug!(operator_id = %row.operator_id, error = %e,
+                            "roster push skipped"),
+                    }
                 }
             }
             SyncAction::Import => {
@@ -192,8 +197,11 @@ pub async fn pull_org(
     for op in registry.list() {
         if op.org_slug.as_deref() == Some(org) && !seen.contains(&op.id.to_string()) {
             if let Some(soul_md) = registry.read_soul(op.id) {
-                put_operator(org, &op.id.to_string(), &soul_md, op.updated_at_unix_ms).await?;
-                summary.pushed += 1;
+                match put_operator(org, &op.id.to_string(), &soul_md, op.updated_at_unix_ms).await {
+                    Ok(_) => summary.pushed += 1,
+                    Err(e) => tracing::debug!(operator_id = %op.id.to_string(), error = %e,
+                        "roster convergence push skipped"),
+                }
             }
         }
     }
