@@ -315,6 +315,15 @@ impl OperatorRegistry {
         })
     }
 
+    /// Test helper: insert an arbitrary operator into the in-memory cache,
+    /// bypassing storage. Lets other modules' unit tests (e.g.
+    /// `group_supervision`) construct a supervisor without spinning up
+    /// sqlite — mirrors `for_tests`'s "avoid the DB" posture.
+    #[cfg(test)]
+    pub(crate) fn insert_for_test(&self, op: Operator) {
+        self.by_id.write().unwrap().insert(op.id, op);
+    }
+
     pub fn default(&self) -> Option<Operator> {
         self.by_id
             .read()

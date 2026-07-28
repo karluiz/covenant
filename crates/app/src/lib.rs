@@ -30,6 +30,7 @@ mod covenant_board;
 mod covenant_gist;
 mod covenant_review;
 mod cross_session;
+mod group_supervision;
 mod discord_presence;
 mod drafts;
 pub mod email;
@@ -210,6 +211,7 @@ mod traffic_lights {
 use aom::{AomHandle, AomStatus};
 use context::{ContextCache, DirContext};
 use cross_session::CrossSessionWatcher;
+use group_supervision::GroupSupervisionWatcher;
 use notify::{Notifier, Trigger};
 use operator::{OperatorState, OperatorWatcher};
 use settings::Settings;
@@ -241,6 +243,7 @@ pub(crate) struct AppState {
     settings_path: PathBuf,
     rate: Mutex<RateLimiter>,
     cross_session: CrossSessionWatcher,
+    group_supervision: GroupSupervisionWatcher,
     operator: OperatorWatcher,
     storage: Storage,
     /// Autonomous Operator Mode global toggle. Read by the operator
@@ -942,6 +945,15 @@ async fn spawn_session(
     // global pump so M5 patterns across all open tabs can be detected.
     state
         .cross_session
+        .attach(id, world.clone(), session.subscribe())
+        .await;
+
+    // Group-supervision watcher: same fan-in, scoped to whichever tab
+    // group this session belongs to (if any) so a group's attached
+    // supervisor can flag group-local patterns. No-op until the session
+    // is actually assigned a group and that group gets a supervisor.
+    state
+        .group_supervision
         .attach(id, world.clone(), session.subscribe())
         .await;
 
@@ -5088,6 +5100,12 @@ pub fn run() {
             claude_statusline.spawn_watcher();
 
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone(), vitals.clone());
+            let group_supervision_watcher = GroupSupervisionWatcher::spawn(
+                app.handle().clone(),
+                settings_arc.clone(),
+                registry_arc.clone(),
+                vitals.clone(),
+            );
             let mission_store = dir.join("session_missions.json");
             let embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>> =
                 Arc::new(tokio::sync::OnceCell::new());
@@ -5475,6 +5493,7 @@ pub fn run() {
                 settings_path: path,
                 rate: Mutex::new(RateLimiter::default()),
                 cross_session: cross,
+                group_supervision: group_supervision_watcher,
                 operator: operator_watcher,
                 storage,
                 aom: aom_handle,
