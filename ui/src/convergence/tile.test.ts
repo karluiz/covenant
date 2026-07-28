@@ -101,11 +101,24 @@ describe("renderDetailPane", () => {
     expect(el.querySelector(".mc-subrow")?.textContent).toContain("fix-flaky");
   });
 
+  it("copy-tail action puts the excerpt on the clipboard; absent without excerpt", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const el = renderDetailPane(agent({ excerpt: "$ ls\nfoo" }), null, detailCbs());
+    el.querySelector<HTMLButtonElement>(".mc-detail__copy")!.click();
+    expect(writeText).toHaveBeenCalledWith("$ ls\nfoo");
+    const bare = renderDetailPane(agent({ excerpt: null }), null, detailCbs());
+    expect(bare.querySelector(".mc-detail__copy")).toBeNull();
+  });
+
   it("blocked + attention item: the interaction renders inside the pane", () => {
     const at: AttentionItem = {
       session_id: "s1", tab_title: "agent tests", tab_color: null, lane: "pty",
       executor: "claude", kind: "operator-escalation", question: "Ship?",
-      excerpt: null, permission: null, operator_name: "Zeta",
+      permission: null, operator_name: "Zeta",
       operator_avatar: null, mission_name: null, since_unix_ms: 1,
     };
     const el = renderDetailPane(agent({ status: "blocked" }), at, detailCbs());

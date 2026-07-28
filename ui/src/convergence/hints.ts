@@ -8,6 +8,10 @@ export interface SessionHint {
   sessionId: string;
   title: string;
   color: string | null;
+  /// Resolved tab-group name. UI-side only — never sent to the backend
+  /// (the snapshot hint stays {session_id, title, color}); the overlay
+  /// uses it to group rail rows by workspace.
+  group: string | null;
 }
 
 /// Minimal structural view of a tab — only what hint-building reads.
@@ -17,6 +21,7 @@ export interface HintTab {
   defaultTitle: string;
   customName: string | null;
   color: string | null;
+  groupId?: string | null;
 }
 
 /// One hint per *pane* that owns a live session. Split tabs contribute
@@ -26,14 +31,16 @@ export interface HintTab {
 /// backend.
 export function sessionHintsFromTabs(
   tabs: ReadonlyArray<HintTab>,
+  groupNames?: ReadonlyMap<string, string>,
 ): SessionHint[] {
   const out: SessionHint[] = [];
   for (const t of tabs) {
     const title = t.customName?.trim() || t.defaultTitle || "untitled";
+    const group = (t.groupId && groupNames?.get(t.groupId)) || null;
     for (const p of t.panes) {
       const sid = p.sessionId ?? p.acpSessionId;
       if (!sid) continue;
-      out.push({ sessionId: sid, title, color: t.color });
+      out.push({ sessionId: sid, title, color: t.color, group });
     }
   }
   return out;

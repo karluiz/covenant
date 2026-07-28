@@ -19,6 +19,36 @@ export function attentionIndex(items: AttentionItem[]): Map<string, AttentionIte
   return new Map(items.map((i) => [i.session_id, i]));
 }
 
+export interface GroupedAgents {
+  /// Tab-group name; null = ungrouped tabs.
+  key: string | null;
+  cards: AgentCard[];
+}
+
+/// Bucket an already-sorted rail list by workspace group. Buckets with a
+/// blocked session bubble first; ties keep the first-appearance order of
+/// the flat list, and cards keep their in-list order inside each bucket.
+export function groupAgents(
+  list: AgentCard[],
+  groupOf: (sessionId: string) => string | null,
+): GroupedAgents[] {
+  const buckets = new Map<string | null, AgentCard[]>();
+  for (const card of list) {
+    const key = groupOf(card.session_id);
+    const b = buckets.get(key);
+    if (b) b.push(card);
+    else buckets.set(key, [card]);
+  }
+  return [...buckets.entries()]
+    .map(([key, cards]) => ({ key, cards }))
+    .sort((a, b) => {
+      const ab = a.cards.some((c) => c.status === "blocked");
+      const bb = b.cards.some((c) => c.status === "blocked");
+      if (ab !== bb) return ab ? -1 : 1;
+      return list.indexOf(a.cards[0]) - list.indexOf(b.cards[0]);
+    });
+}
+
 /// Rail order: blocked first (oldest attention timestamp first; blocked
 /// without a timestamp after those), then status priority, then title.
 export function sortAgents(agents: AgentCard[], attention: AttentionItem[]): AgentCard[] {

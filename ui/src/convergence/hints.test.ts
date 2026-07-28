@@ -7,13 +7,14 @@ const tab = (over: Partial<HintTab>): HintTab => ({
   defaultTitle: "zsh 1",
   customName: null,
   color: null,
+  groupId: null,
   ...over,
 });
 
 describe("sessionHintsFromTabs", () => {
   it("emits one hint per shell tab using defaultTitle", () => {
     expect(sessionHintsFromTabs([tab({})])).toEqual([
-      { sessionId: "s1", title: "zsh 1", color: null },
+      { sessionId: "s1", title: "zsh 1", color: null, group: null },
     ]);
   });
 
@@ -47,6 +48,18 @@ describe("sessionHintsFromTabs", () => {
     expect(out).toEqual([]);
   });
 
+  it("resolves the tab's group name via the names map; unknown ids stay null", () => {
+    const out = sessionHintsFromTabs(
+      [
+        tab({ groupId: "g1" }),
+        tab({ panes: [{ sessionId: "s2" }], groupId: "gX" }),
+        tab({ panes: [{ sessionId: "s3" }] }),
+      ],
+      new Map([["g1", "covenant"]]),
+    );
+    expect(out.map((h) => h.group)).toEqual(["covenant", null, null]);
+  });
+
   it("emits a hint for acp panes using acpSessionId", () => {
     const out = sessionHintsFromTabs([
       tab({
@@ -56,7 +69,7 @@ describe("sessionHintsFromTabs", () => {
       }),
     ]);
     expect(out).toEqual([
-      { sessionId: "acp-1", title: "copilot chat", color: "#123456" },
+      { sessionId: "acp-1", title: "copilot chat", color: "#123456", group: null },
     ]);
   });
 });

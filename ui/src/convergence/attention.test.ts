@@ -6,7 +6,7 @@ import type { AttentionItem } from "../api";
 const item = (over: Partial<AttentionItem>): AttentionItem => ({
   session_id: "s1", tab_title: "deploy", tab_color: null, lane: "pty",
   executor: "claude", kind: "operator-escalation", question: "Ship it?",
-  excerpt: null, permission: null, operator_name: "Zeta",
+  permission: null, operator_name: "Zeta",
   operator_avatar: null, mission_name: null, since_unix_ms: 100, ...over,
 });
 
@@ -58,10 +58,6 @@ describe("renderAttentionBody", () => {
     expect(onPtyReply).toHaveBeenCalledWith("s1", "y");
   });
 
-  it("never renders the excerpt — the detail pane owns the tail", () => {
-    const el = mounted(renderAttentionBody(item({ excerpt: "$ ls\nfoo" }), cbs()));
-    expect(el.textContent).not.toContain("$ ls");
-  });
 });
 
 describe("agoLabel", () => {

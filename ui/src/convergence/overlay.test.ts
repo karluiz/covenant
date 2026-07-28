@@ -14,7 +14,7 @@ import { ConvergenceOverlay } from "./overlay";
 import type { AgentCard, AttentionItem } from "../api";
 
 const bridge = {
-  listTabs: () => [{ sessionId: "s1", title: "awareness", color: null }],
+  listTabs: () => [{ sessionId: "s1", title: "awareness", color: null, group: null }],
   activateBySessionId: vi.fn(() => true),
 };
 
@@ -30,7 +30,7 @@ const agent = (over: Partial<AgentCard>): AgentCard => ({
 const attItem = (over: Partial<AttentionItem>): AttentionItem => ({
   session_id: "s1", tab_title: "deploy", tab_color: null, lane: "pty",
   executor: "claude", kind: "operator-escalation", question: "OK?",
-  excerpt: null, permission: null, operator_name: "Zeta",
+  permission: null, operator_name: "Zeta",
   operator_avatar: null, mission_name: null, since_unix_ms: 100, ...over,
 });
 
@@ -197,6 +197,45 @@ describe("ConvergenceOverlay.refresh", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(document.querySelector<HTMLElement>(".mc-detail")?.dataset.sessionId).toBe("s2");
+  });
+
+  it("rail groups rows under workspace headers, blocked group first", async () => {
+    const b2 = {
+      listTabs: () => [
+        { sessionId: "s1", title: "alpha", color: null, group: "covenant" },
+        { sessionId: "s2", title: "beta", color: null, group: "banco" },
+      ],
+      activateBySessionId: vi.fn(() => true),
+    };
+    const ov2 = new ConvergenceOverlay(b2);
+    getSnap.mockResolvedValue({
+      agents: [
+        agent({ session_id: "s1", tab_title: "alpha" }),
+        agent({ session_id: "s2", tab_title: "beta", status: "blocked" }),
+      ],
+      attention: [attItem({ session_id: "s2" })],
+    });
+    ov2.open();
+    await ov2.refreshForTest();
+    await ov2.refreshForTest();
+    const entries = [...document.querySelectorAll<HTMLElement>(".mc-rail > *")].map((el) =>
+      el.classList.contains("mc-rail__group")
+        ? `#${el.textContent}`
+        : (el.dataset.sessionId ?? "?"),
+    );
+    expect(entries).toEqual(["#banco", "s2", "#covenant", "s1"]);
+    ov2.close();
+  });
+
+  it("rail with a single group shows no headers", async () => {
+    getSnap.mockResolvedValue({
+      agents: [agent({ session_id: "s1" })],
+      attention: [],
+    });
+    ov.open();
+    await ov.refreshForTest();
+    await ov.refreshForTest();
+    expect(document.querySelector(".mc-rail__group")).toBeNull();
   });
 
   it("number keys jump the pane to the Nth rail row", async () => {

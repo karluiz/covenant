@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { statusPriority, attentionIndex, sortAgents } from "./model";
+import { statusPriority, attentionIndex, sortAgents, groupAgents } from "./model";
 import type { AgentCard, AttentionItem, TileStatus } from "../api";
 
 const agent = (sid: string, status: TileStatus, title = sid): AgentCard => ({
@@ -15,7 +15,7 @@ const agent = (sid: string, status: TileStatus, title = sid): AgentCard => ({
 const att = (sid: string, at: number | null): AttentionItem => ({
   session_id: sid, tab_title: sid, tab_color: null, lane: "pty",
   executor: "claude", kind: "operator-escalation", question: "q?",
-  excerpt: null, permission: null, operator_name: "o",
+  permission: null, operator_name: "o",
   operator_avatar: null, mission_name: null, since_unix_ms: at,
 });
 
@@ -64,5 +64,30 @@ describe("sortAgents", () => {
     const copy = [...cards];
     sortAgents(cards, []);
     expect(cards).toEqual(copy);
+  });
+});
+
+describe("groupAgents", () => {
+  const groupOf = (sid: string): string | null =>
+    sid.startsWith("a") ? "alpha" : sid.startsWith("b") ? "beta" : null;
+
+  it("buckets by group, bubbles the bucket holding blocked, keeps in-bucket order", () => {
+    const list = [
+      agent("a1", "working"),
+      agent("b1", "blocked"),
+      agent("a2", "idle"),
+      agent("n1", "idle"),
+    ];
+    const groups = groupAgents(list, groupOf);
+    expect(groups.map((g) => g.key)).toEqual(["beta", "alpha", null]);
+    expect(groups[1].cards.map((c) => c.session_id)).toEqual(["a1", "a2"]);
+    expect(groups[0].cards.map((c) => c.session_id)).toEqual(["b1"]);
+  });
+
+  it("single distinct group collapses to one bucket", () => {
+    const list = [agent("a1", "working"), agent("a2", "idle")];
+    const groups = groupAgents(list, groupOf);
+    expect(groups.length).toBe(1);
+    expect(groups[0].key).toBe("alpha");
   });
 });
