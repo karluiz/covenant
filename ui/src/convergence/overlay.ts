@@ -46,6 +46,12 @@ export class ConvergenceOverlay {
   private activeSessionId: string | null = null;
   /// session_id → tab-group name, refreshed with each poll's hints.
   private groupBySession: Map<string, string | null> = new Map();
+  /// Serialized render inputs of the last rail/pane build. A 1s poll
+  /// with identical data must NOT rebuild the DOM — replacing a button
+  /// under the cursor restarts :hover and reads as flicker. Time-derived
+  /// labels (ages) tick in place instead.
+  private lastRailKey = "";
+  private lastDetailKey = "";
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
@@ -71,6 +77,8 @@ export class ConvergenceOverlay {
     this.root?.remove();
     this.root = this.bodyEl = this.railEl = this.detailHostEl = this.summaryEl = this.empty = this.reconnectEl = null;
     this.snap = null;
+    this.lastRailKey = "";
+    this.lastDetailKey = "";
     this.filter = "all";
     this.activeSessionId = null;
   }
@@ -232,6 +240,8 @@ export class ConvergenceOverlay {
       this.bodyEl.hidden = true;
       this.empty.hidden = false;
       this.summaryEl.textContent = "";
+      this.lastRailKey = "";
+      this.lastDetailKey = "";
       return;
     }
     this.empty.hidden = true;
@@ -256,6 +266,26 @@ export class ConvergenceOverlay {
     if (!this.activeSessionId || !list.some((a) => a.session_id === this.activeSessionId)) {
       this.activeSessionId = list[0]?.session_id ?? null;
     }
+    // Skip the rebuild when nothing the rows *display* changed — only
+    // tick the time labels in place (see lastRailKey).
+    const railKey = JSON.stringify({
+      f: this.filter,
+      sel: this.activeSessionId,
+      g: grouped.map((b) => [
+        b.key,
+        b.cards.map((c) => [
+          c.session_id, c.status, c.executor, c.operator_name,
+          c.phase_label, c.last_command, c.last_output_line, c.cwd,
+        ]),
+      ]),
+    });
+    if (railKey === this.lastRailKey && this.railEl.childElementCount > 0) {
+      this.tickRailAges(list, at);
+      this.renderDetail(at);
+      return;
+    }
+    this.lastRailKey = railKey;
+
     this.railEl.replaceChildren();
     if (list.length === 0) {
       const none = document.createElement("div");
@@ -264,6 +294,7 @@ export class ConvergenceOverlay {
       none.querySelector(".mc-rail__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
       this.railEl.append(none);
     }
+
     // Headers only when tabs actually span groups — a single bucket
     // (everything in one group, or nothing grouped) stays flat.
     const showHeaders = grouped.length > 1;
@@ -309,7 +340,14 @@ export class ConvergenceOverlay {
     const active = document.activeElement;
     if (active?.tagName === "TEXTAREA" && host.contains(active)) return;
     const card = this.snap.agents.find((a) => a.session_id === this.activeSessionId);
-    if (!card) { host.replaceChildren(); return; }
+    if (!card) { host.replaceChildren(); this.lastDetailKey = ""; return; }
+    // Identical data → keep the DOM (hover survives); tick ages only.
+    const detailKey = JSON.stringify([card, at.get(card.session_id) ?? null]);
+    if (detailKey === this.lastDetailKey && host.childElementCount > 0) {
+      this.tickDetailAges(card);
+      return;
+    }
+    this.lastDetailKey = detailKey;
     const scroll = host.scrollTop;
     host.replaceChildren(
       renderDetailPane(card, at.get(card.session_id) ?? null, {
@@ -346,6 +384,8 @@ export class ConvergenceOverlay {
     this.empty.hidden = true;
     if (this.bodyEl) this.bodyEl.hidden = false;
     this.summaryEl.textContent = "";
+    this.lastRailKey = "";
+    this.lastDetailKey = "";
     this.railEl.replaceChildren();
     this.detailHostEl.replaceChildren();
     const err = document.createElement("div");
@@ -361,6 +401,34 @@ export class ConvergenceOverlay {
     const idx = list.findIndex((a) => a.session_id === this.activeSessionId);
     const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
     this.navigateTo(list[next].session_id);
+  }
+
+  /// In-place tick of the rail's time labels when a rebuild is skipped.
+  private tickRailAges(list: AgentCard[], at: Map<string, AttentionItem>): void {
+    if (!this.railEl) return;
+    for (const card of list) {
+      const el = this.railEl.querySelector<HTMLElement>(
+        `.mc-row[data-session-id="${card.session_id}"] .mc-row__age`,
+      );
+      if (!el) continue;
+      const item = at.get(card.session_id);
+      el.textContent =
+        item?.since_unix_ms != null && item.since_unix_ms > 0
+          ? agoLabel(item.since_unix_ms)
+          : card.started_at_unix_ms != null
+            ? elapsedLabel(card.started_at_unix_ms)
+            : "";
+    }
+  }
+
+  /// In-place tick of subagent elapsed labels when a rebuild is skipped.
+  private tickDetailAges(card: AgentCard): void {
+    const ages = this.detailHostEl?.querySelectorAll<HTMLElement>(".mc-subrow__age");
+    if (!ages) return;
+    card.subagents.forEach((r, i) => {
+      const el = ages[i];
+      if (el) el.textContent = r.running ? elapsedLabel(r.started_unix_ms) : "done";
+    });
   }
 
   /// Explicit navigation to a session — overrides the draft-guard

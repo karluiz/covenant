@@ -238,6 +238,28 @@ describe("ConvergenceOverlay.refresh", () => {
     expect(document.querySelector(".mc-rail__group")).toBeNull();
   });
 
+  it("identical polls reuse the rail rows and detail pane (hover survives)", async () => {
+    getSnap.mockResolvedValue({
+      agents: [agent({ session_id: "s1", status: "blocked" }), agent({ session_id: "s2", tab_title: "beta" })],
+      attention: [attItem({ session_id: "s1" })],
+    });
+    ov.open();
+    await ov.refreshForTest();
+    await ov.refreshForTest();
+    const row = document.querySelector(".mc-row");
+    const pane = document.querySelector(".mc-detail");
+    await ov.refreshForTest();
+    expect(document.querySelector(".mc-row")).toBe(row);
+    expect(document.querySelector(".mc-detail")).toBe(pane);
+    // A data change still rebuilds.
+    getSnap.mockResolvedValue({
+      agents: [agent({ session_id: "s1", status: "blocked", phase_label: "new phase" }), agent({ session_id: "s2", tab_title: "beta" })],
+      attention: [attItem({ session_id: "s1" })],
+    });
+    await ov.refreshForTest();
+    expect(document.querySelector(".mc-row")).not.toBe(row);
+  });
+
   it("number keys jump the pane to the Nth rail row", async () => {
     getSnap.mockResolvedValue({
       agents: [

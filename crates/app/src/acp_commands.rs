@@ -138,6 +138,14 @@ pub(crate) fn subagent_from_tool_call(
     })
 }
 
+/// Replay gating: while a `session/load` replay may still be draining,
+/// `session/update` frames must not drive the phase. Permission events
+/// (and anything that isn't an Update) always pass — a genuinely pending
+/// permission must surface even mid-replay.
+pub(crate) fn phase_update_allowed(replay_quiet: bool, ev: &AcpSessionEvent) -> bool {
+    !(replay_quiet && matches!(ev, AcpSessionEvent::Update(_)))
+}
+
 fn tool_call_phase(f: &ToolCallFields) -> ExecutorPhase {
     match f.kind.as_deref() {
         Some("edit") => ExecutorPhase::Writing {
@@ -292,6 +300,12 @@ struct AcpTabSession {
     /// Guards against overlapping `session/prompt` calls on the same
     /// session (ACP has no queueing of its own).
     in_flight: AtomicBool,
+    /// True while a `session/load` replay may still be draining: replayed
+    /// agent chunks must not drive the notch phase — a replay never ends
+    /// with PromptDone, so a replayed "thinking" would pin the session as
+    /// working forever (Convergence showed exactly that). Cleared by the
+    /// first real user prompt.
+    replay_quiet: AtomicBool,
     /// Latest slash-command roster from `available_commands_update`,
     /// cached because the frontend's Tauri listener races the forwarder's
     /// first emits — the view fetches this via `acp_get_commands` after
@@ -1201,6 +1215,7 @@ pub async fn spawn_acp_session(
         session: session.clone(),
         acp_session_id: std::sync::Mutex::new(acp_session_id),
         in_flight: AtomicBool::new(false),
+        replay_quiet: AtomicBool::new(resumed),
         commands: std::sync::Mutex::new(Vec::new()),
         cwd: cwd.clone(),
         executor: executor.clone(),
@@ -1293,7 +1308,12 @@ pub async fn spawn_acp_session(
                 }
             };
             if let Some(phase) = acp_event_to_phase(&ev) {
-                notch_hub_task.set_phase(session_id, phase).await;
+                if phase_update_allowed(
+                    tab_for_task.replay_quiet.load(Ordering::Relaxed),
+                    &ev,
+                ) {
+                    notch_hub_task.set_phase(session_id, phase).await;
+                }
             }
             // Cache the slash roster: the frontend's Tauri listener races
             // these first emits, so the view re-fetches via
@@ -1549,6 +1569,8 @@ pub async fn acp_send_prompt(
     images: Option<Vec<AcpImageAttachment>>,
 ) -> Result<(), String> {
     let (id, tab) = require(&state, &session_id).await?;
+    // A real prompt ends the replay-quiet window — phases are live again.
+    tab.replay_quiet.store(false, Ordering::Relaxed);
 
     // Build the prompt blocks BEFORE taking the in_flight flag: an
     // attachment error must not strand the flag set and brick the
@@ -2099,6 +2121,16 @@ mod tests {
             acp_event_to_phase(&ev),
             Some(ExecutorPhase::Reading { file }) if file == "README.md"
         ));
+    }
+
+    #[test]
+    fn replay_quiet_suppresses_update_phase_writes() {
+        let n = notification(
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}"#,
+        );
+        let ev = AcpSessionEvent::Update(n);
+        assert!(!phase_update_allowed(true, &ev));
+        assert!(phase_update_allowed(false, &ev));
     }
 
     #[test]

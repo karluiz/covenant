@@ -1,5 +1,6 @@
 import type { AgentCard, AttentionItem, SubAgentRow, TileStatus } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
+import { attachTooltip } from "../tooltip/tooltip";
 import { formatChord } from "../platform";
 import { CustomSelect } from "../ui/select";
 import { renderAttentionBody, type AttentionCallbacks } from "./attention";
@@ -94,6 +95,7 @@ export function renderDetailPane(
   open.type = "button";
   open.className = "mc-detail__open";
   open.textContent = `Open tab ${formatChord(["enter"])}`;
+  attachTooltip(open, "Jump to this session's tab and close Convergence.");
   open.addEventListener("click", () => cb.onFocus(card.session_id, false));
   actions.append(open);
   if (card.excerpt) {
@@ -102,6 +104,7 @@ export function renderDetailPane(
     copy.className = "mc-detail__copy";
     copy.textContent = "Copy tail";
     copy.setAttribute("aria-label", "Copy the tail to the clipboard");
+    attachTooltip(copy, "Copy the tail below to the clipboard.");
     copy.addEventListener("click", () => {
       const text = card.excerpt;
       if (text) void navigator.clipboard.writeText(text).catch(() => {});
@@ -114,6 +117,7 @@ export function renderDetailPane(
     stop.className = "mc-stop";
     stop.textContent = "Stop";
     stop.setAttribute("aria-label", "Stop operator");
+    attachTooltip(stop, "Disable the operator on this session. Reversible — ⌘O on the tab re-arms it.");
     stop.addEventListener("click", () => cb.onStop(card.session_id));
     actions.append(stop);
   }

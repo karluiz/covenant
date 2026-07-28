@@ -57,6 +57,13 @@ impl AcpWorldModel {
     /// from `acp_send_prompt` and some agents echo the prompt back as a
     /// `UserMessageChunk`.
     pub fn record_user(&mut self, text: &str) {
+        // Slash-command replays arrive as XML-wrapped user chunks
+        // (<command-name>…, <local-command-stdout>…) — machine noise,
+        // not conversation. Drop them before they pollute the ring.
+        let t = text.trim_start();
+        if t.starts_with("<command-") || t.starts_with("<local-command-") {
+            return;
+        }
         self.flush_agent_turn();
         if let Some((AcpRole::User, last)) = self.turns.back() {
             if last == &truncate(text) {
@@ -243,6 +250,21 @@ mod tests {
         assert!(text.ends_with("END"));
         assert!(text.contains("chars]"));
         assert!(text.chars().count() < 600);
+    }
+
+    #[test]
+    fn slash_command_xml_replays_are_not_conversation() {
+        // Claude Code replays slash-commands as XML-wrapped user chunks
+        // (<command-name>/model</command-name>… / <local-command-stdout>…).
+        // They are machine noise, not turns.
+        let mut w = AcpWorldModel::new("claude".into());
+        w.record_user(
+            "<command-name>/model</command-name>\n<command-message>model</command-message>",
+        );
+        w.record_user("<local-command-stdout>Set model to sonnet</local-command-stdout>");
+        assert!(w.tail_excerpt(6).is_none());
+        w.record_user("hola como estas?");
+        assert_eq!(w.tail_excerpt(6).as_deref(), Some("you: hola como estas?"));
     }
 
     #[test]
