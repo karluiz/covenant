@@ -18828,6 +18828,7 @@ body.theme-light .task-pill--clickable:hover { background: rgb(var(--ink-rgb) / 
 .tp-act-chip .sw-ok   { background: var(--ok, #3ddc84); }
 .tp-act-chip .sw-warn { background: var(--fail, #ef6b6b); }
 .tp-act-chip .sw-mute { background: var(--muted, #6e717a); }
+.tp-act-chip .sw-perception { background: var(--running, #e0af68); }
 
 /* List */
 .tp-activity-list {
@@ -19011,6 +19012,12 @@ body.theme-light .task-pill--clickable:hover { background: rgb(var(--ink-rgb) / 
 .tp-act-row--startup { border-left-color: rgba(111,123,255,0.5); }
 .tp-act-row--startup .tp-act-ico,
 .tp-act-row--startup .tp-act-kind { color: var(--accent, #6f7bff); }
+
+/* Perception auto-answer — amber, matching the signed Perception toast:
+   the operator answered a trivial prompt on the human's behalf. */
+.tp-act-row--perception { border-left-color: rgba(224,175,104,0.45); }
+.tp-act-row--perception .tp-act-ico,
+.tp-act-row--perception .tp-act-kind { color: var(--running, #e0af68); }
 
 /* A failed model call — amber, deliberately NOT the escalation red:
    the operator reached no verdict, the provider just fell over. */

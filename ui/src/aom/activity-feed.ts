@@ -94,6 +94,9 @@ export class AomActivityFeed {
   }
 
   private pushDecision(d: DecisionEvent): void {
+    // Perception auto-answers have their own signed toast (PTY) / inline
+    // audit chip (ACP) — a flash card here would double-announce them.
+    if (d.action === "perception") return;
     // Dedup: suppress consecutive WAITs with identical rationale on
     // the same session within WAIT_DEDUP_MS. This is the visible
     // symptom of a stuck-spinner loop — the backend's idle-WAIT
