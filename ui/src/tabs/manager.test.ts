@@ -190,6 +190,127 @@ describe("TabManager group active-org persistence", () => {
   });
 });
 
+function groupCalls(cmd: "session_set_group" | "group_set_supervisor"): unknown[][] {
+  return mocks.invoke.mock.calls.filter(([c]) => c === cmd);
+}
+
+describe("TabManager group membership + supervisor sync to backend", () => {
+  // syncSessionGroup (private) is the single choke point every groupId/
+  // sessionId mutation site funnels through — exercise it via the public
+  // membership entry points rather than calling it directly, so the test
+  // also proves the call sites are actually wired up.
+  it("pushes membership to the backend when a tab joins a group, and clears it on ungroup", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      addTabToGroup: (tabId: string, groupId: string) => void;
+      ungroup: (groupId: string) => void;
+    };
+    const tab = {
+      id: "t1",
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [fakePane({ sessionId: "s1" })],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    };
+    priv.tabs.push(tab);
+    const groupId = m.createEmptyGroup();
+
+    mocks.invoke.mockClear();
+    priv.addTabToGroup("t1", groupId);
+    expect(groupCalls("session_set_group")).toContainEqual([
+      "session_set_group",
+      { sessionId: "s1", groupId },
+    ]);
+
+    mocks.invoke.mockClear();
+    priv.ungroup(groupId);
+    expect(groupCalls("session_set_group")).toContainEqual([
+      "session_set_group",
+      { sessionId: "s1", groupId: null },
+    ]);
+    // Ungrouping also detaches any supervisor the (now-gone) group held.
+    expect(groupCalls("group_set_supervisor")).toContainEqual([
+      "group_set_supervisor",
+      { groupId, operatorId: null, intervene: false },
+    ]);
+  });
+
+  it("clears backend membership for every pane (not just the active one) when a tab closes", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      finalizeCloseTab: (id: string) => void;
+    };
+    const tab = {
+      id: "split1",
+      groupId: "g1",
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [
+        fakePane({ sessionId: "s1" }),
+        fakePane({ sessionId: "s2" }),
+      ],
+      layout: { kind: "split", orientation: "vertical", activePaneIdx: 0 },
+      disposers: [],
+    };
+    priv.tabs.push(tab);
+
+    mocks.invoke.mockClear();
+    priv.finalizeCloseTab("split1");
+
+    const calls = groupCalls("session_set_group");
+    expect(calls).toContainEqual(["session_set_group", { sessionId: "s1", groupId: null }]);
+    expect(calls).toContainEqual(["session_set_group", { sessionId: "s2", groupId: null }]);
+  });
+
+  it("boot resync pushes a restored group's supervisor to the backend after restoreFromManifest", async () => {
+    const groupId = "g1";
+    const manifest: TabManifestV1 = {
+      version: 1,
+      active_index: 0,
+      tabs: [
+        {
+          kind: "shell",
+          custom_name: null,
+          cwd: null,
+          color: null,
+          group_id: groupId,
+          mission_path: null,
+          operator_id: null,
+        },
+      ],
+      groups: [
+        {
+          id: groupId,
+          name: "grp",
+          color: null,
+          collapsed: false,
+          root_dir: null,
+          supervisor_id: "op-1",
+          supervisor_intervene: true,
+        },
+      ],
+    };
+    const m = makeManager();
+    mocks.invoke.mockClear();
+    try {
+      // Group hydration (and the boot resync it drives) runs synchronously
+      // before the PTY spawn is awaited — see the canon_org restore test
+      // above for why this is expected to throw under jsdom.
+      await m.restoreFromManifest(manifest);
+    } catch {
+      // expected under jsdom
+    }
+    expect(groupCalls("group_set_supervisor")).toContainEqual([
+      "group_set_supervisor",
+      { groupId, operatorId: "op-1", intervene: true },
+    ]);
+  });
+});
+
 describe("TabManager setActivePill fast path", () => {
   it("moves .active to the target pill and reports false when the pill is absent", () => {
     const m = makeManager();

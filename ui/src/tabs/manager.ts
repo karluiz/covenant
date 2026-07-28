@@ -64,7 +64,9 @@ import {
   resolveExistingPath,
   scoreSetCurrentSession,
   setAomExcluded,
+  sessionSetGroup,
   sessionSetOperator,
+  groupSetSupervisor,
   setOperatorEnabled,
   getRemoteArmed,
   setRemoteArmed,
@@ -1095,6 +1097,8 @@ export class TabManager {
       mountPaneInDom: (t, idx) => this.mountSecondPaneDom(t as Tab, idx),
       focusPane: (t, idx) => this.focusPaneDom(t as Tab, idx),
     });
+    // The new second pane's session just spawned — push its membership.
+    this.syncSessionGroup(tab);
     // D14 — reflect the new active-pane index after split.
     this.updateActivePaneClass(tab);
     this.scheduleSave();
@@ -1160,6 +1164,7 @@ export class TabManager {
     p.executor = "pi";
     dismissWelcomeHint();
     p.aomExcluded = true; // Pi sessions never enter AOM
+    this.syncSessionGroup(tab);
 
     this.updateActivePaneClass(tab);
     this.scheduleSave();
@@ -1470,6 +1475,8 @@ export class TabManager {
       ratio: layout.ratio,
     };
     assertLayoutValid(tab);
+    // The restored second pane's session just spawned — push its membership.
+    this.syncSessionGroup(tab);
 
     // 5. Plant the late-binding hook that mountSecondPaneDom expects.
     //    spawnPtyForPane stores a closure under `_xtermRef_${sessionId}`;
@@ -4764,6 +4771,8 @@ export class TabManager {
     };
     tab.panes = [pane0Shell];
     assertLayoutValid(tab);
+    // Fresh session, tab may already carry a groupId from opts — push it.
+    this.syncSessionGroup(tab);
 
     // D14 — active-pane border: wire pane-0 focus for shell tabs via focusin.
     // xterm focuses an internal textarea; the event bubbles up through paneHost0.
@@ -5078,6 +5087,8 @@ export class TabManager {
     };
     tab.panes = [pane0Pi];
     assertLayoutValid(tab);
+    // Fresh session, tab may already carry a groupId from opts — push it.
+    this.syncSessionGroup(tab);
 
     // D14 — active-pane border: wire pane-0 focus for Pi tabs via focusin
     // (PiChatView doesn't expose an onFocus signal; the textarea fires a
@@ -5401,6 +5412,7 @@ export class TabManager {
         onSessionChange: (sid, acpSid) => {
           pane0Acp.sessionId = sid;
           pane0Acp.acpSessionId = acpSid;
+          this.syncSessionGroup(tab);
           this.rememberSessionName(sid, tabDisplayName(tab));
           this.scheduleSave();
         },
@@ -5420,6 +5432,7 @@ export class TabManager {
       pane0Acp.acpView = view;
       pane0Acp.sessionId = spawned.sessionId;
       pane0Acp.acpSessionId = spawned.acpSessionId;
+      this.syncSessionGroup(tab);
       this.scheduleSave(); // persist the ACP session id for future resume
       if (opts?.resumeAcpSessionId && !spawned.resumed) {
         pushInfoToast({ message: "Couldn't resume the previous Copilot conversation — started fresh" });
@@ -6216,6 +6229,14 @@ export class TabManager {
         supervisorIntervene: g.supervisor_intervene ?? false,
       });
     }
+    // Boot resync: push every restored group's supervisor attach to the
+    // backend registry. Membership itself syncs organically as sessions
+    // respawn below (each pane-spawn site calls syncSessionGroup).
+    for (const g of this.groups.values()) {
+      if (g.supervisorId !== null) {
+        void groupSetSupervisor(g.id, g.supervisorId, g.supervisorIntervene);
+      }
+    }
     // Normalise every tab into the new panes+layout shape so downstream
     // code (Phase B and beyond) can safely access t.panes[0].
     const tabs = m.tabs.map(liftLegacyTab);
@@ -6546,6 +6567,14 @@ export class TabManager {
     // forget — see revokeIfShared's own doc comment.
     for (const p of tab.panes) {
       if (p.sessionId) revokeIfShared(p.sessionId);
+    }
+    // Group supervision: clear backend membership for every closing pane
+    // (not just the active one — a split tab's background pane is a live
+    // session too). The backend's session→group map is in-memory only, so
+    // an unclosed entry would otherwise linger keyed to a session id that
+    // no longer exists.
+    for (const p of tab.panes) {
+      if (p.sessionId) void sessionSetGroup(p.sessionId, null);
     }
     // Stamp the final name in the cache before disposal so closed-tab
     // labels survive for the operator-decisions panel.
@@ -7161,6 +7190,7 @@ export class TabManager {
       supervisorIntervene: false,
     });
     tab.groupId = id;
+    this.syncSessionGroup(tab);
     // No reorder needed — tab stays where it is, becomes a single-
     // member group.
     this.renaming = { kind: "group", id };
@@ -7270,6 +7300,17 @@ export class TabManager {
     return out;
   }
 
+  /// Push a tab's group membership to the backend operator registry —
+  /// one call per pane with a live session. Fire-and-forget: the map is
+  /// in-memory backend-side; the manifest is the durable copy. No-ops
+  /// per pane without a sessionId, so callers can invoke this
+  /// unconditionally after any `tab.groupId` or `pane.sessionId` change.
+  private syncSessionGroup(tab: Tab): void {
+    for (const p of tab.panes) {
+      if (p.sessionId) void sessionSetGroup(p.sessionId, tab.groupId);
+    }
+  }
+
   /// Move an entire group (all its members, in order) so the first member
   /// lands `side`-of `targetTabId`. Self-drop or no-op cases are silent.
   private moveGroupRelativeToTab(
@@ -7321,6 +7362,7 @@ export class TabManager {
     if (tab.groupId === groupId) return;
 
     tab.groupId = groupId;
+    this.syncSessionGroup(tab);
 
     // Move the tab next to the last existing member of the group so
     // grouped tabs render as a single contiguous run.
@@ -7345,6 +7387,7 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
     tab.groupId = null;
+    this.syncSessionGroup(tab);
     // Empty groups persist intentionally — they're first-class containers
     // the user can drag tabs back into. Explicit removal happens via the
     // chip's context-menu "Delete group" / "Ungroup" actions.
@@ -7405,9 +7448,15 @@ export class TabManager {
 
   private ungroup(groupId: string): void {
     for (const t of this.tabs) {
-      if (t.groupId === groupId) t.groupId = null;
+      if (t.groupId === groupId) {
+        t.groupId = null;
+        this.syncSessionGroup(t);
+      }
     }
     this.groups.delete(groupId);
+    // The group itself is gone — detach its supervisor backend-side too.
+    // Membership sync above already re-pointed every member's sessions.
+    void groupSetSupervisor(groupId, null, false);
     this.renderTabbar();
     this.flushTabbarLayout();
     this.scheduleSave();
@@ -7422,6 +7471,11 @@ export class TabManager {
       this.closeTab(t.id);
     }
     this.groups.delete(groupId);
+    // Every member's session membership already cleared via the
+    // finalizeCloseTab teardown each closeTab() above triggers; the
+    // supervisor attach is separate group-level state that needs its
+    // own clear.
+    void groupSetSupervisor(groupId, null, false);
     this.renderTabbar();
     this.flushTabbarLayout();
     this.scheduleSave();
@@ -7477,6 +7531,7 @@ export class TabManager {
     const target = this.tabs[toIdx];
     const oldGroupId = moved.groupId;
     moved.groupId = target.groupId;
+    this.syncSessionGroup(moved);
 
     this.tabs.splice(fromIdx, 1);
     let insertAt = this.tabs.findIndex((t) => t.id === toId);
