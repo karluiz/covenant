@@ -1,6 +1,7 @@
 ---
 import "../styles/globals.css";
 import Navbar from "../components/Navbar.astro";
+import CookieConsent from "../components/CookieConsent.astro";
 interface Props { title: string; description: string; }
 const { title, description } = Astro.props;
 const ogUrl = new URL("/og-image.png", Astro.site).toString();
@@ -40,6 +41,7 @@ const appSchema = {
   <body class="min-h-screen pt-16">
     <Navbar />
     <slot />
+    <CookieConsent />
     <script>
       // Intersection Observer for fade-in-up animations
       const observer = new IntersectionObserver((entries) => {
