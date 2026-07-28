@@ -6,6 +6,84 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.79 — Convergence master-detail redesign + group supervision
+
+### Added
+
+- **Convergence master-detail overlay**: the ⌘⇧M card grid became dense rail
+  rows (blocked-first, uppercase tab titles, spine-only status color,
+  workspace group headers, harness brand icons, per-row elapsed) beside a
+  live detail pane — meta, secret-masked terminal tail, sub-agents, and the
+  blocked session's inline interaction (question, permission buttons, reply
+  composer). Answering a blocked session auto-advances to the next blocked
+  one; keys 1–9 jump rows (`ui/src/convergence/`,
+  `crates/app/src/convergence.rs`).
+
+- **Live tails with real content**: PTY sessions mirror the tidied headless
+  vt100 screen render (no more scrambled linear ANSI strip) and ACP chats
+  show the actual conversation from the world model's turn ring, both
+  through `safety::mask_secrets`; a Copy-tail action puts the excerpt on
+  the clipboard (`crates/app/src/acp_world.rs`).
+
+- **"Needs you" status-bar chip**: a red pulsing count of sessions blocked
+  on the human, fed by the existing 1 Hz blocked-session poll; click opens
+  Convergence (`ui/src/status/bar.ts`).
+
+- **Group supervision**: an operator can attach to a whole tab group as its
+  supervisor — capability flag, registry-synced membership, correlation
+  watcher with attributed findings, and "group intervene" claiming unpinned
+  panes via the existing AOM policy (`crates/app/src/operator.rs`,
+  `ui/src/`).
+
+- **Operator MCP clients (3.26)**: operators can call configured MCP
+  servers inside the decision loop, and `dispatch_acp` spawns now get the
+  Covenant MCP server injected like UI spawns do
+  (`crates/app/src/operator.rs`).
+
+- **Busy indicator**: tab busy state comes from a listen-checked
+  process-tree scan (agent tabs included) and renders as a pulsing
+  terminal glyph instead of a dot (`ui/src/tabs/manager.ts`).
+
+- **Files tree multi-selection** in the Structure panel, and a spec-prompt
+  soft timeout with countdown + richer toast layout (`ui/src/structure/`).
+
+### Changed
+
+- **Convergence wire cleanup**: `AgentCard` carries `excerpt` and
+  `started_at_unix_ms` (decoded from the session Ulid); the redundant
+  `AttentionItem.excerpt` and the excerpt side-channels were removed
+  (`crates/app/src/convergence.rs`, `ui/src/api.ts`).
+
+### Fixed
+
+- **Truthful agent states**: `session/load` replay frames no longer drive
+  the notch phase — a replayed agent chunk used to pin restored ACP chats
+  as "working/thinking" forever. Slash-command XML replays
+  (`<command-name>`, `<local-command-stdout>`) are dropped from the chat
+  ring (`crates/app/src/acp_commands.rs`).
+
+- **Hover-stable Convergence renders**: the 1s poll rebuilds the rail/pane
+  only when data changes (ages tick in place), killing the hover flicker;
+  pane actions gained tooltips; status colors moved to the `--ok` /
+  `--running` / `--danger` theme tokens so light theme reads correctly
+  (`ui/src/convergence/overlay.ts`, `ui/src/styles.css`).
+
+- **Composer draft safety**: a poll never clobbers a focused reply draft —
+  including when the session leaves the filtered list — while explicit
+  navigation (row click, arrows) correctly moves the pane
+  (`ui/src/convergence/overlay.ts`).
+
+- **Supervisor/AOM edge cases**: stale supervisor attach clears on
+  capability loss, AOM reverts on hibernated-workspace detach and ACP
+  restarts, perception auto-answers attribute to the effective supervisor,
+  and Spanish "(recomendada)/(por defecto)" tags parse in PTY choice
+  prompts (`crates/app/src/operator.rs`, `crates/app/src/perception.rs`).
+
+- **Misc**: inherited Claude Code child-session markers scrubbed from
+  spawned PTYs, Canon operator-detail scroll + vibrancy bleed, uniform
+  Files-tree header buttons, landing cookie-consent banner gating
+  Microsoft Clarity + privacy policy page.
+
 ## v0.9.78 — Covenant MCP server + Convergence agent fleet
 
 ### Added
