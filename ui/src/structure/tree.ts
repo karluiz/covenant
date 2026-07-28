@@ -194,11 +194,14 @@ export class StructureTree {
   /// platforms where the native clipboard isn't wired yet (non-macOS).
   /// Paste uses the same collision-safe `copy_into` as Finder drops —
   /// pasting into the same folder yields `name (2)`, i.e. duplicate.
-  private clipboardPath: string | null = null;
-  /// Last row the user clicked or right-clicked — the target for keyboard
-  /// ⌘C/⌘V and the `.is-selected` outline. Distinct from `activeNode`
-  /// (the file currently open in the editor).
-  private selectedNode: NodeState | null = null;
+  private clipboardPaths: string[] = [];
+  /// All currently selected rows — the targets for keyboard ⌘C/⌘V and the
+  /// `.is-selected` outline. Cmd+click toggles; shift+click range-selects;
+  /// plain click replaces the set. Distinct from `activeNode` (open file).
+  private selectedNodes: Set<NodeState> = new Set();
+  /// Anchor for shift+click range selection — the last node that was
+  /// single-clicked or cmd-clicked (not updated on shift+click).
+  private lastClickedNode: NodeState | null = null;
 
   constructor(
     private readonly host: HTMLElement,
@@ -245,7 +248,15 @@ export class StructureTree {
       if ((ev.target as HTMLElement).closest(".structure-node")) return;
       ev.preventDefault();
       if (!this.cwd) return;
+      this.clearSelection();
       void this.openRootContextMenu(ev.clientX, ev.clientY);
+    });
+
+    // Plain click on the empty list background clears the selection so
+    // clicking off a selected row deselects it (VS Code behaviour).
+    this.listEl.addEventListener("click", (ev) => {
+      if ((ev.target as HTMLElement).closest(".structure-node")) return;
+      this.clearSelection();
     });
 
     // Focusable so ⌘C/⌘V land here when the tree (not the editor) is
@@ -275,7 +286,7 @@ export class StructureTree {
     }
   }
 
-  /// VS Code-style ⌘C (copy selected node) / ⌘V (paste into the selected
+  /// VS Code-style ⌘C (copy selected nodes) / ⌘V (paste into the selected
   /// node's folder). Only fires when the tree holds focus — clicking a file
   /// hands focus to the editor, so its ⌘C/⌘V win there; use right-click Copy
   /// on a file instead. ponytail: keyboard target = last-clicked node; no
@@ -283,41 +294,92 @@ export class StructureTree {
   private onKeyDown(ev: KeyboardEvent): void {
     if (!(ev.metaKey || ev.ctrlKey) || ev.altKey || ev.shiftKey) return;
     const key = ev.key.toLowerCase();
-    if (key === "c" && this.selectedNode) {
+    if (key === "c" && this.selectedNodes.size > 0) {
       ev.preventDefault();
-      this.copyToClipboard(this.selectedNode.entry.path);
+      this.copyToClipboard([...this.selectedNodes].map((n) => n.entry.path));
     } else if (key === "v") {
       ev.preventDefault();
-      void this.pasteClipboard(this.selectedNode);
+      // Paste target: the single selected node, or null (→ root) for multi.
+      const target =
+        this.selectedNodes.size === 1 ? [...this.selectedNodes][0] : null;
+      void this.pasteClipboard(target);
     }
   }
 
-  /// Mark a row as selected (keyboard ⌘C/⌘V target + `.is-selected`
-  /// outline). Cleared implicitly on refresh when rows are rebuilt.
-  private selectNode(node: NodeState | null): void {
-    if (this.selectedNode === node) return;
-    this.selectedNode?.el
-      .querySelector(".structure-row")
-      ?.classList.remove("is-selected");
-    this.selectedNode = node;
-    node?.el.querySelector(".structure-row")?.classList.add("is-selected");
+  /// Update selection. Plain call = replace-with-single. Pass `cmd: true`
+  /// for ⌘/Ctrl+click toggle; `shift: true` for shift+click range.
+  private selectNode(
+    node: NodeState,
+    opts: { cmd?: boolean; shift?: boolean } = {},
+  ): void {
+    if (opts.cmd) {
+      if (this.selectedNodes.has(node)) {
+        this.selectedNodes.delete(node);
+        node.el.querySelector(".structure-row")?.classList.remove("is-selected");
+      } else {
+        this.selectedNodes.add(node);
+        node.el.querySelector(".structure-row")?.classList.add("is-selected");
+      }
+      this.lastClickedNode = node;
+    } else if (opts.shift && this.lastClickedNode) {
+      const flat = this.flatNodes();
+      const a = flat.indexOf(this.lastClickedNode);
+      const b = flat.indexOf(node);
+      if (a !== -1 && b !== -1) {
+        this.clearSelection();
+        const lo = Math.min(a, b);
+        const hi = Math.max(a, b);
+        for (let i = lo; i <= hi; i++) {
+          this.selectedNodes.add(flat[i]);
+          flat[i].el.querySelector(".structure-row")?.classList.add("is-selected");
+        }
+      }
+      // lastClickedNode stays as the anchor — shift+click doesn't move it
+    } else {
+      this.clearSelection();
+      this.selectedNodes.add(node);
+      node.el.querySelector(".structure-row")?.classList.add("is-selected");
+      this.lastClickedNode = node;
+    }
+  }
+
+  /// Remove `is-selected` from all currently selected rows and clear the set.
+  private clearSelection(): void {
+    for (const n of this.selectedNodes) {
+      n.el.querySelector(".structure-row")?.classList.remove("is-selected");
+    }
+    this.selectedNodes.clear();
+  }
+
+  /// Flat ordered list of all currently rendered (visible) nodes, depth-first.
+  /// Used for shift+click range selection.
+  private flatNodes(): NodeState[] {
+    const out: NodeState[] = [];
+    const walk = (nodes: NodeState[]): void => {
+      for (const n of nodes) {
+        out.push(n);
+        if (n.expanded && n.children) walk(n.children);
+      }
+    };
+    walk(this.nodes);
+    return out;
   }
 
   /// Destination directory for a paste, given the selected node: into a
   /// folder itself, into a file's parent, or the tree root when nothing is
   /// selected. Then copy the clipboard path in via `ingestDrop` (same
   /// collision-safe copy + expand + refresh as a Finder drop).
-  private copyToClipboard(path: string): void {
-    this.clipboardPath = path;
-    void structureClipboardSetFiles([path]).catch(() => {});
+  private copyToClipboard(paths: string[]): void {
+    this.clipboardPaths = paths;
+    void structureClipboardSetFiles(paths).catch(() => {});
   }
 
   /// What a Paste would ingest: the OS clipboard (Finder ⌘C, and our own
-  /// Copy, which writes there) falling back to the in-memory path.
+  /// Copy, which writes there) falling back to the in-memory paths.
   private async clipboardSources(): Promise<string[]> {
     const os = await structureClipboardFiles().catch(() => [] as string[]);
     if (os.length > 0) return os;
-    return this.clipboardPath ? [this.clipboardPath] : [];
+    return this.clipboardPaths;
   }
 
   private async pasteClipboard(target: NodeState | null): Promise<void> {
@@ -969,6 +1031,9 @@ export class StructureTree {
     // during the upcoming await. activePath is intentionally preserved so
     // applyActiveClass() can re-find the leaf on the freshly-built DOM.
     this.activeNode = null;
+    // Selection references stale <li> elements after the list is cleared.
+    this.selectedNodes.clear();
+    this.lastClickedNode = null;
     this.emptyEl.textContent = "Empty directory";
     this.emptyEl.hidden = true;
     let entries: DirEntry[];
@@ -1084,6 +1149,14 @@ export class StructureTree {
       // already toggles a folder, so a double-click would toggle twice
       // (open then immediately close) and feel broken.
       if (ev.detail > 1) return;
+      const isCmd = ev.metaKey || ev.ctrlKey;
+      const isShift = ev.shiftKey;
+      if (isCmd || isShift) {
+        // Multi-select: just update selection, don't open/toggle.
+        this.selectNode(node, { cmd: isCmd, shift: isShift });
+        this.root.focus({ preventScroll: true });
+        return;
+      }
       this.selectNode(node);
       if (entry.kind === "dir" && !entry.is_symlink) {
         // Keep focus in the tree so ⌘C/⌘V land here (no editor opens).
@@ -1100,7 +1173,11 @@ export class StructureTree {
 
     row.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
-      this.selectNode(node);
+      // If the right-clicked node is already part of a multi-selection,
+      // keep the whole set so bulk actions apply. Otherwise, single-select.
+      if (!this.selectedNodes.has(node)) {
+        this.selectNode(node);
+      }
       // ContextMenu.show handles the <html> CSS zoom counter-scaling.
       void this.openContextMenu(ev.clientX, ev.clientY, node);
     });
@@ -1111,6 +1188,31 @@ export class StructureTree {
   private async openContextMenu(x: number, y: number, node: NodeState): Promise<void> {
     const items: MenuItem[] = [];
     const pending = await this.clipboardSources();
+    const isMulti = this.selectedNodes.size > 1 && this.selectedNodes.has(node);
+
+    if (isMulti) {
+      // ── Multi-selection context menu ──────────────────────────────────
+      const selectedArr = [...this.selectedNodes];
+      const paths = selectedArr.map((n) => n.entry.path);
+      const count = paths.length;
+      items.push(
+        {
+          label: `Copy ${count} items`,
+          shortcut: formatChord(["mod", "C"]),
+          onClick: () => this.copyToClipboard(paths),
+        },
+        { divider: true },
+        {
+          label: `Move ${count} items to Trash`,
+          danger: true,
+          onClick: () => void this.confirmAndTrashMany(selectedArr),
+        },
+      );
+      this.contextMenu.show(x, y, items);
+      return;
+    }
+
+    // ── Single-node context menu (existing) ───────────────────────────
 
     // For directories, offer creating new entries inside them. We
     // skip this for files (parent is implicit) and for symlinked
@@ -1131,7 +1233,7 @@ export class StructureTree {
       {
         label: "Copy",
         shortcut: formatChord(["mod", "C"]),
-        onClick: () => this.copyToClipboard(node.entry.path),
+        onClick: () => this.copyToClipboard([node.entry.path]),
       },
     );
     if (pending.length > 0) {
@@ -1182,6 +1284,27 @@ export class StructureTree {
     }
 
     this.contextMenu.show(x, y, items);
+  }
+
+  /// Bulk trash: asks once for all selected entries, then trashes them in
+  /// sequence. Any failure is surfaced inline; successful deletions fire
+  /// `onChange` and a final refresh cleans up the tree.
+  private async confirmAndTrashMany(nodes: NodeState[]): Promise<void> {
+    if (nodes.length === 0) return;
+    const ok = await confirmTrashMany(nodes.length);
+    if (!ok) return;
+    let hadError = false;
+    for (const n of nodes) {
+      try {
+        await structureTrashPath(n.entry.path);
+        this.onChange?.({ kind: "trash", path: n.entry.path });
+      } catch (err) {
+        this.showError(`Move to Trash failed: ${err}`);
+        hadError = true;
+        break;
+      }
+    }
+    if (!hadError) await this.refresh();
   }
 
   private revealInFinder(path: string): void {
@@ -1663,6 +1786,64 @@ function shortenCwd(cwd: string): string {
   const parts = cwd.split("/").filter(Boolean);
   if (parts.length <= 2) return cwd;
   return ".../" + parts.slice(-2).join("/");
+}
+
+/// Modal confirmation for moving multiple items to Trash.
+function confirmTrashMany(count: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "structure-confirm-overlay";
+
+    const dialog = document.createElement("div");
+    dialog.className = "structure-confirm-dialog";
+
+    const heading = document.createElement("h3");
+    heading.textContent = `Move ${count} items to Trash?`;
+    dialog.appendChild(heading);
+
+    const note = document.createElement("p");
+    note.className = "structure-confirm-note";
+    note.textContent = "You can restore them from the system Trash.";
+    dialog.appendChild(note);
+
+    const actions = document.createElement("div");
+    actions.className = "structure-confirm-actions";
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "structure-confirm-cancel";
+    cancel.textContent = "Cancel";
+    actions.appendChild(cancel);
+
+    const confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "structure-confirm-ok";
+    confirm.textContent = "Move to Trash";
+    actions.appendChild(confirm);
+
+    dialog.appendChild(actions);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const close = (result: boolean) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close(false);
+      else if (e.key === "Enter") close(true);
+    };
+
+    cancel.addEventListener("click", () => close(false));
+    confirm.addEventListener("click", () => close(true));
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close(false);
+    });
+    document.addEventListener("keydown", onKey);
+
+    requestAnimationFrame(() => confirm.focus());
+  });
 }
 
 /// Modal confirmation for moving a path to Trash. Resolves with
