@@ -4,8 +4,10 @@ import {
   applyInferredTitle,
   shouldRetire,
   shouldRefocusAfterScrub,
+  panesForIntervene,
   type TabManifestV1,
 } from "./manager";
+import type { Pane } from "./pane";
 
 // activate() reports the new active tab to the backend; jsdom has no Tauri
 // IPC bridge, so stub it out. Kept as a vi.fn() (via vi.hoisted, since
@@ -108,6 +110,206 @@ describe("TabManager group active-org persistence", () => {
       // expected under jsdom — see comment above.
     }
     expect(restored.groupCanonOrg(groupId)).toBe("cleverit");
+  });
+
+  it("round-trips group supervisor fields through the manifest", async () => {
+    const groupId = "g1";
+    const manifest: TabManifestV1 = {
+      version: 1,
+      active_index: 0,
+      // restoreFromManifest bails out to a fresh blank tab when tabs is
+      // empty, so a tab referencing the group is required to reach the
+      // group-hydration code path at all.
+      tabs: [
+        {
+          kind: "shell",
+          custom_name: null,
+          cwd: null,
+          color: null,
+          group_id: groupId,
+          mission_path: null,
+          operator_id: null,
+        },
+      ],
+      groups: [
+        {
+          id: groupId,
+          name: "grp",
+          color: null,
+          collapsed: false,
+          root_dir: null,
+          supervisor_id: "op-1",
+          supervisor_intervene: true,
+        },
+      ],
+    };
+    const restored = makeManager();
+    try {
+      // Group hydration runs synchronously before the (real) PTY spawn
+      // is awaited — see the canon_org restore test above.
+      await restored.restoreFromManifest(manifest);
+    } catch {
+      // expected under jsdom — see comment above.
+    }
+    expect(restored.groupSupervisorId(groupId)).toBe("op-1");
+    expect(restored.groupSupervisorIntervene(groupId)).toBe(true);
+
+    // And it round-trips back out through serializeManifest.
+    const reserialized = restored.serializeManifest();
+    const g = reserialized.groups.find((x) => x.id === groupId);
+    expect(g?.supervisor_id).toBe("op-1");
+    expect(g?.supervisor_intervene).toBe(true);
+  });
+
+  it("defaults supervisor fields for older manifests", async () => {
+    const groupId = "g1";
+    const manifest: TabManifestV1 = {
+      version: 1,
+      active_index: 0,
+      tabs: [
+        {
+          kind: "shell",
+          custom_name: null,
+          cwd: null,
+          color: null,
+          group_id: groupId,
+          mission_path: null,
+          operator_id: null,
+        },
+      ],
+      // No supervisor_id / supervisor_intervene — simulates a manifest
+      // saved before this feature existed.
+      groups: [{ id: groupId, name: "grp", color: null, collapsed: false, root_dir: null }],
+    };
+    const restored = makeManager();
+    try {
+      await restored.restoreFromManifest(manifest);
+    } catch {
+      // expected under jsdom — see comment on the canon_org restore test.
+    }
+    expect(restored.groupSupervisorId(groupId)).toBeNull();
+    expect(restored.groupSupervisorIntervene(groupId)).toBe(false);
+  });
+});
+
+function groupCalls(cmd: "session_set_group" | "group_set_supervisor"): unknown[][] {
+  return mocks.invoke.mock.calls.filter(([c]) => c === cmd);
+}
+
+describe("TabManager group membership + supervisor sync to backend", () => {
+  // syncSessionGroup (private) is the single choke point every groupId/
+  // sessionId mutation site funnels through — exercise it via the public
+  // membership entry points rather than calling it directly, so the test
+  // also proves the call sites are actually wired up.
+  it("pushes membership to the backend when a tab joins a group, and clears it on ungroup", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      addTabToGroup: (tabId: string, groupId: string) => void;
+      ungroup: (groupId: string) => void;
+    };
+    const tab = {
+      id: "t1",
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [fakePane({ sessionId: "s1" })],
+      layout: { kind: "single", activePaneIdx: 0 },
+      disposers: [],
+    };
+    priv.tabs.push(tab);
+    const groupId = m.createEmptyGroup();
+
+    mocks.invoke.mockClear();
+    priv.addTabToGroup("t1", groupId);
+    expect(groupCalls("session_set_group")).toContainEqual([
+      "session_set_group",
+      { sessionId: "s1", groupId },
+    ]);
+
+    mocks.invoke.mockClear();
+    priv.ungroup(groupId);
+    expect(groupCalls("session_set_group")).toContainEqual([
+      "session_set_group",
+      { sessionId: "s1", groupId: null },
+    ]);
+    // Ungrouping also detaches any supervisor the (now-gone) group held.
+    expect(groupCalls("group_set_supervisor")).toContainEqual([
+      "group_set_supervisor",
+      { groupId, operatorId: null, intervene: false },
+    ]);
+  });
+
+  it("clears backend membership for every pane (not just the active one) when a tab closes", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      finalizeCloseTab: (id: string) => void;
+    };
+    const tab = {
+      id: "split1",
+      groupId: "g1",
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [
+        fakePane({ sessionId: "s1" }),
+        fakePane({ sessionId: "s2" }),
+      ],
+      layout: { kind: "split", orientation: "vertical", activePaneIdx: 0 },
+      disposers: [],
+    };
+    priv.tabs.push(tab);
+
+    mocks.invoke.mockClear();
+    priv.finalizeCloseTab("split1");
+
+    const calls = groupCalls("session_set_group");
+    expect(calls).toContainEqual(["session_set_group", { sessionId: "s1", groupId: null }]);
+    expect(calls).toContainEqual(["session_set_group", { sessionId: "s2", groupId: null }]);
+  });
+
+  it("boot resync pushes a restored group's supervisor to the backend after restoreFromManifest", async () => {
+    const groupId = "g1";
+    const manifest: TabManifestV1 = {
+      version: 1,
+      active_index: 0,
+      tabs: [
+        {
+          kind: "shell",
+          custom_name: null,
+          cwd: null,
+          color: null,
+          group_id: groupId,
+          mission_path: null,
+          operator_id: null,
+        },
+      ],
+      groups: [
+        {
+          id: groupId,
+          name: "grp",
+          color: null,
+          collapsed: false,
+          root_dir: null,
+          supervisor_id: "op-1",
+          supervisor_intervene: true,
+        },
+      ],
+    };
+    const m = makeManager();
+    mocks.invoke.mockClear();
+    try {
+      // Group hydration (and the boot resync it drives) runs synchronously
+      // before the PTY spawn is awaited — see the canon_org restore test
+      // above for why this is expected to throw under jsdom.
+      await m.restoreFromManifest(manifest);
+    } catch {
+      // expected under jsdom
+    }
+    expect(groupCalls("group_set_supervisor")).toContainEqual([
+      "group_set_supervisor",
+      { groupId, operatorId: "op-1", intervene: true },
+    ]);
   });
 });
 
@@ -580,5 +782,259 @@ describe("group chip chassis hooks", () => {
       children.findIndex((c) => c.includes("group-chip-chev")),
     );
     expect(chip!.classList.contains("group-chip-empty")).toBe(true);
+  });
+});
+
+// Task 7 — Phase 3 Intervene application. panesForIntervene is the pure
+// eligibility filter; the rest exercises TabManager's private appliers
+// through the public setGroupSupervisor/setGroupIntervene/setTabOperator
+// surface so the tests track real call sites instead of reaching into
+// private methods.
+function ivPane(overrides: Partial<Pane> = {}): Pane {
+  return {
+    id: overrides.id ?? `p-${Math.random().toString(36).slice(2)}`,
+    kind: "terminal",
+    sessionId: null,
+    cwd: "/tmp",
+    mission: null,
+    operator: null,
+    blocks: [],
+    xterm: null,
+    piView: null,
+    executor: null,
+    operatorEnabled: false,
+    operatorLive: false,
+    aomExcluded: false,
+    observer_ids: [],
+    spawn_id: null,
+    idleAgent: null,
+    busyProc: null,
+    replayKey: "r",
+    el: null,
+    ...overrides,
+  };
+}
+
+function ivTabWith(groupId: string | null, panes: Pane[]): Record<string, unknown> {
+  return {
+    id: `t-${Math.random().toString(36).slice(2)}`,
+    groupId,
+    kind: "shell",
+    pane: document.createElement("div"),
+    panes,
+    layout: { kind: "single", activePaneIdx: 0 },
+    disposers: [],
+  };
+}
+
+describe("panesForIntervene", () => {
+  it("selects only unpinned, non-excluded, live panes of the group", () => {
+    const tabs = [
+      { groupId: "g1", panes: [ivPane({ sessionId: "s1" })] },              // eligible
+      { groupId: "g1", panes: [ivPane({ sessionId: "s2", operator: "op-9" })] }, // pinned → out
+      { groupId: "g1", panes: [ivPane({ sessionId: "s3", aomExcluded: true })] }, // excluded → out
+      { groupId: "g1", panes: [ivPane({ sessionId: null })] },              // no session → out
+      { groupId: "g2", panes: [ivPane({ sessionId: "s5" })] },              // other group → out
+    ];
+    expect(panesForIntervene(tabs, "g1").map((p) => p.sessionId)).toEqual(["s1"]);
+  });
+});
+
+describe("group supervisor Intervene — apply/unapply", () => {
+  it("setGroupIntervene(true) claims only eligible panes, flagged supervisorAom", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const eligible = ivPane({ id: "p1", sessionId: "s1" });
+    const pinned = ivPane({ id: "p2", sessionId: "s2", operator: "op-9" });
+    const excluded = ivPane({ id: "p3", sessionId: "s3", aomExcluded: true });
+    priv.tabs.push(
+      ivTabWith(groupId, [eligible]),
+      ivTabWith(groupId, [pinned]),
+      ivTabWith(groupId, [excluded]),
+    );
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+
+    expect(eligible.supervisorAom).toBe(true);
+    expect(eligible.operatorEnabled).toBe(true);
+    expect(eligible.operatorLive).toBe(true);
+    expect(pinned.supervisorAom).toBeFalsy();
+    expect(excluded.supervisorAom).toBeFalsy();
+  });
+
+  it("setGroupIntervene(false) reverts only supervisorAom panes, never a user's own manual enablement", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const claimed = ivPane({ id: "p1", sessionId: "s1" });
+    // Realistic "manual enablement": a PINNED pane running its own solo
+    // AOM (operatorEnabled requires a pin outside the supervisor path —
+    // enable_all_for_aom skips unpinned sessions too). The pin alone
+    // already keeps it out of panesForIntervene's eligibility.
+    const manual = ivPane({
+      id: "p2",
+      sessionId: "s2",
+      operator: "op-9",
+      operatorEnabled: true,
+      operatorLive: true,
+    });
+    priv.tabs.push(ivTabWith(groupId, [claimed]), ivTabWith(groupId, [manual]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(claimed.supervisorAom).toBe(true);
+
+    m.setGroupIntervene(groupId, false);
+
+    expect(claimed.supervisorAom).toBe(false);
+    expect(claimed.operatorEnabled).toBe(false);
+    expect(claimed.operatorLive).toBe(false);
+    // Never flagged supervisorAom in the first place — untouched by revert.
+    expect(manual.supervisorAom).toBeFalsy();
+    expect(manual.operatorEnabled).toBe(true);
+    expect(manual.operatorLive).toBe(true);
+  });
+
+  it("detaching the supervisor reverts claimed panes", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const claimed = ivPane({ id: "p1", sessionId: "s1" });
+    priv.tabs.push(ivTabWith(groupId, [claimed]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(claimed.supervisorAom).toBe(true);
+
+    m.setGroupSupervisor(groupId, null);
+
+    expect(claimed.supervisorAom).toBe(false);
+    expect(claimed.operatorEnabled).toBe(false);
+  });
+
+  it("pinning a covered pane reverts its supervisorAom claim (driver takes over clean)", async () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const covered = ivPane({ id: "p1", sessionId: "s1" });
+    const tab = ivTabWith(groupId, [covered]);
+    priv.tabs.push(tab);
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(covered.supervisorAom).toBe(true);
+
+    await m.setTabOperator(tab.id as string, "op-2");
+
+    expect(covered.supervisorAom).toBe(false);
+    expect(covered.operatorEnabled).toBe(false);
+    expect(covered.operator).toBe("op-2");
+  });
+
+  it("unpinning inside an intervening group re-applies coverage", async () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const pane = ivPane({ id: "p1", sessionId: "s1", operator: "op-2" });
+    const tab = ivTabWith(groupId, [pane]);
+    priv.tabs.push(tab);
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    // Pinned pane stays uncovered while pinned.
+    expect(pane.supervisorAom).toBeFalsy();
+
+    await m.setTabOperator(tab.id as string, null);
+
+    expect(pane.operator).toBeNull();
+    expect(pane.supervisorAom).toBe(true);
+    expect(pane.operatorEnabled).toBe(true);
+    expect(pane.operatorLive).toBe(true);
+  });
+
+  it("excluding a covered pane from AOM revokes its supervisorAom claim", async () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const covered = ivPane({ id: "p1", sessionId: "s1" });
+    priv.tabs.push(ivTabWith(groupId, [covered]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(covered.supervisorAom).toBe(true);
+
+    await m.setAomExcludedFor("s1", true);
+
+    expect(covered.aomExcluded).toBe(true);
+    expect(covered.supervisorAom).toBe(false);
+    expect(covered.operatorEnabled).toBe(false);
+    expect(covered.operatorLive).toBe(false);
+  });
+});
+
+describe("operator:deleted detaches a group's supervisor attach", () => {
+  it("reverts Intervene-claimed panes and clears supervisorId when the supervisor is deleted", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      groups: Map<string, { supervisorId: string | null }>;
+    };
+    const claimed = ivPane({ id: "p1", sessionId: "s1" });
+    priv.tabs.push(ivTabWith(groupId, [claimed]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(claimed.supervisorAom).toBe(true);
+
+    window.dispatchEvent(new CustomEvent("operator:deleted", { detail: { id: "op-1" } }));
+
+    expect(claimed.supervisorAom).toBe(false);
+    expect(claimed.operatorEnabled).toBe(false);
+    expect(priv.groups.get(groupId)?.supervisorId).toBeNull();
+  });
+
+  // F1 safety fix: hibernate() moves tabs/groups out of this.tabs/
+  // this.groups into a stash (PTYs stay alive backend-side); a naive
+  // detachSupervisorEverywhere that only walks the live collections would
+  // leave a hibernated pane's supervisorAom flag armed — and its backend
+  // enable/live set — forever once the supervisor is deleted.
+  it("also revokes Intervene-claimed panes stashed in a hibernated workspace", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      groups: Map<string, { supervisorId: string | null; supervisorIntervene: boolean }>;
+      hibernated: Map<
+        string,
+        {
+          tabs: Array<Record<string, unknown>>;
+          groups: Map<string, { supervisorId: string | null; supervisorIntervene: boolean }>;
+        }
+      >;
+    };
+    const claimed = ivPane({ id: "p1", sessionId: "s1" });
+    priv.tabs.push(ivTabWith(groupId, [claimed]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(claimed.supervisorAom).toBe(true);
+
+    // Switch workspace → the group + its tab go into the hibernation stash,
+    // still carrying the live supervisor attach and the claimed pane.
+    m.hibernate("ws-other");
+    expect(priv.tabs.length).toBe(0);
+    const stash = priv.hibernated.get("ws-other");
+    expect(stash?.groups.get(groupId)?.supervisorId).toBe("op-1");
+
+    window.dispatchEvent(new CustomEvent("operator:deleted", { detail: { id: "op-1" } }));
+
+    expect(stash?.groups.get(groupId)?.supervisorId).toBeNull();
+    expect(stash?.groups.get(groupId)?.supervisorIntervene).toBe(false);
+    expect(claimed.supervisorAom).toBe(false);
+    expect(claimed.operatorEnabled).toBe(false);
+    expect(claimed.operatorLive).toBe(false);
   });
 });

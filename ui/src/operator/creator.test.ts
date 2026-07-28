@@ -160,6 +160,7 @@ describe('github access control', () => {
       github_access: 'ReadWrite',
       acp_enabled: false,
       perception_enabled: false,
+      supervision_enabled: false,
     };
     const h = openOperatorModal({ mode: 'edit', existing });
     expect(h.state.githubAccess).toBe('ReadWrite');
@@ -185,10 +186,42 @@ describe('github access control', () => {
       github_access: 'ReadWrite',
       acp_enabled: false,
       perception_enabled: false,
+      supervision_enabled: false,
     };
     const h = openOperatorModal({ mode: 'create', existing: source });
     // UI control must reflect the source operator's access level.
     expect(h.state.githubAccess).toBe('ReadWrite');
+    h.el.remove();
+  });
+});
+
+describe('supervision capability toggle', () => {
+  it('defaults to false in create mode', () => {
+    const h = openOperatorModal({ mode: 'create' });
+    expect(h.state.supervisionEnabled).toBe(false);
+    h.el.remove();
+  });
+
+  it('seeds from the existing operator in edit mode', () => {
+    const existing: Operator = {
+      id: 'sv1', name: 'Maya', emoji: '🟣', color: '#a855f7',
+      tags: [], persona: '', escalate_threshold: 0.5, model: 'claude-sonnet-4-6',
+      hard_constraints: '', voice: 'Terse', is_default: false,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+      github_access: 'Off',
+      acp_enabled: false,
+      perception_enabled: false,
+      supervision_enabled: true,
+    };
+    const h = openOperatorModal({ mode: 'edit', existing });
+    expect(h.state.supervisionEnabled).toBe(true);
+    h.el.remove();
+  });
+
+  it('setSupervisionEnabled updates state', () => {
+    const h = openOperatorModal({ mode: 'create' });
+    h.setSupervisionEnabled(true);
+    expect(h.state.supervisionEnabled).toBe(true);
     h.el.remove();
   });
 });
@@ -203,6 +236,7 @@ describe('operator list grid', () => {
       github_access: 'Off',
       acp_enabled: false,
       perception_enabled: false,
+      supervision_enabled: false,
     }];
     const root = renderOperatorList(ops, { onEdit(){}, onDelete(){}, onDuplicate(){} });
     expect(root.querySelectorAll('.op-card').length).toBe(1);
@@ -220,6 +254,7 @@ describe('operator list grid', () => {
       github_access: 'Off' as const,
       acp_enabled: false,
       perception_enabled: false,
+      supervision_enabled: false,
     };
     const ops: Operator[] = [
       { ...base, id: '1', tags: ['reviewer', 'rust'] },
@@ -241,6 +276,7 @@ describe('operator list grid', () => {
       hard_constraints: '', is_default: true,
       created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0, voice: 'Terse',
       github_access: 'Off', acp_enabled: false, perception_enabled: false,
+      supervision_enabled: false,
     }];
     const root = renderOperatorList(ops, { onEdit(){}, onDelete(){}, onDuplicate(){} });
     expect(root.querySelector('.op-card-gauge-val')!.textContent).toBe('0.90');

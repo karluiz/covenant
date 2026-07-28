@@ -1160,6 +1160,9 @@ async function boot(): Promise<void> {
     void getCurrentWindow().close();
   });
   tabsManager = manager;
+  // Group context menu's supervisor-attach submenu needs the full operator
+  // roster (filtered client-side to supervision_enabled ones).
+  manager.listOperators = operatorList;
   syncCollapseAllBtn();
   installSidebarResizers(requireEl<HTMLElement>("layout"), manager);
 
@@ -2266,6 +2269,14 @@ async function boot(): Promise<void> {
       // Route a clicked toast into the agent panel so the user can
       // ask follow-ups about the cross-session pattern.
       agent.openWithSeed(`Re cross-session finding: ${finding.message}\n\n`);
+    },
+    onGroupSupervisionClick: (finding) => {
+      // Same follow-up routing, but attributed to the supervisor that
+      // made the call — dropping into the generic cross-session label
+      // would silently lose which operator (and group) flagged it.
+      agent.openWithSeed(
+        `Re finding from supervisor ${finding.operator_name}: ${finding.message}\n\n`,
+      );
     },
   });
   await toasts.start();

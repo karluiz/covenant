@@ -64,7 +64,9 @@ import {
   resolveExistingPath,
   scoreSetCurrentSession,
   setAomExcluded,
+  sessionSetGroup,
   sessionSetOperator,
+  groupSetSupervisor,
   setOperatorEnabled,
   getRemoteArmed,
   setRemoteArmed,
@@ -385,6 +387,13 @@ interface TabGroup {
   /// Active Canon org slug for this group. Null = resolve to the user's
   /// personal org. Persisted like rootDir.
   canonOrg: string | null;
+  /// Operator attached as this group's SUPERVISOR (null = none). The
+  /// backend registry mirror is synced via groupSetSupervisor; this is
+  /// the durable copy.
+  supervisorId: string | null;
+  /// Phase 3 gate: when true the supervisor may claim unpinned,
+  /// non-excluded panes for AOM. Default false (observe-only).
+  supervisorIntervene: boolean;
 }
 
 /// Persisted manifest schema. Version-tagged so we can evolve later
@@ -569,6 +578,13 @@ interface SerializedGroup {
   /// compat — older manifests lacking the field default to null (the
   /// user's personal org) on restore.
   canon_org?: string | null;
+  /// Group's SUPERVISOR operator id. Optional for backward compat —
+  /// older manifests lacking the field default to null (no supervisor)
+  /// on restore.
+  supervisor_id?: string | null;
+  /// Phase 3 gate mirror. Optional for backward compat — older
+  /// manifests lacking the field default to false on restore.
+  supervisor_intervene?: boolean;
 }
 
 export interface RailTabView {
@@ -664,6 +680,23 @@ export function stripObserverOnPromote(
 ): string[] {
   if (!newDriverId) return [...observers];
   return observers.filter((id) => id !== newDriverId);
+}
+
+/// Panes the group supervisor may claim under Intervene: no own pin
+/// (driver wins — a pinned pane is never claimed), not AOM-excluded, live
+/// session, member of `groupId`. Kept pure and exported so it's unit-
+/// testable without a TabManager instance; the param shape is decoupled
+/// from the full (unexported) Tab interface — same pattern as
+/// resolveOperatorPlacement's `rows` above — so tests build lightweight
+/// fixtures instead of the entire tab object graph.
+export function panesForIntervene(
+  tabs: Array<{ groupId: string | null; panes: Pane[] }>,
+  groupId: string,
+): Pane[] {
+  return tabs
+    .filter((t) => t.groupId === groupId)
+    .flatMap((t) => t.panes)
+    .filter((p) => !p.operator && !p.aomExcluded && !!p.sessionId);
 }
 
 /// Placement facts inherited by an auto-spawned tab: working dir, group, color.
@@ -965,6 +998,9 @@ export class TabManager {
   /// mind-loss confirm modal (the workspace move flow has its own UX).
   /// Mirrors the bypass used by `replaceFromManifest`.
   removeGroupAndTabs(groupId: string): void {
+    // Same teardown as destroyGroup — revert supervisor-claimed panes
+    // before their sessions close underneath them.
+    this.unapplyGroupIntervene(groupId);
     const ids = this.tabs.filter((t) => t.groupId === groupId).map((t) => t.id);
     this.inReplace = true;
     try {
@@ -1081,6 +1117,11 @@ export class TabManager {
       mountPaneInDom: (t, idx) => this.mountSecondPaneDom(t as Tab, idx),
       focusPane: (t, idx) => this.focusPaneDom(t as Tab, idx),
     });
+    // The new second pane's session just spawned — push its membership.
+    this.syncSessionGroup(tab);
+    // Group unchanged, but the new pane is newly eligible for an already-
+    // intervening supervisor.
+    this.syncGroupIntervene(tab, tab.groupId);
     // D14 — reflect the new active-pane index after split.
     this.updateActivePaneClass(tab);
     this.scheduleSave();
@@ -1146,6 +1187,11 @@ export class TabManager {
     p.executor = "pi";
     dismissWelcomeHint();
     p.aomExcluded = true; // Pi sessions never enter AOM
+    // aomExcluded panes are never claimed — if the supervisor already had
+    // this pane under Intervene (as a terminal), the conversion revokes it.
+    this.revertPaneSupervisorAom(p);
+    this.syncSessionGroup(tab);
+    this.syncGroupIntervene(tab, tab.groupId);
 
     this.updateActivePaneClass(tab);
     this.scheduleSave();
@@ -1456,6 +1502,9 @@ export class TabManager {
       ratio: layout.ratio,
     };
     assertLayoutValid(tab);
+    // The restored second pane's session just spawned — push its membership.
+    this.syncSessionGroup(tab);
+    this.syncGroupIntervene(tab, tab.groupId);
 
     // 5. Plant the late-binding hook that mountSecondPaneDom expects.
     //    spawnPtyForPane stores a closure under `_xtermRef_${sessionId}`;
@@ -2018,6 +2067,11 @@ export class TabManager {
   /// Fires when the user clicks the project-notes icon on a group chip.
   public onOpenProjectNotes: ((groupId: string, groupLabel: string, groupColor: string | null) => void) | null = null;
 
+  /// Optional operator-list provider, wired from main.ts. Used by the
+  /// group context menu to populate the supervisor attach submenu with
+  /// operators that have the Supervision capability enabled.
+  public listOperators: (() => Promise<Operator[]>) | null = null;
+
   /// Fires whenever a tab is activated. Used by main.ts to dismiss any
   /// overlay panels (docs, drafts, capabilities, settings, etc.) so the
   /// terminal becomes visible — selecting a tab implies "show me this
@@ -2109,6 +2163,18 @@ export class TabManager {
     this.scheduleSave();
   }
 
+  /// Lookup the SUPERVISOR operator id for a group by id. Returns null
+  /// if the group doesn't exist or has no supervisor set.
+  groupSupervisorId(groupId: string): string | null {
+    return this.groups.get(groupId)?.supervisorId ?? null;
+  }
+
+  /// Lookup the Phase 3 intervene gate for a group's supervisor.
+  /// Returns false if the group doesn't exist.
+  groupSupervisorIntervene(groupId: string): boolean {
+    return this.groups.get(groupId)?.supervisorIntervene ?? false;
+  }
+
   constructor(
     private readonly tabbarHost: HTMLElement,
     private readonly workspace: HTMLElement,
@@ -2160,9 +2226,22 @@ export class TabManager {
           if (pane.operator === id) pane.operator = null;
         }
       }
+      // The deleted operator may also be attached as a group supervisor —
+      // detach it so Intervene-claimed panes revert instead of staying
+      // armed under the DEFAULT operator (setGroupSupervisor already
+      // unapplies intervene + syncs the backend).
+      this.detachSupervisorEverywhere(id);
       // Pull fresh data from backend (handles default re-pin etc.) and
       // re-render. refreshOperatorCache also calls renderTabbar.
       void this.refreshOperatorCache();
+    });
+    // Supervision capability revoked without deleting the operator (see
+    // creator.ts's capability-off save path) — same cleanup as
+    // operator:deleted, scoped to the group-supervisor attach only.
+    window.addEventListener("operator:supervision-disabled", (ev: Event) => {
+      const id = (ev as CustomEvent<{ id: string }>).detail?.id;
+      if (!id) return;
+      this.detachSupervisorEverywhere(id);
     });
     // Terminal Share: prime the local cache and re-render the strip
     // whenever a share/revoke happens (see structure/tree.ts for the
@@ -4738,6 +4817,9 @@ export class TabManager {
     };
     tab.panes = [pane0Shell];
     assertLayoutValid(tab);
+    // Fresh session, tab may already carry a groupId from opts — push it.
+    this.syncSessionGroup(tab);
+    this.syncGroupIntervene(tab, null);
 
     // D14 — active-pane border: wire pane-0 focus for shell tabs via focusin.
     // xterm focuses an internal textarea; the event bubbles up through paneHost0.
@@ -5052,6 +5134,9 @@ export class TabManager {
     };
     tab.panes = [pane0Pi];
     assertLayoutValid(tab);
+    // Fresh session, tab may already carry a groupId from opts — push it.
+    this.syncSessionGroup(tab);
+    this.syncGroupIntervene(tab, null);
 
     // D14 — active-pane border: wire pane-0 focus for Pi tabs via focusin
     // (PiChatView doesn't expose an onFocus signal; the textarea fires a
@@ -5373,8 +5458,27 @@ export class TabManager {
         // so routing (context menu, prompts) and manifest persistence
         // follow the live session instead of the dead one.
         onSessionChange: (sid, acpSid) => {
+          // The old session id is dying (restart), not closing through the
+          // normal tab-close teardown — nothing else will ever clear its
+          // backend group-membership entry, so do it explicitly before
+          // pushing the new one.
+          const oldSid = pane0Acp.sessionId;
+          if (oldSid) void sessionSetGroup(oldSid, null);
+          // A restart mints a fresh session id — a supervisor claim on the
+          // dying session doesn't carry over. Revert it properly (same
+          // path convertPaneToPi uses) WHILE the pane still holds oldSid,
+          // so the backend teardown (setOperatorEnabled/setOperatorLive
+          // false) actually targets the dying session instead of being
+          // silently dropped — a bare local-flag reset would leave the
+          // old session's backend AOM state armed with nothing left to
+          // ever turn it off. syncGroupIntervene below re-grants on the
+          // new session id from a clean slate if the group still
+          // qualifies.
+          this.revertPaneSupervisorAom(pane0Acp);
           pane0Acp.sessionId = sid;
           pane0Acp.acpSessionId = acpSid;
+          this.syncSessionGroup(tab);
+          this.syncGroupIntervene(tab, tab.groupId);
           this.rememberSessionName(sid, tabDisplayName(tab));
           this.scheduleSave();
         },
@@ -5394,6 +5498,8 @@ export class TabManager {
       pane0Acp.acpView = view;
       pane0Acp.sessionId = spawned.sessionId;
       pane0Acp.acpSessionId = spawned.acpSessionId;
+      this.syncSessionGroup(tab);
+      this.syncGroupIntervene(tab, null);
       this.scheduleSave(); // persist the ACP session id for future resume
       if (opts?.resumeAcpSessionId && !spawned.resumed) {
         pushInfoToast({ message: "Couldn't resume the previous Copilot conversation — started fresh" });
@@ -5568,6 +5674,9 @@ export class TabManager {
     const pane = activePane(tab);
     const priorOperator = pane.operator;
     pane.operator = operatorId;
+    // Pinning a covered pane means the driver takes over clean — a pin
+    // always wins over the group supervisor's claim.
+    if (operatorId !== null) this.revertPaneSupervisorAom(pane);
     // Promoting an existing observer to driver removes the duplicate entry —
     // observers and the primary writer must be disjoint.
     if (operatorId) {
@@ -5593,6 +5702,11 @@ export class TabManager {
         await setOperatorEnabled(sessionId as SessionId, false).catch(() => undefined);
         pane.operatorLive = false;
         pane.operatorEnabled = false;
+        // Unpinning inside an intervening group hands the pane back to the
+        // supervisor — re-apply so it doesn't sit uncovered.
+        if (tab.groupId && this.groups.get(tab.groupId)?.supervisorIntervene) {
+          this.applyGroupIntervene(tab.groupId);
+        }
       }
     }
     this.scheduleSave();
@@ -5984,6 +6098,9 @@ export class TabManager {
     try {
       await setAomExcluded(sessionId as SessionId, next);
       paneAom.aomExcluded = next;
+      // An aomExcluded pane is never claimed — if the supervisor already
+      // had it under Intervene, excluding it must revoke that claim too.
+      if (next) this.revertPaneSupervisorAom(paneAom);
       this.renderTabbar();
       // Persist so the exclusion survives app restarts. Without this
       // the new aom_excluded field in TabManifestV1 would only see
@@ -6020,6 +6137,9 @@ export class TabManager {
     try {
       await setAomExcluded(sessionId, excluded);
       paneForExcl.aomExcluded = excluded;
+      // An aomExcluded pane is never claimed — if the supervisor already
+      // had it under Intervene, excluding it must revoke that claim too.
+      if (excluded) this.revertPaneSupervisorAom(paneForExcl);
       this.renderTabbar();
       this.scheduleSave();
       this.pushExcludedToStatusBar();
@@ -6042,6 +6162,15 @@ export class TabManager {
       // failure where backend AND local are unchanged.
       for (const t of this.tabs) {
         activePane(t).aomExcluded = false;
+      }
+      // Un-excluding can make panes newly eligible for an already-
+      // intervening group supervisor — re-derive coverage per group.
+      for (const groupId of new Set(
+        this.tabs.map((t) => t.groupId).filter((g): g is string => !!g),
+      )) {
+        if (this.groups.get(groupId)?.supervisorIntervene) {
+          this.applyGroupIntervene(groupId);
+        }
       }
       this.renderTabbar();
       this.scheduleSave();
@@ -6148,6 +6277,8 @@ export class TabManager {
         collapsed: g.collapsed,
         root_dir: g.rootDir,
         canon_org: g.canonOrg,
+        supervisor_id: g.supervisorId,
+        supervisor_intervene: g.supervisorIntervene,
       })),
     };
   }
@@ -6184,7 +6315,17 @@ export class TabManager {
         collapsed: g.collapsed,
         rootDir: g.root_dir ?? null,
         canonOrg: g.canon_org ?? null,
+        supervisorId: g.supervisor_id ?? null,
+        supervisorIntervene: g.supervisor_intervene ?? false,
       });
+    }
+    // Boot resync: push every restored group's supervisor attach to the
+    // backend registry. Membership itself syncs organically as sessions
+    // respawn below (each pane-spawn site calls syncSessionGroup).
+    for (const g of this.groups.values()) {
+      if (g.supervisorId !== null) {
+        void groupSetSupervisor(g.id, g.supervisorId, g.supervisorIntervene);
+      }
     }
     // Normalise every tab into the new panes+layout shape so downstream
     // code (Phase B and beyond) can safely access t.panes[0].
@@ -6452,6 +6593,13 @@ export class TabManager {
     const stash = this.hibernated.get(workspaceId);
     if (!stash) return;
     this.hibernated.delete(workspaceId);
+    // The stash's groups (and any supervisor attach on them) are about to
+    // be dropped with no further reference — clear each supervised group's
+    // backend attach here or `group_supervisors` leaks an entry forever
+    // (mirrors the cleanup ungroup/destroyGroup do for live groups).
+    for (const g of stash.groups.values()) {
+      if (g.supervisorId) void groupSetSupervisor(g.id, null, false);
+    }
     // Temporarily swap the stashed tabs into this.tabs so finalizeCloseTab
     // (which expects to find the tab by id) can do the full teardown.
     const live = this.tabs.slice();
@@ -6516,6 +6664,14 @@ export class TabManager {
     // forget — see revokeIfShared's own doc comment.
     for (const p of tab.panes) {
       if (p.sessionId) revokeIfShared(p.sessionId);
+    }
+    // Group supervision: clear backend membership for every closing pane
+    // (not just the active one — a split tab's background pane is a live
+    // session too). The backend's session→group map is in-memory only, so
+    // an unclosed entry would otherwise linger keyed to a session id that
+    // no longer exists.
+    for (const p of tab.panes) {
+      if (p.sessionId) void sessionSetGroup(p.sessionId, null);
     }
     // Stamp the final name in the cache before disposal so closed-tab
     // labels survive for the operator-decisions panel.
@@ -6977,6 +7133,151 @@ export class TabManager {
     this.scheduleSave();
   }
 
+  /// Attach (or detach, when `operatorId` is null) a supervisor operator
+  /// to a group. Detaching also clears the Phase 3 intervene gate — an
+  /// intervene flag with no supervisor attached is meaningless. Public so
+  /// Task 7's runtime hook can drive this from elsewhere.
+  /// Detach `operatorId` as supervisor from every group currently
+  /// attached to it — used when the operator is deleted or loses the
+  /// Supervision capability. Routes through setGroupSupervisor so
+  /// Intervene-claimed panes revert and the backend attach clears too.
+  private detachSupervisorEverywhere(operatorId: string): void {
+    for (const g of this.groups.values()) {
+      if (g.supervisorId === operatorId) this.setGroupSupervisor(g.id, null);
+    }
+    // Hibernated workspaces are stashed out of `this.groups`/`this.tabs`
+    // (see `hibernate()`) but their PTY sessions stay alive backend-side —
+    // a hibernated pane the operator claimed via Intervene keeps running
+    // AOM resolved to this operator forever unless we sweep the stash too.
+    // Mirror setGroupSupervisor(null)'s teardown (clear supervisorId/
+    // supervisorIntervene, clear the backend attach) and
+    // revertPaneSupervisorAom's teardown (clear supervisorAom + disable),
+    // scoped to the stashed group that matched.
+    for (const stash of this.hibernated.values()) {
+      for (const g of stash.groups.values()) {
+        if (g.supervisorId !== operatorId) continue;
+        g.supervisorId = null;
+        g.supervisorIntervene = false;
+        void groupSetSupervisor(g.id, null, false);
+        for (const tab of stash.tabs) {
+          if (tab.groupId !== g.id) continue;
+          for (const p of tab.panes) this.revertPaneSupervisorAom(p);
+        }
+      }
+    }
+  }
+
+  public setGroupSupervisor(groupId: string, operatorId: string | null): void {
+    const g = this.groups.get(groupId);
+    if (!g) return;
+    if (!operatorId) {
+      // Detaching clears the intervene gate below, but the panes it already
+      // claimed don't un-claim themselves — revert them first.
+      this.unapplyGroupIntervene(groupId);
+    }
+    g.supervisorId = operatorId;
+    if (!operatorId) g.supervisorIntervene = false;
+    void groupSetSupervisor(groupId, operatorId, g.supervisorIntervene);
+    this.renderTabbar();
+    this.scheduleSave();
+  }
+
+  /// Flip the Phase 3 intervene gate for a group's already-attached
+  /// supervisor. No-op if the group has no supervisor. Public so Task 7's
+  /// runtime hook can drive this from elsewhere.
+  public setGroupIntervene(groupId: string, intervene: boolean): void {
+    const g = this.groups.get(groupId);
+    if (!g || !g.supervisorId) return;
+    g.supervisorIntervene = intervene;
+    void groupSetSupervisor(groupId, g.supervisorId, intervene);
+    if (intervene) this.applyGroupIntervene(groupId); else this.unapplyGroupIntervene(groupId);
+    this.renderTabbar();
+    this.scheduleSave();
+  }
+
+  /// Claim every eligible pane in `groupId` for supervisor AOM (enable +
+  /// live), flagged `supervisorAom` so unapply/revert touches exactly
+  /// these panes and never a user's own manual enablement. Idempotent —
+  /// a pane already flagged is left alone.
+  private applyGroupIntervene(groupId: string): void {
+    for (const p of panesForIntervene(this.tabs, groupId)) {
+      if (p.supervisorAom) continue;
+      p.supervisorAom = true;
+      p.operatorEnabled = true;
+      p.operatorLive = true;
+      void setOperatorEnabled(p.sessionId as SessionId, true).catch(() => undefined);
+      void setOperatorLive(p.sessionId as SessionId, true).catch(() => undefined);
+    }
+    this.renderTabbar();
+  }
+
+  /// Revert every supervisor-claimed pane across `groupId`'s member tabs.
+  private unapplyGroupIntervene(groupId: string): void {
+    for (const t of this.tabs) {
+      if (t.groupId === groupId) this.revertSupervisorAom(t);
+    }
+    this.renderTabbar();
+  }
+
+  /// Revert exactly this tab's supervisor-claimed panes — never a pane the
+  /// user enabled AOM on themselves (those never carry `supervisorAom`).
+  /// Shared by unapplyGroupIntervene (whole group) and the membership
+  /// hooks below (one tab leaving an intervening group).
+  private revertSupervisorAom(tab: Tab): void {
+    for (const p of tab.panes) this.revertPaneSupervisorAom(p);
+  }
+
+  /// Single-pane revert — lets setTabOperator clear just the pin target
+  /// without touching its sibling in a split tab.
+  private revertPaneSupervisorAom(p: Pane): void {
+    if (!p.supervisorAom) return;
+    p.supervisorAom = false;
+    p.operatorEnabled = false;
+    p.operatorLive = false;
+    if (p.sessionId) {
+      const sid = p.sessionId as SessionId;
+      // Local flags are already cleared above, so a failed IPC call here
+      // leaves the backend armed with nothing to retry it. Log + one
+      // delayed retry; ceiling is exactly one retry — no reconciliation
+      // loop or backoff beyond this.
+      void setOperatorEnabled(sid, false).catch((e) => {
+        console.warn("supervisor AOM revert (enabled) failed, retrying once", e);
+        setTimeout(() => {
+          void setOperatorEnabled(sid, false).catch((e2) =>
+            console.warn("supervisor AOM revert (enabled) retry failed", e2),
+          );
+        }, 2000);
+      });
+      void setOperatorLive(sid, false).catch((e) => {
+        console.warn("supervisor AOM revert (live) failed, retrying once", e);
+        setTimeout(() => {
+          void setOperatorLive(sid, false).catch((e2) =>
+            console.warn("supervisor AOM revert (live) retry failed", e2),
+          );
+        }, 2000);
+      });
+    }
+  }
+
+  /// After a tab's group membership changes (join/leave/switch to another
+  /// group, or a new pane/session lands in a tab whose group is unchanged),
+  /// re-derive supervisor AOM coverage: revert this tab's supervisor-
+  /// claimed panes if it left an intervening group, and claim newly-
+  /// eligible panes if it is (still or now) in one. `prevGroupId` is the
+  /// group the tab belonged to immediately before the mutation — pass the
+  /// tab's current (unchanged) groupId at call sites where only a pane/
+  /// session was added, so the "left" branch never fires.
+  private syncGroupIntervene(tab: Tab, prevGroupId: string | null): void {
+    if (prevGroupId && prevGroupId !== tab.groupId) {
+      if (this.groups.get(prevGroupId)?.supervisorIntervene) {
+        this.revertSupervisorAom(tab);
+      }
+    }
+    if (tab.groupId && this.groups.get(tab.groupId)?.supervisorIntervene) {
+      this.applyGroupIntervene(tab.groupId);
+    }
+  }
+
   /// Open a native folder picker and set the group's default cwd for
   /// new tabs. Existing tabs are unaffected (their PTYs already live
   /// elsewhere). Returns the picked path, or null when cancelled/missing.
@@ -7090,6 +7391,8 @@ export class TabManager {
         collapsed: false,
         rootDir: dir,
         canonOrg: null,
+        supervisorId: null,
+        supervisorIntervene: false,
       });
       this.scheduleSave();
     }
@@ -7116,6 +7419,7 @@ export class TabManager {
   private createGroupFromTab(tabId: string): void {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
+    const prevGroupId = tab.groupId;
     const id = crypto.randomUUID();
     const seq = this.nextGroupSeq++;
     this.groups.set(id, {
@@ -7125,8 +7429,14 @@ export class TabManager {
       collapsed: false,
       rootDir: null,
       canonOrg: null,
+      supervisorId: null,
+      supervisorIntervene: false,
     });
     tab.groupId = id;
+    this.syncSessionGroup(tab);
+    // The brand-new group has no supervisor yet — this only matters if
+    // `tab` was pulled out of a different, intervening group.
+    this.syncGroupIntervene(tab, prevGroupId);
     // No reorder needed — tab stays where it is, becomes a single-
     // member group.
     this.renaming = { kind: "group", id };
@@ -7236,6 +7546,17 @@ export class TabManager {
     return out;
   }
 
+  /// Push a tab's group membership to the backend operator registry —
+  /// one call per pane with a live session. Fire-and-forget: the map is
+  /// in-memory backend-side; the manifest is the durable copy. No-ops
+  /// per pane without a sessionId, so callers can invoke this
+  /// unconditionally after any `tab.groupId` or `pane.sessionId` change.
+  private syncSessionGroup(tab: Tab): void {
+    for (const p of tab.panes) {
+      if (p.sessionId) void sessionSetGroup(p.sessionId, tab.groupId);
+    }
+  }
+
   /// Move an entire group (all its members, in order) so the first member
   /// lands `side`-of `targetTabId`. Self-drop or no-op cases are silent.
   private moveGroupRelativeToTab(
@@ -7286,7 +7607,10 @@ export class TabManager {
     if (!tab || !group) return;
     if (tab.groupId === groupId) return;
 
+    const prevGroupId = tab.groupId;
     tab.groupId = groupId;
+    this.syncSessionGroup(tab);
+    this.syncGroupIntervene(tab, prevGroupId);
 
     // Move the tab next to the last existing member of the group so
     // grouped tabs render as a single contiguous run.
@@ -7310,7 +7634,10 @@ export class TabManager {
   private removeTabFromGroup(tabId: string): void {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
+    const prevGroupId = tab.groupId;
     tab.groupId = null;
+    this.syncSessionGroup(tab);
+    this.syncGroupIntervene(tab, prevGroupId);
     // Empty groups persist intentionally — they're first-class containers
     // the user can drag tabs back into. Explicit removal happens via the
     // chip's context-menu "Delete group" / "Ungroup" actions.
@@ -7370,10 +7697,19 @@ export class TabManager {
   }
 
   private ungroup(groupId: string): void {
+    // Members are about to lose the group wrapper entirely — revert any
+    // supervisor-claimed panes before membership clears below.
+    this.unapplyGroupIntervene(groupId);
     for (const t of this.tabs) {
-      if (t.groupId === groupId) t.groupId = null;
+      if (t.groupId === groupId) {
+        t.groupId = null;
+        this.syncSessionGroup(t);
+      }
     }
     this.groups.delete(groupId);
+    // The group itself is gone — detach its supervisor backend-side too.
+    // Membership sync above already re-pointed every member's sessions.
+    void groupSetSupervisor(groupId, null, false);
     this.renderTabbar();
     this.flushTabbarLayout();
     this.scheduleSave();
@@ -7383,11 +7719,19 @@ export class TabManager {
   /// detaches the group wrapper and keeps the tabs), this closes each member
   /// tab (killing its shell) before removing the group.
   private destroyGroup(groupId: string): void {
+    // Revert supervisor-claimed panes before the member tabs (and their
+    // sessions) close underneath them.
+    this.unapplyGroupIntervene(groupId);
     const members = this.tabs.filter((t) => t.groupId === groupId);
     for (const t of members) {
       this.closeTab(t.id);
     }
     this.groups.delete(groupId);
+    // Every member's session membership already cleared via the
+    // finalizeCloseTab teardown each closeTab() above triggers; the
+    // supervisor attach is separate group-level state that needs its
+    // own clear.
+    void groupSetSupervisor(groupId, null, false);
     this.renderTabbar();
     this.flushTabbarLayout();
     this.scheduleSave();
@@ -7420,6 +7764,8 @@ export class TabManager {
       collapsed: false,
       rootDir: null,
       canonOrg: null,
+      supervisorId: null,
+      supervisorIntervene: false,
     });
     this.renaming = { kind: "group", id };
     this.renderTabbar();
@@ -7441,13 +7787,14 @@ export class TabManager {
     const target = this.tabs[toIdx];
     const oldGroupId = moved.groupId;
     moved.groupId = target.groupId;
+    this.syncSessionGroup(moved);
+    this.syncGroupIntervene(moved, oldGroupId);
 
     this.tabs.splice(fromIdx, 1);
     let insertAt = this.tabs.findIndex((t) => t.id === toId);
     if (side === "right") insertAt += 1;
     this.tabs.splice(insertAt, 0, moved);
 
-    void oldGroupId;
     this.renderTabbar();
     this.scheduleSave();
   }
@@ -7791,6 +8138,19 @@ export class TabManager {
       count.textContent = String(memberCount);
       chip.appendChild(count);
 
+      // Supervisor indicator — a small eye glyph when a supervisor
+      // operator is attached (see setGroupSupervisor / openGroupContextMenu).
+      if (group.supervisorId) {
+        const supervisorName = this.operatorCache.get(group.supervisorId)?.name ?? null;
+        const supervised = document.createElement("span");
+        supervised.className = "group-chip-supervised";
+        supervised.innerHTML = Icons.eye({ size: 11 });
+        attachTooltip(
+          supervised,
+          "Supervised" + (supervisorName ? ` by ${supervisorName}` : ""),
+        );
+        chip.appendChild(supervised);
+      }
     }
 
     chip.addEventListener("dblclick", (e) => {
@@ -7801,7 +8161,7 @@ export class TabManager {
 
     chip.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      this.openGroupContextMenu(group, e.clientX, e.clientY);
+      void this.openGroupContextMenu(group, e.clientX, e.clientY);
     });
 
     // ── Drag (move whole group) ──
@@ -8369,7 +8729,7 @@ export class TabManager {
     this.menu.show(x, y, items);
   }
 
-  private openGroupContextMenu(group: TabGroup, x: number, y: number): void {
+  private async openGroupContextMenu(group: TabGroup, x: number, y: number): Promise<void> {
     const wsList = this.listWorkspaces?.() ?? [];
     const others = wsList.filter((w) => !w.active);
     const moveSubmenu = others.length === 0
@@ -8380,6 +8740,42 @@ export class TabManager {
             void this.moveGroupToWorkspace?.(group.id, w.id);
           },
         }));
+
+    const ops = (await this.listOperators?.().catch(() => [])) ?? [];
+    const eligible = ops.filter((o) => o.supervision_enabled);
+    let supervisor = group.supervisorId
+      ? eligible.find((o) => o.id === group.supervisorId) ?? null
+      : null;
+    // Stale-attach cleanup: the attached supervisor may have been deleted
+    // or lost the Supervision capability since it was attached. Clear it
+    // before building the menu so "Attach supervisor…" reflects reality.
+    if (group.supervisorId && !supervisor) {
+      this.setGroupSupervisor(group.id, null);
+      supervisor = null;
+    }
+    const supervisorMenuItem = {
+      label: supervisor ? `Supervisor: ${supervisor.name}` : "Attach supervisor…",
+      icon: Icons.eye(),
+      submenu: [
+        ...(eligible.length === 0
+          ? [{ label: "(no operators with Supervision)", disabled: true }]
+          : eligible.map((o) => ({
+              label: o.name,
+              onClick: () => this.setGroupSupervisor(group.id, o.id),
+            }))),
+        ...(supervisor
+          ? [
+              { divider: true as const },
+              {
+                label: group.supervisorIntervene ? "Intervene: on" : "Intervene: off",
+                onClick: () => this.setGroupIntervene(group.id, !group.supervisorIntervene),
+              },
+              { label: "Detach supervisor", onClick: () => this.setGroupSupervisor(group.id, null) },
+            ]
+          : []),
+      ],
+    };
+
     this.menu.show(x, y, [
       {
         label: "New tab in group",
@@ -8445,6 +8841,7 @@ export class TabManager {
         onClick: () =>
           this.onOpenProjectNotes?.(group.id, group.name, group.color ?? null),
       },
+      supervisorMenuItem,
       {
         label: "Rename group",
         icon: Icons.pencil(),

@@ -50,7 +50,8 @@ const OPERATOR_FIXTURE: Operator = {
   id: "op-1", name: "Zeta", emoji: "🟣", color: "#a855f7", tags: ["rust"],
   persona: "", escalate_threshold: 0.5, model: "claude-sonnet-4-6", hard_constraints: "",
   voice: "Terse", is_default: true, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
-  github_access: "Off", acp_enabled: false, perception_enabled: false, org_slug: null,
+  github_access: "Off", acp_enabled: false, perception_enabled: false,
+  supervision_enabled: false, org_slug: null,
 };
 
 

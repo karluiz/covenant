@@ -30,6 +30,7 @@ mod covenant_board;
 mod covenant_gist;
 mod covenant_review;
 mod cross_session;
+mod group_supervision;
 mod discord_presence;
 mod drafts;
 pub mod email;
@@ -210,6 +211,7 @@ mod traffic_lights {
 use aom::{AomHandle, AomStatus};
 use context::{ContextCache, DirContext};
 use cross_session::CrossSessionWatcher;
+use group_supervision::GroupSupervisionWatcher;
 use notify::{Notifier, Trigger};
 use operator::{OperatorState, OperatorWatcher};
 use settings::Settings;
@@ -241,6 +243,7 @@ pub(crate) struct AppState {
     settings_path: PathBuf,
     rate: Mutex<RateLimiter>,
     cross_session: CrossSessionWatcher,
+    group_supervision: GroupSupervisionWatcher,
     operator: OperatorWatcher,
     storage: Storage,
     /// Autonomous Operator Mode global toggle. Read by the operator
@@ -945,6 +948,15 @@ async fn spawn_session(
         .attach(id, world.clone(), session.subscribe())
         .await;
 
+    // Group-supervision watcher: same fan-in, scoped to whichever tab
+    // group this session belongs to (if any) so a group's attached
+    // supervisor can flag group-local patterns. No-op until the session
+    // is actually assigned a group and that group gets a supervisor.
+    state
+        .group_supervision
+        .attach(id, world.clone(), session.subscribe())
+        .await;
+
     // TaskSupervisor fan-in: forward every event from this session's
     // bus into the global aggregator so the supervisor (one tokio task)
     // can observe BlockFinished across all sessions.
@@ -1140,6 +1152,11 @@ async fn close_session(
     state.operator.forget_tab_title(id).await;
     state.claude_statusline.unregister(id);
     registry.unpin_session(id);
+    // Group supervision: drop this session's membership so it can't
+    // outlive the session itself. Without this, session_groups accumulates
+    // a dead entry for the process lifetime — group_sessions() would keep
+    // surfacing a closed session id as a live supervised member.
+    registry.set_session_group(id, None);
     let mut sessions = state.sessions.lock().await;
     if let Some(mut managed) = sessions.remove(&id) {
         let _ = managed.session.kill();
@@ -5085,6 +5102,12 @@ pub fn run() {
             claude_statusline.spawn_watcher();
 
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone(), vitals.clone());
+            let group_supervision_watcher = GroupSupervisionWatcher::spawn(
+                app.handle().clone(),
+                settings_arc.clone(),
+                registry_arc.clone(),
+                vitals.clone(),
+            );
             let mission_store = dir.join("session_missions.json");
             let embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>> =
                 Arc::new(tokio::sync::OnceCell::new());
@@ -5472,6 +5495,7 @@ pub fn run() {
                 settings_path: path,
                 rate: Mutex::new(RateLimiter::default()),
                 cross_session: cross,
+                group_supervision: group_supervision_watcher,
                 operator: operator_watcher,
                 storage,
                 aom: aom_handle,
@@ -5941,6 +5965,7 @@ pub fn run() {
             operator_registry::commands::operator_set_acp_enabled,
             operator_registry::commands::operator_set_mcp_servers,
             operator_registry::commands::operator_set_perception_enabled,
+            operator_registry::commands::operator_set_supervision_enabled,
             operator_registry::commands::operator_set_org,
             operator_sync::commands::operator_org_pull,
             operator_registry::commands::operator_list_archetypes,
@@ -5950,6 +5975,8 @@ pub fn run() {
             operator_registry::commands::operator_update_from_soul,
             operator_registry::commands::session_set_operator,
             operator_registry::commands::session_get_operator,
+            operator_registry::commands::group_set_supervisor,
+            operator_registry::commands::session_set_group,
             teammate::commands::teammate_list_messages_for_operator,
             teammate::commands::teammate_send_text_message,
             teammate::commands::teammate_list_tasks,

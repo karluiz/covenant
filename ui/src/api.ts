@@ -356,6 +356,9 @@ export interface Operator {
   /// Whether the operator auto-answers trivial, safe executor permission
   /// prompts in ACP sessions it's assigned to. Default off.
   perception_enabled: boolean;
+  /// Whether this operator may act as a group's SUPERVISOR (cross-session
+  /// world model + AOM claim eligibility). Default off.
+  supervision_enabled: boolean;
   soul_path?: string | null;
   org_slug?: string | null;
   /// 3.26 — names of config-level MCP servers (Settings.mcp_servers)
@@ -476,6 +479,13 @@ export async function operatorSetPerceptionEnabled(
   enabled: boolean,
 ): Promise<void> {
   return invoke<void>("operator_set_perception_enabled", { id, enabled });
+}
+
+export async function operatorSetSupervisionEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<void> {
+  return invoke<void>("operator_set_supervision_enabled", { id, enabled });
 }
 
 export interface ArchetypeView {
@@ -2509,6 +2519,22 @@ export async function sessionSetOperator(
 
 export async function sessionGetOperator(sessionId: SessionId): Promise<Operator> {
   return invoke<Operator>("session_get_operator", { sessionId });
+}
+
+/// Attach (or clear) a group's SUPERVISOR. `intervene` gates Phase 3
+/// AOM claim eligibility — false means observe-only.
+export async function groupSetSupervisor(
+  groupId: string,
+  operatorId: string | null,
+  intervene: boolean,
+): Promise<void> {
+  return invoke<void>("group_set_supervisor", { groupId, operatorId, intervene });
+}
+
+/// Move a session into (or out of, via null) a group for supervision
+/// purposes. Mirrors the frontend's own group membership.
+export async function sessionSetGroup(sessionId: string, groupId: string | null): Promise<void> {
+  return invoke<void>("session_set_group", { sessionId, groupId });
 }
 
 /**

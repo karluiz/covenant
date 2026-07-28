@@ -57,6 +57,10 @@ export interface Pane {
   /// never persisted: the punteado chip reflects live activity, not
   /// history. Cleared when an operator is pinned (the pin supersedes).
   perceptionOperator?: string | null;
+  /// True when the GROUP SUPERVISOR's Intervene toggle enabled AOM on
+  /// this pane — so un-toggling reverts exactly these panes and never a
+  /// user's own manual enablement. Runtime only, never persisted.
+  supervisorAom?: boolean;
   spawn_id: string | null;
   idleAgent: IdleAgentState | null;
   busyProc: string | null;

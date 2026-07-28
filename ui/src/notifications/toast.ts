@@ -14,10 +14,27 @@ interface CrossSessionFinding {
   timestamp_unix_ms: number;
 }
 
+export interface GroupSupervisionFinding {
+  group_id: string;
+  operator_id: string;
+  operator_name: string;
+  message: string;
+  timestamp_unix_ms: number;
+}
+
 interface ToastOptions {
-  /// Called when the user clicks a toast. The finding is passed back so
-  /// callers can route it (e.g. open the agent panel pre-filled).
+  /// Called when the user clicks a cross-session finding toast. The
+  /// finding is passed back so callers can route it (e.g. open the
+  /// agent panel pre-filled).
   onClick: (finding: CrossSessionFinding) => void;
+  /// Called when the user clicks a group-supervision finding toast.
+  /// Distinct from `onClick` because the payload carries the attributing
+  /// supervisor (`operator_name`/`operator_id`/`group_id`) that callers
+  /// need to label the follow-up correctly — funneling it through the
+  /// `CrossSessionFinding`-typed `onClick` would silently drop that
+  /// attribution. Optional so existing callers aren't forced to handle
+  /// it; unhandled clicks just dismiss the toast.
+  onGroupSupervisionClick?: (finding: GroupSupervisionFinding) => void;
 }
 
 export interface InfoToast {
@@ -88,6 +105,7 @@ export function pushConfirmToast(toast: ConfirmToast): void {
 export class ToastHost {
   private container: HTMLElement;
   private unlisten?: UnlistenFn;
+  private unlistenGroupSupervision?: UnlistenFn;
 
   constructor(
     private readonly mountHost: HTMLElement,
@@ -103,12 +121,20 @@ export class ToastHost {
       "cross-session-finding",
       (event) => this.show(event.payload),
     );
+    this.unlistenGroupSupervision = await listen<GroupSupervisionFinding>(
+      "group-supervision-finding",
+      (event) => this.showGroupSupervision(event.payload),
+    );
   }
 
   stop(): void {
     if (this.unlisten) {
       this.unlisten();
       this.unlisten = undefined;
+    }
+    if (this.unlistenGroupSupervision) {
+      this.unlistenGroupSupervision();
+      this.unlistenGroupSupervision = undefined;
     }
   }
 
@@ -311,6 +337,61 @@ export class ToastHost {
 
     card.addEventListener("click", () => {
       this.opts.onClick(finding);
+      dismiss();
+    });
+
+    this.container.appendChild(card);
+    armDismiss();
+  }
+
+  /// Render a group-supervision finding: same chrome as the cross-session
+  /// toast, but the message is prefixed with the supervisor's name (from
+  /// the payload — no lookup needed) so it arrives signed by the
+  /// operator that made the call, same posture as Perception toasts.
+  private showGroupSupervision(finding: GroupSupervisionFinding): void {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "toast";
+    card.innerHTML = `
+      <span class="toast-icon">${Icons.link2({ size: 14 })}</span>
+      <span class="toast-msg"></span>
+      <span class="toast-close" aria-label="dismiss">${Icons.x({ size: 12 })}</span>
+    `;
+    card.querySelector<HTMLElement>(".toast-msg")!.textContent =
+      `${finding.operator_name}: ${finding.message}`;
+
+    let dismissTimer: number | undefined;
+    const dismiss = (): void => {
+      if (dismissTimer !== undefined) {
+        window.clearTimeout(dismissTimer);
+        dismissTimer = undefined;
+      }
+      card.classList.add("toast-leaving");
+      window.setTimeout(() => card.remove(), 180);
+    };
+
+    const armDismiss = (): void => {
+      dismissTimer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
+    };
+
+    card.addEventListener("mouseenter", () => {
+      if (dismissTimer !== undefined) {
+        window.clearTimeout(dismissTimer);
+        dismissTimer = undefined;
+      }
+    });
+    card.addEventListener("mouseleave", armDismiss);
+
+    card.querySelector<HTMLElement>(".toast-close")!.addEventListener(
+      "click",
+      (e) => {
+        e.stopPropagation();
+        dismiss();
+      },
+    );
+
+    card.addEventListener("click", () => {
+      this.opts.onGroupSupervisionClick?.(finding);
       dismiss();
     });
 

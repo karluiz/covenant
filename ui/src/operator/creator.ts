@@ -9,6 +9,7 @@ import {
   operatorSetAcpEnabled,
   operatorSetPerceptionEnabled,
   operatorSetMcpServers,
+  operatorSetSupervisionEnabled,
   operatorSetOrg,
   operatorListArchetypes,
   operatorSoulRead,
@@ -124,6 +125,9 @@ export interface ModalState {
   /// Config-level MCP server names (Settings.mcp_servers), loaded async
   /// at open. Empty → the field isn't rendered.
   mcpAvailable: string[];
+  /// Supervision capability — whether this operator can be attached as a
+  /// tab group's supervisor. Registry-side, same save pattern as acpEnabled.
+  supervisionEnabled: boolean;
   /// Active section in the immersive shell UI.
   activeSection: SectionKey;
   /// Raw SOUL.md text bound to the split-editor textarea. Authoritative
@@ -154,6 +158,7 @@ export interface ModalHandle {
   setAcpEnabled(b: boolean): void;
   setPerceptionEnabled(b: boolean): void;
   toggleMcpServer(name: string): void;
+  setSupervisionEnabled(b: boolean): void;
   applyPreset(key: PresetKey): void;
   setSection(s: SectionKey): void;
 }
@@ -223,6 +228,7 @@ export function openOperatorModal(opts: {
     perceptionEnabled: opts.existing?.perception_enabled ?? false,
     mcpServers: opts.existing?.mcp_servers ?? [],
     mcpAvailable: [],
+    supervisionEnabled: opts.existing?.supervision_enabled ?? false,
     activeSection: opts.mode === "create" ? "start" : "identity",
     // SOUL.md is the authoritative source for the new split editor.
     // Edit mode loads it asynchronously below; create starts blank
@@ -293,6 +299,7 @@ export function openOperatorModal(opts: {
         : [...state.mcpServers, name];
       render();
     },
+    setSupervisionEnabled(b) { state.supervisionEnabled = b; render(); },
     setSection(s) {
       if (state.activeSection === s) return;
       state.activeSection = s;
@@ -387,7 +394,8 @@ function isDirty(h: ModalHandle): boolean {
     s.githubAccess !== (ex?.github_access ?? "Off") ||
     s.acpEnabled !== (ex?.acp_enabled ?? false) ||
     s.perceptionEnabled !== (ex?.perception_enabled ?? false) ||
-    !sameStringSet(s.mcpServers, ex?.mcp_servers ?? [])
+    !sameStringSet(s.mcpServers, ex?.mcp_servers ?? []) ||
+    s.supervisionEnabled !== (ex?.supervision_enabled ?? false)
   );
 }
 
@@ -1182,6 +1190,32 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       mcpField.append(mcpLbl, mcpSeg, mcpHint);
       behaviour.append(mcpField);
     }
+
+    // ── Supervision (eligible to attach to a tab group as supervisor) ──
+    const supervisionSeg = document.createElement("div");
+    supervisionSeg.className = "op-soul-seg";
+    for (const opt of [
+      { value: false, label: "Off" },
+      { value: true, label: "On" },
+    ]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "op-soul-seg-btn";
+      if (h.state.supervisionEnabled === opt.value) btn.classList.add("is-selected");
+      btn.textContent = opt.label;
+      btn.addEventListener("click", () => h.setSupervisionEnabled(opt.value));
+      supervisionSeg.append(btn);
+    }
+    const supervisionField = document.createElement("div");
+    supervisionField.className = "op-modal-field";
+    const supervisionLbl = document.createElement("span");
+    supervisionLbl.className = "op-modal-label";
+    supervisionLbl.textContent = "Supervision";
+    const supervisionHint = document.createElement("small");
+    supervisionHint.className = "op-modal-hint";
+    supervisionHint.textContent = "Can be attached to a tab group as supervisor";
+    supervisionField.append(supervisionLbl, supervisionSeg, supervisionHint);
+    behaviour.append(supervisionField);
     controls.append(behaviour);
 
     // ── Hard constraints (safety — extra deny rules) ──────────────────
@@ -1540,6 +1574,24 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
           if (saved.id && !sameStringSet(handle.state.mcpServers, prevMcp)) {
             try { await operatorSetMcpServers(saved.id, handle.state.mcpServers); } catch (e) {
               console.warn("operator_set_mcp_servers failed", e);
+            }
+          }
+          // Same registry-side pattern for the supervision capability gate.
+          const prevSupervision = handle.state.existing?.supervision_enabled ?? false;
+          if (saved.id && handle.state.supervisionEnabled !== prevSupervision) {
+            try {
+              await operatorSetSupervisionEnabled(saved.id, handle.state.supervisionEnabled);
+              // Turning the capability off can leave this operator attached
+              // as a group supervisor with Intervene-claimed panes armed
+              // under it — TabManager needs the same cleanup it runs on
+              // operator:deleted (see manager.ts's listener pair).
+              if (!handle.state.supervisionEnabled) {
+                window.dispatchEvent(
+                  new CustomEvent("operator:supervision-disabled", { detail: { id: saved.id } }),
+                );
+              }
+            } catch (e) {
+              console.warn("operator_set_supervision_enabled failed", e);
             }
           }
           closeCreator(handle.el);
