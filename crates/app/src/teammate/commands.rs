@@ -329,7 +329,12 @@ pub async fn teammate_send_text_message(
             let tool_env = crate::teammate::tools::ToolEnv::new(root, 200 * 1024)
                 .with_screen(active_screen)
                 .with_skills(crate::teammate::handoff::skill_union(&registry_bg.list()))
-                .with_acp(operator.acp_enabled);
+                .with_acp(operator.acp_enabled)
+                .with_mcp_servers(
+                    crate::mcp_server::acp_entry(&app_bg)
+                        .into_iter()
+                        .collect(),
+                );
             // GitHub access: attach the stored token only when this operator
             // is allowed to use it. Keychain reads are sync — keep them off
             // the async thread.
