@@ -623,6 +623,18 @@ type DragSource =
 
 /// Last path segment of a cwd, for the cold-start tab title. Empty/unknown
 /// cwd falls back to "shell".
+/// Badge for "a dev server is serving under this tab": a small pulsing
+/// terminal glyph on the left of the pill. `data-proc` lets the render
+/// path skip rebuilding when the server name hasn't changed.
+function makeBusyBadge(proc: string): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "tab-busy-dot";
+  el.dataset.proc = proc;
+  el.innerHTML = Icons.terminal({ size: 11, strokeWidth: 2.4 });
+  attachTooltip(el, `${proc} running`);
+  return el;
+}
+
 export function cwdBasename(cwd: string | null | undefined): string {
   const seg = (cwd ?? "").split("/").filter(Boolean).pop();
   return seg && seg.length > 0 ? seg : "shell";
@@ -2414,15 +2426,10 @@ export class TabManager {
     // dot too — it means "an app is serving under here", not "agent busy".
     const paneB = activePane(tab);
     if (paneB.busyProc) {
-      if (existing instanceof HTMLElement) {
-        existing.title = `${paneB.busyProc} running`;
-        return;
-      }
-      const dot = document.createElement("span");
-      dot.className = "tab-busy-dot";
-      dot.title = `${paneB.busyProc} running`;
+      if (existing instanceof HTMLElement && existing.dataset.proc === paneB.busyProc) return;
+      existing?.remove();
       // Prepend so it sits before the label (left side of the tab).
-      pill.insertBefore(dot, pill.firstChild);
+      pill.insertBefore(makeBusyBadge(paneB.busyProc), pill.firstChild);
     } else if (existing) {
       existing.remove();
     }
@@ -8433,10 +8440,7 @@ export class TabManager {
     // strip) doesn't drop it until the next foreground_changed event.
     // Pill isn't in the DOM yet here — attach directly.
     if (pillPaneLate.busyProc) {
-      const dot = document.createElement("span");
-      dot.className = "tab-busy-dot";
-      dot.title = `${pillPaneLate.busyProc} running`;
-      pill.insertBefore(dot, pill.firstChild);
+      pill.insertBefore(makeBusyBadge(pillPaneLate.busyProc), pill.firstChild);
     }
 
     // Live-worktree dot: this worktree is what the running dev app was
