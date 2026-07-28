@@ -1488,6 +1488,28 @@ mod supervision_tests {
     }
 
     #[test]
+    fn attribution_chain_resolves_supervisor_when_unpinned() {
+        // Mirrors the WHO-answered attribution chain in
+        // pty_perception.rs::spawn (pinned → supervisor_for → default).
+        // Regression for a misattribution bug where the attribution chain
+        // skipped supervisor_for and fell straight to default even though
+        // the perception gate (which does check supervisor_for via
+        // perception_enabled_for) had just fired for a supervised session.
+        let reg = OperatorRegistry::for_tests("Default");
+        let sid = SessionId::new();
+        let sup = add_supervisor(&reg, "Warden", true);
+        reg.set_session_group(sid, Some("g1".into()));
+        reg.set_group_supervisor("g1".into(), Some(GroupSupervision { operator: sup, intervene: false }));
+
+        let resolved = reg
+            .pinned(sid)
+            .and_then(|oid| reg.get(oid))
+            .or_else(|| reg.supervisor_for(sid))
+            .or_else(|| reg.default());
+        assert_eq!(resolved.map(|o| o.id), Some(sup));
+    }
+
+    #[test]
     fn membership_maps_round_trip() {
         let reg = OperatorRegistry::for_tests("Default");
         let (a, b) = (SessionId::new(), SessionId::new());

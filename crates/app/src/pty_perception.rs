@@ -75,11 +75,14 @@ pub fn spawn(
                                 continue;
                             }
                             // Signature fields for the UI: WHO answered (the
-                            // effective operator — pin, else Default), the
+                            // effective operator — pin, else group
+                            // supervisor, else Default — same chain the
+                            // gate above resolved through), the
                             // human-readable option, and what it was about.
                             let (op_id, op_name) = registry
                                 .pinned(session_id)
                                 .and_then(|oid| registry.get(oid))
+                                .or_else(|| registry.supervisor_for(session_id))
                                 .or_else(|| registry.default())
                                 .map(|o| (o.id.0.to_string(), o.name))
                                 .unwrap_or_default();
