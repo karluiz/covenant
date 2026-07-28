@@ -45,6 +45,7 @@ fn sample(name: &str, is_default: bool) -> Operator {
         acp_enabled: false,
         perception_enabled: false,
         org_slug: None,
+        mcp_servers: vec![],
     }
 }
 

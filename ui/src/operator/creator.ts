@@ -8,6 +8,7 @@ import {
   operatorSetGithubAccess,
   operatorSetAcpEnabled,
   operatorSetPerceptionEnabled,
+  operatorSetMcpServers,
   operatorSetOrg,
   operatorListArchetypes,
   operatorSoulRead,
@@ -117,6 +118,12 @@ export interface ModalState {
   /// Perception gate (auto-answer trivial, safe ACP permission prompts).
   /// Registry-side, same save pattern as acpEnabled.
   perceptionEnabled: boolean;
+  /// 3.26 — MCP servers this operator may call. Registry-side, same
+  /// save pattern as acpEnabled. Subset of `mcpAvailable`.
+  mcpServers: string[];
+  /// Config-level MCP server names (Settings.mcp_servers), loaded async
+  /// at open. Empty → the field isn't rendered.
+  mcpAvailable: string[];
   /// Active section in the immersive shell UI.
   activeSection: SectionKey;
   /// Raw SOUL.md text bound to the split-editor textarea. Authoritative
@@ -146,6 +153,7 @@ export interface ModalHandle {
   setGithubAccess(a: GithubAccess): void;
   setAcpEnabled(b: boolean): void;
   setPerceptionEnabled(b: boolean): void;
+  toggleMcpServer(name: string): void;
   applyPreset(key: PresetKey): void;
   setSection(s: SectionKey): void;
 }
@@ -213,6 +221,8 @@ export function openOperatorModal(opts: {
     githubAccess: opts.existing?.github_access ?? "Off",
     acpEnabled: opts.existing?.acp_enabled ?? false,
     perceptionEnabled: opts.existing?.perception_enabled ?? false,
+    mcpServers: opts.existing?.mcp_servers ?? [],
+    mcpAvailable: [],
     activeSection: opts.mode === "create" ? "start" : "identity",
     // SOUL.md is the authoritative source for the new split editor.
     // Edit mode loads it asynchronously below; create starts blank
@@ -245,6 +255,17 @@ export function openOperatorModal(opts: {
       });
   }
 
+  // 3.26 — the MCP allowlist field only renders when the user has
+  // config-level MCP servers defined. Loaded async; re-render on land.
+  void getSettings()
+    .then((s) => {
+      const names = (s.mcp_servers ?? []).map((e) => e.name);
+      if (names.length === 0) return;
+      state.mcpAvailable = names;
+      render();
+    })
+    .catch((e) => console.warn("getSettings for MCP servers failed", e));
+
   const el = document.createElement("div");
   el.className = "op-creator";
   document.body.appendChild(el);
@@ -266,6 +287,12 @@ export function openOperatorModal(opts: {
     setGithubAccess(a) { state.githubAccess = a; render(); },
     setAcpEnabled(b) { state.acpEnabled = b; render(); },
     setPerceptionEnabled(b) { state.perceptionEnabled = b; render(); },
+    toggleMcpServer(name) {
+      state.mcpServers = state.mcpServers.includes(name)
+        ? state.mcpServers.filter((n) => n !== name)
+        : [...state.mcpServers, name];
+      render();
+    },
     setSection(s) {
       if (state.activeSection === s) return;
       state.activeSection = s;
@@ -359,8 +386,13 @@ function isDirty(h: ModalHandle): boolean {
     s.setAsDefault !== s.isDefault ||
     s.githubAccess !== (ex?.github_access ?? "Off") ||
     s.acpEnabled !== (ex?.acp_enabled ?? false) ||
-    s.perceptionEnabled !== (ex?.perception_enabled ?? false)
+    s.perceptionEnabled !== (ex?.perception_enabled ?? false) ||
+    !sameStringSet(s.mcpServers, ex?.mcp_servers ?? [])
   );
+}
+
+function sameStringSet(a: string[], b: string[]): boolean {
+  return a.length === b.length && [...a].sort().join("\n") === [...b].sort().join("\n");
 }
 
 /// Single close path for every non-Save exit (Escape, esc pill, scrim,
@@ -1123,6 +1155,33 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     perceptionHint.textContent = "Auto-answer trivial, safe executor prompts";
     perceptionField.append(perceptionLbl, perceptionSeg, perceptionHint);
     behaviour.append(perceptionField);
+
+    // ── MCP servers (3.26 — per-operator allowlist, registry-side) ────
+    // Only rendered when config-level servers exist (Settings → MCP).
+    if (h.state.mcpAvailable.length > 0) {
+      const mcpSeg = document.createElement("div");
+      mcpSeg.className = "op-soul-seg";
+      for (const name of h.state.mcpAvailable) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "op-soul-seg-btn";
+        if (h.state.mcpServers.includes(name)) btn.classList.add("is-selected");
+        btn.textContent = name;
+        btn.addEventListener("click", () => h.toggleMcpServer(name));
+        mcpSeg.append(btn);
+      }
+      const mcpField = document.createElement("div");
+      mcpField.className = "op-modal-field";
+      const mcpLbl = document.createElement("span");
+      mcpLbl.className = "op-modal-label";
+      mcpLbl.textContent = "MCP servers";
+      const mcpHint = document.createElement("small");
+      mcpHint.className = "op-modal-hint";
+      mcpHint.textContent =
+        "Which of your configured MCP servers this operator may call directly. Their tools run with this operator's authority — grant per server, off by default.";
+      mcpField.append(mcpLbl, mcpSeg, mcpHint);
+      behaviour.append(mcpField);
+    }
     controls.append(behaviour);
 
     // ── Hard constraints (safety — extra deny rules) ──────────────────
@@ -1472,6 +1531,15 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
           if (saved.id && handle.state.perceptionEnabled !== prevPerception) {
             try { await operatorSetPerceptionEnabled(saved.id, handle.state.perceptionEnabled); } catch (e) {
               console.warn("operator_set_perception_enabled failed", e);
+            }
+          }
+          // Same registry-side pattern for the MCP server allowlist (3.26).
+          const prevMcp = handle.state.mode === "edit"
+            ? (handle.state.existing?.mcp_servers ?? [])
+            : [];
+          if (saved.id && !sameStringSet(handle.state.mcpServers, prevMcp)) {
+            try { await operatorSetMcpServers(saved.id, handle.state.mcpServers); } catch (e) {
+              console.warn("operator_set_mcp_servers failed", e);
             }
           }
           closeCreator(handle.el);

@@ -358,6 +358,9 @@ export interface Operator {
   perception_enabled: boolean;
   soul_path?: string | null;
   org_slug?: string | null;
+  /// 3.26 — names of config-level MCP servers (Settings.mcp_servers)
+  /// this operator may call in its own loop. Empty/absent = none.
+  mcp_servers?: string[];
 }
 
 /// Payload of the `operator-xp-updated` event emitted after a decision
@@ -459,6 +462,13 @@ export async function operatorSetAcpEnabled(
   enabled: boolean,
 ): Promise<void> {
   return invoke<void>("operator_set_acp_enabled", { id, enabled });
+}
+
+export async function operatorSetMcpServers(
+  id: string,
+  servers: string[],
+): Promise<void> {
+  return invoke<void>("operator_set_mcp_servers", { id, servers });
 }
 
 export async function operatorSetPerceptionEnabled(
@@ -1278,6 +1288,10 @@ export interface Settings {
   model_routes?: Record<string, RouteEntry>;
   /// Per-executor ACP configuration (trust level, model, args, env).
   acp_executors?: Record<string, AcpExecutorConfig>;
+  /// 3.26 — MCP servers operators may call (streamable-http only).
+  /// Defining a server grants nothing; each operator must also
+  /// allowlist it by name (`Operator.mcp_servers`).
+  mcp_servers?: McpServerEntry[];
   /// 4.x — experimental feature flags.
   experimental?: {
     split_panes?: boolean;
@@ -3153,6 +3167,16 @@ export interface SpawnAcpResult {
   resumed: boolean;
   /// Effective trust level the session launched with.
   trust: AcpTrust;
+}
+
+/// 3.26 — one MCP server operators may be allowed to call. HTTP only.
+/// Name is normalized to [a-z0-9_-] on save (it becomes part of the
+/// `mcp__<name>__<tool>` LLM tool name).
+export interface McpServerEntry {
+  name: string;
+  url: string;
+  /// Sent verbatim on every request (e.g. ["Authorization", "Bearer x"]).
+  headers?: [string, string][];
 }
 
 export type AcpTrust = "ask" | "balanced" | "yolo";

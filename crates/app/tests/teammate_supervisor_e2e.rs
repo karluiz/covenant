@@ -63,6 +63,7 @@ async fn supervisor_emits_duda_then_enojo_on_repeated_failure() {
         acp_enabled: false,
         perception_enabled: false,
         org_slug: None,
+        mcp_servers: vec![],
     };
     storage
         .operator_insert(operator)

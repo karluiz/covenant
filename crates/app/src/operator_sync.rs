@@ -136,6 +136,7 @@ pub(crate) fn build_import_op(
         acp_enabled: false,
         perception_enabled: false,
         org_slug: None,
+        mcp_servers: vec![],
     });
     crate::soul::hydrate_operator(&mut op, soul);
     op.org_slug = Some(org.to_string());

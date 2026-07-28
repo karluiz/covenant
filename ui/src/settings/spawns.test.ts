@@ -185,21 +185,28 @@ describe("Isolate in a worktree", () => {
 
 describe("ACP agents section mount", () => {
   it("survives master-detail re-renders (rail click / add / delete) and stays single", async () => {
+    // Two once-appended sections share the .acp-agents chrome: the ACP
+    // agents cards and the MCP servers list (3.26). Each must appear
+    // exactly once and survive master-detail re-renders.
+    const expectSingleSections = (host: HTMLElement): void => {
+      expect(host.querySelectorAll(".acp-agents")).toHaveLength(2);
+      expect(host.querySelectorAll(".acp-agents.mcp-servers")).toHaveLength(1);
+    };
     const host = await mount();
-    expect(host.querySelectorAll(".acp-agents")).toHaveLength(1);
+    expectSingleSections(host);
 
     // Rail click re-invokes the internal render() that used to wipe host.
     host.querySelectorAll<HTMLButtonElement>(".spawns-md-item")[1]!.click();
-    expect(host.querySelectorAll(".acp-agents")).toHaveLength(1);
+    expectSingleSections(host);
 
     // Add: re-render after async persist.
     host.querySelector<HTMLButtonElement>(".spawns-md-add")!.click();
     await flush();
-    expect(host.querySelectorAll(".acp-agents")).toHaveLength(1);
+    expectSingleSections(host);
 
     // Delete: re-render after async delete.
     host.querySelector<HTMLButtonElement>('[data-role="delete"]')!.click();
     await flush();
-    expect(host.querySelectorAll(".acp-agents")).toHaveLength(1);
+    expectSingleSections(host);
   });
 });

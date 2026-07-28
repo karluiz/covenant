@@ -262,6 +262,7 @@ mod tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: vec![],
         }
     }
 

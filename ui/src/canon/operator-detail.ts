@@ -150,6 +150,11 @@ function renderCapabilitiesSection(op: Operator): string {
     { label: "GitHub", value: op.github_access, active: op.github_access !== "Off" },
     { label: "ACP delegation", value: op.acp_enabled ? "On" : "Off", active: op.acp_enabled },
     { label: "Perception", value: op.perception_enabled ? "On" : "Off", active: op.perception_enabled },
+    {
+      label: "MCP",
+      value: (op.mcp_servers ?? []).length > 0 ? (op.mcp_servers ?? []).join(", ") : "Off",
+      active: (op.mcp_servers ?? []).length > 0,
+    },
   ];
 
   return `

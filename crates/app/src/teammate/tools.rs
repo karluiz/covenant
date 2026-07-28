@@ -55,6 +55,15 @@ pub struct ToolEnv {
     /// Whether the operator may use `dispatch_acp`. False → the tool is
     /// never registered and execution is refused (mirrors `github`).
     pub acp_enabled: bool,
+    /// ACP `session/new` `mcpServers` entries for `dispatch_acp` spawns.
+    /// Precomputed at construction (where the `AppHandle` is in scope);
+    /// empty when the Covenant MCP server isn't up.
+    pub mcp_servers: Vec<Value>,
+    /// Live MCP connections for THIS operator's loop (3.26): the
+    /// intersection of `Settings.mcp_servers` and the operator's
+    /// registry allowlist, connected at dispatch time. Empty = no
+    /// `mcp__*` tools registered.
+    pub mcp: Vec<crate::teammate::mcp_client::McpConn>,
 }
 
 /// Token + access level + API base for the `gh_*` tools. `api_base` is
@@ -85,6 +94,8 @@ impl ToolEnv {
             github: None,
             available_skills: Vec::new(),
             acp_enabled: false,
+            mcp_servers: Vec::new(),
+            mcp: Vec::new(),
         }
     }
 
@@ -109,6 +120,19 @@ impl ToolEnv {
     /// Allow `dispatch_acp` (builder style).
     pub fn with_acp(mut self, enabled: bool) -> Self {
         self.acp_enabled = enabled;
+        self
+    }
+
+    /// Attach the Covenant MCP `mcpServers` entries for ACP spawns
+    /// (builder style).
+    pub fn with_mcp_servers(mut self, servers: Vec<Value>) -> Self {
+        self.mcp_servers = servers;
+        self
+    }
+
+    /// Attach live MCP connections for this operator (builder style).
+    pub fn with_mcp(mut self, conns: Vec<crate::teammate::mcp_client::McpConn>) -> Self {
+        self.mcp = conns;
         self
     }
 }
@@ -939,10 +963,7 @@ pub async fn dispatch_acp(env: &ToolEnv, args: &Value) -> Result<String, ToolErr
         timeout: std::time::Duration::from_secs(timeout_secs),
         program: None,
         extra_args_for_tests: vec![],
-        // ponytail follow-up (see task-5-report.md): `ToolEnv` has no
-        // `AppHandle` in scope here, so this headless dispatch can't call
-        // `mcp_server::acp_entry` yet — it runs without covenant MCP tools.
-        mcp_servers: Vec::new(),
+        mcp_servers: env.mcp_servers.clone(),
     })
     .await
     .map_err(|e| ToolError::Acp(e.to_string()))?;

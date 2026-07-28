@@ -70,7 +70,14 @@ karl-lsp = { workspace = true }
 hostname = "0.4"
 discord-rich-presence = "1.1.0"
 tauri-plugin-os = "2.3.2"
-rmcp = { version = "2.2.0", features = ["server", "transport-streamable-http-server"] }
+http = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rmcp = { version = "2.2.0", features = [
+    "server",
+    "transport-streamable-http-server",
+    "client",
+    "transport-streamable-http-client-reqwest",
+] }
 axum = "0.8.9"
 schemars = "1.2.2"
 

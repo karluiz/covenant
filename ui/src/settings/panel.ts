@@ -2290,7 +2290,7 @@ export class SettingsPanel {
       "sec-terminal": "shell font cursor scrollback keybindings shortcut hotkey",
       "sec-code-intel": "lsp language server rust-analyzer code intelligence diagnostics autocomplete hover",
       "sec-operators": "autonomous aom budget mind operator achievements",
-      "sec-spawns": "spawn preset launch quick action",
+      "sec-spawns": "spawn preset launch quick action mcp server operator tools",
       "sec-updates": "update version release auto-update channel",
       "sec-notifications": "email sendgrid notify alert sound",
       "sec-telegram": "telegram bot token chat message",
