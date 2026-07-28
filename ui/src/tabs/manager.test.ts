@@ -109,6 +109,85 @@ describe("TabManager group active-org persistence", () => {
     }
     expect(restored.groupCanonOrg(groupId)).toBe("cleverit");
   });
+
+  it("round-trips group supervisor fields through the manifest", async () => {
+    const groupId = "g1";
+    const manifest: TabManifestV1 = {
+      version: 1,
+      active_index: 0,
+      // restoreFromManifest bails out to a fresh blank tab when tabs is
+      // empty, so a tab referencing the group is required to reach the
+      // group-hydration code path at all.
+      tabs: [
+        {
+          kind: "shell",
+          custom_name: null,
+          cwd: null,
+          color: null,
+          group_id: groupId,
+          mission_path: null,
+          operator_id: null,
+        },
+      ],
+      groups: [
+        {
+          id: groupId,
+          name: "grp",
+          color: null,
+          collapsed: false,
+          root_dir: null,
+          supervisor_id: "op-1",
+          supervisor_intervene: true,
+        },
+      ],
+    };
+    const restored = makeManager();
+    try {
+      // Group hydration runs synchronously before the (real) PTY spawn
+      // is awaited — see the canon_org restore test above.
+      await restored.restoreFromManifest(manifest);
+    } catch {
+      // expected under jsdom — see comment above.
+    }
+    expect(restored.groupSupervisorId(groupId)).toBe("op-1");
+    expect(restored.groupSupervisorIntervene(groupId)).toBe(true);
+
+    // And it round-trips back out through serializeManifest.
+    const reserialized = restored.serializeManifest();
+    const g = reserialized.groups.find((x) => x.id === groupId);
+    expect(g?.supervisor_id).toBe("op-1");
+    expect(g?.supervisor_intervene).toBe(true);
+  });
+
+  it("defaults supervisor fields for older manifests", async () => {
+    const groupId = "g1";
+    const manifest: TabManifestV1 = {
+      version: 1,
+      active_index: 0,
+      tabs: [
+        {
+          kind: "shell",
+          custom_name: null,
+          cwd: null,
+          color: null,
+          group_id: groupId,
+          mission_path: null,
+          operator_id: null,
+        },
+      ],
+      // No supervisor_id / supervisor_intervene — simulates a manifest
+      // saved before this feature existed.
+      groups: [{ id: groupId, name: "grp", color: null, collapsed: false, root_dir: null }],
+    };
+    const restored = makeManager();
+    try {
+      await restored.restoreFromManifest(manifest);
+    } catch {
+      // expected under jsdom — see comment on the canon_org restore test.
+    }
+    expect(restored.groupSupervisorId(groupId)).toBeNull();
+    expect(restored.groupSupervisorIntervene(groupId)).toBe(false);
+  });
 });
 
 describe("TabManager setActivePill fast path", () => {

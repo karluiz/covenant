@@ -385,6 +385,13 @@ interface TabGroup {
   /// Active Canon org slug for this group. Null = resolve to the user's
   /// personal org. Persisted like rootDir.
   canonOrg: string | null;
+  /// Operator attached as this group's SUPERVISOR (null = none). The
+  /// backend registry mirror is synced via groupSetSupervisor; this is
+  /// the durable copy.
+  supervisorId: string | null;
+  /// Phase 3 gate: when true the supervisor may claim unpinned,
+  /// non-excluded panes for AOM. Default false (observe-only).
+  supervisorIntervene: boolean;
 }
 
 /// Persisted manifest schema. Version-tagged so we can evolve later
@@ -569,6 +576,13 @@ interface SerializedGroup {
   /// compat — older manifests lacking the field default to null (the
   /// user's personal org) on restore.
   canon_org?: string | null;
+  /// Group's SUPERVISOR operator id. Optional for backward compat —
+  /// older manifests lacking the field default to null (no supervisor)
+  /// on restore.
+  supervisor_id?: string | null;
+  /// Phase 3 gate mirror. Optional for backward compat — older
+  /// manifests lacking the field default to false on restore.
+  supervisor_intervene?: boolean;
 }
 
 export interface RailTabView {
@@ -2107,6 +2121,18 @@ export class TabManager {
     if (!g) return;
     g.canonOrg = slug;
     this.scheduleSave();
+  }
+
+  /// Lookup the SUPERVISOR operator id for a group by id. Returns null
+  /// if the group doesn't exist or has no supervisor set.
+  groupSupervisorId(groupId: string): string | null {
+    return this.groups.get(groupId)?.supervisorId ?? null;
+  }
+
+  /// Lookup the Phase 3 intervene gate for a group's supervisor.
+  /// Returns false if the group doesn't exist.
+  groupSupervisorIntervene(groupId: string): boolean {
+    return this.groups.get(groupId)?.supervisorIntervene ?? false;
   }
 
   constructor(
@@ -6148,6 +6174,8 @@ export class TabManager {
         collapsed: g.collapsed,
         root_dir: g.rootDir,
         canon_org: g.canonOrg,
+        supervisor_id: g.supervisorId,
+        supervisor_intervene: g.supervisorIntervene,
       })),
     };
   }
@@ -6184,6 +6212,8 @@ export class TabManager {
         collapsed: g.collapsed,
         rootDir: g.root_dir ?? null,
         canonOrg: g.canon_org ?? null,
+        supervisorId: g.supervisor_id ?? null,
+        supervisorIntervene: g.supervisor_intervene ?? false,
       });
     }
     // Normalise every tab into the new panes+layout shape so downstream
@@ -7090,6 +7120,8 @@ export class TabManager {
         collapsed: false,
         rootDir: dir,
         canonOrg: null,
+        supervisorId: null,
+        supervisorIntervene: false,
       });
       this.scheduleSave();
     }
@@ -7125,6 +7157,8 @@ export class TabManager {
       collapsed: false,
       rootDir: null,
       canonOrg: null,
+      supervisorId: null,
+      supervisorIntervene: false,
     });
     tab.groupId = id;
     // No reorder needed — tab stays where it is, becomes a single-
@@ -7420,6 +7454,8 @@ export class TabManager {
       collapsed: false,
       rootDir: null,
       canonOrg: null,
+      supervisorId: null,
+      supervisorIntervene: false,
     });
     this.renaming = { kind: "group", id };
     this.renderTabbar();

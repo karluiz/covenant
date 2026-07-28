@@ -10,6 +10,7 @@ const maya: Operator = {
   github_access: 'Off',
   acp_enabled: false,
   perception_enabled: false,
+  supervision_enabled: false,
 };
 
 describe('renderOperatorChip', () => {
