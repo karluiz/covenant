@@ -1,7 +1,7 @@
 ---
 // Clarity only loads after explicit consent (EEA Consent API v2 requirement).
-// No PUBLIC_CLARITY_ID at build time → no banner, no tracking, zero cost.
-const clarityId = import.meta.env.PUBLIC_CLARITY_ID;
+// The ID is public by nature — it ships to every browser.
+const clarityId = "xtm1ivwidn";
 ---
 {clarityId && (
   <div
