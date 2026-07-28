@@ -995,4 +995,46 @@ describe("operator:deleted detaches a group's supervisor attach", () => {
     expect(claimed.operatorEnabled).toBe(false);
     expect(priv.groups.get(groupId)?.supervisorId).toBeNull();
   });
+
+  // F1 safety fix: hibernate() moves tabs/groups out of this.tabs/
+  // this.groups into a stash (PTYs stay alive backend-side); a naive
+  // detachSupervisorEverywhere that only walks the live collections would
+  // leave a hibernated pane's supervisorAom flag armed — and its backend
+  // enable/live set — forever once the supervisor is deleted.
+  it("also revokes Intervene-claimed panes stashed in a hibernated workspace", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      groups: Map<string, { supervisorId: string | null; supervisorIntervene: boolean }>;
+      hibernated: Map<
+        string,
+        {
+          tabs: Array<Record<string, unknown>>;
+          groups: Map<string, { supervisorId: string | null; supervisorIntervene: boolean }>;
+        }
+      >;
+    };
+    const claimed = ivPane({ id: "p1", sessionId: "s1" });
+    priv.tabs.push(ivTabWith(groupId, [claimed]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(claimed.supervisorAom).toBe(true);
+
+    // Switch workspace → the group + its tab go into the hibernation stash,
+    // still carrying the live supervisor attach and the claimed pane.
+    m.hibernate("ws-other");
+    expect(priv.tabs.length).toBe(0);
+    const stash = priv.hibernated.get("ws-other");
+    expect(stash?.groups.get(groupId)?.supervisorId).toBe("op-1");
+
+    window.dispatchEvent(new CustomEvent("operator:deleted", { detail: { id: "op-1" } }));
+
+    expect(stash?.groups.get(groupId)?.supervisorId).toBeNull();
+    expect(stash?.groups.get(groupId)?.supervisorIntervene).toBe(false);
+    expect(claimed.supervisorAom).toBe(false);
+    expect(claimed.operatorEnabled).toBe(false);
+    expect(claimed.operatorLive).toBe(false);
+  });
 });

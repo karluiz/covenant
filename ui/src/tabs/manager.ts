@@ -7145,6 +7145,26 @@ export class TabManager {
     for (const g of this.groups.values()) {
       if (g.supervisorId === operatorId) this.setGroupSupervisor(g.id, null);
     }
+    // Hibernated workspaces are stashed out of `this.groups`/`this.tabs`
+    // (see `hibernate()`) but their PTY sessions stay alive backend-side —
+    // a hibernated pane the operator claimed via Intervene keeps running
+    // AOM resolved to this operator forever unless we sweep the stash too.
+    // Mirror setGroupSupervisor(null)'s teardown (clear supervisorId/
+    // supervisorIntervene, clear the backend attach) and
+    // revertPaneSupervisorAom's teardown (clear supervisorAom + disable),
+    // scoped to the stashed group that matched.
+    for (const stash of this.hibernated.values()) {
+      for (const g of stash.groups.values()) {
+        if (g.supervisorId !== operatorId) continue;
+        g.supervisorId = null;
+        g.supervisorIntervene = false;
+        void groupSetSupervisor(g.id, null, false);
+        for (const tab of stash.tabs) {
+          if (tab.groupId !== g.id) continue;
+          for (const p of tab.panes) this.revertPaneSupervisorAom(p);
+        }
+      }
+    }
   }
 
   public setGroupSupervisor(groupId: string, operatorId: string | null): void {
@@ -7215,8 +7235,27 @@ export class TabManager {
     p.operatorEnabled = false;
     p.operatorLive = false;
     if (p.sessionId) {
-      void setOperatorEnabled(p.sessionId as SessionId, false).catch(() => undefined);
-      void setOperatorLive(p.sessionId as SessionId, false).catch(() => undefined);
+      const sid = p.sessionId as SessionId;
+      // Local flags are already cleared above, so a failed IPC call here
+      // leaves the backend armed with nothing to retry it. Log + one
+      // delayed retry; ceiling is exactly one retry — no reconciliation
+      // loop or backoff beyond this.
+      void setOperatorEnabled(sid, false).catch((e) => {
+        console.warn("supervisor AOM revert (enabled) failed, retrying once", e);
+        setTimeout(() => {
+          void setOperatorEnabled(sid, false).catch((e2) =>
+            console.warn("supervisor AOM revert (enabled) retry failed", e2),
+          );
+        }, 2000);
+      });
+      void setOperatorLive(sid, false).catch((e) => {
+        console.warn("supervisor AOM revert (live) failed, retrying once", e);
+        setTimeout(() => {
+          void setOperatorLive(sid, false).catch((e2) =>
+            console.warn("supervisor AOM revert (live) retry failed", e2),
+          );
+        }, 2000);
+      });
     }
   }
 
