@@ -189,10 +189,14 @@ pub enum SessionEvent {
     /// Foreground process changed: the binary in front of the PTY is
     /// no longer the same as last tick. `name = None` means we're back
     /// at the shell prompt (or no foreground could be determined).
-    /// Emitted only on transitions, not every tick.
+    /// `busy_proc` carries the periodic descendant-scan result — a dev
+    /// server alive anywhere under the session's shell (see
+    /// [`karl_pty::busy_server_descendant`]). Emitted on transitions of
+    /// either field, not every tick.
     ForegroundChanged {
         session: SessionId,
         name: Option<String>,
+        busy_proc: Option<String>,
     },
     /// A fresh AI-generated tab title for the session, produced by the
     /// summarizer. Emitted only when the title changed from the last one.
@@ -285,13 +289,13 @@ pub enum SessionUiEvent {
     AgentResumed {
         session: SessionId,
     },
-    /// Foreground process changed. `busy = true` when a non-shell
-    /// binary occupies the PTY's foreground pgrp. Drives the
-    /// palpitating dot in the tab list.
+    /// Foreground process changed. `busy_proc` names a dev server alive
+    /// under the session's shell (listen-checked descendant scan) —
+    /// drives the palpitating dot in the tab list.
     ForegroundChanged {
         session: SessionId,
         name: Option<String>,
-        busy: bool,
+        busy_proc: Option<String>,
     },
     TitleSuggested {
         session: SessionId,
@@ -378,13 +382,15 @@ impl SessionEvent {
                     title: title.clone(),
                 })
             }
-            SessionEvent::ForegroundChanged { session, name } => {
-                Some(SessionUiEvent::ForegroundChanged {
-                    session: *session,
-                    name: name.clone(),
-                    busy: name.as_deref().is_some_and(is_busy_proc),
-                })
-            }
+            SessionEvent::ForegroundChanged {
+                session,
+                name,
+                busy_proc,
+            } => Some(SessionUiEvent::ForegroundChanged {
+                session: *session,
+                name: name.clone(),
+                busy_proc: busy_proc.clone(),
+            }),
         }
     }
 }
@@ -469,6 +475,7 @@ impl Session {
             pump_raw_bytes_tx,
             pump_events_tx,
             master_fd,
+            pty.child_pid(),
             pump_screen,
             pump_dims,
         ));
@@ -555,6 +562,7 @@ impl Session {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // internal fan-out task, one call site
 async fn pump(
     id: SessionId,
     mut pty_rx: mpsc::UnboundedReceiver<Bytes>,
@@ -563,6 +571,8 @@ async fn pump(
     events_tx: broadcast::Sender<SessionEvent>,
     #[cfg(unix)] master_fd: std::os::fd::RawFd,
     #[cfg(not(unix))] _master_fd: (),
+    #[cfg(unix)] shell_pid: Option<u32>,
+    #[cfg(not(unix))] _shell_pid: Option<u32>,
     screen: Arc<StdMutex<String>>,
     dims: Arc<AtomicU32>,
 ) {
@@ -578,6 +588,12 @@ async fn pump(
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     // Track foreground proc across ticks so we only emit on transitions.
     let mut last_fg: Option<String> = None;
+    // Descendant-scan state: last known dev server under the shell, and a
+    // tick countdown so the (syscall-heavy) walk runs every 5s, not 1s.
+    #[cfg(unix)]
+    let mut last_busy: Option<String> = None;
+    #[cfg(unix)]
+    let mut busy_scan_in: u8 = 0;
     // Rendered-screen turn tracking for alt-screen executors (opencode/…):
     // true while the composed screen shows an interrupt affordance. The
     // false→true edge is a turn start (= a user prompt). See the tick body.
@@ -673,10 +689,25 @@ async fn pump(
                 #[cfg(unix)]
                 {
                     let fg = foreground_process_name(master_fd);
-                    if fg != last_fg {
+                    // Dev-server scan on a slower cadence than the fg poll.
+                    // The walk is blocking syscall work but bounded (64
+                    // procs) — cheap enough to run inline on the tick.
+                    let mut busy_changed = false;
+                    if busy_scan_in == 0 {
+                        busy_scan_in = 5;
+                        let busy = shell_pid
+                            .and_then(|p| karl_pty::busy_server_descendant(p, &is_busy_proc));
+                        if busy != last_busy {
+                            last_busy = busy;
+                            busy_changed = true;
+                        }
+                    }
+                    busy_scan_in -= 1;
+                    if fg != last_fg || busy_changed {
                         let _ = events_tx.send(SessionEvent::ForegroundChanged {
                             session: id,
                             name: fg.clone(),
+                            busy_proc: last_busy.clone(),
                         });
                         last_fg = fg.clone();
                     }

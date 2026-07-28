@@ -623,6 +623,18 @@ type DragSource =
 
 /// Last path segment of a cwd, for the cold-start tab title. Empty/unknown
 /// cwd falls back to "shell".
+/// Badge for "a dev server is serving under this tab": a small pulsing
+/// terminal glyph on the left of the pill. `data-proc` lets the render
+/// path skip rebuilding when the server name hasn't changed.
+function makeBusyBadge(proc: string): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "tab-busy-dot";
+  el.dataset.proc = proc;
+  el.innerHTML = Icons.terminal({ size: 11, strokeWidth: 2.4 });
+  attachTooltip(el, `${proc} running`);
+  return el;
+}
+
 export function cwdBasename(cwd: string | null | undefined): string {
   const seg = (cwd ?? "").split("/").filter(Boolean).pop();
   return seg && seg.length > 0 ? seg : "shell";
@@ -2409,21 +2421,15 @@ export class TabManager {
     );
     if (!pill) return;
     const existing = pill.querySelector(".tab-busy-dot");
-    // Executor tabs (pi, claude, codex, …) already convey "agent running"
-    // via the executor chip — the pulse dot is for user-initiated dev
-    // tools only. Keep pi homologous to the other agent executors.
+    // busyProc is backend-discriminated (listen-checked dev server in the
+    // tab's process tree, agent CLIs excluded), so executor tabs wear the
+    // dot too — it means "an app is serving under here", not "agent busy".
     const paneB = activePane(tab);
-    const isAgent = tab.kind === "pi" || !!paneB.executor;
-    if (paneB.busyProc && !isAgent) {
-      if (existing instanceof HTMLElement) {
-        existing.title = `${paneB.busyProc} running`;
-        return;
-      }
-      const dot = document.createElement("span");
-      dot.className = "tab-busy-dot";
-      dot.title = `${paneB.busyProc} running`;
+    if (paneB.busyProc) {
+      if (existing instanceof HTMLElement && existing.dataset.proc === paneB.busyProc) return;
+      existing?.remove();
       // Prepend so it sits before the label (left side of the tab).
-      pill.insertBefore(dot, pill.firstChild);
+      pill.insertBefore(makeBusyBadge(paneB.busyProc), pill.firstChild);
     } else if (existing) {
       existing.remove();
     }
@@ -3895,13 +3901,6 @@ export class TabManager {
                   // takes over the PTY: its buffer is now stale shell
                   // input that no longer maps to a prompt.
                   if (next) recall?.notifyPromptStart();
-                  // Drop any pulse dot left over from a pre-agent dev
-                  // tool; while an executor owns the PTY, the chip is
-                  // the canonical "running" indicator.
-                  if (next && p.busyProc) {
-                    p.busyProc = null;
-                    this.renderTabBusyDot(tabRef.current);
-                  }
                 }
               }
             } else if (event.kind === "block_finished") {
@@ -3967,13 +3966,6 @@ export class TabManager {
               }
             } else if (event.kind === "foreground_changed") {
               if (tabRef.current) {
-                // Agent CLIs (copilot/claude/codex/…) routinely spawn
-                // dev-tool subprocesses (`node`, `next`, `npm`, …) that
-                // briefly own the PTY foreground. Those slip past the
-                // Rust allowlist and light the pulse dot, but the
-                // executor chip already conveys "agent running here" —
-                // doubling up is just noise. Keep the dot strictly for
-                // user-initiated dev tools.
                 const pFg = tabRef.current.panes[0];
                 // OSC 133 command detection misses launchers that exec
                 // through wrapper scripts (Cursor's `agent` → bundled
@@ -3999,8 +3991,11 @@ export class TabManager {
                     this.onActiveExecutorChange?.(null);
                   }
                 }
-                const isAgent = !!pFg.executor;
-                pFg.busyProc = event.busy && !isAgent ? event.name : null;
+                // The backend already discriminates: busy_proc is only a
+                // listen-checked dev server under this tab's shell, agent
+                // CLIs excluded. So the dot shows on ANY tab kind — an
+                // agent that started `tauri dev` underneath counts.
+                pFg.busyProc = event.busy_proc;
                 this.renderTabBusyDot(tabRef.current);
               }
             } else if (event.kind === "title_suggested") {
@@ -8443,13 +8438,9 @@ export class TabManager {
 
     // Re-apply busy dot on rebuild so tab activation (which rebuilds the
     // strip) doesn't drop it until the next foreground_changed event.
-    // Pill isn't in the DOM yet here — attach directly. Executor tabs
-    // skip the dot (the chip already conveys "agent running here").
-    if (pillPaneLate.busyProc && tab.kind !== "pi" && !pillPaneLate.executor) {
-      const dot = document.createElement("span");
-      dot.className = "tab-busy-dot";
-      dot.title = `${pillPaneLate.busyProc} running`;
-      pill.insertBefore(dot, pill.firstChild);
+    // Pill isn't in the DOM yet here — attach directly.
+    if (pillPaneLate.busyProc) {
+      pill.insertBefore(makeBusyBadge(pillPaneLate.busyProc), pill.firstChild);
     }
 
     // Live-worktree dot: this worktree is what the running dev app was

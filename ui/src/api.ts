@@ -54,7 +54,9 @@ export type SessionUiEvent =
       kind: "foreground_changed";
       session: SessionId;
       name: string | null;
-      busy: boolean;
+      /** Dev server alive under the session's shell (listen-checked
+       *  descendant scan) — drives the pulse dot, any tab kind. */
+      busy_proc: string | null;
     }
   | { kind: "title_suggested"; session: SessionId; title: string };
 
