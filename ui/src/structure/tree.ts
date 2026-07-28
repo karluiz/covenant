@@ -662,9 +662,9 @@ export class StructureTree {
 
     const refresh = document.createElement("button");
     refresh.type = "button";
-    refresh.className = "structure-refresh";
+    refresh.className = "structure-action";
     refresh.title = "Refresh";
-    refresh.textContent = "↻";
+    refresh.innerHTML = Icons.refresh({ size: 12 });
     refresh.addEventListener("click", () => {
       void this.refresh();
     });
