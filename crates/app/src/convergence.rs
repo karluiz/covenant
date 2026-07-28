@@ -299,7 +299,11 @@ pub fn last_non_empty_lines(
     max_chars_per_line: usize,
 ) -> Option<String> {
     let stripped = strip_ansi_escapes::strip(bytes);
-    last_lines_of_str(&String::from_utf8_lossy(&stripped), max_lines, max_chars_per_line)
+    last_lines_of_str(
+        &String::from_utf8_lossy(&stripped),
+        max_lines,
+        max_chars_per_line,
+    )
 }
 
 /// Last `max_lines` non-empty lines of already-plain text.
@@ -839,7 +843,10 @@ mod tests {
             Some("line one\nline two")
         );
         // Blank or absent screen falls back to the stripped byte tail.
-        assert_eq!(pty_excerpt(Some("   \n"), tail).as_deref(), Some("rawstream"));
+        assert_eq!(
+            pty_excerpt(Some("   \n"), tail).as_deref(),
+            Some("rawstream")
+        );
         assert_eq!(pty_excerpt(None, tail).as_deref(), Some("rawstream"));
         assert!(pty_excerpt(None, b"").is_none());
     }

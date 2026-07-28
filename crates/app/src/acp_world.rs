@@ -125,7 +125,11 @@ impl AcpWorldModel {
         if let Some(fly) = self.in_flight_text() {
             lines.push(format!("{}: {fly}…", self.executor));
         }
-        if lines.is_empty() { None } else { Some(lines.join("\n")) }
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
     }
 
     fn role_line(&self, role: &AcpRole, text: &str) -> String {

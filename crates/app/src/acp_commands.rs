@@ -1400,10 +1400,7 @@ pub async fn spawn_acp_session(
                 }
             };
             if let Some(phase) = acp_event_to_phase(&ev) {
-                if phase_update_allowed(
-                    tab_for_task.replay_quiet.load(Ordering::Relaxed),
-                    &ev,
-                ) {
+                if phase_update_allowed(tab_for_task.replay_quiet.load(Ordering::Relaxed), &ev) {
                     notch_hub_task.set_phase(session_id, phase).await;
                 }
             }

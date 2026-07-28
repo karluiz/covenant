@@ -756,7 +756,11 @@ impl OperatorRegistry {
     }
 
     pub fn group_supervision(&self, group_id: &str) -> Option<GroupSupervision> {
-        self.group_supervisors.read().unwrap().get(group_id).copied()
+        self.group_supervisors
+            .read()
+            .unwrap()
+            .get(group_id)
+            .copied()
     }
 
     pub fn set_session_group(&self, session_id: SessionId, group_id: Option<String>) {
@@ -772,7 +776,11 @@ impl OperatorRegistry {
     }
 
     pub fn session_group(&self, session_id: SessionId) -> Option<String> {
-        self.session_groups.read().unwrap().get(&session_id).cloned()
+        self.session_groups
+            .read()
+            .unwrap()
+            .get(&session_id)
+            .cloned()
     }
 
     pub fn group_sessions(&self, group_id: &str) -> Vec<SessionId> {
@@ -1321,7 +1329,10 @@ pub mod commands {
                 let oid: OperatorId = s.parse().map_err(map_err)?;
                 registry.set_group_supervisor(
                     group_id,
-                    Some(GroupSupervision { operator: oid, intervene }),
+                    Some(GroupSupervision {
+                        operator: oid,
+                        intervene,
+                    }),
                 );
             }
             None => registry.set_group_supervisor(group_id, None),
@@ -1497,7 +1508,13 @@ mod supervision_tests {
         assert!(reg.effective_for(sid).is_default);
 
         reg.set_session_group(sid, Some("g1".into()));
-        reg.set_group_supervisor("g1".into(), Some(GroupSupervision { operator: sup, intervene: false }));
+        reg.set_group_supervisor(
+            "g1".into(),
+            Some(GroupSupervision {
+                operator: sup,
+                intervene: false,
+            }),
+        );
         assert_eq!(reg.effective_for(sid).id, sup);
 
         // Pin wins over supervisor.
@@ -1512,7 +1529,13 @@ mod supervision_tests {
         let sid = SessionId::new();
         let sup = add_supervisor(&reg, "NoCap", false);
         reg.set_session_group(sid, Some("g1".into()));
-        reg.set_group_supervisor("g1".into(), Some(GroupSupervision { operator: sup, intervene: false }));
+        reg.set_group_supervisor(
+            "g1".into(),
+            Some(GroupSupervision {
+                operator: sup,
+                intervene: false,
+            }),
+        );
         assert!(reg.effective_for(sid).is_default);
         assert!(reg.supervisor_for(sid).is_none());
     }
@@ -1523,7 +1546,13 @@ mod supervision_tests {
         let sid = SessionId::new();
         let sup = add_supervisor(&reg, "Seer", true); // perception_enabled: true
         reg.set_session_group(sid, Some("g1".into()));
-        reg.set_group_supervisor("g1".into(), Some(GroupSupervision { operator: sup, intervene: false }));
+        reg.set_group_supervisor(
+            "g1".into(),
+            Some(GroupSupervision {
+                operator: sup,
+                intervene: false,
+            }),
+        );
         assert!(reg.perception_enabled_for(sid));
 
         // Supervisor pointing at a deleted operator → falls to default, no panic.
@@ -1543,7 +1572,13 @@ mod supervision_tests {
         let sid = SessionId::new();
         let sup = add_supervisor(&reg, "Warden", true);
         reg.set_session_group(sid, Some("g1".into()));
-        reg.set_group_supervisor("g1".into(), Some(GroupSupervision { operator: sup, intervene: false }));
+        reg.set_group_supervisor(
+            "g1".into(),
+            Some(GroupSupervision {
+                operator: sup,
+                intervene: false,
+            }),
+        );
 
         let resolved = reg
             .pinned(sid)

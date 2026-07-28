@@ -133,11 +133,7 @@ pub fn spawn(
                             // Ledger the hand-back — a declined prompt used to
                             // be indistinguishable from a dead pipeline.
                             crate::acp_commands::perception_record(
-                                &app,
-                                session_id,
-                                "claude",
-                                &req,
-                                None,
+                                &app, session_id, "claude", &req, None,
                             )
                             .await;
                         }
