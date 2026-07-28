@@ -15,7 +15,7 @@
 - `perception_enabled_for` runs on a hot path and must NEVER panic.
 - No `unwrap()` outside `#[cfg(test)]`. `thiserror` in libs. IDs are `ulid` newtypes.
 - FE: TS `strict`, all Tauri commands wrapped in `ui/src/api.ts`, no emoji in chrome (inline SVG `Icons.*` only), tooltips via `attachTooltip` (never `element.title`), new UI surfaces sharp corners (`border-radius: 0`), English copy.
-- Tests: run Vitest from repo ROOT (`npm test`), Rust via `cargo test -p karl-app <module>` (broad `cargo test --workspace` can hang on telegram tests).
+- Tests: run Vitest from repo ROOT (`npm test`), Rust via `cargo test -p covenant <module>` (broad `cargo test --workspace` can hang on telegram tests).
 - Conventional Commits, one feature-coherent commit per task.
 
 ---
@@ -54,7 +54,7 @@ Note: adding the struct field first (Step 3) is required for this to compile —
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p karl-app operator_supervision_enabled_round_trip`
+Run: `cargo test -p covenant operator_supervision_enabled_round_trip`
 Expected: FAIL (no field `supervision_enabled`, no method `operator_set_supervision_enabled`)
 
 - [ ] **Step 3: Add the field + migration + SQL mappings**
@@ -107,7 +107,7 @@ Add the field right after `perception_enabled` in every literal (operator_regist
 
 - [ ] **Step 6: Run tests to verify green**
 
-Run: `cargo test -p karl-app operator_supervision && cargo test -p karl-app operator_registry`
+Run: `cargo test -p covenant operator_supervision && cargo test -p covenant operator_registry`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -224,7 +224,7 @@ mod supervision_tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test -p karl-app supervision_tests`
+Run: `cargo test -p covenant supervision_tests`
 Expected: FAIL (no `GroupSupervision`, no methods)
 
 - [ ] **Step 3: Implement maps + methods + fallback**
@@ -370,7 +370,7 @@ Register both in `lib.rs` (~5948, next to `session_set_operator`).
 
 - [ ] **Step 5: Run tests to verify green**
 
-Run: `cargo test -p karl-app supervision_tests && cargo test -p karl-app perception_activation_tests`
+Run: `cargo test -p covenant supervision_tests && cargo test -p covenant perception_activation_tests`
 Expected: PASS (including the pre-existing perception tests — the fallback must not break them)
 
 - [ ] **Step 6: Commit**
@@ -697,7 +697,7 @@ mod tests {
 }
 ```
 
-Run: `cargo test -p karl-app group_supervision` — Expected: FAIL (module doesn't exist)
+Run: `cargo test -p covenant group_supervision` — Expected: FAIL (module doesn't exist)
 
 - [ ] **Step 2: Implement the watcher**
 
@@ -742,7 +742,7 @@ plus `voice_directive(op.voice)` appended, and the same strict `FINDING:` output
 
 - [ ] **Step 4: Run tests to verify green**
 
-Run: `cargo test -p karl-app group_supervision && npm run build`
+Run: `cargo test -p covenant group_supervision && npm run build`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -854,7 +854,7 @@ Expected: PASS
 
 - [ ] **Step 4: Full suite + clippy**
 
-Run: `npm test && cargo test -p karl-app supervision && cargo clippy --workspace --all-targets && cargo fmt --all -- --check`
+Run: `npm test && cargo test -p covenant supervision && cargo clippy --workspace --all-targets && cargo fmt --all -- --check`
 Expected: PASS (telegram-adjacent broad test runs are known to hang — stick to targeted filters)
 
 - [ ] **Step 5: Commit**
