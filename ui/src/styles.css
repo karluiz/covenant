@@ -20077,6 +20077,10 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .mc-detail__meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
 .mc-detail__meta strong { color: var(--text-primary); font-weight: 600; }
 .mc-detail__cwd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.mc-detail__note {
+  border: 1px solid var(--border); border-radius: 0; padding: 14px 16px;
+  color: var(--muted); font-size: 12.5px; font-style: italic;
+}
 .mc-detail__question { color: var(--text-primary); font-size: 13px; line-height: 1.45; margin: 0; }
 
 .mc-tail {

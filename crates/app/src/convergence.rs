@@ -303,7 +303,11 @@ pub fn last_non_empty_lines(
     max_chars_per_line: usize,
 ) -> Option<String> {
     let stripped = strip_ansi_escapes::strip(bytes);
-    let s = String::from_utf8_lossy(&stripped);
+    last_lines_of_str(&String::from_utf8_lossy(&stripped), max_lines, max_chars_per_line)
+}
+
+/// Last `max_lines` non-empty lines of already-plain text.
+fn last_lines_of_str(s: &str, max_lines: usize, max_chars_per_line: usize) -> Option<String> {
     let mut tail: Vec<String> = s
         .lines()
         .rev()
@@ -316,6 +320,18 @@ pub fn last_non_empty_lines(
     }
     tail.reverse();
     Some(tail.join("\n"))
+}
+
+/// The detail pane's tail for a PTY session. Prefer the tidied vt100
+/// screen render (cell-grid text) — linearly stripping a TUI's byte
+/// stream scrambles words and leaves control residue — and fall back to
+/// the stripped raw tail only when the screen is blank (e.g. just
+/// spawned). Always secret-masked.
+fn pty_excerpt(screen: Option<&str>, tail_bytes: &[u8]) -> Option<String> {
+    screen
+        .and_then(|s| last_lines_of_str(s, 15, 200))
+        .or_else(|| last_non_empty_lines(tail_bytes, 15, 200))
+        .map(|e| crate::safety::mask_secrets(&e))
 }
 
 use crate::aom::AomHandle;
@@ -357,6 +373,10 @@ pub struct SessionInput {
     /// Foreground agent name from NotchHub ("claude", …). `None` at a
     /// plain shell prompt — the operator-less gate for this lane.
     pub notch_agent: Option<String>,
+    /// Tidied headless vt100 screen render at snapshot time (plain text,
+    /// no escapes). `None` when blank/not yet rendered — the excerpt then
+    /// falls back to stripping the raw byte tail.
+    pub screen: Option<String>,
 }
 
 /// Per-ACP-tab inputs (from `AcpRegistry` + NotchHub + tab hints).
@@ -580,7 +600,7 @@ pub async fn build_convergence_snapshot(
                 let mut c = c;
                 c.excerpt = {
                     let tail = lock_recover(&s.op_state).snapshot_tail(8 * 1024);
-                    last_non_empty_lines(&tail, 15, 200).map(|e| crate::safety::mask_secrets(&e))
+                    pty_excerpt(s.screen.as_deref(), &tail)
                 };
                 agent_inputs.push(AgentCardInput {
                     card: c,
@@ -647,8 +667,7 @@ pub async fn build_convergence_snapshot(
             raw_command_label,
             last_command: last.and_then(|d| d.in_flight_command.clone()),
             last_output_line: last_non_empty_line(&tail_bytes, 160),
-            excerpt: last_non_empty_lines(&tail_bytes, 15, 200)
-                .map(|e| crate::safety::mask_secrets(&e)),
+            excerpt: pty_excerpt(s.screen.as_deref(), &tail_bytes),
             mission_name: mission_name_from_path(last.and_then(|d| d.mission_path.as_deref())),
             operator_id: Some(op_id),
             operator_name: Some(op_name),
@@ -811,6 +830,29 @@ mod tests {
             Some("hello worl")
         );
         assert!(last_non_empty_line(b"\n   \n\t\n", 200).is_none());
+    }
+
+    #[test]
+    fn pty_excerpt_prefers_screen_render_over_raw_tail() {
+        // A TUI's linear byte stream strips into scrambled words — the
+        // tidied vt100 screen render must win whenever it has content.
+        let screen = "line one\nline two\n";
+        let tail = b"\x1b[2Kraw\x1b[0mstream";
+        assert_eq!(
+            pty_excerpt(Some(screen), tail).as_deref(),
+            Some("line one\nline two")
+        );
+        // Blank or absent screen falls back to the stripped byte tail.
+        assert_eq!(pty_excerpt(Some("   \n"), tail).as_deref(), Some("rawstream"));
+        assert_eq!(pty_excerpt(None, tail).as_deref(), Some("rawstream"));
+        assert!(pty_excerpt(None, b"").is_none());
+    }
+
+    #[test]
+    fn pty_excerpt_masks_secrets_from_the_screen_render_too() {
+        let screen = "token=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA suffix\n";
+        let e = pty_excerpt(Some(screen), b"").expect("some excerpt");
+        assert!(!e.contains("sk-ant-api03"), "secret leaked: {e}");
     }
 
     #[test]

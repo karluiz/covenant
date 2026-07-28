@@ -144,6 +144,13 @@ export function renderDetailPane(
     tail.className = "mc-tail";
     tail.textContent = card.excerpt;
     pane.append(tail);
+  } else if (card.lane === "acp") {
+    // A chat session has no PTY screen to mirror — say so instead of
+    // leaving the pane looking broken.
+    const note = document.createElement("div");
+    note.className = "mc-detail__note";
+    note.textContent = "Chat session — the conversation lives in its tab.";
+    pane.append(note);
   }
   if (card.subagents.length > 0) pane.append(renderSubAgents(card.subagents));
   if (attention) pane.append(renderAttentionBody(attention, cb));
@@ -187,7 +194,7 @@ export function elapsedLabel(sinceMs: number): string {
 }
 
 function activityLine(card: AgentCard): string {
-  return card.last_command ?? card.last_output_line ?? "…";
+  return card.last_command ?? card.last_output_line ?? card.cwd ?? "…";
 }
 
 function vendorLabel(card: AgentCard): string {
