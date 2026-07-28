@@ -20046,7 +20046,12 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   text-transform: uppercase; letter-spacing: .04em;
 }
 .mc-row__age { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
-.mc-row__sub { color: var(--muted); font-size: 11px; padding-left: 15px; }
+.mc-row__sub {
+  color: var(--muted); font-size: 11px; padding-left: 15px;
+  display: flex; align-items: center; gap: 5px; min-width: 0;
+}
+.mc-brand { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.mc-brand svg { display: block; }
 .mc-row__activity {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px; color: var(--muted); padding-left: 15px;

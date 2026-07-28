@@ -1,6 +1,8 @@
 import type { AgentCard, AttentionItem, SubAgentRow, TileStatus } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
 import { attachTooltip } from "../tooltip/tooltip";
+import { brandIconSvg } from "../icons/brands";
+import { BRAND_COLORS } from "../spawns/chip";
 import { formatChord } from "../platform";
 import { CustomSelect } from "../ui/select";
 import { renderAttentionBody, type AttentionCallbacks } from "./attention";
@@ -50,9 +52,13 @@ export function renderAgentRow(
 
   const sub = document.createElement("div");
   sub.className = "mc-row__sub";
-  sub.textContent = [card.executor ?? vendorLabel(card), card.operator_name]
+  const brand = brandMark(card, 11);
+  if (brand) sub.append(brand);
+  const subText = document.createElement("span");
+  subText.textContent = [card.executor ?? vendorLabel(card), card.operator_name]
     .filter(Boolean)
     .join(" · ");
+  sub.append(subText);
 
   const act = document.createElement("div");
   act.className = "mc-row__activity";
@@ -126,6 +132,8 @@ export function renderDetailPane(
 
   const meta = document.createElement("div");
   meta.className = "mc-detail__meta";
+  const metaBrand = brandMark(card, 14);
+  if (metaBrand) meta.append(metaBrand);
   const exec = document.createElement("strong");
   exec.textContent = card.executor ?? vendorLabel(card);
   meta.append(exec);
@@ -211,6 +219,19 @@ export function elapsedLabel(sinceMs: number): string {
 
 function activityLine(card: AgentCard): string {
   return card.last_command ?? card.last_output_line ?? card.cwd ?? "…";
+}
+
+/// Tinted harness brand mark (claude/codex/copilot/pi/…), or null when
+/// we have no logo for the executor — callers fall back to text-only.
+function brandMark(card: AgentCard, size: number): HTMLElement | null {
+  const key = (card.executor ?? "").toLowerCase();
+  const svg = key ? brandIconSvg(key, size) : null;
+  if (!svg) return null;
+  const span = document.createElement("span");
+  span.className = "mc-brand";
+  span.style.color = BRAND_COLORS[key] ?? "var(--muted)";
+  span.innerHTML = svg;
+  return span;
 }
 
 function vendorLabel(card: AgentCard): string {

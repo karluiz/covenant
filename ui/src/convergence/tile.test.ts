@@ -41,6 +41,14 @@ describe("renderAgentRow", () => {
     expect(cb.onFocus).toHaveBeenCalledWith("s1");
   });
 
+  it("known executors get a tinted brand icon in the sub-line; unknown stay text-only", () => {
+    const claude = renderAgentRow(agent({ executor: "claude" }), { selected: false, age: null }, rowCbs());
+    expect(claude.querySelector(".mc-row__sub .mc-brand svg")).not.toBeNull();
+    const mystery = renderAgentRow(agent({ executor: "mystery-agent" }), { selected: false, age: null }, rowCbs());
+    expect(mystery.querySelector(".mc-brand")).toBeNull();
+    expect(mystery.querySelector(".mc-row__sub")?.textContent).toContain("mystery-agent");
+  });
+
   it("activity falls back to cwd before the ellipsis placeholder", () => {
     const withCwd = renderAgentRow(
       agent({ last_command: null, last_output_line: null, cwd: "/x/y" }),
@@ -63,6 +71,11 @@ describe("renderDetailPane", () => {
     // PTY without excerpt stays bare — no note.
     const pty = renderDetailPane(agent({ lane: "pty", excerpt: null }), null, detailCbs());
     expect(pty.querySelector(".mc-detail__note")).toBeNull();
+  });
+
+  it("detail meta leads with the brand icon", () => {
+    const el = renderDetailPane(agent({ executor: "claude" }), null, detailCbs());
+    expect(el.querySelector(".mc-detail__meta .mc-brand svg")).not.toBeNull();
   });
 
   it("head has title + status pill + Open tab; no Stop without an operator", () => {
