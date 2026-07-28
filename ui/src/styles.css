@@ -20074,6 +20074,24 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   border: 1px solid var(--border); border-radius: 0; padding: 14px 16px;
   color: var(--muted); font-size: 12.5px; font-style: italic;
 }
+
+/* Status-bar "needs you" chip — sessions blocked on the human. */
+.status-segment.status-needsyou {
+  appearance: none; background: transparent; border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: 0; color: var(--danger); cursor: pointer; font: inherit;
+  font-size: 11px; padding: 1px 8px;
+}
+.status-segment.status-needsyou:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.status-needsyou__dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--danger);
+  animation: needsyou-pulse 1.6s ease-in-out infinite;
+}
+@keyframes needsyou-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) {
+  .status-needsyou__dot { animation: none; }
+}
 .mc-detail__question { color: var(--text-primary); font-size: 13px; line-height: 1.45; margin: 0; }
 
 .mc-tail {
