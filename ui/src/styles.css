@@ -19437,6 +19437,14 @@ body.theme-light .task-item.is-open {
   color: #ef6b7e;
   border-color: color-mix(in srgb, #ef6b7e 35%, transparent);
 }
+.task-item__supervision-chip {
+  font-size: 11px;
+  color: var(--text-muted, #8a95a3);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
 
 /* --- Friendly error card (replaces raw system rows for failures) --- */
 .teammate-error-card {

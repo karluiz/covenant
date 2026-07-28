@@ -818,6 +818,18 @@ impl OperatorRegistry {
         self.supervised_pair(session_id).map(|(_, op)| op)
     }
 
+    /// All groups supervised by `op_id`, as `(group_id, GroupSupervision)` pairs.
+    /// Used to build virtual supervision tasks for the teammate Tasks tab.
+    pub fn supervised_groups_for(&self, op_id: OperatorId) -> Vec<(String, GroupSupervision)> {
+        self.group_supervisors
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, sup)| sup.operator == op_id)
+            .map(|(gid, sup)| (gid.clone(), *sup))
+            .collect()
+    }
+
     /// The operator that should drive AOM for this session right now.
     /// Resolution: explicit pin → group supervisor → default → panic (registry must always
     /// have a default after migration; absence is a programmer bug).

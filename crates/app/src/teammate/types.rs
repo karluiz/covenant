@@ -129,6 +129,12 @@ pub struct Task {
     pub updated_at_unix_ms: u64,
     pub completed_at_unix_ms: Option<u64>,
     pub cost_usd_cents: u32,
+    /// Set only on virtual supervision tasks synthesised from the in-memory
+    /// registry (never persisted). The value is the group_id this operator
+    /// is supervising. The frontend uses this to hide executor-task actions
+    /// (Stop / Continue) and show a "Supervising" context chip instead.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub supervision_group: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -585,6 +585,8 @@ export interface Task {
   updated_at_unix_ms: number;
   completed_at_unix_ms: number | null;
   cost_usd_cents: number;
+  /** Present only on virtual supervision tasks. Value is the group_id. */
+  supervision_group?: string | null;
 }
 
 export type TeammateContent =

@@ -87,6 +87,7 @@ async fn supervisor_emits_duda_then_enojo_on_repeated_failure() {
         updated_at_unix_ms: now_ms(),
         completed_at_unix_ms: None,
         cost_usd_cents: 0,
+        supervision_group: None,
     };
     storage
         .teammate_insert_task(&task)

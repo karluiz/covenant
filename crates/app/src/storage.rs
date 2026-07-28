@@ -3433,6 +3433,7 @@ impl Storage {
                         updated_at_unix_ms: updated as u64,
                         completed_at_unix_ms: completed.map(|v| v as u64),
                         cost_usd_cents: cost as u32,
+                        supervision_group: None,
                     });
                 }
                 Ok(out)
@@ -3553,6 +3554,7 @@ impl Storage {
                         updated_at_unix_ms: updated as u64,
                         completed_at_unix_ms: completed.map(|v| v as u64),
                         cost_usd_cents: cost as u32,
+                        supervision_group: None,
                     });
                 }
                 Ok(out)
@@ -3632,6 +3634,7 @@ impl Storage {
                     updated_at_unix_ms: updated as u64,
                     completed_at_unix_ms: completed.map(|v| v as u64),
                     cost_usd_cents: cost as u32,
+                    supervision_group: None,
                 }))
             },
         )
@@ -5491,6 +5494,7 @@ mod task_card_storage_tests {
             updated_at_unix_ms: 1,
             completed_at_unix_ms: None,
             cost_usd_cents: 0,
+            supervision_group: None,
         };
         let t1 = mk_task(crate::teammate::TaskStatus::Active, "one");
         let t2 = mk_task(crate::teammate::TaskStatus::Active, "two");
