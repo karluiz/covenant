@@ -5948,6 +5948,8 @@ pub fn run() {
             operator_registry::commands::operator_update_from_soul,
             operator_registry::commands::session_set_operator,
             operator_registry::commands::session_get_operator,
+            operator_registry::commands::group_set_supervisor,
+            operator_registry::commands::session_set_group,
             teammate::commands::teammate_list_messages_for_operator,
             teammate::commands::teammate_send_text_message,
             teammate::commands::teammate_list_tasks,

@@ -176,9 +176,19 @@ use karl_session::SessionId;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+/// A group's attached supervisor. FE-synced, in-memory only — the tab
+/// manifest is the durable copy, mirroring `pins`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GroupSupervision {
+    pub operator: OperatorId,
+    pub intervene: bool,
+}
+
 pub struct OperatorRegistry {
     by_id: RwLock<HashMap<OperatorId, Operator>>,
     pins: RwLock<HashMap<SessionId, OperatorId>>,
+    group_supervisors: RwLock<HashMap<String, GroupSupervision>>,
+    session_groups: RwLock<HashMap<SessionId, String>>,
     souls_dir: std::path::PathBuf,
 }
 
@@ -209,6 +219,8 @@ impl OperatorRegistry {
         Ok(Self {
             by_id: RwLock::new(by_id),
             pins: RwLock::new(HashMap::new()),
+            group_supervisors: RwLock::new(HashMap::new()),
+            session_groups: RwLock::new(HashMap::new()),
             souls_dir,
         })
     }
@@ -297,6 +309,8 @@ impl OperatorRegistry {
         std::sync::Arc::new(Self {
             by_id: RwLock::new(by_id),
             pins: RwLock::new(HashMap::new()),
+            group_supervisors: RwLock::new(HashMap::new()),
+            session_groups: RwLock::new(HashMap::new()),
             souls_dir: std::env::temp_dir().join("covenant-test-souls"),
         })
     }
@@ -694,8 +708,64 @@ impl OperatorRegistry {
         self.pins.read().unwrap().get(&session_id).copied()
     }
 
+    pub fn set_group_supervisor(&self, group_id: String, sup: Option<GroupSupervision>) {
+        let mut g = self.group_supervisors.write().unwrap();
+        match sup {
+            Some(s) => {
+                g.insert(group_id, s);
+            }
+            None => {
+                g.remove(&group_id);
+            }
+        }
+    }
+
+    pub fn group_supervision(&self, group_id: &str) -> Option<GroupSupervision> {
+        self.group_supervisors.read().unwrap().get(group_id).copied()
+    }
+
+    pub fn set_session_group(&self, session_id: SessionId, group_id: Option<String>) {
+        let mut m = self.session_groups.write().unwrap();
+        match group_id {
+            Some(g) => {
+                m.insert(session_id, g);
+            }
+            None => {
+                m.remove(&session_id);
+            }
+        }
+    }
+
+    pub fn session_group(&self, session_id: SessionId) -> Option<String> {
+        self.session_groups.read().unwrap().get(&session_id).cloned()
+    }
+
+    pub fn group_sessions(&self, group_id: &str) -> Vec<SessionId> {
+        self.session_groups
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, g)| g.as_str() == group_id)
+            .map(|(s, _)| *s)
+            .collect()
+    }
+
+    /// The operator supervising this session via its group, if any.
+    /// Gated on the operator still existing AND having the Supervision
+    /// capability — a stale attach never resolves.
+    pub fn supervisor_for(&self, session_id: SessionId) -> Option<Operator> {
+        let gid = self.session_group(session_id)?;
+        let sup = self.group_supervision(&gid)?;
+        let op = self.get(sup.operator)?;
+        if op.supervision_enabled {
+            Some(op)
+        } else {
+            None
+        }
+    }
+
     /// The operator that should drive AOM for this session right now.
-    /// Resolution: explicit pin → default → panic (registry must always
+    /// Resolution: explicit pin → group supervisor → default → panic (registry must always
     /// have a default after migration; absence is a programmer bug).
     pub fn effective_for(&self, session_id: SessionId) -> Operator {
         if let Some(id) = self.pinned(session_id) {
@@ -703,22 +773,26 @@ impl OperatorRegistry {
                 return op;
             }
         }
+        if let Some(op) = self.supervisor_for(session_id) {
+            return op;
+        }
         self.default()
             .expect("operator registry has no default — migration did not run")
     }
 
     /// Whether Perception (auto-answer trivial + safe ACP permission prompts)
     /// is active for this session: a standalone property of the session's
-    /// EFFECTIVE operator (explicit pin, else Default). Independent of AOM —
+    /// EFFECTIVE operator (explicit pin, else group supervisor, else Default). Independent of AOM —
     /// an operator can have Perception on with AOM off, or vice versa.
     ///
     /// Runs on the ACP `PermissionPending` hot path (once per prompt, even
     /// when Perception is off), so it must NEVER panic — deliberately avoids
-    /// `effective_for`'s `expect`-on-missing-default. Pin wins; else the
-    /// default if one exists; a registry with no resolvable operator → false.
+    /// `effective_for`'s `expect`-on-missing-default. Resolution: pin → group supervisor → default;
+    /// a registry with no resolvable operator → false.
     pub fn perception_enabled_for(&self, session_id: SessionId) -> bool {
         self.pinned(session_id)
             .and_then(|oid| self.get(oid))
+            .or_else(|| self.supervisor_for(session_id))
             .or_else(|| self.default())
             .map(|op| op.perception_enabled)
             .unwrap_or(false)
@@ -1171,6 +1245,37 @@ pub mod commands {
         let sid: SessionId = session_id.parse().map_err(map_err)?;
         Ok(registry.effective_for(sid))
     }
+
+    #[tauri::command]
+    pub async fn group_set_supervisor(
+        group_id: String,
+        operator_id: Option<String>,
+        intervene: bool,
+        registry: State<'_, Arc<OperatorRegistry>>,
+    ) -> Result<(), String> {
+        match operator_id {
+            Some(s) => {
+                let oid: OperatorId = s.parse().map_err(map_err)?;
+                registry.set_group_supervisor(
+                    group_id,
+                    Some(GroupSupervision { operator: oid, intervene }),
+                );
+            }
+            None => registry.set_group_supervisor(group_id, None),
+        }
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub async fn session_set_group(
+        session_id: String,
+        group_id: Option<String>,
+        registry: State<'_, Arc<OperatorRegistry>>,
+    ) -> Result<(), String> {
+        let sid: SessionId = session_id.parse().map_err(map_err)?;
+        registry.set_session_group(sid, group_id);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1287,6 +1392,8 @@ mod perception_activation_tests {
         let reg = OperatorRegistry {
             by_id: RwLock::new(HashMap::new()),
             pins: RwLock::new(HashMap::new()),
+            group_supervisors: RwLock::new(HashMap::new()),
+            session_groups: RwLock::new(HashMap::new()),
             souls_dir: std::env::temp_dir().join("covenant-test-souls-empty"),
         };
         assert!(!reg.perception_enabled_for(SessionId::new()));
@@ -1296,6 +1403,85 @@ mod perception_activation_tests {
         let sid = SessionId::new();
         reg.pin_session(sid, OperatorId(Ulid::new()));
         assert!(!reg.perception_enabled_for(sid));
+    }
+}
+
+#[cfg(test)]
+mod supervision_tests {
+    use super::*;
+    use ulid::Ulid;
+
+    fn add_supervisor(reg: &OperatorRegistry, name: &str, supervision: bool) -> OperatorId {
+        let mut op = reg.default().expect("default operator");
+        op.id = OperatorId(Ulid::new());
+        op.name = name.into();
+        op.is_default = false;
+        op.supervision_enabled = supervision;
+        op.perception_enabled = true;
+        let oid = op.id;
+        reg.by_id.write().unwrap().insert(oid, op);
+        oid
+    }
+
+    #[test]
+    fn effective_for_falls_back_to_group_supervisor() {
+        let reg = OperatorRegistry::for_tests("Default");
+        let sid = SessionId::new();
+        let sup = add_supervisor(&reg, "Warden", true);
+
+        // No group membership → default.
+        assert!(reg.effective_for(sid).is_default);
+
+        reg.set_session_group(sid, Some("g1".into()));
+        reg.set_group_supervisor("g1".into(), Some(GroupSupervision { operator: sup, intervene: false }));
+        assert_eq!(reg.effective_for(sid).id, sup);
+
+        // Pin wins over supervisor.
+        let driver = add_supervisor(&reg, "Driver", false);
+        reg.pin_session(sid, driver);
+        assert_eq!(reg.effective_for(sid).id, driver);
+    }
+
+    #[test]
+    fn supervisor_without_capability_is_ignored() {
+        let reg = OperatorRegistry::for_tests("Default");
+        let sid = SessionId::new();
+        let sup = add_supervisor(&reg, "NoCap", false);
+        reg.set_session_group(sid, Some("g1".into()));
+        reg.set_group_supervisor("g1".into(), Some(GroupSupervision { operator: sup, intervene: false }));
+        assert!(reg.effective_for(sid).is_default);
+        assert!(reg.supervisor_for(sid).is_none());
+    }
+
+    #[test]
+    fn perception_enabled_for_uses_supervisor_and_never_panics() {
+        let reg = OperatorRegistry::for_tests("Default");
+        let sid = SessionId::new();
+        let sup = add_supervisor(&reg, "Seer", true); // perception_enabled: true
+        reg.set_session_group(sid, Some("g1".into()));
+        reg.set_group_supervisor("g1".into(), Some(GroupSupervision { operator: sup, intervene: false }));
+        assert!(reg.perception_enabled_for(sid));
+
+        // Supervisor pointing at a deleted operator → falls to default, no panic.
+        reg.by_id.write().unwrap().remove(&sup);
+        assert!(!reg.perception_enabled_for(sid));
+    }
+
+    #[test]
+    fn membership_maps_round_trip() {
+        let reg = OperatorRegistry::for_tests("Default");
+        let (a, b) = (SessionId::new(), SessionId::new());
+        reg.set_session_group(a, Some("g1".into()));
+        reg.set_session_group(b, Some("g1".into()));
+        assert_eq!(reg.session_group(a).as_deref(), Some("g1"));
+        let mut members = reg.group_sessions("g1");
+        members.sort_by_key(|s| s.0);
+        assert_eq!(members.len(), 2);
+
+        reg.set_session_group(b, None);
+        assert_eq!(reg.group_sessions("g1").len(), 1);
+        reg.set_group_supervisor("g1".into(), None);
+        assert!(reg.group_supervision("g1").is_none());
     }
 }
 
