@@ -277,6 +277,98 @@ pub(crate) async fn perception_judge(settings: &Arc<Mutex<Settings>>, prompt: St
     }
 }
 
+/// Persist one Perception act to the operator-decision ledger and emit the
+/// same `operator-decision` event AOM rows ride, so it lands in the operator
+/// Activity feed. `answered = Some((option_id, reason))` records an
+/// auto-answer as action `"perception"`; `None` records the judge-declined
+/// hand-back as a plain `"escalate"` row — previously escalations were
+/// completely silent, indistinguishable from a dead pipeline.
+/// Best-effort: a storage error is logged and the decision flow continues.
+pub(crate) async fn perception_record(
+    app: &AppHandle,
+    session_id: SessionId,
+    executor: &str,
+    req: &PermissionRequest,
+    answered: Option<(&str, &str)>,
+) {
+    let (label, subject) =
+        crate::pty_perception::toast_fields(req, answered.map(|(id, _)| id).unwrap_or(""));
+    let question = req
+        .tool_call
+        .title
+        .clone()
+        .unwrap_or_else(|| subject.clone());
+    let registry = app.state::<Arc<crate::operator_registry::OperatorRegistry>>();
+    let (op_id, op_name) = registry
+        .pinned(session_id)
+        .and_then(|oid| registry.get(oid))
+        .or_else(|| registry.default())
+        .map(|o| (Some(o.id.to_string()), Some(o.name)))
+        .unwrap_or((None, None));
+    let (action, reply_text, rationale, escalation, executed) = match answered {
+        Some((_, reason)) => (
+            "perception".to_string(),
+            Some(label),
+            Some(reason.to_string()),
+            None,
+            true,
+        ),
+        None => (
+            "escalate".to_string(),
+            None,
+            Some("Perception: not trivial — handed back".to_string()),
+            Some(question.clone()),
+            false,
+        ),
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let state = app.state::<AppState>();
+    let row_id = match state
+        .storage
+        .save_operator_decision(
+            session_id,
+            now,
+            None,
+            question.chars().take(4000).collect(),
+            action.clone(),
+            reply_text.clone(),
+            rationale.clone(),
+            executed,
+            0.0,
+            None,
+            Some(executor.to_string()),
+            op_id,
+            op_name,
+            None,
+            escalation.clone(),
+        )
+        .await
+    {
+        Ok(id) => Some(id),
+        Err(e) => {
+            tracing::warn!(error = %e, "perception: ledger save failed");
+            None
+        }
+    };
+    let _ = app.emit(
+        "operator-decision",
+        json!({
+            "id": row_id,
+            "session_id": session_id.to_string(),
+            "action": action,
+            "reply_text": reply_text,
+            "rationale": rationale,
+            "escalation": escalation,
+            "executed": executed,
+            "cost_usd": 0.0,
+            "timestamp_unix_ms": now,
+        }),
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -1383,6 +1475,14 @@ pub async fn spawn_acp_session(
                                         tab_for_task
                                             .perception_consecutive
                                             .fetch_add(1, Ordering::AcqRel);
+                                        perception_record(
+                                            &app_for_task,
+                                            session_id,
+                                            &tab_for_task.executor,
+                                            &request,
+                                            Some((&option_id, &reason)),
+                                        )
+                                        .await;
                                         if let Err(e) = app_for_task.emit(
                                             &topic_for_task,
                                             &AcpTabEvent::PerceptionAutoAnswer {
@@ -1425,6 +1525,14 @@ pub async fn spawn_acp_session(
                                 tab_for_task
                                     .perception_consecutive
                                     .store(0, Ordering::Release);
+                                perception_record(
+                                    &app_for_task,
+                                    session_id,
+                                    &tab_for_task.executor,
+                                    &request,
+                                    None,
+                                )
+                                .await;
                                 AcpTabEvent::PermissionPending {
                                     request_key,
                                     request,

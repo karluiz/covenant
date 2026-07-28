@@ -101,6 +101,14 @@ pub fn spawn(
                                     reason = %reason,
                                     "pty perception auto-answered claude prompt"
                                 );
+                                crate::acp_commands::perception_record(
+                                    &app,
+                                    session_id,
+                                    "claude",
+                                    &req,
+                                    Some((&option_id, &reason)),
+                                )
+                                .await;
                                 let _ = app.emit(
                                     "perception:pty-auto-answer",
                                     serde_json::json!({
@@ -117,7 +125,19 @@ pub fn spawn(
                                 consecutive = 0;
                             }
                         }
-                        PerceptionOutcome::Escalated => consecutive = 0,
+                        PerceptionOutcome::Escalated => {
+                            consecutive = 0;
+                            // Ledger the hand-back — a declined prompt used to
+                            // be indistinguishable from a dead pipeline.
+                            crate::acp_commands::perception_record(
+                                &app,
+                                session_id,
+                                "claude",
+                                &req,
+                                None,
+                            )
+                            .await;
+                        }
                     }
                 }
                 Ok(_) => {}
@@ -136,7 +156,10 @@ fn fingerprint(req: &karl_agent::acp::PermissionRequest) -> String {
 /// Toast copy: ("1. Yes", "git status"). The subject is the command's
 /// first line (the parsed block may carry Claude's description line
 /// below it) or the tool kind for edit/read prompts.
-fn toast_fields(req: &karl_agent::acp::PermissionRequest, option_id: &str) -> (String, String) {
+pub(crate) fn toast_fields(
+    req: &karl_agent::acp::PermissionRequest,
+    option_id: &str,
+) -> (String, String) {
     let label = req
         .options
         .iter()

@@ -47,7 +47,15 @@ interface StartupActionEvent {
 
 /* ── normalized event ────────────────────────────────────────────── */
 
-type Kind = "typed" | "dry-run" | "escalated" | "waited" | "startup" | "error" | "other";
+type Kind =
+  | "typed"
+  | "dry-run"
+  | "escalated"
+  | "waited"
+  | "startup"
+  | "error"
+  | "perception"
+  | "other";
 
 interface ActEvent {
   ts: number;
@@ -121,6 +129,10 @@ function classifyKind(action: string, executed: boolean): Kind {
     // A failed model call, not a verdict — kept out of the escalated
     // count so provider flakiness doesn't read as the operator punting.
     case "error": return "error";
+    // Perception auto-answer — the operator answered a trivial prompt on
+    // the human's behalf (its judge-declined hand-backs arrive as plain
+    // "escalate" rows).
+    case "perception": return "perception";
     default: return "other";
   }
 }
@@ -133,7 +145,8 @@ function bodyForDecision(
 ): string {
   switch (kind) {
     case "typed":
-    case "dry-run": {
+    case "dry-run":
+    case "perception": {
       const t = (replyText ?? "").replace(/\n/g, " ").trim();
       return t.length === 0 ? "(empty)" : t;
     }
@@ -201,7 +214,7 @@ export interface ActivityTabBridge {
   focusSessionShort(short: string): boolean;
 }
 
-type Filter = "all" | "typed" | "escalated" | "waited";
+type Filter = "all" | "typed" | "escalated" | "waited" | "perception";
 
 /// Resolved origin for a render group, threaded into the row renderers.
 type OriginTab = { short: string; name: string; open: boolean } | null;
@@ -602,11 +615,12 @@ export class ActivityView {
       this.filtersEl.innerHTML = "";
       return;
     }
-    const counts = { all: this.events.length, typed: 0, escalated: 0, waited: 0 };
+    const counts = { all: this.events.length, typed: 0, escalated: 0, waited: 0, perception: 0 };
     for (const e of this.events) {
       if (e.kind === "typed" || e.kind === "dry-run") counts.typed++;
       else if (e.kind === "escalated") counts.escalated++;
       else if (e.kind === "waited") counts.waited++;
+      else if (e.kind === "perception") counts.perception++;
     }
     const chip = (f: Filter, label: string, swatch: string, n: number): string =>
       `<button class="tp-act-chip${this.filter === f ? " is-active" : ""}" data-filter="${f}" type="button">
@@ -625,6 +639,7 @@ export class ActivityView {
       chip("typed", "typed", "ok", counts.typed) +
       chip("escalated", "escalated", "warn", counts.escalated) +
       chip("waited", "waited", "mute", counts.waited) +
+      (counts.perception > 0 ? chip("perception", "perception", "perception", counts.perception) : "") +
       hideToggle;
   }
 
@@ -666,6 +681,7 @@ export class ActivityView {
       if (this.filter === "typed") return e.kind === "typed" || e.kind === "dry-run";
       if (this.filter === "escalated") return e.kind === "escalated";
       if (this.filter === "waited") return e.kind === "waited";
+      if (this.filter === "perception") return e.kind === "perception";
       return true;
     });
 
@@ -896,6 +912,8 @@ function iconFor(kind: Kind): string {
       return "▶";
     case "error":
       return "✕";
+    case "perception":
+      return "◉";
     default:
       return "·";
   }
@@ -909,6 +927,7 @@ function labelFor(kind: Kind): string {
     case "waited": return "waited";
     case "startup": return "startup";
     case "error": return "api error";
+    case "perception": return "perception";
     default: return "action";
   }
 }
