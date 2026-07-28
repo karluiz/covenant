@@ -1496,6 +1496,17 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     display: none;
 }
 
+.group-chip-supervised {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+}
+
+.group-chip-supervised svg {
+    display: block;
+}
+
 
 .group-chip-input {
     background: var(--bg);

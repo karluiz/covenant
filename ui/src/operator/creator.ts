@@ -8,6 +8,7 @@ import {
   operatorSetGithubAccess,
   operatorSetAcpEnabled,
   operatorSetPerceptionEnabled,
+  operatorSetSupervisionEnabled,
   operatorSetOrg,
   operatorListArchetypes,
   operatorSoulRead,
@@ -117,6 +118,9 @@ export interface ModalState {
   /// Perception gate (auto-answer trivial, safe ACP permission prompts).
   /// Registry-side, same save pattern as acpEnabled.
   perceptionEnabled: boolean;
+  /// Supervision capability — whether this operator can be attached as a
+  /// tab group's supervisor. Registry-side, same save pattern as acpEnabled.
+  supervisionEnabled: boolean;
   /// Active section in the immersive shell UI.
   activeSection: SectionKey;
   /// Raw SOUL.md text bound to the split-editor textarea. Authoritative
@@ -146,6 +150,7 @@ export interface ModalHandle {
   setGithubAccess(a: GithubAccess): void;
   setAcpEnabled(b: boolean): void;
   setPerceptionEnabled(b: boolean): void;
+  setSupervisionEnabled(b: boolean): void;
   applyPreset(key: PresetKey): void;
   setSection(s: SectionKey): void;
 }
@@ -213,6 +218,7 @@ export function openOperatorModal(opts: {
     githubAccess: opts.existing?.github_access ?? "Off",
     acpEnabled: opts.existing?.acp_enabled ?? false,
     perceptionEnabled: opts.existing?.perception_enabled ?? false,
+    supervisionEnabled: opts.existing?.supervision_enabled ?? false,
     activeSection: opts.mode === "create" ? "start" : "identity",
     // SOUL.md is the authoritative source for the new split editor.
     // Edit mode loads it asynchronously below; create starts blank
@@ -266,6 +272,7 @@ export function openOperatorModal(opts: {
     setGithubAccess(a) { state.githubAccess = a; render(); },
     setAcpEnabled(b) { state.acpEnabled = b; render(); },
     setPerceptionEnabled(b) { state.perceptionEnabled = b; render(); },
+    setSupervisionEnabled(b) { state.supervisionEnabled = b; render(); },
     setSection(s) {
       if (state.activeSection === s) return;
       state.activeSection = s;
@@ -359,7 +366,8 @@ function isDirty(h: ModalHandle): boolean {
     s.setAsDefault !== s.isDefault ||
     s.githubAccess !== (ex?.github_access ?? "Off") ||
     s.acpEnabled !== (ex?.acp_enabled ?? false) ||
-    s.perceptionEnabled !== (ex?.perception_enabled ?? false)
+    s.perceptionEnabled !== (ex?.perception_enabled ?? false) ||
+    s.supervisionEnabled !== (ex?.supervision_enabled ?? false)
   );
 }
 
@@ -1123,6 +1131,32 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     perceptionHint.textContent = "Auto-answer trivial, safe executor prompts";
     perceptionField.append(perceptionLbl, perceptionSeg, perceptionHint);
     behaviour.append(perceptionField);
+
+    // ── Supervision (eligible to attach to a tab group as supervisor) ──
+    const supervisionSeg = document.createElement("div");
+    supervisionSeg.className = "op-soul-seg";
+    for (const opt of [
+      { value: false, label: "Off" },
+      { value: true, label: "On" },
+    ]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "op-soul-seg-btn";
+      if (h.state.supervisionEnabled === opt.value) btn.classList.add("is-selected");
+      btn.textContent = opt.label;
+      btn.addEventListener("click", () => h.setSupervisionEnabled(opt.value));
+      supervisionSeg.append(btn);
+    }
+    const supervisionField = document.createElement("div");
+    supervisionField.className = "op-modal-field";
+    const supervisionLbl = document.createElement("span");
+    supervisionLbl.className = "op-modal-label";
+    supervisionLbl.textContent = "Supervision";
+    const supervisionHint = document.createElement("small");
+    supervisionHint.className = "op-modal-hint";
+    supervisionHint.textContent = "Can be attached to a tab group as supervisor";
+    supervisionField.append(supervisionLbl, supervisionSeg, supervisionHint);
+    behaviour.append(supervisionField);
     controls.append(behaviour);
 
     // ── Hard constraints (safety — extra deny rules) ──────────────────
@@ -1472,6 +1506,13 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
           if (saved.id && handle.state.perceptionEnabled !== prevPerception) {
             try { await operatorSetPerceptionEnabled(saved.id, handle.state.perceptionEnabled); } catch (e) {
               console.warn("operator_set_perception_enabled failed", e);
+            }
+          }
+          // Same registry-side pattern for the supervision capability gate.
+          const prevSupervision = handle.state.existing?.supervision_enabled ?? false;
+          if (saved.id && handle.state.supervisionEnabled !== prevSupervision) {
+            try { await operatorSetSupervisionEnabled(saved.id, handle.state.supervisionEnabled); } catch (e) {
+              console.warn("operator_set_supervision_enabled failed", e);
             }
           }
           closeCreator(handle.el);

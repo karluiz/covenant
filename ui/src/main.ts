@@ -1160,6 +1160,9 @@ async function boot(): Promise<void> {
     void getCurrentWindow().close();
   });
   tabsManager = manager;
+  // Group context menu's supervisor-attach submenu needs the full operator
+  // roster (filtered client-side to supervision_enabled ones).
+  manager.listOperators = operatorList;
   syncCollapseAllBtn();
   installSidebarResizers(requireEl<HTMLElement>("layout"), manager);
 

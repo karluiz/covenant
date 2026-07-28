@@ -2039,6 +2039,11 @@ export class TabManager {
   /// Fires when the user clicks the project-notes icon on a group chip.
   public onOpenProjectNotes: ((groupId: string, groupLabel: string, groupColor: string | null) => void) | null = null;
 
+  /// Optional operator-list provider, wired from main.ts. Used by the
+  /// group context menu to populate the supervisor attach submenu with
+  /// operators that have the Supervision capability enabled.
+  public listOperators: (() => Promise<Operator[]>) | null = null;
+
   /// Fires whenever a tab is activated. Used by main.ts to dismiss any
   /// overlay panels (docs, drafts, capabilities, settings, etc.) so the
   /// terminal becomes visible — selecting a tab implies "show me this
@@ -7042,6 +7047,32 @@ export class TabManager {
     this.scheduleSave();
   }
 
+  /// Attach (or detach, when `operatorId` is null) a supervisor operator
+  /// to a group. Detaching also clears the Phase 3 intervene gate — an
+  /// intervene flag with no supervisor attached is meaningless. Public so
+  /// Task 7's runtime hook can drive this from elsewhere.
+  public setGroupSupervisor(groupId: string, operatorId: string | null): void {
+    const g = this.groups.get(groupId);
+    if (!g) return;
+    g.supervisorId = operatorId;
+    if (!operatorId) g.supervisorIntervene = false;
+    void groupSetSupervisor(groupId, operatorId, g.supervisorIntervene);
+    this.renderTabbar();
+    this.scheduleSave();
+  }
+
+  /// Flip the Phase 3 intervene gate for a group's already-attached
+  /// supervisor. No-op if the group has no supervisor. Public so Task 7's
+  /// runtime hook can drive this from elsewhere.
+  public setGroupIntervene(groupId: string, intervene: boolean): void {
+    const g = this.groups.get(groupId);
+    if (!g || !g.supervisorId) return;
+    g.supervisorIntervene = intervene;
+    void groupSetSupervisor(groupId, g.supervisorId, intervene);
+    this.renderTabbar();
+    this.scheduleSave();
+  }
+
   /// Open a native folder picker and set the group's default cwd for
   /// new tabs. Existing tabs are unaffected (their PTYs already live
   /// elsewhere). Returns the picked path, or null when cancelled/missing.
@@ -7888,6 +7919,19 @@ export class TabManager {
       count.textContent = String(memberCount);
       chip.appendChild(count);
 
+      // Supervisor indicator — a small eye glyph when a supervisor
+      // operator is attached (see setGroupSupervisor / openGroupContextMenu).
+      if (group.supervisorId) {
+        const supervisorName = this.operatorCache.get(group.supervisorId)?.name ?? null;
+        const supervised = document.createElement("span");
+        supervised.className = "group-chip-supervised";
+        supervised.innerHTML = Icons.eye({ size: 11 });
+        attachTooltip(
+          supervised,
+          "Supervised" + (supervisorName ? ` by ${supervisorName}` : ""),
+        );
+        chip.appendChild(supervised);
+      }
     }
 
     chip.addEventListener("dblclick", (e) => {
@@ -7898,7 +7942,7 @@ export class TabManager {
 
     chip.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      this.openGroupContextMenu(group, e.clientX, e.clientY);
+      void this.openGroupContextMenu(group, e.clientX, e.clientY);
     });
 
     // ── Drag (move whole group) ──
@@ -8466,7 +8510,7 @@ export class TabManager {
     this.menu.show(x, y, items);
   }
 
-  private openGroupContextMenu(group: TabGroup, x: number, y: number): void {
+  private async openGroupContextMenu(group: TabGroup, x: number, y: number): Promise<void> {
     const wsList = this.listWorkspaces?.() ?? [];
     const others = wsList.filter((w) => !w.active);
     const moveSubmenu = others.length === 0
@@ -8477,6 +8521,42 @@ export class TabManager {
             void this.moveGroupToWorkspace?.(group.id, w.id);
           },
         }));
+
+    const ops = (await this.listOperators?.().catch(() => [])) ?? [];
+    const eligible = ops.filter((o) => o.supervision_enabled);
+    let supervisor = group.supervisorId
+      ? ops.find((o) => o.id === group.supervisorId) ?? null
+      : null;
+    // Stale-attach cleanup: the attached supervisor may have been deleted
+    // or lost the Supervision capability since it was attached. Clear it
+    // before building the menu so "Attach supervisor…" reflects reality.
+    if (group.supervisorId && !supervisor) {
+      this.setGroupSupervisor(group.id, null);
+      supervisor = null;
+    }
+    const supervisorMenuItem = {
+      label: supervisor ? `Supervisor: ${supervisor.name}` : "Attach supervisor…",
+      icon: Icons.eye(),
+      submenu: [
+        ...(eligible.length === 0
+          ? [{ label: "(no operators with Supervision)", disabled: true }]
+          : eligible.map((o) => ({
+              label: o.name,
+              onClick: () => this.setGroupSupervisor(group.id, o.id),
+            }))),
+        ...(supervisor
+          ? [
+              { divider: true as const },
+              {
+                label: group.supervisorIntervene ? "Intervene: on" : "Intervene: off",
+                onClick: () => this.setGroupIntervene(group.id, !group.supervisorIntervene),
+              },
+              { label: "Detach supervisor", onClick: () => this.setGroupSupervisor(group.id, null) },
+            ]
+          : []),
+      ],
+    };
+
     this.menu.show(x, y, [
       {
         label: "New tab in group",
@@ -8542,6 +8622,7 @@ export class TabManager {
         onClick: () =>
           this.onOpenProjectNotes?.(group.id, group.name, group.color ?? null),
       },
+      supervisorMenuItem,
       {
         label: "Rename group",
         icon: Icons.pencil(),

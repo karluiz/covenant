@@ -195,6 +195,37 @@ describe('github access control', () => {
   });
 });
 
+describe('supervision capability toggle', () => {
+  it('defaults to false in create mode', () => {
+    const h = openOperatorModal({ mode: 'create' });
+    expect(h.state.supervisionEnabled).toBe(false);
+    h.el.remove();
+  });
+
+  it('seeds from the existing operator in edit mode', () => {
+    const existing: Operator = {
+      id: 'sv1', name: 'Maya', emoji: '🟣', color: '#a855f7',
+      tags: [], persona: '', escalate_threshold: 0.5, model: 'claude-sonnet-4-6',
+      hard_constraints: '', voice: 'Terse', is_default: false,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+      github_access: 'Off',
+      acp_enabled: false,
+      perception_enabled: false,
+      supervision_enabled: true,
+    };
+    const h = openOperatorModal({ mode: 'edit', existing });
+    expect(h.state.supervisionEnabled).toBe(true);
+    h.el.remove();
+  });
+
+  it('setSupervisionEnabled updates state', () => {
+    const h = openOperatorModal({ mode: 'create' });
+    h.setSupervisionEnabled(true);
+    expect(h.state.supervisionEnabled).toBe(true);
+    h.el.remove();
+  });
+});
+
 describe('operator list grid', () => {
   it('renders one card per operator', () => {
     const ops: Operator[] = [{
