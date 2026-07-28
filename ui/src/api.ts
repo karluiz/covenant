@@ -2403,7 +2403,9 @@ export interface AttentionItem {
   executor: string | null;
   kind: AttentionKind;
   question: string | null;
-  /// Last ~15 screen lines (PTY lanes); null for ACP.
+  /// Last ~15 screen lines, secret-masked (PTY lanes); null for ACP.
+  /// Retained on the wire but currently unused by the overlay UI — the
+  /// detail pane reads AgentCard.excerpt instead.
   excerpt: string | null;
   permission: PendingAcpPermission | null;
   operator_name: string | null;

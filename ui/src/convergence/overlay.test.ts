@@ -115,6 +115,28 @@ describe("ConvergenceOverlay.refresh", () => {
     expect(after.value).toBe("draft in progress");
   });
 
+  it("clicking a different row moves the pane even while the composer is focused with a draft", async () => {
+    // The app's webview doesn't blur a focused textarea on a button/row
+    // click, so the draft-guard in `renderDetail` would otherwise freeze
+    // the pane forever. Explicit navigation (row click) must override it.
+    getSnap.mockResolvedValue({
+      agents: [
+        agent({ session_id: "s1", tab_title: "alpha", status: "blocked" }),
+        agent({ session_id: "s2", tab_title: "beta", status: "working" }),
+      ],
+      attention: [attItem({ session_id: "s1" })],
+    });
+    ov.open();
+    await ov.refreshForTest();
+    await ov.refreshForTest();
+    expect(document.querySelector<HTMLElement>(".mc-detail")?.dataset.sessionId).toBe("s1");
+    const ta = document.querySelector<HTMLTextAreaElement>(".mc-detail .mc-reply__textarea")!;
+    ta.focus();
+    ta.value = "draft in progress";
+    document.querySelector<HTMLElement>('.mc-row[data-session-id="s2"]')!.click();
+    expect(document.querySelector<HTMLElement>(".mc-detail")?.dataset.sessionId).toBe("s2");
+  });
+
   it("keeps the last-good render when a later snapshot rejects (no blank)", async () => {
     getSnap.mockResolvedValue({ agents: [agent({ executor: "codex" })], attention: [] });
     ov.open();

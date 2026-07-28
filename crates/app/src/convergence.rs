@@ -194,8 +194,10 @@ pub struct AttentionItem {
     /// What's being asked: operator question / permission title /
     /// waiting reason.
     pub question: Option<String>,
-    /// Raw context: last ~15 screen lines, ANSI-stripped (PTY lanes);
-    /// None for ACP.
+    /// Raw context: last ~15 screen lines, ANSI-stripped, secret-masked
+    /// (PTY lanes); None for ACP. Retained on the wire but currently
+    /// unused by the overlay UI — the detail pane reads `AgentCard.excerpt`
+    /// instead.
     pub excerpt: Option<String>,
     /// ACP only: the pending permission (options answer inline).
     pub permission: Option<PendingAcpPermission>,
@@ -566,7 +568,7 @@ pub async fn build_convergence_snapshot(
                 let mut c = c;
                 c.excerpt = {
                     let tail = lock_recover(&s.op_state).snapshot_tail(8 * 1024);
-                    last_non_empty_lines(&tail, 15, 200)
+                    last_non_empty_lines(&tail, 15, 200).map(|e| crate::safety::mask_secrets(&e))
                 };
                 agent_inputs.push(AgentCardInput {
                     card: c,
@@ -633,7 +635,8 @@ pub async fn build_convergence_snapshot(
             raw_command_label,
             last_command: last.and_then(|d| d.in_flight_command.clone()),
             last_output_line: last_non_empty_line(&tail_bytes, 160),
-            excerpt: last_non_empty_lines(&tail_bytes, 15, 200),
+            excerpt: last_non_empty_lines(&tail_bytes, 15, 200)
+                .map(|e| crate::safety::mask_secrets(&e)),
             mission_name: mission_name_from_path(last.and_then(|d| d.mission_path.as_deref())),
             operator_id: Some(op_id),
             operator_name: Some(op_name),
@@ -795,6 +798,28 @@ mod tests {
             Some("hello worl")
         );
         assert!(last_non_empty_line(b"\n   \n\t\n", 200).is_none());
+    }
+
+    #[test]
+    fn excerpt_pipeline_masks_secrets_and_keeps_newline_structure() {
+        // Same composition used at both AgentCard.excerpt call sites in
+        // `build_convergence_snapshot`: last_non_empty_lines(...) then
+        // mask_secrets(...). A leaked API key on the PTY tail must not
+        // survive into the card's excerpt.
+        let tail =
+            b"about to authenticate\ntoken=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA suffix\ndone\n";
+        let excerpt = last_non_empty_lines(tail, 15, 200)
+            .map(|e| crate::safety::mask_secrets(&e))
+            .expect("some excerpt");
+        assert!(
+            !excerpt.contains("sk-ant-api03"),
+            "secret leaked into excerpt: {excerpt}"
+        );
+        assert!(excerpt.contains("[REDACTED:anthropic]"));
+        // Newline structure across the 3 tail lines is preserved.
+        assert_eq!(excerpt.lines().count(), 3);
+        assert_eq!(excerpt.lines().next(), Some("about to authenticate"));
+        assert_eq!(excerpt.lines().last(), Some("done"));
     }
 
     #[test]

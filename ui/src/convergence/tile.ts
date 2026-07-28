@@ -116,7 +116,10 @@ export function renderDetailPane(
   if (card.operator_id) {
     const op = document.createElement("span");
     op.className = "mc-oplabel";
-    op.innerHTML = `${renderAvatarHtml(card.operator_avatar ?? "👤", 18)}<span>${card.operator_name ?? ""}</span>`;
+    op.innerHTML = renderAvatarHtml(card.operator_avatar ?? "👤", 18);
+    const opName = document.createElement("span");
+    opName.textContent = card.operator_name ?? "";
+    op.append(opName);
     meta.append(op);
   }
   if (card.mission_name) {

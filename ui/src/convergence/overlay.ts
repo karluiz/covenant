@@ -246,7 +246,16 @@ export class ConvergenceOverlay {
           selected: card.session_id === this.activeSessionId,
           age: item?.since_unix_ms != null && item.since_unix_ms > 0 ? agoLabel(item.since_unix_ms) : null,
         }, {
-          onSelect: (sid) => { this.activeSessionId = sid; this.render(); },
+          onSelect: (sid) => {
+            // Explicit navigation overrides the draft-guard: clicking a
+            // different row must move the pane even if a textarea in the
+            // detail host is focused (clicks don't blur it in the app's
+            // webview). Poll-triggered renders never go through here, so
+            // the draft-survival path is untouched.
+            if (sid !== this.activeSessionId) this.blurComposerIfFocused();
+            this.activeSessionId = sid;
+            this.render();
+          },
           onFocus: (sid) => { if (this.bridge.activateBySessionId(sid)) this.close(); },
         }),
       );
@@ -311,8 +320,27 @@ export class ConvergenceOverlay {
     if (list.length === 0) return;
     const idx = list.findIndex((a) => a.session_id === this.activeSessionId);
     const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
-    this.activeSessionId = list[next].session_id;
+    const nextId = list[next].session_id;
+    // Same override as onSelect — arrow-key navigation is explicit intent
+    // too (the ArrowUp/ArrowDown handler already only allows this while
+    // the composer is empty, but the textarea itself may still be
+    // focused and would otherwise freeze the pane via the draft-guard).
+    if (nextId !== this.activeSessionId) this.blurComposerIfFocused();
+    this.activeSessionId = nextId;
     this.render();
+  }
+
+  /// Blur a focused textarea inside the detail host, if any. Called only
+  /// when explicit navigation is about to change `activeSessionId` — the
+  /// draft-guard in `renderDetail` must not survive an intentional row
+  /// change, only a background poll tick.
+  private blurComposerIfFocused(): void {
+    const host = this.detailHostEl;
+    if (!host) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLTextAreaElement && host.contains(active)) {
+      active.blur();
+    }
   }
 
   /// Disable the operator on this session. Fire-and-forget; the next 1s
