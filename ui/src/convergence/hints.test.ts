@@ -11,10 +11,12 @@ const tab = (over: Partial<HintTab>): HintTab => ({
   ...over,
 });
 
+const bare = { group: null, groupId: null, supervisor: null };
+
 describe("sessionHintsFromTabs", () => {
   it("emits one hint per shell tab using defaultTitle", () => {
     expect(sessionHintsFromTabs([tab({})])).toEqual([
-      { sessionId: "s1", title: "zsh 1", color: null, group: null },
+      { sessionId: "s1", title: "zsh 1", color: null, ...bare },
     ]);
   });
 
@@ -48,16 +50,38 @@ describe("sessionHintsFromTabs", () => {
     expect(out).toEqual([]);
   });
 
-  it("resolves the tab's group name via the names map; unknown ids stay null", () => {
+  it("resolves the tab's group via the group map; unknown ids stay ungrouped", () => {
     const out = sessionHintsFromTabs(
       [
         tab({ groupId: "g1" }),
         tab({ panes: [{ sessionId: "s2" }], groupId: "gX" }),
         tab({ panes: [{ sessionId: "s3" }] }),
       ],
-      new Map([["g1", "covenant"]]),
+      new Map([["g1", { name: "covenant", supervisorId: null, supervisorIntervene: false }]]),
     );
     expect(out.map((h) => h.group)).toEqual(["covenant", null, null]);
+    // An unresolvable id must not become a bucket key — it would render a
+    // header with no name.
+    expect(out.map((h) => h.groupId)).toEqual(["g1", null, null]);
+  });
+
+  it("carries the group's attached supervisor onto every member hint", () => {
+    const out = sessionHintsFromTabs(
+      [tab({ panes: [{ sessionId: "a" }, { sessionId: "b" }], groupId: "g1" })],
+      new Map([["g1", { name: "covenant", supervisorId: "op-7", supervisorIntervene: true }]]),
+    );
+    expect(out.map((h) => h.supervisor)).toEqual([
+      { operatorId: "op-7", intervene: true },
+      { operatorId: "op-7", intervene: true },
+    ]);
+  });
+
+  it("leaves supervisor null for a group with no supervisor attached", () => {
+    const out = sessionHintsFromTabs(
+      [tab({ groupId: "g1" })],
+      new Map([["g1", { name: "covenant", supervisorId: null, supervisorIntervene: true }]]),
+    );
+    expect(out[0].supervisor).toBeNull();
   });
 
   it("emits a hint for acp panes using acpSessionId", () => {
@@ -69,7 +93,7 @@ describe("sessionHintsFromTabs", () => {
       }),
     ]);
     expect(out).toEqual([
-      { sessionId: "acp-1", title: "copilot chat", color: "#123456", group: null },
+      { sessionId: "acp-1", title: "copilot chat", color: "#123456", ...bare },
     ]);
   });
 });

@@ -15,10 +15,16 @@ export function makeTabsBridge(manager: TabManager): ConvergenceTabBridge {
         title: h.title,
         color: h.color,
         group: h.group,
+        groupId: h.groupId,
+        supervisor: h.supervisor,
       })),
     activateBySessionId: (id, _opts) =>
       manager.activateBySessionId(
         id as Parameters<typeof manager.activateBySessionId>[0],
       ),
+    setGroupSupervisor: (groupId, operatorId) =>
+      manager.setGroupSupervisor(groupId, operatorId),
+    setGroupIntervene: (groupId, intervene) =>
+      manager.setGroupIntervene(groupId, intervene),
   };
 }

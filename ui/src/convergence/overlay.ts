@@ -1,6 +1,7 @@
 import {
   acpRespondPermission,
   getConvergenceSnapshot,
+  operatorList,
   setOperatorEnabled,
   submitConvergenceReply,
   writeToSession,
@@ -11,6 +12,8 @@ import type { AgentCard, SessionId } from "../api";
 import { Icons } from "../icons";
 import { formatChord } from "../platform";
 import { agoLabel } from "./attention";
+import { groupFindings } from "./findings";
+import { renderGroupBand, renderGroupDetail, type GroupView } from "./group";
 import { attentionIndex, groupAgents, sortAgents } from "./model";
 import { elapsedLabel, renderAgentRow, renderDetailPane, type ReplyScope } from "./tile";
 
@@ -18,13 +21,21 @@ export interface TabMeta {
   sessionId: string;
   title: string;
   color: string | null;
-  /// Tab-group name (workspace) — groups rail rows. Null = ungrouped.
+  /// Tab-group display name. Null = ungrouped.
   group: string | null;
+  /// Rail bucket key + the key supervision and findings are stored under.
+  groupId?: string | null;
+  /// Supervisor attached to this session's group, if any.
+  supervisor?: { operatorId: string; intervene: boolean } | null;
 }
 
 export interface ConvergenceTabBridge {
   listTabs(): TabMeta[];
   activateBySessionId(sessionId: string, opts?: { keepOverlayOpen?: boolean }): boolean;
+  /// Group supervision controls. Optional — a bridge without them just
+  /// renders the group detail read-only.
+  setGroupSupervisor?(groupId: string, operatorId: string | null): void;
+  setGroupIntervene?(groupId: string, intervene: boolean): void;
 }
 
 type Filter = "all" | "needs you" | "working" | "idle";
@@ -44,8 +55,17 @@ export class ConvergenceOverlay {
   private snap: ConvergenceSnapshot | null = null; // last-good
   private filter: Filter = "all";
   private activeSessionId: string | null = null;
-  /// session_id → tab-group name, refreshed with each poll's hints.
+  /// Non-null → the detail pane shows this GROUP instead of an agent.
+  /// Cleared by any explicit navigation to an agent row.
+  private activeGroupId: string | null = null;
+  /// session_id → group id, refreshed with each poll's hints.
   private groupBySession: Map<string, string | null> = new Map();
+  /// group id → name + attached supervisor, from the same hints.
+  private groupMeta: Map<string, { name: string; supervisor: { operatorId: string; intervene: boolean } | null }> =
+    new Map();
+  /// operator id → {name, avatar}. Fetched once per open — operators
+  /// don't get renamed mid-session often enough to poll for it.
+  private operatorNames: Map<string, { name: string; avatar: string }> = new Map();
   /// Serialized render inputs of the last rail/pane build. A 1s poll
   /// with identical data must NOT rebuild the DOM — replacing a button
   /// under the cursor restarts :hover and reads as flicker. Time-derived
@@ -62,8 +82,21 @@ export class ConvergenceOverlay {
     if (this.visible) return;
     this.mount();
     this.visible = true;
+    void this.loadOperatorNames();
     void this.refresh();
     this.pollHandle = window.setInterval(() => void this.refresh(), POLL_MS);
+  }
+
+  /// Resolve supervisor ids to names/avatars. Failure is non-fatal — the
+  /// band falls back to the generic "supervisor" label.
+  private async loadOperatorNames(): Promise<void> {
+    try {
+      const ops = await operatorList();
+      this.operatorNames = new Map(ops.map((o) => [o.id, { name: o.name, avatar: o.emoji }]));
+      if (this.visible && this.snap) { this.lastRailKey = ""; this.render(); }
+    } catch (err) {
+      console.warn("[convergence] operator list failed", err);
+    }
   }
 
   close(): void {
@@ -81,6 +114,7 @@ export class ConvergenceOverlay {
     this.lastDetailKey = "";
     this.filter = "all";
     this.activeSessionId = null;
+    this.activeGroupId = null;
   }
 
   private mount(): void {
@@ -190,7 +224,18 @@ export class ConvergenceOverlay {
   private async refresh(): Promise<void> {
     if (!this.visible) return;
     const hints = this.bridge.listTabs();
-    this.groupBySession = new Map(hints.map((t) => [t.sessionId, t.group]));
+    // Bucket by group ID (two groups may share a name); the name is the
+    // bucket's label. A hint without an id falls back to its name so a
+    // bridge that only knows names still groups.
+    this.groupBySession = new Map(hints.map((t) => [t.sessionId, t.groupId ?? t.group]));
+    this.groupMeta = new Map(
+      hints
+        .filter((t) => (t.groupId ?? t.group) !== null)
+        .map((t) => [
+          (t.groupId ?? t.group) as string,
+          { name: t.group ?? "group", supervisor: t.supervisor ?? null },
+        ]),
+    );
     // Backend hint shape is exactly {session_id, title, color} — group
     // is a UI-side concern and never crosses the wire.
     const tabs = hints.map((t) => ({
@@ -250,11 +295,13 @@ export class ConvergenceOverlay {
     const working = agents.filter((a) => a.status === "working").length;
     const idle = agents.filter((a) => a.status === "idle").length;
     const cost = agents.reduce((acc, a) => acc + (a.cost_usd ?? 0), 0);
+    const supervised = [...this.groupMeta.values()].filter((g) => g.supervisor).length;
     this.summaryEl.innerHTML =
       `<b>${agents.length}</b> agents · ` +
       (attention.length ? `<b class="mc-strip__alert">${attention.length} needs you</b> · ` : "") +
       `${working} working · ${idle} idle` +
-      (cost >= 0.005 ? ` · <b>$${cost.toFixed(2)}</b>` : "");
+      (cost >= 0.005 ? ` · <b>$${cost.toFixed(2)}</b>` : "") +
+      (supervised ? ` · <b class="mc-strip__sup">${supervised} supervised</b>` : "");
 
     this.root?.querySelectorAll<HTMLElement>(".mc-fchip").forEach((c) => {
       c.classList.toggle("mc-fchip--on", c.dataset.filter === this.filter);
@@ -266,13 +313,22 @@ export class ConvergenceOverlay {
     if (!this.activeSessionId || !list.some((a) => a.session_id === this.activeSessionId)) {
       this.activeSessionId = list[0]?.session_id ?? null;
     }
+    // A group that stops existing (last tab closed, filter hid it) must
+    // not leave the pane stuck on a dead group.
+    if (this.activeGroupId && !grouped.some((b) => b.key === this.activeGroupId)) {
+      this.activeGroupId = null;
+    }
     // Skip the rebuild when nothing the rows *display* changed — only
     // tick the time labels in place (see lastRailKey).
     const railKey = JSON.stringify({
       f: this.filter,
       sel: this.activeSessionId,
+      gsel: this.activeGroupId,
       g: grouped.map((b) => [
         b.key,
+        this.groupMeta.get(b.key ?? "")?.name ?? null,
+        this.groupMeta.get(b.key ?? "")?.supervisor ?? null,
+        b.key ? groupFindings(b.key).length : 0,
         b.cards.map((c) => [
           c.session_id, c.status, c.executor, c.operator_name,
           c.phase_label, c.last_command, c.last_output_line, c.cwd,
@@ -295,15 +351,16 @@ export class ConvergenceOverlay {
       this.railEl.append(none);
     }
 
-    // Headers only when tabs actually span groups — a single bucket
-    // (everything in one group, or nothing grouped) stays flat.
-    const showHeaders = grouped.length > 1;
+    // Bands when tabs span groups — or, whatever the shape, when the
+    // group is supervised: "who is watching this" is the one thing worth
+    // a header even in a single-bucket rail.
+    const spansGroups = grouped.length > 1;
     for (const bucket of grouped) {
-      if (showHeaders && bucket.key) {
-        const head = document.createElement("div");
-        head.className = "mc-rail__group";
-        head.textContent = bucket.key;
-        this.railEl.append(head);
+      const view = bucket.key ? this.groupView(bucket.key, bucket.cards) : null;
+      if (view && (spansGroups || view.supervisor)) {
+        this.railEl.append(
+          renderGroupBand(view, view.id === this.activeGroupId, this.groupCallbacks()),
+        );
       }
       for (const card of bucket.cards) {
         const item = at.get(card.session_id);
@@ -339,6 +396,7 @@ export class ConvergenceOverlay {
     if (!host || !this.snap) return;
     const active = document.activeElement;
     if (active?.tagName === "TEXTAREA" && host.contains(active)) return;
+    if (this.activeGroupId) { this.renderGroupPane(this.activeGroupId); return; }
     const card = this.snap.agents.find((a) => a.session_id === this.activeSessionId);
     if (!card) { host.replaceChildren(); this.lastDetailKey = ""; return; }
     // Identical data → keep the DOM (hover survives); tick ages only.
@@ -376,6 +434,70 @@ export class ConvergenceOverlay {
         },
       }),
     );
+    host.scrollTop = scroll;
+  }
+
+  /// Assemble a bucket's group view: label + supervisor (name resolved
+  /// through the operator list) + roll-up + retained findings.
+  private groupView(groupId: string, cards: AgentCard[]): GroupView {
+    const meta = this.groupMeta.get(groupId);
+    const sup = meta?.supervisor ?? null;
+    const op = sup ? this.operatorNames.get(sup.operatorId) : undefined;
+    return {
+      id: groupId,
+      name: meta?.name ?? groupId,
+      supervisor: sup
+        ? {
+            operatorId: sup.operatorId,
+            name: op?.name ?? "supervisor",
+            avatar: op?.avatar ?? "👤",
+            intervene: sup.intervene,
+          }
+        : null,
+      tabs: cards.length,
+      blocked: cards.filter((c) => c.status === "blocked").length,
+      costUsd: cards.reduce((acc, c) => acc + (c.cost_usd ?? 0), 0),
+      findings: groupFindings(groupId),
+      firstSessionId: cards[0]?.session_id ?? null,
+    };
+  }
+
+  private groupCallbacks() {
+    return {
+      onSelect: (gid: string) => this.navigateToGroup(gid),
+      onOpen: (sid: string) => { if (this.bridge.activateBySessionId(sid)) this.close(); },
+      onDetach: (gid: string) => {
+        this.bridge.setGroupSupervisor?.(gid, null);
+        this.lastRailKey = "";
+        void this.refresh();
+      },
+      onToggleIntervene: (gid: string, next: boolean) => {
+        this.bridge.setGroupIntervene?.(gid, next);
+        this.lastRailKey = "";
+        void this.refresh();
+      },
+    };
+  }
+
+  /// The group branch of the detail host. Same rebuild-avoidance contract
+  /// as `renderDetail`: identical data keeps the DOM (hover survives).
+  private renderGroupPane(groupId: string): void {
+    const host = this.detailHostEl;
+    if (!host) return;
+    const cards = this.groupedVisible().find((b) => b.key === groupId)?.cards ?? [];
+    const view = this.groupView(groupId, cards);
+    const key = JSON.stringify(["group", view]);
+    if (key === this.lastDetailKey && host.childElementCount > 0) {
+      // Same data, older clock — tick the finding ages in place.
+      host.querySelectorAll<HTMLElement>(".mc-gdetail__find time").forEach((el, i) => {
+        const f = view.findings[i];
+        if (f) el.textContent = agoLabel(f.atUnixMs);
+      });
+      return;
+    }
+    this.lastDetailKey = key;
+    const scroll = host.scrollTop;
+    host.replaceChildren(renderGroupDetail(view, this.groupCallbacks()));
     host.scrollTop = scroll;
   }
 
@@ -436,8 +558,18 @@ export class ConvergenceOverlay {
   /// Poll-triggered renders never go through here, so the draft-survival
   /// path is untouched.
   private navigateTo(sid: string): void {
-    if (sid !== this.activeSessionId) this.blurComposerIfFocused();
+    if (sid !== this.activeSessionId || this.activeGroupId) this.blurComposerIfFocused();
     this.activeSessionId = sid;
+    this.activeGroupId = null;
+    this.render();
+  }
+
+  /// Select a group band. ponytail: bands are pointer/Tab targets only —
+  /// ↑↓ and 1–9 stay a pure agent triage ring, so answering a queue never
+  /// lands you on a header.
+  private navigateToGroup(gid: string): void {
+    this.blurComposerIfFocused();
+    this.activeGroupId = gid;
     this.render();
   }
 
