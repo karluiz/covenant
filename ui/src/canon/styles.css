@@ -857,12 +857,12 @@ body.tabbar-left .op-detail { top: 38px; }
 .op-detail-body {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 .op-detail-content {
   display: grid;
   grid-template-columns: 240px 1fr;
-  min-height: 100%;
+  height: 100%;
 }
 
 /* Left sidebar — config, capabilities, provenance */
