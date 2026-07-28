@@ -1348,6 +1348,17 @@ export class TeammatePanel {
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
+    // Virtual supervision tasks have no spawned executor session — the operator
+    // is watching a group, not running code. Show a context chip instead of
+    // the normal Open/Continue/Stop controls.
+    if (task.supervision_group) {
+      const chip = document.createElement("span");
+      chip.className = "task-item__supervision-chip";
+      chip.textContent = "Watching group";
+      actions.append(chip);
+      return actions;
+    }
+
     const recordedSid = task.spawned_session ?? this.taskSpawnedSessions.get(task.id)?.sessionId ?? null;
     const sessionLive = !!recordedSid && (this.deps.isSessionAlive?.(recordedSid) ?? true);
     const closed = task.status === "done" || task.status === "cancelled";

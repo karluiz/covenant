@@ -1236,6 +1236,7 @@ mod tests {
             updated_at_unix_ms: 0,
             completed_at_unix_ms: None,
             cost_usd_cents: 0,
+            supervision_group: None,
         }
     }
 

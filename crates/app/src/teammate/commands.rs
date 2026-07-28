@@ -264,6 +264,30 @@ pub async fn teammate_send_text_message(
             }
             world_context_str.push_str(&active_tasks_md);
         }
+        // Surface any groups this operator is currently supervising so it can
+        // answer questions about cross-session patterns it's watching.
+        let supervised_groups = registry_bg.supervised_groups_for(operator_id);
+        if !supervised_groups.is_empty() {
+            let group_list: Vec<String> = supervised_groups
+                .iter()
+                .map(|(gid, sup)| {
+                    if sup.intervene {
+                        format!("- group `{gid}` (observe + intervene)")
+                    } else {
+                        format!("- group `{gid}` (observe only)")
+                    }
+                })
+                .collect();
+            if !world_context_str.is_empty() {
+                world_context_str.push_str("\n\n");
+            }
+            world_context_str.push_str(&format!(
+                "# Active supervision\n\nYou are currently supervising the following tab group(s):\n{}\n\
+                 You watch all sessions in these groups for cross-session patterns and surface findings \
+                 as notifications. In intervene mode you may also act on unpinned tabs.",
+                group_list.join("\n")
+            ));
+        }
         // The spawn marked `default` in spawns.json. Without it the operator
         // picks from the catalog blurbs alone — and every blurb that mentions
         // "codebase edits" points at `claude`, so the user's configured
@@ -561,18 +585,46 @@ async fn emit_system_error(
 #[tauri::command]
 pub async fn teammate_list_tasks(
     storage: State<'_, Arc<Storage>>,
+    registry: State<'_, Arc<crate::operator_registry::OperatorRegistry>>,
     operator_id: OperatorId,
 ) -> Result<Vec<crate::teammate::Task>, String> {
-    storage
+    let mut tasks = storage
         .teammate_list_tasks_for_operator(operator_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Append one virtual "watch" task per group this operator supervises.
+    // These are never persisted — they live only as long as the supervision
+    // is active in the in-memory registry. The frontend identifies them via
+    // the `supervision_group` field and renders them without executor-task
+    // controls (Stop / Continue / Open tab).
+    let now = now_unix_ms();
+    for (group_id, _sup) in registry.supervised_groups_for(operator_id) {
+        tasks.push(Task {
+            id: TaskId::new(),
+            operator_id,
+            archetype: TaskArchetype::Watch,
+            title: format!("Supervising group {}", group_id),
+            body: String::new(),
+            deliverable: String::new(),
+            status: TaskStatus::Active,
+            scope: TaskScope::default(),
+            spawned_session: None,
+            created_at_unix_ms: now,
+            updated_at_unix_ms: now,
+            completed_at_unix_ms: None,
+            cost_usd_cents: 0,
+            supervision_group: Some(group_id),
+        });
+    }
+
+    Ok(tasks)
 }
 
 // ── Task-lifecycle helpers + Tauri commands ───────────────────────────────────
 
 use crate::teammate::runtime::TeammateRuntime;
-use crate::teammate::types::{ProposeTask, Task, TaskId, TaskScope, TaskStatus, UpdateKind};
+use crate::teammate::types::{ProposeTask, Task, TaskArchetype, TaskId, TaskScope, TaskStatus, UpdateKind};
 
 fn now_unix_ms() -> u64 {
     std::time::SystemTime::now()
@@ -624,6 +676,7 @@ pub(crate) async fn confirm_task_inner(
         updated_at_unix_ms: now_ms,
         completed_at_unix_ms: None,
         cost_usd_cents: 0,
+        supervision_group: None,
     };
     // Claim the operator FIRST. It's the only precondition that can fail on
     // a valid proposal (AlreadyOnTask), and claiming an in-memory slot is
@@ -701,6 +754,7 @@ pub(crate) async fn create_followup_task_inner(
         updated_at_unix_ms: now_ms,
         completed_at_unix_ms: None,
         cost_usd_cents: 0,
+        supervision_group: None,
     };
     storage
         .teammate_insert_task(&task)
@@ -1560,6 +1614,7 @@ mod task_lifecycle_tests {
             updated_at_unix_ms: 1,
             completed_at_unix_ms: None,
             cost_usd_cents: 0,
+            supervision_group: None,
         };
         storage.teammate_insert_task(&task).await.unwrap();
 

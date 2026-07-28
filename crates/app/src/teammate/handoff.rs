@@ -189,6 +189,7 @@ pub async fn route(
         updated_at_unix_ms: now_ms,
         completed_at_unix_ms: None,
         cost_usd_cents: 0,
+        supervision_group: None,
     };
     // Claim the receiver FIRST (prevents a second concurrent handoff winning).
     runtime
