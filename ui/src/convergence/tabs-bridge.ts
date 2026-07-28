@@ -14,6 +14,7 @@ export function makeTabsBridge(manager: TabManager): ConvergenceTabBridge {
         sessionId: h.sessionId,
         title: h.title,
         color: h.color,
+        group: h.group,
       })),
     activateBySessionId: (id, _opts) =>
       manager.activateBySessionId(

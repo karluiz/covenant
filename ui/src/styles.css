@@ -20059,10 +20059,17 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .mc-perm-opts { display: flex; gap: 6px; margin-top: 8px; }
 .mc-perm-opts button { appearance: none; border: 1px solid var(--border); background: transparent; color: var(--text-primary); padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 0; }
 .mc-perm-opts button:hover { border-color: var(--text-primary); }
-.mc-subagents { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
-.mc-subrow { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.mc-subrow__detail, .mc-subrow__age { color: var(--muted); font-size: 11px; }
-.mc-subrow__age { margin-left: auto; }
+.mc-subagents {
+  display: flex; flex-direction: column; gap: 4px;
+  border-left: 1px solid var(--border); padding-left: 12px; margin-left: 2px;
+}
+.mc-subrow { display: flex; align-items: center; gap: 8px; font-size: 12px; min-width: 0; }
+.mc-subrow__label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+  color: var(--text-primary); overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.mc-subrow__detail, .mc-subrow__age { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
+.mc-subrow__age { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 .mc-pill {
   font-size: 10px; padding: 2px 8px; border-radius: 0; letter-spacing: .05em;
@@ -20147,12 +20154,18 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .mc-detail__actions { margin-left: auto; display: flex; gap: 8px; flex: 0 0 auto; }
-.mc-detail__open, .mc-stop {
+.mc-rail__group {
+  font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--muted); background: rgb(var(--ink-rgb) / 0.03);
+  padding: 6px 12px 4px; border-bottom: 1px solid var(--border);
+}
+
+.mc-detail__open, .mc-detail__copy, .mc-stop {
   appearance: none; background: transparent; border: 1px solid var(--border); border-radius: 0;
   color: var(--muted); cursor: pointer; font: inherit; font-size: 11px; padding: 3px 10px;
   transition: color .12s ease, border-color .12s ease, background .12s ease;
 }
-.mc-detail__open:hover { color: var(--text-primary); border-color: var(--text-primary); }
+.mc-detail__open:hover, .mc-detail__copy:hover { color: var(--text-primary); border-color: var(--text-primary); }
 .mc-stop:hover {
   color: var(--danger); border-color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);

@@ -3531,7 +3531,9 @@ export class TabManager {
   /// an unchecked cast; that cast silently broke when Phase C moved
   /// `sessionId` from `Tab` onto `Pane`. See spec 2026-06-06.
   listSessionHints(): SessionHint[] {
-    return sessionHintsFromTabs(this.tabs);
+    const names = new Map<string, string>();
+    for (const [id, g] of this.groups) names.set(id, g.name);
+    return sessionHintsFromTabs(this.tabs, names);
   }
 
   activateRelative(delta: number): void {

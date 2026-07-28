@@ -11,13 +11,15 @@ import type { AgentCard, SessionId } from "../api";
 import { Icons } from "../icons";
 import { formatChord } from "../platform";
 import { agoLabel } from "./attention";
-import { attentionIndex, sortAgents } from "./model";
+import { attentionIndex, groupAgents, sortAgents } from "./model";
 import { elapsedLabel, renderAgentRow, renderDetailPane, type ReplyScope } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
   title: string;
   color: string | null;
+  /// Tab-group name (workspace) — groups rail rows. Null = ungrouped.
+  group: string | null;
 }
 
 export interface ConvergenceTabBridge {
@@ -42,6 +44,8 @@ export class ConvergenceOverlay {
   private snap: ConvergenceSnapshot | null = null; // last-good
   private filter: Filter = "all";
   private activeSessionId: string | null = null;
+  /// session_id → tab-group name, refreshed with each poll's hints.
+  private groupBySession: Map<string, string | null> = new Map();
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
@@ -177,7 +181,11 @@ export class ConvergenceOverlay {
 
   private async refresh(): Promise<void> {
     if (!this.visible) return;
-    const tabs = this.bridge.listTabs().map((t) => ({
+    const hints = this.bridge.listTabs();
+    this.groupBySession = new Map(hints.map((t) => [t.sessionId, t.group]));
+    // Backend hint shape is exactly {session_id, title, color} — group
+    // is a UI-side concern and never crosses the wire.
+    const tabs = hints.map((t) => ({
       session_id: t.sessionId, title: t.title, color: t.color,
     }));
     try {
@@ -194,9 +202,12 @@ export class ConvergenceOverlay {
     this.render();
   }
 
-  private visibleAgents() {
+  /// Rail buckets, group-aware. The flat rail order (keys 1–9, ↑↓,
+  /// triage advance) is exactly this flattened — visual and logical
+  /// order must never diverge.
+  private groupedVisible() {
     if (!this.snap) return [];
-    return sortAgents(this.snap.agents, this.snap.attention).filter((card) => {
+    const flat = sortAgents(this.snap.agents, this.snap.attention).filter((card) => {
       switch (this.filter) {
         case "all": return true;
         case "needs you": return card.status === "blocked";
@@ -204,6 +215,11 @@ export class ConvergenceOverlay {
         case "idle": return card.status === "idle";
       }
     });
+    return groupAgents(flat, (sid) => this.groupBySession.get(sid) ?? null);
+  }
+
+  private visibleAgents() {
+    return this.groupedVisible().flatMap((g) => g.cards);
   }
 
   private render(): void {
@@ -235,7 +251,8 @@ export class ConvergenceOverlay {
     });
 
     const at = attentionIndex(this.snap.attention);
-    const list = this.visibleAgents();
+    const grouped = this.groupedVisible();
+    const list = grouped.flatMap((g) => g.cards);
     if (!this.activeSessionId || !list.some((a) => a.session_id === this.activeSessionId)) {
       this.activeSessionId = list[0]?.session_id ?? null;
     }
@@ -247,25 +264,36 @@ export class ConvergenceOverlay {
       none.querySelector(".mc-rail__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
       this.railEl.append(none);
     }
-    for (const card of list) {
-      const item = at.get(card.session_id);
-      // Blocked rows show how long they've been waiting on the human;
-      // everything else shows session uptime (Ulid-decoded start).
-      const age =
-        item?.since_unix_ms != null && item.since_unix_ms > 0
-          ? agoLabel(item.since_unix_ms)
-          : card.started_at_unix_ms != null
-            ? elapsedLabel(card.started_at_unix_ms)
-            : null;
-      this.railEl.append(
-        renderAgentRow(card, {
-          selected: card.session_id === this.activeSessionId,
-          age,
-        }, {
-          onSelect: (sid) => this.navigateTo(sid),
-          onFocus: (sid) => { if (this.bridge.activateBySessionId(sid)) this.close(); },
-        }),
-      );
+    // Headers only when tabs actually span groups — a single bucket
+    // (everything in one group, or nothing grouped) stays flat.
+    const showHeaders = grouped.length > 1;
+    for (const bucket of grouped) {
+      if (showHeaders && bucket.key) {
+        const head = document.createElement("div");
+        head.className = "mc-rail__group";
+        head.textContent = bucket.key;
+        this.railEl.append(head);
+      }
+      for (const card of bucket.cards) {
+        const item = at.get(card.session_id);
+        // Blocked rows show how long they've been waiting on the human;
+        // everything else shows session uptime (Ulid-decoded start).
+        const age =
+          item?.since_unix_ms != null && item.since_unix_ms > 0
+            ? agoLabel(item.since_unix_ms)
+            : card.started_at_unix_ms != null
+              ? elapsedLabel(card.started_at_unix_ms)
+              : null;
+        this.railEl.append(
+          renderAgentRow(card, {
+            selected: card.session_id === this.activeSessionId,
+            age,
+          }, {
+            onSelect: (sid) => this.navigateTo(sid),
+            onFocus: (sid) => { if (this.bridge.activateBySessionId(sid)) this.close(); },
+          }),
+        );
+      }
     }
     this.renderDetail(at);
   }

@@ -205,11 +205,6 @@ pub struct AttentionItem {
     /// What's being asked: operator question / permission title /
     /// waiting reason.
     pub question: Option<String>,
-    /// Raw context: last ~15 screen lines, ANSI-stripped, secret-masked
-    /// (PTY lanes); None for ACP. Retained on the wire but currently
-    /// unused by the overlay UI — the detail pane reads `AgentCard.excerpt`
-    /// instead.
-    pub excerpt: Option<String>,
     /// ACP only: the pending permission (options answer inline).
     pub permission: Option<PendingAcpPermission>,
     pub operator_name: Option<String>,
@@ -492,7 +487,6 @@ fn attention_from(item_base: &AgentCard) -> AttentionItem {
         executor: item_base.executor.clone(),
         kind: AttentionKind::PtyWaiting, // caller overrides
         question: None,
-        excerpt: None,
         permission: None,
         operator_name: item_base.operator_name.clone(),
         operator_avatar: item_base.operator_avatar.clone(),
@@ -517,7 +511,6 @@ pub fn assemble_snapshot(
         let mut item = attention_from(&b.card);
         item.kind = AttentionKind::OperatorEscalation;
         item.question = b.question.clone();
-        item.excerpt = b.card.excerpt.clone();
         item.since_unix_ms = Some(b.escalated_at_unix_ms);
         attention.push(item);
     }
@@ -537,7 +530,6 @@ pub fn assemble_snapshot(
             None => {
                 item.kind = AttentionKind::PtyWaiting;
                 item.question = a.card.phase_label.clone();
-                item.excerpt = a.card.excerpt.clone();
             }
         }
         attention.push(item);
@@ -995,8 +987,9 @@ mod tests {
     }
 
     #[test]
-    fn assemble_snapshot_attention_excerpt_comes_from_the_card() {
-        // Blocked operator row: attention item carries the card's tail.
+    fn attention_items_carry_no_excerpt_field_the_card_owns_the_tail() {
+        // The detail pane reads AgentCard.excerpt; the attention item
+        // deliberately has no excerpt of its own (field removed).
         let mut c = card("s1", TileStatus::Blocked, Some("Zeta"));
         c.excerpt = Some("cargo test\nrunning 34/210".into());
         let snap = assemble_snapshot(
@@ -1007,10 +1000,12 @@ mod tests {
             }],
             vec![],
         );
+        // The tail still reaches the UI — on the card.
         assert_eq!(
-            snap.attention[0].excerpt.as_deref(),
+            snap.agents[0].excerpt.as_deref(),
             Some("cargo test\nrunning 34/210")
         );
+        assert_eq!(snap.attention.len(), 1);
     }
 
     #[test]
@@ -1112,10 +1107,8 @@ mod tests {
         );
         assert_eq!(snap.attention[0].question.as_deref(), Some("npm test"));
         assert!(snap.attention[0].permission.is_some());
-        assert_eq!(snap.attention[1].excerpt.as_deref(), Some("tail"));
         assert_eq!(snap.attention[1].question.as_deref(), Some("q?"));
         assert_eq!(snap.attention[2].since_unix_ms, None);
-        assert_eq!(snap.attention[2].excerpt.as_deref(), Some("[y/N]"));
         assert_eq!(snap.agents.len(), 3); // every attention session keeps its card
     }
 

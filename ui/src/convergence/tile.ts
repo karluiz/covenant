@@ -96,6 +96,18 @@ export function renderDetailPane(
   open.textContent = `Open tab ${formatChord(["enter"])}`;
   open.addEventListener("click", () => cb.onFocus(card.session_id, false));
   actions.append(open);
+  if (card.excerpt) {
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "mc-detail__copy";
+    copy.textContent = "Copy tail";
+    copy.setAttribute("aria-label", "Copy the tail to the clipboard");
+    copy.addEventListener("click", () => {
+      const text = card.excerpt;
+      if (text) void navigator.clipboard.writeText(text).catch(() => {});
+    });
+    actions.append(copy);
+  }
   if (card.operator_id) {
     const stop = document.createElement("button");
     stop.type = "button";
