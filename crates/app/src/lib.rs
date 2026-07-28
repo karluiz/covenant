@@ -30,7 +30,6 @@ mod covenant_board;
 mod covenant_gist;
 mod covenant_review;
 mod cross_session;
-mod group_supervision;
 mod discord_presence;
 mod drafts;
 pub mod email;
@@ -41,6 +40,7 @@ mod favorites_commands;
 mod file_search;
 mod fix_proposer;
 mod git_tools;
+mod group_supervision;
 mod history_import;
 mod lsp_commands;
 mod mcp_server;
@@ -697,7 +697,7 @@ async fn spawn_session(
             let mut attached = Attached::None;
             while let Ok(ev) = rx.recv().await {
                 match ev {
-                    karl_session::SessionEvent::ForegroundChanged { session, name } => {
+                    karl_session::SessionEvent::ForegroundChanged { session, name, .. } => {
                         let want = match name.as_deref() {
                             Some("claude") if !cwd.as_os_str().is_empty() => Attached::Claude,
                             Some("opencode") if !cwd.as_os_str().is_empty() => Attached::OpenCode,
@@ -756,7 +756,7 @@ async fn spawn_session(
         tauri::async_runtime::spawn(async move {
             while let Ok(ev) = rx.recv().await {
                 match ev {
-                    karl_session::SessionEvent::ForegroundChanged { session, name } => {
+                    karl_session::SessionEvent::ForegroundChanged { session, name, .. } => {
                         let agent = name.and_then(|n| {
                             if karl_session::idle::KNOWN_AGENTS.contains(&n.as_str()) {
                                 Some(n)

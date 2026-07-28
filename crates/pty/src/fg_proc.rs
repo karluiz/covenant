@@ -170,6 +170,108 @@ fn read_proc_argv(pid: i32) -> Option<Vec<String>> {
     Some(argv)
 }
 
+/// A live dev server somewhere under `root_pid`'s process tree: BFS the
+/// descendants and report the first process whose (logical) name passes
+/// `is_busy` AND that holds a TCP socket in LISTEN state. The listen
+/// check is what discriminates "an app is serving" from build churn or
+/// the brief subprocesses agent CLIs spawn. Agent CLIs themselves
+/// (claude, codex, …) are walked *through* but never reported — a dev
+/// server they started counts, they don't.
+#[cfg(target_os = "macos")]
+pub fn busy_server_descendant(root_pid: u32, is_busy: &dyn Fn(&str) -> bool) -> Option<String> {
+    use libproc::processes::{pids_by_type, ProcFilter};
+    let mut queue = vec![root_pid];
+    // ponytail: 64-process cap bounds the walk; a session subtree past
+    // that is pathological and the dot just stays off.
+    let mut budget = 64usize;
+    while let Some(pid) = queue.pop() {
+        let children = pids_by_type(ProcFilter::ByParentProcess { ppid: pid }).unwrap_or_default();
+        for &child in &children {
+            if budget == 0 {
+                return None;
+            }
+            budget -= 1;
+            queue.push(child);
+            let cpid = child as i32;
+            let Ok(comm) = libproc::proc_pid::name(cpid) else {
+                continue;
+            };
+            // Never report an agent CLI — including self-renamed comms
+            // (Claude Code) and runtime-hosted ones (node → copilot).
+            if LOGICAL_CLIS.iter().any(|c| comm.contains(c))
+                || logical_name_from_argv(cpid).is_some()
+            {
+                continue;
+            }
+            // Prefer an argv-derived name (node running vite.js → "vite")
+            // over the generic runtime comm.
+            let display =
+                busy_name_from_argv(cpid, is_busy).or_else(|| is_busy(&comm).then(|| comm.clone()));
+            if let Some(name) = display {
+                if has_listening_tcp(cpid) {
+                    return Some(name);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn busy_server_descendant(_root_pid: u32, _is_busy: &dyn Fn(&str) -> bool) -> Option<String> {
+    None
+}
+
+/// First argv element whose basename (with or without extension) passes
+/// `is_busy` — recovers the logical tool name for runtime-hosted servers
+/// (`node …/vite/bin/vite.js` → "vite").
+#[cfg(target_os = "macos")]
+fn busy_name_from_argv(pid: i32, is_busy: &dyn Fn(&str) -> bool) -> Option<String> {
+    let argv = read_proc_argv(pid)?;
+    for arg in &argv {
+        let basename = arg.rsplit('/').next().unwrap_or(arg);
+        if is_busy(basename) {
+            return Some(basename.to_string());
+        }
+        let stem = basename.split('.').next().unwrap_or(basename);
+        if is_busy(stem) {
+            return Some(stem.to_string());
+        }
+    }
+    None
+}
+
+/// True when `pid` holds at least one TCP socket in LISTEN state.
+#[cfg(target_os = "macos")]
+fn has_listening_tcp(pid: i32) -> bool {
+    use libproc::bsd_info::BSDInfo;
+    use libproc::file_info::{pidfdinfo, ListFDs, ProcFDType};
+    use libproc::net_info::{SocketFDInfo, SocketInfoKind, TcpSIState};
+    use libproc::proc_pid::{listpidinfo, pidinfo};
+    let Ok(info) = pidinfo::<BSDInfo>(pid, 0) else {
+        return false;
+    };
+    let Ok(fds) = listpidinfo::<ListFDs>(pid, info.pbi_nfiles as usize) else {
+        return false;
+    };
+    for fd in fds {
+        if !matches!(ProcFDType::from(fd.proc_fdtype), ProcFDType::Socket) {
+            continue;
+        }
+        let Ok(sock) = pidfdinfo::<SocketFDInfo>(pid, fd.proc_fd) else {
+            continue;
+        };
+        if matches!(SocketInfoKind::from(sock.psi.soi_kind), SocketInfoKind::Tcp) {
+            // SAFETY: soi_kind == Tcp guarantees the union holds pri_tcp.
+            let state = unsafe { sock.psi.soi_proto.pri_tcp.tcpsi_state };
+            if matches!(TcpSIState::from(state), TcpSIState::Listen) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Send a signal to the foreground process group of the PTY whose master
 /// fd is given. Used to kill the entire foreground process tree (e.g.
 /// `npm run tauri:dev` plus its descendants) when the user hits the
@@ -206,6 +308,43 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         let name = foreground_process_name(session.master_fd());
         assert_eq!(name.as_deref(), Some("zsh"), "got {name:?}");
+    }
+
+    #[test]
+    fn busy_server_descendant_finds_listening_child_and_ignores_non_listeners() {
+        // A sleeping child matches the name filter but listens on nothing.
+        let mut idle = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        let is_sleep = |n: &str| n == "sleep";
+        assert_eq!(
+            busy_server_descendant(std::process::id(), &is_sleep),
+            None,
+            "non-listening process must not light the dot"
+        );
+
+        // A real listener (python http.server on an ephemeral port) must.
+        let mut server = std::process::Command::new("/usr/bin/python3")
+            .args(["-m", "http.server", "0", "--bind", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn python http.server");
+        let is_py = |n: &str| n == "python3" || n == "Python";
+        let mut found = None;
+        for _ in 0..40 {
+            found = busy_server_descendant(std::process::id(), &is_py);
+            if found.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let _ = server.kill();
+        let _ = server.wait();
+        let _ = idle.kill();
+        let _ = idle.wait();
+        assert!(found.is_some(), "listening python server not detected");
     }
 
     #[test]
