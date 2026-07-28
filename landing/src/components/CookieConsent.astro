@@ -1,0 +1,55 @@
+---
+// Clarity only loads after explicit consent (EEA Consent API v2 requirement).
+// No PUBLIC_CLARITY_ID at build time → no banner, no tracking, zero cost.
+const clarityId = import.meta.env.PUBLIC_CLARITY_ID;
+---
+{clarityId && (
+  <div
+    id="cookie-consent"
+    class="fixed bottom-4 left-4 z-50 hidden max-w-sm rounded-lg border border-mist/15 bg-ink p-5 shadow-2xl"
+  >
+    <p class="text-sm font-semibold">Cookies</p>
+    <p class="mt-2 text-sm text-mist/70">
+      We use Microsoft Clarity to understand how the site is used. Accept to
+      allow analytics cookies, or decline to keep only what's needed.
+    </p>
+    <div class="mt-4 flex gap-3">
+      <button
+        id="cookie-accept"
+        class="rounded-md bg-mist px-4 py-1.5 text-sm font-semibold text-ink hover:bg-mist/90 transition"
+      >Accept</button>
+      <button
+        id="cookie-decline"
+        class="rounded-md border border-mist/25 px-4 py-1.5 text-sm text-mist/80 hover:bg-mist/10 transition"
+      >Decline</button>
+    </div>
+  </div>
+
+  <script is:inline define:vars={{ clarityId }}>
+    const KEY = "cookie-consent";
+    const banner = document.getElementById("cookie-consent");
+
+    function loadClarity() {
+      (function (c, l, a, r, i, t, y) {
+        c[a] = c[a] || function () { (c[a].q = c[a].q || []).push(arguments); };
+        t = l.createElement(r); t.async = 1; t.src = "https://www.clarity.ms/tag/" + i;
+        y = l.getElementsByTagName(r)[0]; y.parentNode.insertBefore(t, y);
+      })(window, document, "clarity", "script", clarityId);
+      window.clarity("consentv2", { ad_Storage: "denied", analytics_Storage: "granted" });
+    }
+
+    const choice = localStorage.getItem(KEY);
+    if (choice === "accepted") loadClarity();
+    else if (choice !== "declined") banner.classList.remove("hidden");
+
+    document.getElementById("cookie-accept").addEventListener("click", () => {
+      localStorage.setItem(KEY, "accepted");
+      banner.remove();
+      loadClarity();
+    });
+    document.getElementById("cookie-decline").addEventListener("click", () => {
+      localStorage.setItem(KEY, "declined");
+      banner.remove();
+    });
+  </script>
+)}
