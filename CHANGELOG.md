@@ -6,6 +6,51 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.80 — Supervised groups visible in Convergence
+
+### Added
+
+- **Supervision bands in the Convergence rail**: group headers became
+  two-line selectable bands — name plus roll-up (tab count, spend) on top,
+  and, when the group has a supervisor attached, the operator's name with
+  its mode (`observes` / `intervenes`) and finding count below, marked by an
+  accent spine. Previously the header only rendered when the rail spanned
+  more than one group, which hid supervision in the common single-group
+  case; a supervised group now always gets its band. The strip summary
+  gained a `N supervised` count (`ui/src/convergence/group.ts`,
+  `ui/src/convergence/overlay.ts`).
+
+- **Group detail pane**: selecting a band swaps the existing detail host to
+  the group instead of a session — supervisor identity and avatar, an
+  Intervene toggle, a tabs / needs-you / findings / spend roll-up, the
+  findings feed, and Open group + Detach actions wired through
+  `TabManager.setGroupSupervisor` / `setGroupIntervene`. Arrow keys and 1–9
+  stay a pure agent triage ring; bands are pointer and Tab targets
+  (`ui/src/convergence/group.ts`).
+
+- **Retained supervision findings**: `group-supervision-finding` events now
+  also land in a 20-per-group in-memory ring instead of only flashing as a
+  12-second toast, so the group pane can show what the supervisor has
+  actually flagged this session (`ui/src/convergence/findings.ts`,
+  `ui/src/notifications/toast.ts`).
+
+- **Supervision mode in the operator's Tasks tab and chat context**: an
+  operator attached as a group supervisor now appears as a virtual active
+  Watch task per supervised group (rendered as a "Watching group" chip
+  rather than the usual Open tab / Stop / Continue actions), and
+  `teammate_send_text_message` injects an "# Active supervision" section
+  into the LLM world context so the operator knows its role when chatting.
+  `Task.supervision_group` is serde-skipped, so existing DB rows deserialise
+  to `None` with no migration (`crates/app/src/teammate/`,
+  `ui/src/teammate/panel.ts`).
+
+### Changed
+
+- **Convergence rail buckets key off group ID instead of group name**, so
+  two groups sharing a name no longer merge into one bucket; session hints
+  carry the group id and its attached supervisor
+  (`ui/src/convergence/hints.ts`).
+
 ## v0.9.79 — Convergence master-detail redesign + group supervision
 
 ### Added
