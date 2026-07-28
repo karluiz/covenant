@@ -759,18 +759,29 @@ impl OperatorRegistry {
             .collect()
     }
 
-    /// The operator supervising this session via its group, if any.
+    /// The (group_id, supervisor) pair for this session, derived from a
+    /// SINGLE `session_group` read paired with that same read's group's
+    /// supervision entry — a group move between two separate reads can
+    /// never pair a stale group_id with a different group's supervisor.
     /// Gated on the operator still existing AND having the Supervision
-    /// capability — a stale attach never resolves.
-    pub fn supervisor_for(&self, session_id: SessionId) -> Option<Operator> {
+    /// capability — a stale attach never resolves. `supervisor_for`
+    /// delegates here for callers that only need the operator.
+    pub fn supervised_pair(&self, session_id: SessionId) -> Option<(String, Operator)> {
         let gid = self.session_group(session_id)?;
         let sup = self.group_supervision(&gid)?;
         let op = self.get(sup.operator)?;
         if op.supervision_enabled {
-            Some(op)
+            Some((gid, op))
         } else {
             None
         }
+    }
+
+    /// The operator supervising this session via its group, if any.
+    /// Gated on the operator still existing AND having the Supervision
+    /// capability — a stale attach never resolves.
+    pub fn supervisor_for(&self, session_id: SessionId) -> Option<Operator> {
+        self.supervised_pair(session_id).map(|(_, op)| op)
     }
 
     /// The operator that should drive AOM for this session right now.

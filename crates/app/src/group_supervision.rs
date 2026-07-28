@@ -148,14 +148,15 @@ impl GroupSupervisionWatcher {
 
 /// The (group_id, supervisor) this failure belongs to, or None when the
 /// session is ungrouped / the group unsupervised / the operator lost the
-/// capability. Pure — unit-testable without the watcher.
+/// capability. Pure — unit-testable without the watcher. Delegates to
+/// `OperatorRegistry::supervised_pair`, which derives the pair from a
+/// SINGLE `session_group` read — a group move can never pair a stale
+/// group_id with a different group's supervisor.
 pub(crate) fn supervised_group_for(
     registry: &OperatorRegistry,
     session_id: SessionId,
 ) -> Option<(String, Operator)> {
-    let gid = registry.session_group(session_id)?;
-    let op = registry.supervisor_for(session_id)?;
-    Some((gid, op))
+    registry.supervised_pair(session_id)
 }
 
 async fn watch_loop(
