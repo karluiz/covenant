@@ -35,6 +35,19 @@ use tokio::sync::mpsc;
 
 const READ_CHUNK: usize = 8 * 1024;
 
+/// Env markers Claude Code injects into every subprocess it spawns. If
+/// Covenant itself was launched from inside a Claude Code session (e.g.
+/// `npm run tauri:dev` under the respawn skill), PTY children inherit them
+/// and any `claude` run in a tab believes it is a nested child session —
+/// which silently disables transcript persistence and breaks `--resume`.
+/// Covenant tabs are never claude child sessions, so scrub the markers.
+pub const CLAUDE_CHILD_MARKERS: [&str; 4] = [
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDECODE",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_PID",
+];
+
 #[derive(Debug, Error)]
 pub enum PtyError {
     #[error("pty backend error: {0}")]
@@ -161,6 +174,9 @@ impl PtySession {
 
         let mut cmd = CommandBuilder::new(&options.program);
         cmd.args(options.args.iter().map(|s| s.as_str()));
+        for k in CLAUDE_CHILD_MARKERS {
+            cmd.env_remove(k);
+        }
         for (k, v) in &options.env {
             cmd.env(k, v);
         }
@@ -322,6 +338,39 @@ mod tests {
         assert!(opts.program.ends_with("zsh") || opts.program.ends_with("bash"));
         #[cfg(windows)]
         assert!(opts.program.to_lowercase().ends_with("pwsh.exe"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn claude_child_markers_are_scrubbed() {
+        // Simulate Covenant having been launched from inside a claude
+        // session: the marker sits in our process env, and must NOT reach
+        // the PTY child.
+        std::env::set_var("CLAUDE_CODE_CHILD_SESSION", "1");
+
+        let opts = SpawnOptions {
+            program: "/bin/sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "echo marker=${CLAUDE_CODE_CHILD_SESSION:-scrubbed}".to_string(),
+            ],
+            size: DEFAULT_SIZE,
+            env: vec![],
+            cwd: None,
+        };
+        let (_session, mut rx) = PtySession::spawn(opts).expect("spawn");
+
+        let mut all = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            all.extend_from_slice(&chunk);
+        }
+        std::env::remove_var("CLAUDE_CODE_CHILD_SESSION");
+
+        let text = String::from_utf8_lossy(&all);
+        assert!(
+            text.contains("marker=scrubbed"),
+            "CLAUDE_CODE_CHILD_SESSION leaked into the PTY child: {text:?}"
+        );
     }
 
     #[cfg(unix)]
