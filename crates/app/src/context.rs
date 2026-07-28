@@ -3,9 +3,12 @@
 //! Pure functions over a `cwd`:
 //!   - `detect_git_context`  — `git -C <cwd> rev-parse / symbolic-ref` shells
 //!     out (cheap, ~5 ms warm). Detached HEAD reports the short SHA.
-//!   - `detect_runtime`      — file probes only (`Cargo.toml`, `package.json`,
-//!     `pyproject.toml`, `go.mod`, `Gemfile`). No subprocesses, no version
-//!     resolution beyond what the manifest declares.
+//!   - `detect_runtime`      — file probes (`Cargo.toml`, `package.json`,
+//!     `pyproject.toml`, `go.mod`, `Gemfile`), then a sibling version file
+//!     (`.nvmrc`, `.tool-versions`, …), then — last resort — the runtime
+//!     binary itself via a login shell. That third tier means the answer
+//!     depends on the machine, not only on `cwd`; `detect_runtime_inner`
+//!     takes a flag to stop before it.
 //!
 //! Both feed `dir_context(cwd)` which combines them and stuffs the answer
 //! into a tiny LRU keyed by cwd. The frontend re-calls on every
@@ -35,8 +38,8 @@ pub struct RuntimeInfo {
     /// Lowercase identifier we render in the UI (`node`, `python`, `rust`,
     /// `go`, `ruby`).
     pub language: String,
-    /// File-declared version when extractable, else `None`. We never run
-    /// the actual binary — declared is "good enough" for the v1 spec.
+    /// Declared version when extractable, else whatever the installed
+    /// runtime reports, else `None`.
     pub version: Option<String>,
 }
 
@@ -57,6 +60,15 @@ const RUNTIME_PROBES: &[(&str, &str)] = &[
 ];
 
 pub fn detect_runtime(cwd: &Path) -> Option<RuntimeInfo> {
+    detect_runtime_inner(cwd, true)
+}
+
+/// `probe_binary = false` stops before the tier-3 subprocess, so the
+/// answer depends only on files under `cwd`. Tests use it: with the
+/// binary tier on, "no version declared anywhere" resolves to whatever
+/// node/rustc happens to be installed on the machine running the suite,
+/// which is not what those cases are asserting.
+fn detect_runtime_inner(cwd: &Path, probe_binary: bool) -> Option<RuntimeInfo> {
     for (manifest, language) in RUNTIME_PROBES {
         let path = cwd.join(manifest);
         if !path.is_file() {
@@ -67,7 +79,11 @@ pub fn detect_runtime(cwd: &Path) -> Option<RuntimeInfo> {
             .as_deref()
             .and_then(|b| extract_version(language, b))
             .or_else(|| read_version_file(language, cwd))
-            .or_else(|| query_runtime_binary(language));
+            .or_else(|| {
+                probe_binary
+                    .then(|| query_runtime_binary(language))
+                    .flatten()
+            });
         return Some(RuntimeInfo {
             language: (*language).to_string(),
             version,
@@ -411,7 +427,7 @@ mod tests {
     fn runtime_node_without_version() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "package.json", r#"{"name":"x"}"#);
-        let r = detect_runtime(dir.path()).unwrap();
+        let r = detect_runtime_inner(dir.path(), false).unwrap();
         assert_eq!(r.language, "node");
         assert!(r.version.is_none());
     }
@@ -446,7 +462,7 @@ mod tests {
     fn runtime_rust_without_rust_version() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "Cargo.toml", "[package]\nname = \"x\"\n");
-        let r = detect_runtime(dir.path()).unwrap();
+        let r = detect_runtime_inner(dir.path(), false).unwrap();
         assert_eq!(r.language, "rust");
         assert!(r.version.is_none());
     }
