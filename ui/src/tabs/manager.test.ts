@@ -4,8 +4,10 @@ import {
   applyInferredTitle,
   shouldRetire,
   shouldRefocusAfterScrub,
+  panesForIntervene,
   type TabManifestV1,
 } from "./manager";
+import type { Pane } from "./pane";
 
 // activate() reports the new active tab to the backend; jsdom has no Tauri
 // IPC bridge, so stub it out. Kept as a vi.fn() (via vi.hoisted, since
@@ -780,5 +782,194 @@ describe("group chip chassis hooks", () => {
       children.findIndex((c) => c.includes("group-chip-chev")),
     );
     expect(chip!.classList.contains("group-chip-empty")).toBe(true);
+  });
+});
+
+// Task 7 — Phase 3 Intervene application. panesForIntervene is the pure
+// eligibility filter; the rest exercises TabManager's private appliers
+// through the public setGroupSupervisor/setGroupIntervene/setTabOperator
+// surface so the tests track real call sites instead of reaching into
+// private methods.
+function ivPane(overrides: Partial<Pane> = {}): Pane {
+  return {
+    id: overrides.id ?? `p-${Math.random().toString(36).slice(2)}`,
+    kind: "terminal",
+    sessionId: null,
+    cwd: "/tmp",
+    mission: null,
+    operator: null,
+    blocks: [],
+    xterm: null,
+    piView: null,
+    executor: null,
+    operatorEnabled: false,
+    operatorLive: false,
+    aomExcluded: false,
+    observer_ids: [],
+    spawn_id: null,
+    idleAgent: null,
+    busyProc: null,
+    replayKey: "r",
+    el: null,
+    ...overrides,
+  };
+}
+
+function ivTabWith(groupId: string | null, panes: Pane[]): Record<string, unknown> {
+  return {
+    id: `t-${Math.random().toString(36).slice(2)}`,
+    groupId,
+    kind: "shell",
+    pane: document.createElement("div"),
+    panes,
+    layout: { kind: "single", activePaneIdx: 0 },
+    disposers: [],
+  };
+}
+
+describe("panesForIntervene", () => {
+  it("selects only unpinned, non-excluded, live panes of the group", () => {
+    const tabs = [
+      { groupId: "g1", panes: [ivPane({ sessionId: "s1" })] },              // eligible
+      { groupId: "g1", panes: [ivPane({ sessionId: "s2", operator: "op-9" })] }, // pinned → out
+      { groupId: "g1", panes: [ivPane({ sessionId: "s3", aomExcluded: true })] }, // excluded → out
+      { groupId: "g1", panes: [ivPane({ sessionId: null })] },              // no session → out
+      { groupId: "g2", panes: [ivPane({ sessionId: "s5" })] },              // other group → out
+    ];
+    expect(panesForIntervene(tabs, "g1").map((p) => p.sessionId)).toEqual(["s1"]);
+  });
+});
+
+describe("group supervisor Intervene — apply/unapply", () => {
+  it("setGroupIntervene(true) claims only eligible panes, flagged supervisorAom", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const eligible = ivPane({ id: "p1", sessionId: "s1" });
+    const pinned = ivPane({ id: "p2", sessionId: "s2", operator: "op-9" });
+    const excluded = ivPane({ id: "p3", sessionId: "s3", aomExcluded: true });
+    priv.tabs.push(
+      ivTabWith(groupId, [eligible]),
+      ivTabWith(groupId, [pinned]),
+      ivTabWith(groupId, [excluded]),
+    );
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+
+    expect(eligible.supervisorAom).toBe(true);
+    expect(eligible.operatorEnabled).toBe(true);
+    expect(eligible.operatorLive).toBe(true);
+    expect(pinned.supervisorAom).toBeFalsy();
+    expect(excluded.supervisorAom).toBeFalsy();
+  });
+
+  it("setGroupIntervene(false) reverts only supervisorAom panes, never a user's own manual enablement", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const claimed = ivPane({ id: "p1", sessionId: "s1" });
+    // Realistic "manual enablement": a PINNED pane running its own solo
+    // AOM (operatorEnabled requires a pin outside the supervisor path —
+    // enable_all_for_aom skips unpinned sessions too). The pin alone
+    // already keeps it out of panesForIntervene's eligibility.
+    const manual = ivPane({
+      id: "p2",
+      sessionId: "s2",
+      operator: "op-9",
+      operatorEnabled: true,
+      operatorLive: true,
+    });
+    priv.tabs.push(ivTabWith(groupId, [claimed]), ivTabWith(groupId, [manual]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(claimed.supervisorAom).toBe(true);
+
+    m.setGroupIntervene(groupId, false);
+
+    expect(claimed.supervisorAom).toBe(false);
+    expect(claimed.operatorEnabled).toBe(false);
+    expect(claimed.operatorLive).toBe(false);
+    // Never flagged supervisorAom in the first place — untouched by revert.
+    expect(manual.supervisorAom).toBeFalsy();
+    expect(manual.operatorEnabled).toBe(true);
+    expect(manual.operatorLive).toBe(true);
+  });
+
+  it("detaching the supervisor reverts claimed panes", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const claimed = ivPane({ id: "p1", sessionId: "s1" });
+    priv.tabs.push(ivTabWith(groupId, [claimed]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(claimed.supervisorAom).toBe(true);
+
+    m.setGroupSupervisor(groupId, null);
+
+    expect(claimed.supervisorAom).toBe(false);
+    expect(claimed.operatorEnabled).toBe(false);
+  });
+
+  it("pinning a covered pane reverts its supervisorAom claim (driver takes over clean)", async () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const covered = ivPane({ id: "p1", sessionId: "s1" });
+    const tab = ivTabWith(groupId, [covered]);
+    priv.tabs.push(tab);
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(covered.supervisorAom).toBe(true);
+
+    await m.setTabOperator(tab.id as string, "op-2");
+
+    expect(covered.supervisorAom).toBe(false);
+    expect(covered.operatorEnabled).toBe(false);
+    expect(covered.operator).toBe("op-2");
+  });
+
+  it("unpinning inside an intervening group re-applies coverage", async () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const pane = ivPane({ id: "p1", sessionId: "s1", operator: "op-2" });
+    const tab = ivTabWith(groupId, [pane]);
+    priv.tabs.push(tab);
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    // Pinned pane stays uncovered while pinned.
+    expect(pane.supervisorAom).toBeFalsy();
+
+    await m.setTabOperator(tab.id as string, null);
+
+    expect(pane.operator).toBeNull();
+    expect(pane.supervisorAom).toBe(true);
+    expect(pane.operatorEnabled).toBe(true);
+    expect(pane.operatorLive).toBe(true);
+  });
+
+  it("excluding a covered pane from AOM revokes its supervisorAom claim", async () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as { tabs: Array<Record<string, unknown>> };
+    const covered = ivPane({ id: "p1", sessionId: "s1" });
+    priv.tabs.push(ivTabWith(groupId, [covered]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(covered.supervisorAom).toBe(true);
+
+    await m.setAomExcludedFor("s1", true);
+
+    expect(covered.aomExcluded).toBe(true);
+    expect(covered.supervisorAom).toBe(false);
+    expect(covered.operatorEnabled).toBe(false);
+    expect(covered.operatorLive).toBe(false);
   });
 });
