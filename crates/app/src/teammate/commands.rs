@@ -624,7 +624,9 @@ pub async fn teammate_list_tasks(
 // ── Task-lifecycle helpers + Tauri commands ───────────────────────────────────
 
 use crate::teammate::runtime::TeammateRuntime;
-use crate::teammate::types::{ProposeTask, Task, TaskArchetype, TaskId, TaskScope, TaskStatus, UpdateKind};
+use crate::teammate::types::{
+    ProposeTask, Task, TaskArchetype, TaskId, TaskScope, TaskStatus, UpdateKind,
+};
 
 fn now_unix_ms() -> u64 {
     std::time::SystemTime::now()
