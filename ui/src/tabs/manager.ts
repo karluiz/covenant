@@ -1996,6 +1996,11 @@ export class TabManager {
   /// cache doesn't have a match yet.
   public onActiveOperatorEntityChange: ((op: Operator | null) => void) | null = null;
 
+  /// Fires when the count of blocked (needs-you) sessions changes —
+  /// drives the status bar's red attention chip. Same 1 Hz poll as the
+  /// per-tab escalation dots.
+  public onBlockedCountChange: ((count: number) => void) | null = null;
+
   /// Fires when the active tab's bound spawn_id changes — either because
   /// the active tab switched or because setActiveSpawnId was called.
   /// Passes null when the active tab has no bound spawn.
@@ -2361,6 +2366,7 @@ export class TabManager {
     for (const id of this.blockedSessionIds) if (!next.has(id)) changed.add(id);
     if (changed.size === 0) return;
     this.blockedSessionIds = next;
+    this.onBlockedCountChange?.(next.size);
     for (const tab of this.tabs) {
       const pane = activePane(tab);
       if (!pane.sessionId || !changed.has(pane.sessionId)) continue;

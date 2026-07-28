@@ -529,3 +529,31 @@ describe("git worktree popover — destructive click wiring", () => {
     expect(actBtn!.dataset.verb).toBe("relocate");
   });
 });
+
+describe("StatusBar.setNeedsYou", () => {
+  let host: HTMLDivElement;
+  let bar: StatusBar;
+
+  beforeEach(() => {
+    (globalThis as unknown as { __APP_VERSION__: string }).__APP_VERSION__ = "0.0.0-test";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    bar = new StatusBar(host);
+    bar.setEnabled(false);
+    bar.setEnabled(true);
+  });
+
+  it("renders the red chip only when agents are blocked, and clicks open Convergence", () => {
+    const onClick = vi.fn();
+    bar.onNeedsYouClick = onClick;
+    expect(host.querySelector(".status-needsyou")).toBeNull();
+    bar.setNeedsYou(2);
+    const chip = host.querySelector<HTMLButtonElement>(".status-needsyou");
+    expect(chip).not.toBeNull();
+    expect(chip?.textContent).toContain("2 needs you");
+    chip?.click();
+    expect(onClick).toHaveBeenCalledTimes(1);
+    bar.setNeedsYou(0);
+    expect(host.querySelector(".status-needsyou")).toBeNull();
+  });
+});

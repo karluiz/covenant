@@ -187,6 +187,14 @@ export class StatusBar {
   /// ReleasePanel directly so the bar stays a thin renderer.
   public onVersionChipClick: (() => void) | null = null;
 
+  /// Sessions currently blocked on the human (Convergence attention).
+  /// Pushed by TabManager's 1 Hz blocked-session poll; renders the red
+  /// "needs you" chip. Zero collapses the chip entirely.
+  private needsYouCount = 0;
+
+  /// Wired by main.ts — clicking the "needs you" chip opens Convergence.
+  public onNeedsYouClick: (() => void) | null = null;
+
   /// Wired by main.ts (Task 5 will hook this to an OperatorPicker).
   /// Fires when the user clicks the operator chip in the status bar.
   /// No-op stub until the picker is wired in Plan 3 Task 5.
@@ -286,6 +294,12 @@ export class StatusBar {
 
   /// Pushed by main.ts whenever the active workspace changes (switch,
   /// rename, recolor). Renders the leading chip in the left zone.
+  setNeedsYou(count: number): void {
+    if (count === this.needsYouCount) return;
+    this.needsYouCount = count;
+    this.render(this.lastDirCtx);
+  }
+
   setWorkspace(info: ActiveWorkspaceInfo | null): void {
     const a = this.currentWorkspace;
     if ((a?.name ?? null) === (info?.name ?? null) && (a?.color ?? null) === (info?.color ?? null)) {
@@ -815,6 +829,11 @@ export class StatusBar {
     }
 
     // ─── RIGHT ───────────────────────────────────────────
+    if (this.needsYouCount > 0) {
+      right.appendChild(
+        needsYouSegment(this.needsYouCount, () => this.onNeedsYouClick?.()),
+      );
+    }
     if (this.currentExecutor) {
       right.appendChild(
         executorSegment(
@@ -1656,6 +1675,24 @@ function formatElapsed(ms: number): string {
   const h = Math.floor(m / 60);
   const rm = m - h * 60;
   return rm === 0 ? `${h}h` : `${h}h${rm}m`;
+}
+
+/// Red attention chip — sessions blocked on the human. Click opens
+/// Convergence (⌘⇧M). Never rendered at zero.
+function needsYouSegment(count: number, onClick: () => void): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "status-segment status-needsyou";
+  const label = count === 1 ? "1 agent needs you" : `${count} agents need you`;
+  el.setAttribute("aria-label", label);
+  attachTooltip(el, `${label}. Click to open Convergence.`);
+  const dot = document.createElement("span");
+  dot.className = "status-needsyou__dot";
+  const text = document.createElement("span");
+  text.textContent = `${count} needs you`;
+  el.append(dot, text);
+  el.addEventListener("click", onClick);
+  return el;
 }
 
 function telegramSegment(status: TelegramStatus): HTMLElement {

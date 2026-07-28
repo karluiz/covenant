@@ -2015,6 +2015,7 @@ async fn build_convergence_inputs(
             operator_avatar,
             pending: m.pending,
             subagents: m.subagents,
+            excerpt: m.excerpt,
         });
     }
     (out, acp_out)

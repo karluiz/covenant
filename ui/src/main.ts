@@ -1597,6 +1597,13 @@ async function boot(): Promise<void> {
   pushActiveWorkspace();
   workspaceManager.onChange(pushActiveWorkspace);
   statusBar.onWorkspaceChipClick = () => switcher.togglePopover();
+  // Red "needs you" chip — the out-of-overlay signal that a session is
+  // blocked on the human. Fed by TabManager's 1 Hz blocked poll; click
+  // opens Convergence.
+  manager.onBlockedCountChange = (n) => statusBar.setNeedsYou(n);
+  statusBar.onNeedsYouClick = () => {
+    if (!convergence.isVisible()) convergence.toggle();
+  };
   // Activity sidebar — single global instance, rendered into the right
   // column when the user picks the Activity view (and always available
   // when fullscreen hides the floating notch). Same D-combo layout as

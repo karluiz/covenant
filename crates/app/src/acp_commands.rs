@@ -560,6 +560,9 @@ pub struct AcpMeta {
     pub cwd: Option<String>,
     pub pending: Option<crate::convergence::PendingAcpPermission>,
     pub subagents: Vec<crate::convergence::SubAgentRow>,
+    /// Last chat turns (role-labeled plain text) for the Convergence
+    /// detail pane. None when the conversation is empty.
+    pub excerpt: Option<String>,
 }
 
 impl AcpRegistry {
@@ -594,6 +597,10 @@ impl AcpRegistry {
                 subagents: match tab.subagents.lock() {
                     Ok(s) => s.iter().cloned().collect(),
                     Err(poisoned) => poisoned.into_inner().iter().cloned().collect(),
+                },
+                excerpt: match tab.world.lock() {
+                    Ok(w) => w.tail_excerpt(6),
+                    Err(poisoned) => poisoned.into_inner().tail_excerpt(6),
                 },
             })
             .collect()
