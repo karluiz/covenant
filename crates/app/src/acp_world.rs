@@ -102,6 +102,33 @@ impl AcpWorldModel {
         }
     }
 
+    /// Plain-text tail of the conversation for the Convergence detail
+    /// pane: the last `max_turns` turns labeled by role ("you:" /
+    /// executor name / "tool:"), plus the still-streaming agent buffer
+    /// suffixed with an ellipsis. None when the chat is empty.
+    pub fn tail_excerpt(&self, max_turns: usize) -> Option<String> {
+        let mut lines: Vec<String> = self
+            .turns
+            .iter()
+            .rev()
+            .take(max_turns)
+            .map(|(role, text)| self.role_line(role, text))
+            .collect();
+        lines.reverse();
+        if let Some(fly) = self.in_flight_text() {
+            lines.push(format!("{}: {fly}…", self.executor));
+        }
+        if lines.is_empty() { None } else { Some(lines.join("\n")) }
+    }
+
+    fn role_line(&self, role: &AcpRole, text: &str) -> String {
+        match role {
+            AcpRole::User => format!("you: {text}"),
+            AcpRole::Agent => format!("{}: {text}", self.executor),
+            AcpRole::Tool => format!("tool: {text}"),
+        }
+    }
+
     /// Most recent user prompt, for the inactive-tab one-liner.
     pub fn last_user_prompt(&self) -> Option<String> {
         self.turns
@@ -216,6 +243,25 @@ mod tests {
         assert!(text.ends_with("END"));
         assert!(text.contains("chars]"));
         assert!(text.chars().count() < 600);
+    }
+
+    #[test]
+    fn tail_excerpt_formats_roles_and_inflight() {
+        let mut w = AcpWorldModel::new("claude".into());
+        assert!(w.tail_excerpt(6).is_none());
+        w.record_user("hola como estas?");
+        w.on_agent_chunk("Bien, gracias.");
+        w.flush_agent_turn();
+        w.on_tool_call("Read a.rs");
+        w.on_agent_chunk("sigo escribiendo");
+        let e = w.tail_excerpt(6).expect("some excerpt");
+        assert_eq!(
+            e,
+            "you: hola como estas?\nclaude: Bien, gracias.\ntool: Read a.rs\nclaude: sigo escribiendo…"
+        );
+        // max_turns keeps only the most recent turns.
+        let short = w.tail_excerpt(1).expect("some");
+        assert!(short.starts_with("tool: Read a.rs"));
     }
 
     #[test]

@@ -156,8 +156,9 @@ pub struct AgentCard {
     pub raw_command_label: Option<String>,
     pub last_command: Option<String>,
     pub last_output_line: Option<String>,
-    /// Last ~15 screen lines, ANSI-stripped, secret-masked upstream.
-    /// PTY lanes only; None for ACP (chat lane has no screen).
+    /// The detail pane's tail, secret-masked. PTY lanes: last ~15 lines
+    /// of the vt100 screen render; ACP lane: last chat turns. None when
+    /// there's nothing to show yet.
     pub excerpt: Option<String>,
     pub mission_name: Option<String>,
     /// Operator badge — all None when no operator is enabled on the tab.
@@ -394,6 +395,9 @@ pub struct AcpSessionInput {
     pub pending: Option<PendingAcpPermission>,
     /// Live sub-agents recorded on the tab (Task tool calls).
     pub subagents: Vec<SubAgentRow>,
+    /// Last chat turns from the ACP world model (role-labeled plain
+    /// text). None when the conversation is empty.
+    pub excerpt: Option<String>,
 }
 
 /// Card for an operator-less PTY session. `None` unless NotchHub sees a
@@ -449,7 +453,7 @@ pub fn acp_agent_card(inp: AcpSessionInput) -> AgentCard {
         raw_command_label: None,
         last_command: None,
         last_output_line: None,
-        excerpt: None,
+        excerpt: inp.excerpt.map(|e| crate::safety::mask_secrets(&e)),
         mission_name: None,
         operator_id: inp.operator_id,
         operator_name: inp.operator_name,
