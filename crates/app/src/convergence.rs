@@ -156,6 +156,9 @@ pub struct AgentCard {
     pub raw_command_label: Option<String>,
     pub last_command: Option<String>,
     pub last_output_line: Option<String>,
+    /// Last ~15 screen lines, ANSI-stripped, secret-masked upstream.
+    /// PTY lanes only; None for ACP (chat lane has no screen).
+    pub excerpt: Option<String>,
     pub mission_name: Option<String>,
     /// Operator badge — all None when no operator is enabled on the tab.
     pub operator_id: Option<String>,
@@ -385,6 +388,7 @@ pub fn pty_agent_card(
         raw_command_label: None,
         last_command: None,
         last_output_line: None,
+        excerpt: None,
         mission_name: None,
         operator_id: None,
         operator_name: None,
@@ -412,6 +416,7 @@ pub fn acp_agent_card(inp: AcpSessionInput) -> AgentCard {
         raw_command_label: None,
         last_command: None,
         last_output_line: None,
+        excerpt: None,
         mission_name: None,
         operator_id: inp.operator_id,
         operator_name: inp.operator_name,
@@ -428,21 +433,16 @@ pub fn acp_agent_card(inp: AcpSessionInput) -> AgentCard {
 pub struct BuiltRow {
     pub card: AgentCard,
     pub escalated_at_unix_ms: u64,
-    /// Snapshot of the executor's tail at build time. Only meaningful
-    /// when `card.status == Blocked`; copied into the EscalationCard.
-    pub executor_excerpt: Option<String>,
     /// Operator's open question (decision escalation/rationale) — feeds
     /// EscalationCard.question; not carried on the card itself.
     pub question: Option<String>,
 }
 
 /// Agent-lane card plus attention carriers that don't belong on the wire
-/// card (the pending permission and the waiting-screen excerpt feed the
-/// queue, not the grid).
+/// card (the pending permission feeds the queue, not the grid).
 pub struct AgentCardInput {
     pub card: AgentCard,
     pub permission_for_attention: Option<PendingAcpPermission>,
-    pub waiting_excerpt: Option<String>,
 }
 
 fn attention_from(item_base: &AgentCard) -> AttentionItem {
@@ -479,7 +479,7 @@ pub fn assemble_snapshot(
         let mut item = attention_from(&b.card);
         item.kind = AttentionKind::OperatorEscalation;
         item.question = b.question.clone();
-        item.excerpt = b.executor_excerpt.clone();
+        item.excerpt = b.card.excerpt.clone();
         item.since_unix_ms = Some(b.escalated_at_unix_ms);
         attention.push(item);
     }
@@ -499,7 +499,7 @@ pub fn assemble_snapshot(
             None => {
                 item.kind = AttentionKind::PtyWaiting;
                 item.question = a.card.phase_label.clone();
-                item.excerpt = a.waiting_excerpt.clone();
+                item.excerpt = a.card.excerpt.clone();
             }
         }
         attention.push(item);
@@ -563,18 +563,14 @@ pub async fn build_convergence_snapshot(
                 s.notch_agent.clone(),
                 s.notch_phase.clone(),
             ) {
-                // Waiting on the human → carry the screen tail so the
-                // attention card has context to reply against.
-                let waiting_excerpt = matches!(c.status, TileStatus::Blocked)
-                    .then(|| {
-                        let tail = lock_recover(&s.op_state).snapshot_tail(8 * 1024);
-                        last_non_empty_lines(&tail, 15, 200)
-                    })
-                    .flatten();
+                let mut c = c;
+                c.excerpt = {
+                    let tail = lock_recover(&s.op_state).snapshot_tail(8 * 1024);
+                    last_non_empty_lines(&tail, 15, 200)
+                };
                 agent_inputs.push(AgentCardInput {
                     card: c,
                     permission_for_attention: None,
-                    waiting_excerpt,
                 });
             }
             continue;
@@ -637,6 +633,7 @@ pub async fn build_convergence_snapshot(
             raw_command_label,
             last_command: last.and_then(|d| d.in_flight_command.clone()),
             last_output_line: last_non_empty_line(&tail_bytes, 160),
+            excerpt: last_non_empty_lines(&tail_bytes, 15, 200),
             mission_name: mission_name_from_path(last.and_then(|d| d.mission_path.as_deref())),
             operator_id: Some(op_id),
             operator_name: Some(op_name),
@@ -646,13 +643,8 @@ pub async fn build_convergence_snapshot(
             subagents: Vec::new(),
         };
 
-        let executor_excerpt = matches!(status, TileStatus::Blocked)
-            .then(|| last_non_empty_lines(&tail_bytes, 15, 200))
-            .flatten();
-
         built.push(BuiltRow {
             escalated_at_unix_ms: last.map(|d| d.timestamp_unix_ms).unwrap_or(0),
-            executor_excerpt,
             question: last.and_then(decision_question),
             card,
         });
@@ -669,7 +661,6 @@ pub async fn build_convergence_snapshot(
         AgentCardInput {
             card,
             permission_for_attention: pending,
-            waiting_excerpt: None,
         }
     }));
     assemble_snapshot(built, agent_inputs)
@@ -902,14 +893,48 @@ mod tests {
             cost_usd: None,
             budget_usd: None,
             subagents: Vec::new(),
+            excerpt: None,
         }
+    }
+
+    #[test]
+    fn assemble_snapshot_attention_excerpt_comes_from_the_card() {
+        // Blocked operator row: attention item carries the card's tail.
+        let mut c = card("s1", TileStatus::Blocked, Some("Zeta"));
+        c.excerpt = Some("cargo test\nrunning 34/210".into());
+        let snap = assemble_snapshot(
+            vec![BuiltRow {
+                card: c,
+                escalated_at_unix_ms: 100,
+                question: Some("release?".into()),
+            }],
+            vec![],
+        );
+        assert_eq!(
+            snap.attention[0].excerpt.as_deref(),
+            Some("cargo test\nrunning 34/210")
+        );
+    }
+
+    #[test]
+    fn working_card_keeps_its_excerpt_on_the_wire() {
+        let mut c = card("s1", TileStatus::Working, None);
+        c.excerpt = Some("$ npm test".into());
+        let snap = assemble_snapshot(
+            vec![],
+            vec![AgentCardInput {
+                card: c,
+                permission_for_attention: None,
+            }],
+        );
+        assert_eq!(snap.agents[0].excerpt.as_deref(), Some("$ npm test"));
+        assert!(snap.attention.is_empty());
     }
 
     fn op_row(sid: &str, status: TileStatus, op: &str, esc_ms: u64) -> BuiltRow {
         BuiltRow {
             card: card(sid, status, Some(op)),
             escalated_at_unix_ms: esc_ms,
-            executor_excerpt: None,
             question: None,
         }
     }
@@ -940,17 +965,17 @@ mod tests {
         AgentCardInput {
             card,
             permission_for_attention: None,
-            waiting_excerpt: None,
         }
     }
 
     #[test]
     fn assemble_attention_unifies_three_kinds_timestamped_first() {
         // operator escalation @200
+        let mut op_card = card("op1", TileStatus::Blocked, Some("o1"));
+        op_card.excerpt = Some("tail".into());
         let op = BuiltRow {
-            card: card("op1", TileStatus::Blocked, Some("o1")),
+            card: op_card,
             escalated_at_unix_ms: 200,
-            executor_excerpt: Some("tail".into()),
             question: Some("q?".into()),
         };
         // acp permission @100 (older → leads)
@@ -964,15 +989,14 @@ mod tests {
                 options: vec![],
                 since_unix_ms: 100,
             }),
-            waiting_excerpt: None,
         };
         // pty waiting, no timestamp → last
         let mut pty_card = card("pty1", TileStatus::Blocked, None);
         pty_card.phase_label = Some("waiting: permission".into());
+        pty_card.excerpt = Some("[y/N]".into());
         let pty = AgentCardInput {
             card: pty_card,
             permission_for_attention: None,
-            waiting_excerpt: Some("[y/N]".into()),
         };
 
         let snap = assemble_snapshot(vec![op], vec![acp, pty]);
