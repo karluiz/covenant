@@ -414,13 +414,15 @@ describe("CanonCockpitView Skills section trash button", () => {
       installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
       agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("skills");
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeTruthy();
     });
     v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Uninstall skill']")!.click();
+    // The in-app confirm card, not window.confirm — Tauri's capability set
+    // doesn't allow native dialogs (see workspaces/confirm-prompt.ts).
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
     await vi.waitFor(() => {
       expect(canonUninstallSkill).toHaveBeenCalledWith(expect.any(String), "kyc");
     });
@@ -428,7 +430,6 @@ describe("CanonCockpitView Skills section trash button", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeNull();
     });
-    confirmSpy.mockRestore();
   });
 
   it("does not uninstall when confirm is declined", async () => {
@@ -437,16 +438,50 @@ describe("CanonCockpitView Skills section trash button", () => {
       agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     vi.mocked(canonUninstallSkill).mockClear();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("skills");
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeTruthy();
     });
     v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Uninstall skill']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-cancel")!.click();
     await Promise.resolve();
     expect(canonUninstallSkill).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
+    expect(document.querySelector(".workspace-confirm-overlay")).toBeNull();
+  });
+});
+
+describe("CanonCockpitView shared repo status", () => {
+  it("walks the repo once per open, and again only after a write", async () => {
+    const withSkill = {
+      installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    };
+    vi.mocked(canonLocalStatus).mockClear();
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(withSkill).mockResolvedValueOnce(withSkill);
+
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")).toBeTruthy();
+    });
+    // A second section reads the same snapshot instead of re-walking the repo.
+    v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-cockpit-empty")).toBeTruthy();
+    });
+    v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")).toBeTruthy();
+    });
+    expect(canonLocalStatus).toHaveBeenCalledTimes(1);
+
+    // A write invalidates it — the redraw must not come from the stale snapshot.
+    v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Uninstall skill']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
+    await vi.waitFor(() => {
+      expect(canonLocalStatus).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

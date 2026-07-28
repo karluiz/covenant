@@ -13,6 +13,7 @@ import { openOperatorDetail } from "./operator-detail";
 import { liftClass, type LiftBadge } from "./cockpit/lift";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
+import { openConfirmPrompt } from "../workspaces/confirm-prompt";
 import { operatorsForOrg } from "../operator/org-filter";
 // Re-exported so existing consumers (cockpit, tests) keep importing from
 // "../panel"; the definitions live in ./org to avoid a panel↔create-org cycle.
@@ -600,7 +601,7 @@ export class CanonPanel {
       if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
         actions.push(railAction(Icons.upload({ size: 13 }), "Publish to registry", () => void this.publish(i.name)));
       }
-      const runBtn = railAction(Icons.play({ size: 13 }), "Run evals", () => void this.runEvals(i.name, runBtn));
+      const runBtn = railAction(Icons.play({ size: 13 }), "Run evals", () => this.runEvals(i.name, runBtn));
       actions.push(runBtn);
       const fetch = () => (cwd ? canonReadLocal(cwd, i.name) : Promise.resolve("(no project folder)"));
       return {
@@ -792,12 +793,18 @@ export class CanonPanel {
     return row;
   }
 
-  private async runEvals(skill: string, btn: HTMLButtonElement): Promise<void> {
+  private runEvals(skill: string, btn: HTMLButtonElement): void {
     const cwd = this.opts.groupRootDir;
     if (!cwd) return;
-    if (!window.confirm(`Run evals for "${skill}"? Each eval is a full agent run plus a judge call — this can take minutes and costs tokens.`)) {
-      return;
-    }
+    openConfirmPrompt({
+      label: "Run evals",
+      message: `Run evals for "${skill}"? Each eval is a full agent run plus a judge call — this can take minutes and costs tokens.`,
+      confirmText: "Run",
+      onConfirm: () => { void this.runEvalsConfirmed(cwd, skill, btn); },
+    });
+  }
+
+  private async runEvalsConfirmed(cwd: string, skill: string, btn: HTMLButtonElement): Promise<void> {
     btn.disabled = true;
     let unlisten: (() => void) | undefined;
     let doneReason = "";

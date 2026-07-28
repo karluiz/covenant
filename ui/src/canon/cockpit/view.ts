@@ -41,6 +41,7 @@ import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
 import { openConfirmTyped } from "../../workspaces/confirm-typed";
+import { openConfirmPrompt } from "../../workspaces/confirm-prompt";
 import { openOperatorModal, wireOperatorModal, renderOperatorList } from "../../operator/creator";
 import { operatorsForOrg, isStaleOrg } from "../../operator/org-filter";
 import { pullOrgOperators } from "../../operator/org-sync";
@@ -121,13 +122,76 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "loop", label: "Loop" },
 ];
 
-/** Sections whose header carries a "New" action that scaffolds a unit. Specs
- *  routes to the Spec Creator and Context to the miner, so neither is here. */
-const NEW_KINDS: Partial<Record<SectionKey, CanonNewKind>> = {
-  agents: "agent",
-  commands: "command",
-  mcp: "mcp",
-  memory: "memory",
+/** The single-file kinds that render identically — a filter, an inline create
+ *  bar, and one card per unit. Only the copy, the glyph and the list differ, so
+ *  they share `renderUnitSection` and adding a kind is one entry here.
+ *
+ *  Skills (skills.sh import + uninstall) and Context (miner-driven, no create
+ *  bar) keep their own renderers: folding them in costs more branching than the
+ *  duplication it removes. Specs route to the Spec Creator, so no entry.
+ *
+ *  A section with an entry here is also the set whose header carries "New" —
+ *  the two lists were always the same list. */
+interface UnitSpec {
+  /** Authoring/reading kind (`canonNewUnit`, `canonReadSource`). */
+  kind: CanonNewKind & Parameters<typeof canonReadSource>[1];
+  /** Registry kind, or null for kinds the registry doesn't carry (memory) —
+   *  which is also what gates the publish/adopt row actions. */
+  pkg: CanonPkgKind | null;
+  icon: (size: number) => string;
+  /** Title-cased singular, used in the empty-state CTA ("New subagent"). */
+  noun: string;
+  /** Lowercase plural, used in the filter placeholder and the error line. */
+  plural: string;
+  emptyTitle: string;
+  emptyHint: string;
+  noRepoHint: string;
+  list: (s: CanonStatus) => readonly UnitRow[];
+}
+
+/** The shape every unit row shares once the per-kind fields are optional. */
+interface UnitRow {
+  name: string;
+  description?: string | null;
+  detectedIn?: string | null;
+  transport?: string;
+}
+
+const DETECTED_HINT = "Canon detects and adopts what's already in the repo.";
+
+const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
+  agents: {
+    kind: "agent", pkg: "agent", icon: (size) => Icons.bot({ size }),
+    noun: "subagent", plural: "subagents",
+    emptyTitle: "No subagents yet",
+    emptyHint: `Install a subagent, or crawl the repo for context — ${DETECTED_HINT}`,
+    noRepoHint: "Point this group at a repo from the rail to manage subagents.",
+    list: (s) => s.agents,
+  },
+  commands: {
+    kind: "command", pkg: "command", icon: (size) => Icons.terminalSquare({ size }),
+    noun: "command", plural: "commands",
+    emptyTitle: "No commands yet",
+    emptyHint: `Install a command, or crawl the repo for context — ${DETECTED_HINT}`,
+    noRepoHint: "Point this group at a repo from the rail to manage commands.",
+    list: (s) => s.commands,
+  },
+  mcp: {
+    kind: "mcp", pkg: "mcp", icon: (size) => Icons.radioTower({ size }),
+    noun: "MCP server", plural: "MCP servers",
+    emptyTitle: "No MCP servers yet",
+    emptyHint: `Install an MCP server, or crawl the repo for context — ${DETECTED_HINT}`,
+    noRepoHint: "Point this group at a repo from the rail to manage MCP servers.",
+    list: (s) => s.mcp,
+  },
+  memory: {
+    kind: "memory", pkg: null, icon: (size) => Icons.database({ size }),
+    noun: "memory", plural: "memories",
+    emptyTitle: "No memories yet",
+    emptyHint: "Durable facts that ride into every executor's managed block.",
+    noRepoHint: "Point this group at a repo from the rail to manage memory.",
+    list: (s) => s.memory,
+  },
 };
 
 /** Title + one-line description for each section's header. */
@@ -152,6 +216,11 @@ export class CanonCockpitView {
   private content: HTMLElement;
   private closeBtn: HTMLButtonElement;
   private current: SectionKey = "org";
+  /** One repo walk per cockpit open, shared by every section that reads it.
+   *  Sections re-render on every mutation (`showSection(this.current)`), so
+   *  without this each adopt/publish/uninstall walked the whole repo again to
+   *  redraw one row. Mutations call `invalidateStatus()` before re-rendering. */
+  private statusCache: Promise<CanonStatus> | null = null;
 
   /** The root element of the overlay — used by tests and by callers that
    *  need to query the rendered content without going through document. */
@@ -227,8 +296,8 @@ export class CanonCockpitView {
 
   private renderSection(key: SectionKey): HTMLElement {
     let headAction: HTMLElement | undefined;
-    const newKind = NEW_KINDS[key];
-    if (newKind && this.opts.groupRootDir && this.canCreate()) {
+    const unitSpec = UNIT_SPECS[key];
+    if (unitSpec && this.opts.groupRootDir && this.canCreate()) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "canon-sec-head-action";
@@ -272,11 +341,8 @@ export class CanonCockpitView {
       key === "org" ? this.renderOrgSection()
       : key === "members" ? this.renderMembersSection()
       : key === "operators" ? this.renderOperatorsSection()
-      : key === "agents" ? this.renderAgentsSection(headAction)
-      : key === "commands" ? this.renderCommandsSection(headAction)
-      : key === "mcp" ? this.renderMcpSection(headAction)
+      : unitSpec ? this.renderUnitSection(key, unitSpec, headAction)
       : key === "spec" ? this.renderSpecSection()
-      : key === "memory" ? this.renderMemorySection(headAction)
       : key === "skills" ? this.renderSkillsSection(headAction)
       : key === "registry" ? this.renderRegistrySection()
       : key === "context" ? this.renderContextSection(headAction)
@@ -318,6 +384,25 @@ export class CanonCockpitView {
    *  org.ts — keep the resolution order in one place. */
   private activeOrg(): Org | null {
     return resolveActiveOrg(this.opts.orgs, this.opts.getActiveOrg());
+  }
+
+  /** The repo's Canon status, fetched once and shared. A rejection is never
+   *  cached — an offline read would otherwise stick for the cockpit's life. */
+  private status(cwd: string): Promise<CanonStatus> {
+    if (!this.statusCache) {
+      this.statusCache = canonLocalStatus(cwd).catch((e) => {
+        this.statusCache = null;
+        throw e;
+      });
+    }
+    return this.statusCache;
+  }
+
+  /** Drop the cached status so the next render sees the repo as it now is.
+   *  Call before any re-render that follows a write (create/adopt/install/
+   *  uninstall) — not after, or the re-render races the invalidation. */
+  private invalidateStatus(): void {
+    this.statusCache = null;
   }
 
   private note(text: string): HTMLElement {
@@ -460,7 +545,7 @@ export class CanonCockpitView {
     const btn = iconButton(Icons.download({ size: 15 }), "Adopt into Canon", () => {
       btn.disabled = true;
       void canonAdopt(cwd, kind, name)
-        .then(() => this.showSection(this.current))
+        .then(() => { this.invalidateStatus(); this.showSection(this.current); })
         .catch((e) => {
           btn.disabled = false;
           pushInfoToast({ message: `Adopt failed: ${this.friendlyError(e)}` });
@@ -529,6 +614,7 @@ export class CanonCockpitView {
           });
           input.value = "";
           bar.hidden = true;
+          this.invalidateStatus();
           onCreated();
           if (this.opts.onOpenFile) {
             this.close();
@@ -706,7 +792,7 @@ export class CanonCockpitView {
                   ? canonInstallRegistry(cwd, active.slug, d.name, "latest", this.opts.groupLabel, null).then(() => undefined)
                   : canonInstallRegistryUnit(cwd, active.slug, d.name, "latest", d.kind);
                 void install
-                  .then(() => { inst.innerHTML = Icons.check({ size: 14 }); })
+                  .then(() => { this.invalidateStatus(); inst.innerHTML = Icons.check({ size: 14 }); })
                   .catch((e) => {
                     inst.disabled = false;
                     pushInfoToast({ message: `Install failed: ${this.friendlyError(e)}` });
@@ -964,194 +1050,93 @@ export class CanonCockpitView {
    *  operator, can't delete the last operator system-wide. */
   private async deleteOperator(op: Operator): Promise<void> {
     if (op.is_default) {
-      alert("Cannot delete the default operator. Set a different default first.");
+      pushInfoToast({ message: "Cannot delete the default operator — set a different default first." });
       return;
     }
     const all = await operatorList().catch(() => [] as Operator[]);
     if (all.length <= 1) {
-      alert("Cannot delete the last operator.");
+      pushInfoToast({ message: "Cannot delete the last operator." });
       return;
     }
-    if (!confirm(`Delete operator "${op.name}"? Tabs pinned to it will fall back to the default.`)) {
-      return;
-    }
-    try {
-      await operatorDelete(op.id);
-      // Notify the rest of the app — tabs/manager.ts drops the cache entry
-      // and clears any pane.operator pointer; the status bar re-renders
-      // without the dangling avatar.
-      window.dispatchEvent(new CustomEvent("operator:deleted", { detail: { id: op.id } }));
-      pushInfoToast({ message: `Deleted operator: ${op.name}` });
-      this.showSection("operators");
-    } catch (e) {
-      alert(`Delete failed: ${e}`);
-    }
+    openConfirmPrompt({
+      label: "Delete operator",
+      message: `Delete "${op.name}"? Tabs pinned to it will fall back to the default.`,
+      confirmText: "Delete",
+      onConfirm: () => {
+        void operatorDelete(op.id)
+          .then(() => {
+            // Notify the rest of the app — tabs/manager.ts drops the cache entry
+            // and clears any pane.operator pointer; the status bar re-renders
+            // without the dangling avatar.
+            window.dispatchEvent(new CustomEvent("operator:deleted", { detail: { id: op.id } }));
+            pushInfoToast({ message: `Deleted operator: ${op.name}` });
+            this.showSection("operators");
+          })
+          .catch((e) => pushInfoToast({ message: `Delete failed: ${this.friendlyError(e)}` }));
+      },
+    });
   }
 
-  // ── Agents section ───────────────────────────────────────────────────
+  // ── Unit sections — Subagents / Commands / MCP / Memory ──────────────
 
-  private renderAgentsSection(headBtn?: HTMLElement): HTMLElement {
+  /** One renderer for every kind in `UNIT_SPECS` — what used to be four copies
+   *  of this function differing only in glyph, copy and which list it read. */
+  private renderUnitSection(key: SectionKey, spec: UnitSpec, headBtn?: HTMLElement): HTMLElement {
     const el = document.createElement("div");
-    el.className = "canon-cockpit-section is-agents";
+    el.className = `canon-cockpit-section is-${key}`;
     const cwd = this.opts.groupRootDir;
 
     if (!cwd) {
-      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to manage subagents."));
+      el.appendChild(this.emptyNoRepo(spec.noRepoHint));
       return el;
     }
 
     const list = document.createElement("div");
-    list.className = "canon-cockpit-agents-list";
+    list.className = `canon-cockpit-${key}-list`;
     list.appendChild(this.note("Loading…"));
-    const toolbar = this.filterToolbar(list, "Filter subagents…");
-    const create = this.newUnitBar(cwd, "agent", headBtn, () => this.showSection("agents"));
+    const toolbar = this.filterToolbar(list, `Filter ${spec.plural}…`);
+    const create = this.newUnitBar(cwd, spec.kind, headBtn, () => this.showSection(key));
     el.append(create.element, toolbar, list);
 
-    void canonLocalStatus(cwd)
+    void this.status(cwd)
       .then((status) => {
+        const units = spec.list(status);
         list.replaceChildren();
-        if (status.agents.length === 0) {
+        if (units.length === 0) {
           list.appendChild(this.emptyState({
-            icon: Icons.bot({ size: 28 }),
-            title: "No subagents yet",
-            hint: "Install a subagent, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
-            action: this.canCreate() ? { label: "New subagent", onClick: create.reveal } : undefined,
+            icon: spec.icon(28),
+            title: spec.emptyTitle,
+            hint: spec.emptyHint,
+            action: this.canCreate() ? { label: `New ${spec.noun}`, onClick: create.reveal } : undefined,
           }));
           return;
         }
         toolbar.hidden = false;
-        for (const a of status.agents) {
-          const detected = !!a.detectedIn;
-          const actions = detected
-            ? [this.unitAdoptAction(cwd, "agent", a.name)]
-            : (() => { const p = this.unitPublishAction(cwd, "agent", a.name); return p ? [p] : []; })();
+        // No registry kind (memory) means neither publish nor adopt applies.
+        const pkg = spec.pkg;
+        for (const u of units) {
+          const detected = !!u.detectedIn;
+          const actions = !pkg ? []
+            : detected ? [this.unitAdoptAction(cwd, pkg, u.name)]
+            : (() => { const p = this.unitPublishAction(cwd, pkg, u.name); return p ? [p] : []; })();
           list.appendChild(skillCard({
-            name: a.name,
-            meta: detected ? `detected · ${a.detectedIn}` : "",
+            name: u.name,
+            meta: detected ? `detected · ${u.detectedIn}` : (u.description ?? u.transport ?? ""),
             className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
-            leadIcon: Icons.bot({ size: 15 }),
-            fetchPreview: () => canonReadSource(cwd, "agent", a.name),
+            leadIcon: spec.icon(15),
+            fetchPreview: () => canonReadSource(cwd, spec.kind, u.name),
             actions,
           }));
         }
       })
       .catch((e) => {
         list.replaceChildren();
-        list.appendChild(this.note(`Failed to load subagents: ${this.friendlyError(e)}`));
+        list.appendChild(this.note(`Failed to load ${spec.plural}: ${this.friendlyError(e)}`));
       });
 
     return el;
   }
 
-  // ── Commands section ─────────────────────────────────────────────────
-
-  private renderCommandsSection(headBtn?: HTMLElement): HTMLElement {
-    const el = document.createElement("div");
-    el.className = "canon-cockpit-section is-commands";
-    const cwd = this.opts.groupRootDir;
-
-    if (!cwd) {
-      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to manage commands."));
-      return el;
-    }
-
-    const list = document.createElement("div");
-    list.className = "canon-cockpit-commands-list";
-    list.appendChild(this.note("Loading…"));
-    const toolbar = this.filterToolbar(list, "Filter commands…");
-    const create = this.newUnitBar(cwd, "command", headBtn, () => this.showSection("commands"));
-    el.append(create.element, toolbar, list);
-
-    void canonLocalStatus(cwd)
-      .then((status) => {
-        list.replaceChildren();
-        if (status.commands.length === 0) {
-          list.appendChild(this.emptyState({
-            icon: Icons.terminalSquare({ size: 28 }),
-            title: "No commands yet",
-            hint: "Install a command, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
-            action: this.canCreate() ? { label: "New command", onClick: create.reveal } : undefined,
-          }));
-          return;
-        }
-        toolbar.hidden = false;
-        for (const c of status.commands) {
-          const detected = !!c.detectedIn;
-          const actions = detected
-            ? [this.unitAdoptAction(cwd, "command", c.name)]
-            : (() => { const p = this.unitPublishAction(cwd, "command", c.name); return p ? [p] : []; })();
-          list.appendChild(skillCard({
-            name: c.name,
-            meta: detected ? `detected · ${c.detectedIn}` : (c.description ?? ""),
-            className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
-            leadIcon: Icons.terminalSquare({ size: 15 }),
-            fetchPreview: () => canonReadSource(cwd, "command", c.name),
-            actions,
-          }));
-        }
-      })
-      .catch((e) => {
-        list.replaceChildren();
-        list.appendChild(this.note(`Failed to load commands: ${this.friendlyError(e)}`));
-      });
-
-    return el;
-  }
-
-  // ── MCP section ──────────────────────────────────────────────────────
-
-  private renderMcpSection(headBtn?: HTMLElement): HTMLElement {
-    const el = document.createElement("div");
-    el.className = "canon-cockpit-section is-mcp";
-    const cwd = this.opts.groupRootDir;
-
-    if (!cwd) {
-      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to manage MCP servers."));
-      return el;
-    }
-
-    const list = document.createElement("div");
-    list.className = "canon-cockpit-mcp-list";
-    list.appendChild(this.note("Loading…"));
-    const toolbar = this.filterToolbar(list, "Filter MCP servers…");
-    const create = this.newUnitBar(cwd, "mcp", headBtn, () => this.showSection("mcp"));
-    el.append(create.element, toolbar, list);
-
-    void canonLocalStatus(cwd)
-      .then((status) => {
-        list.replaceChildren();
-        if (status.mcp.length === 0) {
-          list.appendChild(this.emptyState({
-            icon: Icons.radioTower({ size: 28 }),
-            title: "No MCP servers yet",
-            hint: "Install an MCP server, or crawl the repo for context — Canon detects and adopts what's already in the repo.",
-            action: this.canCreate() ? { label: "New MCP server", onClick: create.reveal } : undefined,
-          }));
-          return;
-        }
-        toolbar.hidden = false;
-        for (const m of status.mcp) {
-          const detected = !!m.detectedIn;
-          const actions = detected
-            ? [this.unitAdoptAction(cwd, "mcp", m.name)]
-            : (() => { const p = this.unitPublishAction(cwd, "mcp", m.name); return p ? [p] : []; })();
-          list.appendChild(skillCard({
-            name: m.name,
-            meta: detected ? `detected · ${m.detectedIn}` : (m.description ?? m.transport),
-            className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
-            leadIcon: Icons.radioTower({ size: 15 }),
-            fetchPreview: () => canonReadSource(cwd, "mcp", m.name),
-            actions,
-          }));
-        }
-      })
-      .catch((e) => {
-        list.replaceChildren();
-        list.appendChild(this.note(`Failed to load MCP servers: ${this.friendlyError(e)}`));
-      });
-
-    return el;
-  }
 
   // ── Specs section ────────────────────────────────────────────────────
 
@@ -1171,7 +1156,7 @@ export class CanonCockpitView {
     const toolbar = this.filterToolbar(list, "Filter specs…");
     el.append(toolbar, list);
 
-    void canonLocalStatus(cwd)
+    void this.status(cwd)
       .then((status) => {
         list.replaceChildren();
         if (status.specs.length === 0) {
@@ -1205,57 +1190,6 @@ export class CanonCockpitView {
       .catch((e) => {
         list.replaceChildren();
         list.appendChild(this.note(`Failed to load specs: ${this.friendlyError(e)}`));
-      });
-
-    return el;
-  }
-
-  // ── Memory section ───────────────────────────────────────────────────
-
-  private renderMemorySection(headBtn?: HTMLElement): HTMLElement {
-    const el = document.createElement("div");
-    el.className = "canon-cockpit-section is-memory";
-    const cwd = this.opts.groupRootDir;
-
-    if (!cwd) {
-      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to manage memory."));
-      return el;
-    }
-
-    const list = document.createElement("div");
-    list.className = "canon-cockpit-memory-list";
-    list.appendChild(this.note("Loading…"));
-    const toolbar = this.filterToolbar(list, "Filter memories…");
-    const create = this.newUnitBar(cwd, "memory", headBtn, () => this.showSection("memory"));
-    el.append(create.element, toolbar, list);
-
-    void canonLocalStatus(cwd)
-      .then((status) => {
-        list.replaceChildren();
-        if (status.memory.length === 0) {
-          list.appendChild(this.emptyState({
-            icon: Icons.database({ size: 28 }),
-            title: "No memories yet",
-            hint: "Durable facts that ride into every executor's managed block.",
-            action: this.canCreate() ? { label: "New memory", onClick: create.reveal } : undefined,
-          }));
-          return;
-        }
-        toolbar.hidden = false;
-        for (const m of status.memory) {
-          list.appendChild(skillCard({
-            name: m.name,
-            meta: m.description ?? "",
-            className: "canon-skill-row",
-            leadIcon: Icons.database({ size: 15 }),
-            fetchPreview: () => canonReadSource(cwd, "memory", m.name),
-            actions: [],
-          }));
-        }
-      })
-      .catch((e) => {
-        list.replaceChildren();
-        list.appendChild(this.note(`Failed to load memory: ${this.friendlyError(e)}`));
       });
 
     return el;
@@ -1320,7 +1254,7 @@ export class CanonCockpitView {
               message: names.length ? `Imported: ${names.join(", ")}` : "Nothing new to import",
             });
             importInput.value = "";
-            load();
+            reload();
           })
         : canonNewUnit(cwd, "skill", ref).then((path) => {
             const org = this.activeOrg();
@@ -1330,7 +1264,7 @@ export class CanonCockpitView {
                 : `Created ${ref}`,
             });
             importInput.value = "";
-            load();
+            reload();
             if (this.opts.onOpenFile) {
               this.close();
               this.opts.onOpenFile(path);
@@ -1344,8 +1278,12 @@ export class CanonCockpitView {
         });
     });
 
+    /** Every write in this section changes the repo — drop the shared status
+     *  before re-reading it, or the list redraws from a stale snapshot. */
+    const reload = (): void => { this.invalidateStatus(); load(); };
+
     const load = (): void => {
-      void canonLocalStatus(cwd)
+      void this.status(cwd)
         .then((status) => {
           list.replaceChildren();
           if (status.installed.length === 0 && status.detectedSkills.length === 0) {
@@ -1369,7 +1307,7 @@ export class CanonCockpitView {
                 errorEl.hidden = true;
                 pub.disabled = true;
                 void canonPublish(cwd, active.slug, i.name, "skill")
-                  .then(load)
+                  .then(reload)
                   .catch((e) => {
                     errorEl.hidden = false;
                     errorEl.textContent = this.friendlyError(e);
@@ -1379,17 +1317,24 @@ export class CanonCockpitView {
               actions.push(pub);
             }
             const del = iconButton(Icons.trash({ size: 15 }), "Uninstall skill", () => {
-              if (!confirm(`Uninstall skill "${i.name}"? Removes it from this repo and every executor projection.`)) return;
+              openConfirmPrompt({
+                label: "Uninstall skill",
+                message: `Uninstall "${i.name}"? Removes it from this repo and every executor projection.`,
+                confirmText: "Uninstall",
+                onConfirm: () => uninstall(),
+              });
+            });
+            const uninstall = (): void => {
               errorEl.hidden = true;
               del.disabled = true;
               void canonUninstallSkill(cwd, i.name)
-                .then(load)
+                .then(reload)
                 .catch((e) => {
                   errorEl.hidden = false;
                   errorEl.textContent = this.friendlyError(e);
                   del.disabled = false;
                 });
-            });
+            };
             actions.push(del);
             list.appendChild(skillCard({
               name: i.name,
@@ -1532,7 +1477,7 @@ export class CanonCockpitView {
                 ? canonInstallRegistry(cwd, org.slug, r.name, r.version, this.opts.groupLabel, null)
                 : canonInstallRegistryUnit(cwd, org.slug, r.name, r.version, wire);
               void install
-                .then(() => { inst.innerHTML = Icons.check({ size: 15 }); })
+                .then(() => { this.invalidateStatus(); inst.innerHTML = Icons.check({ size: 15 }); })
                 .catch((e) => {
                   errorEl.hidden = false;
                   errorEl.textContent = this.friendlyError(e);
@@ -1638,7 +1583,7 @@ export class CanonCockpitView {
     list.appendChild(this.note("Loading…"));
     el.appendChild(list);
 
-    void canonLocalStatus(cwd)
+    void this.status(cwd)
       .then((status) => {
         list.replaceChildren();
         if (status.contexts.length === 0) {
@@ -1701,7 +1646,7 @@ export class CanonCockpitView {
     if (cwd && active) {
       const orgSlug = active.slug;
       void Promise.all([
-        canonLocalStatus(cwd).catch(() => ({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] }) as CanonStatus),
+        this.status(cwd).catch(() => ({ installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [] }) as CanonStatus),
         canonSearch(orgSlug, null, "skill").catch(() => [] as PkgMeta[]),
         canonSearch(orgSlug, null, "context").catch(() => [] as PkgMeta[]),
         scoreSkillUsage(this.opts.groupLabel ?? null).catch(() => []),
