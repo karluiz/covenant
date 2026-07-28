@@ -777,6 +777,12 @@ impl Storage {
             "ALTER TABLE operators ADD COLUMN perception_enabled INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // 3.26 operator MCP clients: per-operator allowlist of
+        // config-level MCP server names, JSON array. Deny-biased.
+        let _ = conn.execute(
+            "ALTER TABLE operators ADD COLUMN mcp_servers_json TEXT NOT NULL DEFAULT '[]'",
+            [],
+        );
         // Teammate phase 1: rolling summary per operator for prompt
         // caching when DMing. Empty for existing rows.
         let _ = conn.execute(
@@ -2073,6 +2079,29 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    pub async fn operator_set_mcp_servers(
+        &self,
+        id: String,
+        servers: Vec<String>,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            let json =
+                serde_json::to_string(&servers).map_err(|e| StorageError::Other(e.to_string()))?;
+            let n = c.execute(
+                "UPDATE operators SET mcp_servers_json=?2 WHERE id=?1",
+                params![id, json],
+            )?;
+            if n == 0 {
+                return Err(StorageError::Other(format!("operator id {id} not found")));
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     pub async fn operator_set_perception_enabled(
         &self,
         id: String,
@@ -2126,7 +2155,7 @@ impl Storage {
                 "SELECT id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
                  created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path, github_access, \
-                 acp_enabled, perception_enabled, org_slug \
+                 acp_enabled, perception_enabled, org_slug, mcp_servers_json \
                  FROM operators ORDER BY is_default DESC, LOWER(name) ASC",
             )?;
             let rows = stmt
@@ -2171,6 +2200,11 @@ impl Storage {
                         acp_enabled: row.get::<_, i64>(16).unwrap_or(0) != 0,
                         perception_enabled: row.get::<_, i64>(17).unwrap_or(0) != 0,
                         org_slug: row.get(18)?,
+                        mcp_servers: row
+                            .get::<_, String>(19)
+                            .ok()
+                            .and_then(|s| serde_json::from_str(&s).ok())
+                            .unwrap_or_default(),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -4853,6 +4887,7 @@ mod tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: vec![],
         };
         let warm_id = warm.id;
         s.operator_insert(warm).await.unwrap();
@@ -4879,6 +4914,7 @@ mod tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: vec![],
         };
         let terse_id = terse.id;
         s.operator_insert(terse).await.unwrap();
@@ -4957,6 +4993,7 @@ mod tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: vec![],
         };
         let op_id = op.id;
 
@@ -5031,6 +5068,7 @@ mod tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: vec![],
         };
         op.org_slug = Some("acme".into());
         s.operator_insert(op.clone()).await.unwrap();
@@ -5153,6 +5191,7 @@ mod task_card_storage_tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: vec![],
         })
         .await
         .unwrap();

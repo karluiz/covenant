@@ -330,11 +330,7 @@ pub async fn teammate_send_text_message(
                 .with_screen(active_screen)
                 .with_skills(crate::teammate::handoff::skill_union(&registry_bg.list()))
                 .with_acp(operator.acp_enabled)
-                .with_mcp_servers(
-                    crate::mcp_server::acp_entry(&app_bg)
-                        .into_iter()
-                        .collect(),
-                );
+                .with_mcp_servers(crate::mcp_server::acp_entry(&app_bg).into_iter().collect());
             // GitHub access: attach the stored token only when this operator
             // is allowed to use it. Keychain reads are sync — keep them off
             // the async thread.
@@ -367,6 +363,35 @@ pub async fn teammate_send_text_message(
                 }
             } else {
                 tool_env
+            };
+            // 3.26: connect this operator's allowlisted MCP servers.
+            // Deny-biased intersection of config-level definitions and
+            // the registry allowlist; a dead server logs and skips.
+            let allowed_mcp: Vec<_> = settings
+                .mcp_servers
+                .iter()
+                .filter(|s| operator.mcp_servers.iter().any(|n| n == &s.name))
+                .cloned()
+                .collect();
+            let tool_env = if allowed_mcp.is_empty() {
+                tool_env
+            } else {
+                let conns = futures_util::future::join_all(allowed_mcp.iter().map(|s| async {
+                    match crate::teammate::mcp_client::McpConn::connect(&s.name, &s.url, &s.headers)
+                        .await
+                    {
+                        Ok(c) => Some(c),
+                        Err(e) => {
+                            tracing::warn!(server = %s.name, error = %e, "MCP connect failed; server skipped for this dispatch");
+                            None
+                        }
+                    }
+                }))
+                .await
+                .into_iter()
+                .flatten()
+                .collect();
+                tool_env.with_mcp(conns)
             };
             let app_for_progress = app_bg.clone();
             let op_id_for_progress = operator_id;
@@ -1279,6 +1304,7 @@ mod task_lifecycle_tests {
                 acp_enabled: false,
                 perception_enabled: false,
                 org_slug: None,
+                mcp_servers: vec![],
             })
             .await
             .unwrap();
@@ -1510,6 +1536,7 @@ mod task_lifecycle_tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: vec![],
         };
         let zeta = mk("Zeta");
         let kiro = mk("Kiro");

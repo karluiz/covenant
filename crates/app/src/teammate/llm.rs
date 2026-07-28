@@ -581,6 +581,7 @@ async fn execute_tool(
                 Some("handoff_task in non-leading position".into()),
             )
         }
+        other if other.starts_with("mcp__") => execute_mcp_tool(tool_env, other, input).await,
         other => match github_tools::execute_github_tool(tool_env, other, input).await {
             Some(r) => r,
             None => {
@@ -596,6 +597,41 @@ async fn execute_tool(
         Ok(text) => (text, true, None),
         Err(e) => (format!("error: {e}"), false, Some(e.to_string())),
     }
+}
+
+/// Route a namespaced `mcp__<server>__<tool>` call to its connection.
+/// Only servers actually connected in this ToolEnv are reachable —
+/// defense in depth against the LLM inventing names outside the
+/// operator's allowlist. Results are secret-masked and size-capped
+/// before entering the LLM turn (same rules as terminal content).
+async fn execute_mcp_tool(
+    tool_env: &ToolEnv,
+    name: &str,
+    input: &serde_json::Value,
+) -> Result<String, ToolError> {
+    // ponytail: 4000-char cap mirrors format_acp_report; raise if MCP
+    // tools start returning payloads the operator must read in full.
+    const TEXT_CAP: usize = 4000;
+    let (server, tool) = crate::teammate::mcp_client::split_tool_name(name)
+        .ok_or_else(|| ToolError::InvalidArgs(format!("malformed MCP tool name: {name}")))?;
+    let conn = tool_env
+        .mcp
+        .iter()
+        .find(|c| c.name == server)
+        .ok_or_else(|| {
+            ToolError::InvalidArgs(format!(
+                "MCP server '{server}' not available to this operator"
+            ))
+        })?;
+    let text = conn
+        .call(tool, input.clone())
+        .await
+        .map_err(ToolError::CommandFailed)?;
+    let mut masked = crate::safety::mask_secrets(&text);
+    if masked.chars().count() > TEXT_CAP {
+        masked = masked.chars().take(TEXT_CAP).collect::<String>() + "\n[truncated]";
+    }
+    Ok(masked)
 }
 
 /// Full tool-definition roster for this dispatch: the base tools plus
@@ -622,6 +658,7 @@ fn all_tool_defs(tool_env: &ToolEnv) -> Vec<serde_json::Value> {
     if let Some(g) = &tool_env.github {
         defs.extend(crate::teammate::github_tools::github_tool_defs(g.access));
     }
+    defs.extend(crate::teammate::mcp_client::tool_defs(&tool_env.mcp));
     defs
 }
 
@@ -1175,6 +1212,7 @@ mod tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: vec![],
         }
     }
 
@@ -1528,6 +1566,30 @@ mod tests {
         assert!(!ok);
         assert!(text.contains("not enabled"), "got: {text}");
         assert!(err.is_some());
+    }
+
+    #[tokio::test]
+    async fn execute_tool_refuses_unconnected_mcp_server() {
+        use crate::teammate::tools::ToolEnv;
+        // Deny-biased: no connections in the env → even a well-formed
+        // mcp__* invented by the LLM is refused, never dialed.
+        let env = ToolEnv::new(std::env::temp_dir(), 1024);
+        let (text, ok, err) =
+            execute_tool(&env, "mcp__infra__get_status", &serde_json::json!({})).await;
+        assert!(!ok);
+        assert!(text.contains("not available"), "got: {text}");
+        assert!(err.is_some());
+    }
+
+    #[test]
+    fn no_mcp_tools_without_connections() {
+        use crate::teammate::tools::ToolEnv;
+        let env = ToolEnv::new(std::env::temp_dir(), 1024);
+        let names: Vec<String> = all_tool_defs(&env)
+            .iter()
+            .map(|d| d["name"].as_str().unwrap().to_string())
+            .collect();
+        assert!(!names.iter().any(|n| n.starts_with("mcp__")));
     }
 
     #[test]

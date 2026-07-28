@@ -3492,8 +3492,9 @@ async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
 async fn set_settings(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
-    settings: Settings,
+    mut settings: Settings,
 ) -> Result<(), String> {
+    settings::normalize_mcp_servers(&mut settings.mcp_servers);
     settings::save(&state.settings_path, &settings).map_err(|e| e.to_string())?;
     let (telegram_changed, notch_corner_changed, notch_sound_changed) = {
         let cur = state.settings.lock().await;
@@ -5937,6 +5938,7 @@ pub fn run() {
             operator_registry::commands::operator_set_default,
             operator_registry::commands::operator_set_github_access,
             operator_registry::commands::operator_set_acp_enabled,
+            operator_registry::commands::operator_set_mcp_servers,
             operator_registry::commands::operator_set_perception_enabled,
             operator_registry::commands::operator_set_org,
             operator_sync::commands::operator_org_pull,

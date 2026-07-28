@@ -72,6 +72,23 @@ pub struct AcpExecutorConfig {
     pub args: Vec<String>,
 }
 
+/// One user-configured MCP server operators may be allowed to call
+/// (3.26). HTTP (streamable-http) only — no stdio: spawning child
+/// processes from operator config is a command-execution surface that
+/// needs its own safety review.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerEntry {
+    /// Unique key referenced by each operator's allowlist. Normalized
+    /// on save to `[a-z0-9_-]` so `mcp__<name>__<tool>` stays a valid
+    /// LLM tool name.
+    pub name: String,
+    pub url: String,
+    /// Sent verbatim on every request (e.g. Authorization). Same
+    /// security posture as provider API keys in this file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub headers: Vec<(String, String)>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouteEntry {
     pub provider_id: String,
@@ -377,6 +394,12 @@ pub struct Settings {
     /// Per-executor ACP launch config (Settings → Harnesses → ACP agents).
     #[serde(default)]
     pub acp_executors: HashMap<String, AcpExecutorConfig>,
+
+    /// MCP servers operators may call (3.26). Deny-biased: defining a
+    /// server here grants nothing — each operator must additionally
+    /// allowlist it by name in the registry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mcp_servers: Vec<McpServerEntry>,
 }
 
 /// Settings → "Code intelligence" section. `enabled` gates whether the
@@ -781,6 +804,7 @@ impl Default for Settings {
             onboarding_version: 0,
             code_intelligence: CodeIntelligenceConfig::default(),
             acp_executors: HashMap::new(),
+            mcp_servers: Vec::new(),
         }
     }
 }
@@ -1132,6 +1156,30 @@ pub fn load(path: &Path) -> Settings {
 /// Atomic write + chmod 0600. Empty string values for `anthropic_api_key`
 /// are normalized to `None` so the on-disk file doesn't carry a
 /// confusing empty key.
+/// Normalize MCP server entries before persisting: names lowercased and
+/// restricted to `[a-z0-9_-]` (so `mcp__<name>__<tool>` is a valid LLM
+/// tool name), empty names/urls and duplicate names dropped.
+pub fn normalize_mcp_servers(entries: &mut Vec<McpServerEntry>) {
+    let mut seen = std::collections::HashSet::new();
+    entries.retain_mut(|e| {
+        e.name = e
+            .name
+            .trim()
+            .to_ascii_lowercase()
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        e.url = e.url.trim().to_string();
+        !e.name.is_empty() && !e.url.is_empty() && seen.insert(e.name.clone())
+    });
+}
+
 pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
     let mut to_persist = settings.clone();
     if let Some(ref key) = to_persist.anthropic_api_key {

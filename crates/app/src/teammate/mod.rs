@@ -15,6 +15,7 @@ pub mod github_tools;
 pub mod handoff;
 pub mod handoff_safety;
 pub mod llm;
+pub mod mcp_client;
 pub mod openai_http;
 pub mod runtime;
 pub mod sentiment_resolver;

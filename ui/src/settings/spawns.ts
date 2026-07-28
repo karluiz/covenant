@@ -5,6 +5,7 @@ import { spawnShortcutLabel, acpExecutorFor, quickCallAcp, setQuickCallAcp } fro
 import { brandIconSvg } from "../icons/brands";
 import { attachTooltip } from "../tooltip/tooltip";
 import { renderAcpAgentsSection } from "./acp_agents";
+import { renderMcpServersSection } from "./mcp_servers";
 
 /// Known executor presets. Picking one fills in defaults for any
 /// fields the user hasn't customised yet. "Custom" leaves the row
@@ -512,4 +513,5 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
 
   render();
   await renderAcpAgentsSection(host);
+  await renderMcpServersSection(host);
 }

@@ -71,6 +71,12 @@ pub struct Operator {
     /// Org this operator belongs to; None = personal org. Registry-only (NOT SOUL frontmatter).
     #[serde(default)]
     pub org_slug: Option<String>,
+    /// Names of config-level MCP servers (Settings.mcp_servers) this
+    /// operator may call in its own loop (3.26). Empty = no MCP tools
+    /// registered (deny-biased, like `github_access`). Registry-only
+    /// (NOT SOUL frontmatter).
+    #[serde(default)]
+    pub mcp_servers: Vec<String>,
 }
 
 /// What the operator may do with the user's GitHub account. Gates which
@@ -285,6 +291,7 @@ impl OperatorRegistry {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         by_id.insert(op.id, op);
         std::sync::Arc::new(Self {
@@ -471,6 +478,7 @@ impl OperatorRegistry {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         crate::soul::hydrate_operator(&mut op, &soul);
         self.create(storage, op).await
@@ -619,6 +627,24 @@ impl OperatorRegistry {
         Ok(())
     }
 
+    pub async fn set_mcp_servers(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        servers: Vec<String>,
+    ) -> Result<(), RegistryError> {
+        if !self.by_id.read().unwrap().contains_key(&id) {
+            return Err(RegistryError::NotFound(id));
+        }
+        storage
+            .operator_set_mcp_servers(id.to_string(), servers.clone())
+            .await?;
+        if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+            op.mcp_servers = servers;
+        }
+        Ok(())
+    }
+
     pub async fn set_perception_enabled(
         &self,
         storage: &Storage,
@@ -754,6 +780,7 @@ impl OperatorRegistry {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         let id = op.id;
         let name = op.name.clone();
@@ -980,6 +1007,7 @@ pub mod commands {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         registry.create(&storage, op).await.map_err(map_err)
     }
@@ -1016,6 +1044,7 @@ pub mod commands {
             acp_enabled: existing.acp_enabled,
             perception_enabled: existing.perception_enabled,
             org_slug: existing.org_slug.clone(),
+            mcp_servers: existing.mcp_servers.clone(),
         };
         let op = registry.update(&storage, updated).await.map_err(map_err)?;
         crate::operator_sync::push_if_org(&registry, &op);
@@ -1066,6 +1095,20 @@ pub mod commands {
         let id: OperatorId = id.parse().map_err(map_err)?;
         registry
             .set_acp_enabled(&storage, id, enabled)
+            .await
+            .map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_set_mcp_servers(
+        id: String,
+        servers: Vec<String>,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<(), String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry
+            .set_mcp_servers(&storage, id, servers)
             .await
             .map_err(map_err)
     }
@@ -1157,6 +1200,7 @@ mod voice_tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         assert!(matches!(op.voice, VoiceTone::Terse));
     }
@@ -1294,6 +1338,7 @@ mod soul_io_tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.clone().expect("soul_path set");
@@ -1339,6 +1384,7 @@ mod soul_io_tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         storage.operator_insert(op.clone()).await.unwrap();
 
@@ -1386,6 +1432,7 @@ mod soul_io_tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         reg.create(&storage, existing_op.clone()).await.unwrap();
         let existing = reg.list();
@@ -1412,6 +1459,7 @@ mod soul_io_tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         let id = op.id;
 
@@ -1468,6 +1516,7 @@ mod soul_io_tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.unwrap();
@@ -1515,6 +1564,7 @@ mod soul_io_tests {
             acp_enabled: false,
             perception_enabled: false,
             org_slug: None,
+            mcp_servers: Vec::new(),
         };
         let created = reg.create(&storage, op).await.unwrap();
         assert!(!created.perception_enabled);
