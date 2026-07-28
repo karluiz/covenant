@@ -2,8 +2,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const getSnap = vi.fn();
+const opList = vi.fn(async () => [] as unknown[]);
 vi.mock("../api", () => ({
   getConvergenceSnapshot: (...a: unknown[]) => getSnap(...a),
+  operatorList: () => opList(),
   submitConvergenceReply: vi.fn(),
   setOperatorEnabled: vi.fn(),
   acpRespondPermission: vi.fn(),
@@ -11,6 +13,7 @@ vi.mock("../api", () => ({
 }));
 
 import { ConvergenceOverlay } from "./overlay";
+import { clearGroupFindings, recordGroupFinding } from "./findings";
 import type { AgentCard, AttentionItem } from "../api";
 
 const bridge = {
@@ -25,6 +28,20 @@ const agent = (over: Partial<AgentCard>): AgentCard => ({
   last_output_line: null, excerpt: null, started_at_unix_ms: null, mission_name: null, operator_id: null,
   operator_name: null, operator_avatar: null, cost_usd: null, budget_usd: null,
   subagents: [], ...over,
+});
+
+/// One tab, one group, one supervisor attached with intervene on.
+const supervisedBridge = () => ({
+  listTabs: () => [
+    {
+      sessionId: "s1", title: "alpha", color: null,
+      group: "growcity", groupId: "g1",
+      supervisor: { operatorId: "op-7", intervene: true },
+    },
+  ],
+  activateBySessionId: vi.fn(() => true),
+  setGroupSupervisor: vi.fn(),
+  setGroupIntervene: vi.fn(),
 });
 
 const attItem = (over: Partial<AttentionItem>): AttentionItem => ({
@@ -202,8 +219,8 @@ describe("ConvergenceOverlay.refresh", () => {
   it("rail groups rows under workspace headers, blocked group first", async () => {
     const b2 = {
       listTabs: () => [
-        { sessionId: "s1", title: "alpha", color: null, group: "covenant" },
-        { sessionId: "s2", title: "beta", color: null, group: "banco" },
+        { sessionId: "s1", title: "alpha", color: null, group: "covenant", groupId: "g1" },
+        { sessionId: "s2", title: "beta", color: null, group: "banco", groupId: "g2" },
       ],
       activateBySessionId: vi.fn(() => true),
     };
@@ -220,10 +237,30 @@ describe("ConvergenceOverlay.refresh", () => {
     await ov2.refreshForTest();
     const entries = [...document.querySelectorAll<HTMLElement>(".mc-rail > *")].map((el) =>
       el.classList.contains("mc-rail__group")
-        ? `#${el.textContent}`
+        ? `#${el.querySelector(".mc-gband__name")?.textContent}`
         : (el.dataset.sessionId ?? "?"),
     );
     expect(entries).toEqual(["#banco", "s2", "#covenant", "s1"]);
+    ov2.close();
+  });
+
+  it("buckets by group ID, so two groups sharing a name stay apart", async () => {
+    const b2 = {
+      listTabs: () => [
+        { sessionId: "s1", title: "alpha", color: null, group: "api", groupId: "g1" },
+        { sessionId: "s2", title: "beta", color: null, group: "api", groupId: "g2" },
+      ],
+      activateBySessionId: vi.fn(() => true),
+    };
+    const ov2 = new ConvergenceOverlay(b2);
+    getSnap.mockResolvedValue({
+      agents: [agent({ session_id: "s1" }), agent({ session_id: "s2" })],
+      attention: [],
+    });
+    ov2.open();
+    await ov2.refreshForTest();
+    await ov2.refreshForTest();
+    expect(document.querySelectorAll(".mc-rail__group")).toHaveLength(2);
     ov2.close();
   });
 
@@ -236,6 +273,64 @@ describe("ConvergenceOverlay.refresh", () => {
     await ov.refreshForTest();
     await ov.refreshForTest();
     expect(document.querySelector(".mc-rail__group")).toBeNull();
+  });
+
+  it("shows the supervision band for a single supervised group, and names the operator", async () => {
+    const b2 = supervisedBridge();
+    const ov2 = new ConvergenceOverlay(b2);
+    opList.mockResolvedValue([{ id: "op-7", name: "Warden", emoji: "🛡️" }]);
+    getSnap.mockResolvedValue({ agents: [agent({ session_id: "s1" })], attention: [] });
+    ov2.open();
+    await ov2.refreshForTest();
+    await ov2.refreshForTest();
+    const band = document.querySelector<HTMLElement>(".mc-rail__group")!;
+    expect(band.classList.contains("mc-gband--supervised")).toBe(true);
+    expect(band.querySelector(".mc-gband__who")?.textContent).toBe("Warden");
+    expect(band.querySelector(".mc-gband__mode")?.textContent).toContain("intervenes");
+    expect(document.querySelector(".mc-strip__sup")?.textContent).toBe("1 supervised");
+    ov2.close();
+  });
+
+  it("selecting the band swaps the detail host to the group, with its retained findings", async () => {
+    clearGroupFindings();
+    recordGroupFinding({
+      groupId: "g1", operatorName: "Warden",
+      message: "tab 2 fails on the file tab 1 just wrote", atUnixMs: Date.now() - 60_000,
+    });
+    const b2 = supervisedBridge();
+    const ov2 = new ConvergenceOverlay(b2);
+    opList.mockResolvedValue([{ id: "op-7", name: "Warden", emoji: "🛡️" }]);
+    getSnap.mockResolvedValue({ agents: [agent({ session_id: "s1" })], attention: [] });
+    ov2.open();
+    await ov2.refreshForTest();
+    await ov2.refreshForTest();
+    document.querySelector<HTMLElement>(".mc-rail__group")!.click();
+    const pane = document.querySelector<HTMLElement>(".mc-gdetail")!;
+    expect(pane.dataset.groupId).toBe("g1");
+    expect(pane.querySelector(".mc-gdetail__find p")?.textContent).toContain("tab 2 fails");
+    expect(pane.querySelector(".mc-gdetail__find time")?.textContent).toBe("1m ago");
+    // …and clicking an agent row takes it back.
+    document.querySelector<HTMLElement>('.mc-row[data-session-id="s1"]')!.click();
+    expect(document.querySelector(".mc-gdetail")).toBeNull();
+    expect(document.querySelector<HTMLElement>(".mc-detail")?.dataset.sessionId).toBe("s1");
+    ov2.close();
+    clearGroupFindings();
+  });
+
+  it("the group pane drives detach and the intervene toggle through the bridge", async () => {
+    const b2 = supervisedBridge();
+    const ov2 = new ConvergenceOverlay(b2);
+    opList.mockResolvedValue([{ id: "op-7", name: "Warden", emoji: "🛡️" }]);
+    getSnap.mockResolvedValue({ agents: [agent({ session_id: "s1" })], attention: [] });
+    ov2.open();
+    await ov2.refreshForTest();
+    await ov2.refreshForTest();
+    document.querySelector<HTMLElement>(".mc-rail__group")!.click();
+    document.querySelector<HTMLButtonElement>(".mc-gdetail__intervene")!.click();
+    expect(b2.setGroupIntervene).toHaveBeenCalledWith("g1", false);
+    document.querySelector<HTMLButtonElement>(".mc-gdetail .mc-stop")!.click();
+    expect(b2.setGroupSupervisor).toHaveBeenCalledWith("g1", null);
+    ov2.close();
   });
 
   it("identical polls reuse the rail rows and detail pane (hover survives)", async () => {

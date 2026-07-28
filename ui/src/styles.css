@@ -20158,11 +20158,67 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .mc-detail__actions { margin-left: auto; display: flex; gap: 8px; flex: 0 0 auto; }
+/* Rail group band — name + roll-up, and who supervises the group.
+   A button: selecting it swaps the detail host to the group pane. */
 .mc-rail__group {
-  font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase;
+  appearance: none; width: 100%; text-align: left; font: inherit; cursor: pointer;
   color: var(--muted); background: rgb(var(--ink-rgb) / 0.03);
-  padding: 6px 12px 4px; border-bottom: 1px solid var(--border);
+  padding: 6px 12px 5px;
+  border: 0; border-bottom: 1px solid var(--border);
+  border-left: 2px solid transparent;
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
 }
+.mc-rail__group:hover { background: rgb(var(--ink-rgb) / 0.06); }
+.mc-gband--supervised { border-left-color: var(--accent); }
+/* Neutral lift for selection (True Dark rule 4) — the accent stays on the
+   spine and the supervisor line, never in the elevation. */
+.mc-gband--selected { background: rgb(var(--ink-rgb) / 0.09); }
+.mc-gband__top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.mc-gband__name {
+  font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--text-primary); overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.mc-gband__meta { margin-left: auto; font-size: 10px; color: var(--muted); flex: 0 0 auto; }
+.mc-gband__sup {
+  display: flex; align-items: center; gap: 5px; min-width: 0;
+  font-size: 10.5px; color: var(--accent);
+}
+.mc-gband__icon { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.mc-gband__icon svg { display: block; }
+.mc-gband__who { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.mc-gband__mode { color: var(--muted); flex: 0 0 auto; }
+.mc-gband__sup--none { color: var(--muted); font-style: italic; opacity: .7; }
+.mc-strip__sup { color: var(--accent) !important; }
+.mc-pill--supervised { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+/* Group detail pane */
+.mc-gdetail__who { gap: 10px; }
+.mc-gdetail__intervene {
+  appearance: none; background: transparent; border: 1px solid var(--border); border-radius: 0;
+  color: var(--muted); cursor: pointer; font: inherit; font-size: 10px; padding: 2px 9px;
+  letter-spacing: .05em; text-transform: uppercase;
+}
+.mc-gdetail__intervene:hover { color: var(--text-primary); border-color: var(--text-primary); }
+.mc-gdetail__intervene--on {
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.mc-gdetail__stats {
+  display: flex; gap: 26px; flex-wrap: wrap;
+  border-block: 1px solid var(--border); padding: 10px 0;
+}
+.mc-gdetail__stat { display: flex; flex-direction: column; gap: 1px; }
+.mc-gdetail__stat b {
+  font-size: 15px; color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.mc-gdetail__stat span { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.mc-gdetail__stat--alert b { color: var(--danger); }
+.mc-gdetail__label { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.mc-gdetail__empty { color: var(--muted); font-size: 12px; font-style: italic; }
+.mc-gdetail__feed { display: flex; flex-direction: column; gap: 8px; }
+.mc-gdetail__find { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: start; }
+.mc-gdetail__find time { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.mc-gdetail__find p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--text-primary); }
 
 .mc-detail__open, .mc-detail__copy, .mc-stop {
   appearance: none; background: transparent; border: 1px solid var(--border); border-radius: 0;

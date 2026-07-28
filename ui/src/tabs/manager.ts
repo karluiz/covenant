@@ -135,7 +135,7 @@ import {
 } from "./split-actions";
 import { installPaneSplitter } from "./pane-splitter";
 import { positionGlassIndicator } from "./glass-indicator";
-import { sessionHintsFromTabs, type SessionHint } from "../convergence/hints";
+import { sessionHintsFromTabs, type GroupInfo, type SessionHint } from "../convergence/hints";
 import type { SpecialTermTheme } from "../theme/special";
 
 const DEFAULT_FONT_FAMILY =
@@ -3537,9 +3537,15 @@ export class TabManager {
   /// an unchecked cast; that cast silently broke when Phase C moved
   /// `sessionId` from `Tab` onto `Pane`. See spec 2026-06-06.
   listSessionHints(): SessionHint[] {
-    const names = new Map<string, string>();
-    for (const [id, g] of this.groups) names.set(id, g.name);
-    return sessionHintsFromTabs(this.tabs, names);
+    const infos = new Map<string, GroupInfo>();
+    for (const [id, g] of this.groups) {
+      infos.set(id, {
+        name: g.name,
+        supervisorId: g.supervisorId,
+        supervisorIntervene: g.supervisorIntervene,
+      });
+    }
+    return sessionHintsFromTabs(this.tabs, infos);
   }
 
   activateRelative(delta: number): void {

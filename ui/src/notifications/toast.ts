@@ -7,6 +7,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { recordGroupFinding } from "../convergence/findings";
 import { Icons } from "../icons";
 
 interface CrossSessionFinding {
@@ -123,7 +124,17 @@ export class ToastHost {
     );
     this.unlistenGroupSupervision = await listen<GroupSupervisionFinding>(
       "group-supervision-finding",
-      (event) => this.showGroupSupervision(event.payload),
+      (event) => {
+        // Retain it before showing it: the toast is 12s of visibility,
+        // Convergence's group detail is where it stays readable.
+        recordGroupFinding({
+          groupId: event.payload.group_id,
+          operatorName: event.payload.operator_name,
+          message: event.payload.message,
+          atUnixMs: event.payload.timestamp_unix_ms,
+        });
+        this.showGroupSupervision(event.payload);
+      },
     );
   }
 

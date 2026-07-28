@@ -10,8 +10,22 @@ export interface SessionHint {
   color: string | null;
   /// Resolved tab-group name. UI-side only — never sent to the backend
   /// (the snapshot hint stays {session_id, title, color}); the overlay
-  /// uses it to group rail rows by workspace.
+  /// uses it as the rail bucket's LABEL.
   group: string | null;
+  /// The bucket KEY, and the key supervision + findings are stored under
+  /// (`group_supervision-finding.group_id`). Two groups may share a name;
+  /// they never share an id.
+  groupId: string | null;
+  /// Supervisor attached to this session's group, if any. Carries the
+  /// operator id only — the overlay resolves the display name itself.
+  supervisor: { operatorId: string; intervene: boolean } | null;
+}
+
+/// What the overlay needs to know about a tab group, keyed by group id.
+export interface GroupInfo {
+  name: string;
+  supervisorId: string | null;
+  supervisorIntervene: boolean;
 }
 
 /// Minimal structural view of a tab — only what hint-building reads.
@@ -31,16 +45,29 @@ export interface HintTab {
 /// backend.
 export function sessionHintsFromTabs(
   tabs: ReadonlyArray<HintTab>,
-  groupNames?: ReadonlyMap<string, string>,
+  groups?: ReadonlyMap<string, GroupInfo>,
 ): SessionHint[] {
   const out: SessionHint[] = [];
   for (const t of tabs) {
     const title = t.customName?.trim() || t.defaultTitle || "untitled";
-    const group = (t.groupId && groupNames?.get(t.groupId)) || null;
+    const info = (t.groupId && groups?.get(t.groupId)) || null;
+    // An id we can't resolve is treated as ungrouped — a bucket labelled
+    // by a name we don't have would render as an empty header.
+    const groupId = info ? t.groupId ?? null : null;
+    const supervisor = info?.supervisorId
+      ? { operatorId: info.supervisorId, intervene: info.supervisorIntervene }
+      : null;
     for (const p of t.panes) {
       const sid = p.sessionId ?? p.acpSessionId;
       if (!sid) continue;
-      out.push({ sessionId: sid, title, color: t.color, group });
+      out.push({
+        sessionId: sid,
+        title,
+        color: t.color,
+        group: info?.name ?? null,
+        groupId,
+        supervisor,
+      });
     }
   }
   return out;
