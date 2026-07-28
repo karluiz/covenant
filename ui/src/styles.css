@@ -13454,16 +13454,28 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
   pointer-events: auto;
 }
 .spec-prompt-toast {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 16px 16px 18px;
   background: var(--bg-overlay, rgba(20, 20, 20, 0.92));
   border: 1px solid var(--border, rgb(var(--ink-rgb) / 0.12));
   border-radius: 0;
   font-size: 12px;
-  width: 340px;
+  width: 360px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: spec-toast-in 0.15s ease-out;
+}
+.spec-prompt-toast.is-leaving {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+@keyframes spec-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
 }
 .spec-prompt-toast-head {
   display: flex;
@@ -13474,18 +13486,43 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
   font-weight: 600;
   color: var(--accent, #6ee7b7);
 }
-.spec-prompt-toast-file {
+.spec-prompt-toast-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+  row-gap: 7px;
+  align-items: baseline;
+  min-width: 0;
+}
+.spec-prompt-toast-key {
   font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--muted, #9aa0a6);
+}
+.spec-prompt-toast-file {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
+  color: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--ink-rgb) / 0.3);
+  text-underline-offset: 2px;
+  cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 .spec-prompt-toast-target {
   font-size: 11px;
-  color: var(--text-muted, #888);
-  margin-top: 2px;
+  color: inherit;
+  min-width: 0;
 }
 .spec-prompt-toast-target .ui-select__button {
   padding: 2px 6px;
@@ -13494,16 +13531,20 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
 }
 .spec-prompt-toast-snippet {
   color: var(--muted, #9aa0a6);
-  line-height: 1.4;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .spec-prompt-toast-actions {
   display: flex;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 8px;
+  margin-top: 2px;
 }
 .spec-prompt-toast-actions button {
   font-size: 11px;
-  padding: 4px 10px;
+  padding: 6px 14px;
   border: 1px solid var(--border, rgb(var(--ink-rgb) / 0.12));
   background: transparent;
   color: inherit;
@@ -13514,9 +13555,41 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
   background: var(--accent, #6ee7b7);
   color: var(--bg, #0a0a0a);
   border-color: var(--accent, #6ee7b7);
+  font-weight: 600;
 }
 .spec-prompt-toast-actions button:hover {
   filter: brightness(1.1);
+}
+.spec-prompt-toast-countdown {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--accent, #6ee7b7);
+  transform-origin: left;
+  animation: spec-toast-countdown 30s linear forwards;
+}
+.spec-prompt-toast:hover .spec-prompt-toast-countdown {
+  animation-play-state: paused;
+}
+@keyframes spec-toast-countdown {
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spec-prompt-toast {
+    animation: none;
+  }
+  .spec-prompt-toast.is-leaving {
+    transition: none;
+  }
+  /* Invisible motion, but animationend still fires at ~30s so auto-close works. */
+  .spec-prompt-toast-countdown {
+    animation-duration: 0.001s;
+    animation-delay: 30s;
+  }
 }
 
 /* === 3.16 spec-prompt last-call modal === */

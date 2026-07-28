@@ -36,6 +36,7 @@ function makeHost(tabs: TabSnapshot[], opts: MakeHostOpts = {}) {
       const t = tabs.find((x) => x.id === tabId);
       return t ? `Tab ${tabId}` : tabId;
     },
+    openSpecFile: vi.fn(),
   };
 }
 
@@ -302,6 +303,68 @@ describe("spec-prompt toast rendering", () => {
     const toasts = document.querySelectorAll(".spec-prompt-toast");
     expect(toasts.length).toBe(1);
     expect((toasts[0] as HTMLElement).dataset.tabId).toBe("t2");
+  });
+
+  // ── auto-close / interaction semantics ──────────────────────────────────
+
+  async function freshToast(activeTabId = "t1") {
+    vi.resetModules();
+    capturedCandidateHandler = null;
+    document.body.innerHTML = "";
+    vi.mock("../api", async (importOriginal) => {
+      const original = await importOriginal<typeof import("../api")>();
+      return {
+        ...original,
+        specDetectorApi: { start: vi.fn().mockResolvedValue(undefined) },
+        subscribeSpecCandidates: vi.fn().mockImplementation((handler: (c: SpecCandidate) => void) => {
+          capturedCandidateHandler = handler;
+          return Promise.resolve(() => { capturedCandidateHandler = null; });
+        }),
+      };
+    });
+    const mod = await import("./spec-prompt");
+    const tabs: TabSnapshot[] = [
+      { id: "t1", cwd: "/repo", hasMission: false, hasOperator: true },
+    ];
+    const host = makeHost(tabs, { activeTabId });
+    await mod.startSpecPrompts(host);
+    emitCandidate({ path: "/repo/docs/specs/3.20.md", repo_root: "/repo", source: "covenant", goal_snippet: "..." });
+    const toast = document.querySelector(".spec-prompt-toast") as HTMLElement;
+    return { mod, host, toast };
+  }
+
+  it("auto-close (countdown end) closes without dismissing the candidate", async () => {
+    const { mod, toast } = await freshToast();
+    const countdown = toast.querySelector(".spec-prompt-toast-countdown")!;
+    countdown.dispatchEvent(new Event("animationend"));
+    expect(toast.classList.contains("is-leaving")).toBe(true);
+    // The soft close must NOT record a dismissal — badge/last-call keep it.
+    expect(mod.getSpecPromptState().isDismissed("t1", "/repo/docs/specs/3.20.md")).toBe(false);
+  });
+
+  it("pointerdown on the toast cancels auto-close", async () => {
+    const { toast } = await freshToast();
+    toast.dispatchEvent(new Event("pointerdown"));
+    expect(toast.querySelector(".spec-prompt-toast-countdown")).toBeNull();
+    expect(toast.classList.contains("is-leaving")).toBe(false);
+  });
+
+  it("Escape dismisses the toast permanently", async () => {
+    const { mod, toast } = await freshToast();
+    toast.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(toast.classList.contains("is-leaving")).toBe(true);
+    expect(mod.getSpecPromptState().isDismissed("t1", "/repo/docs/specs/3.20.md")).toBe(true);
+  });
+
+  it("clicking the filename opens the spec file", async () => {
+    const { host, toast } = await freshToast();
+    (toast.querySelector(".spec-prompt-toast-file") as HTMLButtonElement).click();
+    expect(host.openSpecFile).toHaveBeenCalledWith("/repo/docs/specs/3.20.md");
+  });
+
+  it("the accept button names the target tab", async () => {
+    const { toast } = await freshToast();
+    expect(toast.querySelector(".spec-prompt-toast-set")!.textContent).toBe("Set on Tab t1");
   });
 });
 
