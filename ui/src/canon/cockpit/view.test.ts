@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { CanonCockpitView } from "./view";
+import { CanonCockpitView, unusedUnits, inventoryRows } from "./view";
 
 // Mock the api module so tests don't invoke Tauri IPC.
 vi.mock("../../api", () => ({
@@ -43,7 +43,7 @@ import {
   canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
   operatorList, canonPublish, canonUninstallSkill,
   canonOrgDefaults, canonOrgDefaultSet, canonUnitInstalled,
-  canonNewUnit, canonImportSkill, canonUnitPath, canonDeleteUnit,
+  canonNewUnit, canonImportSkill, canonUnitPath, canonDeleteUnit, scoreSkillUsage,
   type Operator,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
@@ -71,11 +71,11 @@ const opts = {
 };
 
 describe("CanonCockpitView shell", () => {
-  it("opens with the org section active and switches sections", () => {
+  it("opens on Overview — the state of the repo, not the org settings screen", () => {
     const v = new CanonCockpitView(opts);
     v.open();
     expect(v.element.querySelector(".canon-cockpit-nav")).toBeTruthy();
-    expect(v.element.querySelector('[data-section="org"].is-active')).toBeTruthy();
+    expect(v.element.querySelector('[data-section="overview"].is-active')).toBeTruthy();
     v.showSection("members");
     expect(v.element.querySelector('[data-section="members"].is-active')).toBeTruthy();
     v.close();
@@ -114,7 +114,7 @@ describe("CanonCockpitView create-org flow", () => {
       setActiveOrg: (slug: string | null) => { active = slug; setActiveOrg(slug); },
     };
     const v = new CanonCockpitView(createOpts);
-    v.open();
+    v.open(); v.showSection("org");
 
     const wrap = v.element.querySelector(".canon-cockpit-org-create") as HTMLElement;
     (wrap.querySelector("button") as HTMLButtonElement).click();
@@ -138,12 +138,12 @@ describe("CanonCockpitView create-org flow", () => {
     const memberV = new CanonCockpitView({ ...opts,
       orgs: [{ id: 1, slug: "cleverit", name: "Cleverit", role: "member", personal: false }],
       getActiveOrg: () => "cleverit" });
-    memberV.open();
+    memberV.open(); memberV.showSection("org");
     expect(memberV.element.querySelector(".canon-cockpit-idcard-edit")).toBeNull();
     memberV.close();
 
     const v = new CanonCockpitView(opts); // active org role: owner
-    v.open();
+    v.open(); v.showSection("org");
     const edit = v.element.querySelector(".canon-cockpit-idcard-edit") as HTMLElement;
     expect(edit).toBeTruthy();
     edit.click();
@@ -606,6 +606,100 @@ describe("CanonCockpitView doors", () => {
     expect(btns.map((b) => b.textContent)).toEqual(["New subagent", "Crawl repo"]);
     btns[1].click();
     expect(crawled).toBe(true);
+  });
+});
+
+describe("CanonCockpitView Overview", () => {
+  const populated = {
+    installed: [{ name: "kyc", version: "1.0.0", source: "registry:karluiz", sha: "a", signer: null, installedAt: "t" }],
+    agents: [{ name: "reviewer" }], contexts: [], memory: [],
+    commands: [{ name: "deploy", description: null }], mcp: [], specs: [], detectedSkills: [],
+  };
+
+  it("counts every kind and routes to its section", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(populated);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.querySelectorAll(".canon-cockpit-inventory .canon-cockpit-listitem").length).toBe(7);
+    });
+    const rows = [...v.element.querySelectorAll(".canon-cockpit-inventory .canon-cockpit-listitem")]
+      .map((r) => r.textContent);
+    expect(rows[0]).toContain("Subagents");
+    expect(rows[0]).toContain("1");
+    v.element.querySelectorAll<HTMLButtonElement>(".canon-cockpit-inventory .canon-cockpit-listitem")[1].click();
+    expect(v.element.querySelector('[data-section="commands"].is-active')).toBeTruthy();
+  });
+
+  it("names the org defaults this repo is missing, and installs them", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValue(populated);
+    vi.mocked(canonOrgDefaults).mockResolvedValue([
+      { kind: "skill", name: "kyc" }, { kind: "agent", name: "reviewer" }, { kind: "command", name: "lint" },
+    ]);
+    vi.mocked(canonUnitInstalled).mockImplementation(async (_c, _k, name) => name === "kyc");
+    vi.mocked(canonInstallRegistryUnit).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("2 of 3 org defaults missing here");
+    });
+    v.element.querySelector<HTMLButtonElement>(".canon-cockpit-listitem-action")!.click();
+    await vi.waitFor(() => {
+      expect(canonInstallRegistryUnit).toHaveBeenCalledWith("/x", "karluiz", "reviewer", "latest", "agent");
+      expect(canonInstallRegistryUnit).toHaveBeenCalledWith("/x", "karluiz", "lint", "latest", "command");
+    });
+    vi.mocked(canonOrgDefaults).mockResolvedValue([]);
+    vi.mocked(canonUnitInstalled).mockImplementation(async () => false);
+    vi.mocked(canonLocalStatus).mockResolvedValue({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+  });
+
+  it("says nothing when nothing needs attention", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(populated);
+    vi.mocked(scoreSkillUsage).mockResolvedValueOnce([{ skill: "kyc", uses: 4 }]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("Inventory");
+    });
+    expect(v.element.textContent).not.toContain("Needs attention");
+  });
+});
+
+describe("Canon dead weight", () => {
+  it("unusedUnits keeps only what nothing has used", () => {
+    const installed = [{ name: "kyc" }, { name: "dead" }, { name: "never-recorded" }];
+    const usage = [{ skill: "kyc", uses: 3 }, { skill: "dead", uses: 0 }];
+    expect(unusedUnits(installed, usage)).toEqual(["dead", "never-recorded"]);
+    expect(unusedUnits([], usage)).toEqual([]);
+  });
+
+  it("inventoryRows counts detected skills alongside installed ones", () => {
+    const rows = inventoryRows({
+      installed: [{ name: "kyc" }] as never, detectedSkills: [{ name: "foreign" }] as never,
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    } as never);
+    expect(rows.find((r) => r.section === "skills")?.count).toBe(2);
+  });
+
+  it("Loop lists unused skills with the uninstall that removes them", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "dead", version: "1.0.0", source: "registry:karluiz", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    vi.mocked(canonUninstallSkill).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("loop");
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("Unused");
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeTruthy();
+    });
+    v.element.querySelector<HTMLButtonElement>("[aria-label='Uninstall skill']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
+    await vi.waitFor(() => {
+      expect(canonUninstallSkill).toHaveBeenCalledWith("/x", "dead");
+    });
   });
 });
 

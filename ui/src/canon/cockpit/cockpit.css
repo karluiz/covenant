@@ -305,6 +305,46 @@ body.tabbar-left .canon-cockpit {
   color: var(--canon-accent, var(--accent, #7aa2f7));
 }
 
+/* ── Overview section ───────────────────────────────────────────────── */
+
+/* An attention row states a fact and offers the one action that resolves it,
+   so its meta is prose (the names behind the count), not a status chip —
+   lowercase and free to wrap out of the uppercase treatment above. */
+.canon-cockpit-listitem.is-attention {
+  cursor: default;
+  align-items: baseline;
+}
+.canon-cockpit-listitem.is-attention .canon-cockpit-listitem-name {
+  flex: 0 1 auto;
+}
+.canon-cockpit-listitem.is-attention .canon-cockpit-listitem-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.canon-cockpit-listitem-action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--canon-lift-1, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  cursor: pointer;
+}
+.canon-cockpit-listitem-action:hover:not(:disabled) {
+  background: var(--canon-lift-2, transparent);
+  border-color: var(--canon-accent, var(--accent, #7aa2f7));
+}
+.canon-cockpit-listitem-action:disabled { opacity: 0.5; cursor: default; }
+
 /* ── Org section ────────────────────────────────────────────────────── */
 
 /* Identity card — the active org as a subject: big monogram + name + slug. */

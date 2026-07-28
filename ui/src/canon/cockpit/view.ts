@@ -52,7 +52,7 @@ import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { liftRow, groupVerdict } from "./lift";
 
-export type SectionKey = "org" | "members" | "operators" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
+export type SectionKey = "overview" | "org" | "members" | "operators" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
 
 export interface CanonCockpitOpts {
   groupId: string;
@@ -104,6 +104,32 @@ export function sortSpecs<T extends { name: string }>(specs: readonly T[]): T[] 
   });
 }
 
+/** Installed units nothing has used. Context that ships into every prompt and
+ *  earns nothing is the one thing Observe should say out loud — it's what
+ *  tells the next Generate what to stop authoring. Zero is the only threshold
+ *  worth acting on, so there is no window to configure. */
+export function unusedUnits(
+  installed: readonly { name: string }[],
+  usage: readonly { skill: string; uses: number }[],
+): string[] {
+  const uses = new Map(usage.map((u) => [u.skill, u.uses]));
+  return installed.filter((i) => (uses.get(i.name) ?? 0) === 0).map((i) => i.name);
+}
+
+/** What this repo carries, per kind — the Overview's inventory. Ordered as the
+ *  nav is, so the two read the same way. */
+export function inventoryRows(s: CanonStatus): { section: SectionKey; label: string; count: number }[] {
+  return [
+    { section: "agents", label: "Subagents", count: s.agents.length },
+    { section: "commands", label: "Commands", count: s.commands.length },
+    { section: "mcp", label: "MCP servers", count: s.mcp.length },
+    { section: "spec", label: "Specs", count: s.specs.length },
+    { section: "memory", label: "Memory", count: s.memory.length },
+    { section: "skills", label: "Skills", count: s.installed.length + s.detectedSkills.length },
+    { section: "context", label: "Context", count: s.contexts.length },
+  ];
+}
+
 /** A small uppercase subhead inside the Loop section (Adoption / Inference /
  *  Eval pass-rate) — mirrors panel.ts's rail-only helper of the same name. */
 function loopSubhead(text: string): HTMLElement {
@@ -114,6 +140,7 @@ function loopSubhead(text: string): HTMLElement {
 }
 
 const SECTIONS: { key: SectionKey; label: string }[] = [
+  { key: "overview", label: "Overview" },
   { key: "org", label: "Organization" },
   { key: "members", label: "Members" },
   { key: "operators", label: "Operators" },
@@ -208,6 +235,7 @@ const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
 
 /** Title + one-line description for each section's header. */
 const SECTION_HEAD: Record<SectionKey, [string, string]> = {
+  overview: ["Overview", "What this repo's Canon carries, and what needs attention."],
   org: ["Organization", "The registry this group publishes to and installs from."],
   members: ["Members", "People with access to this organization's Canon."],
   operators: ["Operators", "Versions of you, delegated — org-scoped personas that direct your executors."],
@@ -227,7 +255,7 @@ export class CanonCockpitView {
   private nav: HTMLElement;
   private content: HTMLElement;
   private closeBtn: HTMLButtonElement;
-  private current: SectionKey = "org";
+  private current: SectionKey = "overview";
   /** One repo walk per cockpit open, shared by every section that reads it.
    *  Sections re-render on every mutation (`showSection(this.current)`), so
    *  without this each adopt/publish/uninstall walked the whole repo again to
@@ -362,7 +390,8 @@ export class CanonCockpitView {
       headAction = btn;
     }
     const body =
-      key === "org" ? this.renderOrgSection()
+      key === "overview" ? this.renderOverviewSection()
+      : key === "org" ? this.renderOrgSection()
       : key === "members" ? this.renderMembersSection()
       : key === "operators" ? this.renderOperatorsSection()
       : unitSpec ? this.renderUnitSection(key, unitSpec, headAction)
@@ -758,6 +787,29 @@ export class CanonCockpitView {
     return btn;
   }
 
+  /** Uninstall an installed skill, behind the confirm card. Shared by the
+   *  Skills list and Loop's dead-weight list — the row that reports a skill
+   *  isn't earning its keep is the right place to remove it. */
+  private skillUninstallAction(cwd: string, name: string, onDone: () => void): HTMLButtonElement {
+    const btn = iconButton(Icons.trash({ size: 15 }), "Uninstall skill", () => {
+      openConfirmPrompt({
+        label: "Uninstall skill",
+        message: `Uninstall "${name}"? Removes it from this repo and every executor projection.`,
+        confirmText: "Uninstall",
+        onConfirm: () => {
+          btn.disabled = true;
+          void canonUninstallSkill(cwd, name)
+            .then(() => { this.invalidateStatus(); onDone(); })
+            .catch((e) => {
+              btn.disabled = false;
+              pushInfoToast({ message: `Uninstall failed: ${this.friendlyError(e)}` });
+            });
+        },
+      });
+    });
+    return btn;
+  }
+
   /** Authoring gate. Inside an organization only owners inscribe new units;
    *  with no active org (or an org list we never managed to fetch) this is
    *  just your own repo, so authoring stays open. A surface gate, not a
@@ -830,6 +882,140 @@ export class CanonCockpitView {
     });
 
     return { element: bar, reveal };
+  }
+
+  // ── Overview section ─────────────────────────────────────────────────
+
+  /** The landing screen: what this repo carries, and the two things that
+   *  actually need a decision — org defaults it's missing, and installed
+   *  context nothing uses. Everything here is composed from data the other
+   *  sections already fetch; it adds no backend call of its own beyond the
+   *  usage numbers Loop also reads. */
+  private renderOverviewSection(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "canon-cockpit-section is-overview";
+    const cwd = this.opts.groupRootDir;
+
+    if (!cwd) {
+      el.appendChild(this.emptyNoRepo("Point this group at a repo from the rail to see what its Canon carries."));
+      return el;
+    }
+
+    // Attention first — a landing screen that opens with an inventory buries
+    // the only two lines that ask for a decision.
+    const attention = document.createElement("div");
+    const inventory = document.createElement("div");
+    inventory.className = "canon-cockpit-list canon-cockpit-inventory";
+    inventory.appendChild(this.note("Loading…"));
+    el.append(attention, this.groupLabel("Inventory"), inventory);
+
+    void this.status(cwd)
+      .then((status) => {
+        inventory.replaceChildren();
+        for (const row of inventoryRows(status)) {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "canon-cockpit-listitem";
+          const name = document.createElement("span");
+          name.className = "canon-cockpit-listitem-name";
+          name.textContent = row.label;
+          const count = document.createElement("span");
+          count.className = "canon-cockpit-listitem-meta";
+          count.textContent = String(row.count);
+          item.append(name, count);
+          item.addEventListener("click", () => this.showSection(row.section));
+          inventory.appendChild(item);
+        }
+      })
+      .catch((e) => {
+        inventory.replaceChildren();
+        inventory.appendChild(this.note(`Failed to read this repo: ${this.friendlyError(e)}`));
+      });
+
+    void this.renderAttention(cwd, attention);
+    return el;
+  }
+
+  /** The Overview's attention block: org-default drift and dead weight, each
+   *  a single sentence with the action that resolves it. Renders nothing when
+   *  there's nothing to decide — an empty "all good" box is noise. */
+  private async renderAttention(cwd: string, host: HTMLElement): Promise<void> {
+    const active = this.activeOrg();
+    const [status, usage, defaults] = await Promise.all([
+      this.status(cwd).catch(() => null),
+      scoreSkillUsage(this.opts.groupLabel ?? null).catch(() => []),
+      active ? canonOrgDefaults(active.slug).catch(() => []) : Promise.resolve([]),
+    ]);
+    if (!status) return;
+
+    const rows: HTMLElement[] = [];
+
+    // Org defaults this repo is missing — the owner's "every repo should have
+    // this", checked where it's actually felt instead of only in Organization.
+    if (active && defaults.length > 0) {
+      const installed = await Promise.all(
+        defaults.map((d) => canonUnitInstalled(cwd, d.kind, d.name).catch(() => false)),
+      );
+      const missing = defaults.filter((_, i) => !installed[i]);
+      if (missing.length > 0) {
+        const install = document.createElement("button");
+        install.type = "button";
+        install.className = "canon-cockpit-listitem-action";
+        install.textContent = "Install all";
+        install.addEventListener("click", () => {
+          install.disabled = true;
+          install.textContent = "Installing…";
+          void Promise.all(missing.map((d) => (d.kind === "skill"
+            ? canonInstallRegistry(cwd, active.slug, d.name, "latest", this.opts.groupLabel, null).then(() => undefined)
+            : canonInstallRegistryUnit(cwd, active.slug, d.name, "latest", d.kind))
+            .catch((e) => { pushInfoToast({ message: `${d.name}: ${this.friendlyError(e)}` }); })))
+            .then(() => { this.invalidateStatus(); this.showSection("overview"); });
+        });
+        rows.push(this.attentionRow(
+          `${missing.length} of ${defaults.length} org defaults missing here`,
+          missing.map((d) => d.name).join(" · "),
+          install,
+        ));
+      }
+    }
+
+    // Dead weight — installed, projected into every prompt, never used.
+    const unused = unusedUnits(status.installed, usage);
+    if (unused.length > 0) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "canon-cockpit-listitem-action";
+      open.textContent = "Review";
+      open.addEventListener("click", () => this.showSection("loop"));
+      rows.push(this.attentionRow(
+        unused.length === 1
+          ? "1 installed skill has never been used"
+          : `${unused.length} installed skills have never been used`,
+        unused.join(" · "),
+        open,
+      ));
+    }
+
+    if (rows.length === 0) return;
+    host.appendChild(this.groupLabel("Needs attention"));
+    const list = document.createElement("div");
+    list.className = "canon-cockpit-list";
+    list.append(...rows);
+    host.appendChild(list);
+  }
+
+  /** One attention line: a headline, the names behind it, and its action. */
+  private attentionRow(headline: string, detail: string, action: HTMLElement): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "canon-cockpit-listitem is-attention";
+    const text = document.createElement("span");
+    text.className = "canon-cockpit-listitem-name";
+    text.textContent = headline;
+    const sub = document.createElement("span");
+    sub.className = "canon-cockpit-listitem-meta";
+    sub.textContent = detail;
+    row.append(text, sub, action);
+    return row;
   }
 
   // ── Org section ──────────────────────────────────────────────────────
@@ -1531,26 +1717,7 @@ export class CanonCockpitView {
               });
               actions.push(pub);
             }
-            const del = iconButton(Icons.trash({ size: 15 }), "Uninstall skill", () => {
-              openConfirmPrompt({
-                label: "Uninstall skill",
-                message: `Uninstall "${i.name}"? Removes it from this repo and every executor projection.`,
-                confirmText: "Uninstall",
-                onConfirm: () => uninstall(),
-              });
-            });
-            const uninstall = (): void => {
-              errorEl.hidden = true;
-              del.disabled = true;
-              void canonUninstallSkill(cwd, i.name)
-                .then(reload)
-                .catch((e) => {
-                  errorEl.hidden = false;
-                  errorEl.textContent = this.friendlyError(e);
-                  del.disabled = false;
-                });
-            };
-            actions.push(del);
+            actions.push(this.skillUninstallAction(cwd, i.name, reload));
             list.appendChild(skillCard({
               name: i.name,
               meta: `${i.version} · ${i.source}`,
@@ -1897,6 +2064,33 @@ export class CanonCockpitView {
           adoptionBox.appendChild(meterRow(r.name, parts.join(" · "), ((n ?? 0) / maxInstalls) * 100));
         }
       });
+    }
+
+    // Dead weight — installed, projected into every prompt, never used. The
+    // sentence that closes the loop: it's what tells the next Generate what to
+    // stop authoring. Same two sources the adoption block already reads.
+    const unusedBox = document.createElement("div");
+    el.appendChild(unusedBox);
+    if (cwd) {
+      void Promise.all([
+        this.status(cwd),
+        scoreSkillUsage(this.opts.groupLabel ?? null).catch(() => []),
+      ]).then(([status, usage]) => {
+        const unused = unusedUnits(status.installed, usage);
+        if (unused.length === 0) return;
+        unusedBox.appendChild(loopSubhead("Unused"));
+        unusedBox.appendChild(this.note("Installed and projected into every prompt, never used. Uninstall what isn't earning its keep."));
+        for (const name of unused) {
+          unusedBox.appendChild(skillCard({
+            name,
+            meta: "0 uses",
+            className: "canon-skill-row",
+            leadIcon: Icons.packageBox({ size: 15 }),
+            fetchPreview: () => canonReadLocal(cwd, name),
+            actions: [this.skillUninstallAction(cwd, name, () => this.showSection("loop"))],
+          }));
+        }
+      }).catch(() => {});
     }
 
     // Inference — this group's footprint from the four Covenant primitives.
