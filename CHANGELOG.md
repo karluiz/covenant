@@ -6,6 +6,46 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.78 — Covenant MCP server + Convergence agent fleet
+
+### Added
+
+- **Covenant MCP server**: an embedded MCP server (bearer-auth over a 0600
+  discovery file) that external agents connect to for structured access to
+  the running app — `task_list` / `task_create` / `task_complete`,
+  `notes_read` / `notes_append`, `commands_list` (the group's saved runbook
+  commands, read-only), `session_list` / `session_output` (read-only
+  cross-session terminal visibility), and `somnus_list` / `somnus_run`
+  (saved REST requests, GET/HEAD only) (`crates/app/src/mcp/`,
+  `crates/app/src/teammate/`).
+
+- **MCP auto-injection into ACP spawns**: ACP executors are spawned with the
+  Covenant MCP server pre-wired plus `COVENANT_SESSION_ID` and
+  `COVENANT_GROUP_ID` env vars, so notes and tasks scope to the spawning
+  tab's group without discovery (`crates/app/src/acp/`).
+
+- **`covenant mcp-config` CLI**: prints the MCP server entry for wiring
+  external agents by hand, and the `covenant` shim now forwards
+  `mcp-config` through (`crates/app/src/bin/`, CLI shim).
+
+- **Convergence rework — agent fleet mission control**: the ⌘⇧M overlay now
+  renders a flat grid of agent cards uniting PTY-agent and ACP lanes into
+  one snapshot, led by an attention inbox with inline permission / PTY /
+  operator replies, and ACP cards grow per-tab sub-agent rows
+  (`ui/src/convergence/`).
+
+### Fixed
+
+- **Files panel vanished-root fallback**: when the tree's root disappears
+  (a worktree merged + pruned while a shell still sat in it), the panel
+  re-roots to the main checkout with an info toast instead of showing the
+  raw `not a directory: …` backend error; non-worktree roots walk one
+  level up (`ui/src/structure/tree.ts`).
+
+- **MCP tools capability advertised in initialize**: SDK clients skipped
+  `tools/list` because the server never declared the tools capability
+  (`crates/app/src/mcp/`).
+
 ## v0.9.77 — Tasker subtasks checklist + chrome fixes
 
 ### Added
