@@ -172,14 +172,19 @@ pub fn read_skill_package(
     Ok((toml_s, md_s, sm))
 }
 
-/// Raw source markdown for a single context unit. Path-traversal safe.
-pub fn read_source(repo_root: &Path, kind: ContextKind, name: &str) -> Result<String, CanonError> {
+/// Where a unit's Canon source lives, adopted or not. Path-traversal safe.
+/// Does not check existence — `source_path` does.
+fn canon_source_path(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+) -> Result<std::path::PathBuf, CanonError> {
     if !valid_pkg_name(name) {
         return Err(CanonError::InvalidPackage(format!(
             "invalid name: {name:?}"
         )));
     }
-    let path = match kind {
+    Ok(match kind {
         ContextKind::Spec => repo_root.join("docs/specs").join(format!("{name}.md")),
         ContextKind::Skill => canon_dir(repo_root)
             .join(kind.dir())
@@ -191,16 +196,64 @@ pub fn read_source(repo_root: &Path, kind: ContextKind, name: &str) -> Result<St
         _ => canon_dir(repo_root)
             .join(kind.dir())
             .join(format!("{name}.md")),
-    };
-    match std::fs::read_to_string(&path) {
-        Ok(s) => Ok(s),
-        // Detected/foreign units have no `.covenant/canon` source yet — read
-        // them where detect.rs found them so Preview works before Adopt.
-        Err(e) => match detected_path(repo_root, kind, name) {
-            Some(p) => Ok(std::fs::read_to_string(p)?),
-            None => Err(e.into()),
-        },
+    })
+}
+
+/// The file backing a unit: its Canon source once adopted, else where
+/// `detect.rs` found it. Same resolution `read_source` does — exposed so the
+/// UI can open the exact file a row is showing.
+pub fn source_path(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+) -> Result<std::path::PathBuf, CanonError> {
+    let path = canon_source_path(repo_root, kind, name)?;
+    if path.is_file() {
+        return Ok(path);
     }
+    detected_path(repo_root, kind, name).ok_or_else(|| {
+        CanonError::InvalidPackage(format!("no source file for {}: {name}", kind.label()))
+    })
+}
+
+/// Raw source markdown for a single context unit. Path-traversal safe.
+pub fn read_source(repo_root: &Path, kind: ContextKind, name: &str) -> Result<String, CanonError> {
+    // Detected/foreign units have no `.covenant/canon` source yet — read them
+    // where detect.rs found them so Preview works before Adopt.
+    Ok(std::fs::read_to_string(source_path(
+        repo_root, kind, name,
+    )?)?)
+}
+
+/// Delete an adopted unit's source, then re-project so every executor's
+/// managed block drops it too.
+///
+/// Skills are NOT deletable here: they carry manifest + lockfile entries, so
+/// they go through `uninstall_skill`. Specs are the repo's own docs, not
+/// Canon-managed files. Detected units aren't touched either — a foreign file
+/// Canon merely noticed is not Canon's to remove; adopt it first.
+pub fn delete_unit(repo_root: &Path, kind: ContextKind, name: &str) -> Result<(), CanonError> {
+    if matches!(kind, ContextKind::Skill | ContextKind::Spec) {
+        return Err(CanonError::InvalidPackage(format!(
+            "{} units are not deletable here",
+            kind.label()
+        )));
+    }
+    let path = canon_source_path(repo_root, kind, name)?;
+    let root = canon_dir(repo_root).join(kind.dir());
+    if !path.starts_with(&root) {
+        return Err(CanonError::InvalidPackage(format!(
+            "path escapes {} dir: {name:?}",
+            kind.dir()
+        )));
+    }
+    if !path.is_file() {
+        return Err(CanonError::InvalidPackage(format!(
+            "not a Canon unit: {name}"
+        )));
+    }
+    std::fs::remove_file(&path)?;
+    project(repo_root)
 }
 
 /// Where a not-yet-adopted unit lives in the executor dirs. Mirrors
@@ -653,6 +706,56 @@ mod tests {
             "CTX BODY"
         );
         assert!(read_source(root, ContextKind::Agent, "../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn delete_unit_removes_the_source_and_guards_the_rest() {
+        use crate::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let canon = root.join(".covenant/canon");
+        std::fs::create_dir_all(canon.join("agents")).unwrap();
+        std::fs::write(canon.join("agents/reviewer.md"), "PERSONA BODY").unwrap();
+        std::fs::create_dir_all(canon.join("mcp")).unwrap();
+        std::fs::write(canon.join("mcp/ctx7.json"), r#"{"command":"npx"}"#).unwrap();
+
+        delete_unit(root, ContextKind::Agent, "reviewer").unwrap();
+        assert!(!canon.join("agents/reviewer.md").exists());
+        delete_unit(root, ContextKind::Mcp, "ctx7").unwrap();
+        assert!(!canon.join("mcp/ctx7.json").exists());
+
+        // Gone already, never existed, traversal, and the two kinds that own
+        // their own removal path — all rejected, nothing deleted.
+        assert!(delete_unit(root, ContextKind::Agent, "reviewer").is_err());
+        assert!(delete_unit(root, ContextKind::Command, "nope").is_err());
+        assert!(delete_unit(root, ContextKind::Agent, "../../../etc/passwd").is_err());
+        assert!(delete_unit(root, ContextKind::Skill, "kyc").is_err());
+        assert!(delete_unit(root, ContextKind::Spec, "3.1-alpha").is_err());
+    }
+
+    #[test]
+    fn source_path_prefers_canon_then_falls_back_to_detected() {
+        use crate::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Detected only: a foreign subagent sitting in an executor dir.
+        std::fs::create_dir_all(root.join(".claude/agents")).unwrap();
+        std::fs::write(root.join(".claude/agents/foreign.md"), "FOREIGN").unwrap();
+        assert_eq!(
+            source_path(root, ContextKind::Agent, "foreign").unwrap(),
+            root.join(".claude/agents/foreign.md")
+        );
+
+        // Adopted: the Canon source wins.
+        let canon = root.join(".covenant/canon/agents");
+        std::fs::create_dir_all(&canon).unwrap();
+        std::fs::write(canon.join("foreign.md"), "ADOPTED").unwrap();
+        assert_eq!(
+            source_path(root, ContextKind::Agent, "foreign").unwrap(),
+            canon.join("foreign.md")
+        );
+
+        assert!(source_path(root, ContextKind::Agent, "missing").is_err());
     }
 
     #[test]

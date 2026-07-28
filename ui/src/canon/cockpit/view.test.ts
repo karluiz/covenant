@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { CanonCockpitView } from "./view";
 
 // Mock the api module so tests don't invoke Tauri IPC.
@@ -19,6 +19,8 @@ vi.mock("../../api", () => ({
   canonNewUnit: vi.fn(async () => "/x/.covenant/canon/agents/reviewer.md"),
   canonImportSkill: vi.fn(async () => [] as string[]),
   canonAdopt: vi.fn(async () => undefined),
+  canonUnitPath: vi.fn(async () => "/x/.covenant/canon/agents/reviewer.md"),
+  canonDeleteUnit: vi.fn(async () => undefined),
   canonReadSource: vi.fn(async () => ""),
   canonSearch: vi.fn().mockResolvedValue([]),
   canonPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
@@ -41,7 +43,7 @@ import {
   canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
   operatorList, canonPublish, canonUninstallSkill,
   canonOrgDefaults, canonOrgDefaultSet, canonUnitInstalled,
-  canonNewUnit, canonImportSkill,
+  canonNewUnit, canonImportSkill, canonUnitPath, canonDeleteUnit,
   type Operator,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
@@ -54,6 +56,12 @@ const OPERATOR_FIXTURE: Operator = {
   supervision_enabled: false, org_slug: null,
 };
 
+
+// Tests open cockpits without closing them; a leftover root keeps answering
+// document-level keys (⌘K), so tear the DOM down between them.
+afterEach(() => {
+  document.body.replaceChildren();
+});
 
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
@@ -482,6 +490,122 @@ describe("CanonCockpitView shared repo status", () => {
     await vi.waitFor(() => {
       expect(canonLocalStatus).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+describe("CanonCockpitView unit row verbs", () => {
+  const withAgent = (detectedIn: string | null) => ({
+    installed: [], agents: [{ name: "reviewer", detectedIn }], contexts: [], memory: [],
+    commands: [], mcp: [], specs: [], detectedSkills: [],
+  });
+  const labels = (v: CanonCockpitView): (string | null)[] =>
+    [...v.element.querySelectorAll(".canon-skill-row button")].map((b) => b.getAttribute("aria-label"));
+
+  it("adopted rows carry Open · Publish · Delete", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(withAgent(null));
+    const opened: string[] = [];
+    const v = new CanonCockpitView({ ...opts, onOpenFile: (p) => opened.push(p) });
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")).toBeTruthy();
+    });
+    expect(labels(v)).toEqual(expect.arrayContaining(["Open in editor", "Publish to registry", "Delete"]));
+
+    v.element.querySelector<HTMLButtonElement>("[aria-label='Open in editor']")!.click();
+    await vi.waitFor(() => {
+      expect(canonUnitPath).toHaveBeenCalledWith("/x", "agent", "reviewer");
+      expect(opened).toEqual(["/x/.covenant/canon/agents/reviewer.md"]);
+    });
+  });
+
+  it("deletes through the confirm card, with the kind the section owns", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(withAgent(null));
+    vi.mocked(canonDeleteUnit).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector("[aria-label='Delete']")).toBeTruthy();
+    });
+    v.element.querySelector<HTMLButtonElement>("[aria-label='Delete']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
+    await vi.waitFor(() => {
+      expect(canonDeleteUnit).toHaveBeenCalledWith("/x", "agent", "reviewer");
+    });
+  });
+
+  it("detected rows offer Adopt and never Delete — a foreign file isn't Canon's to remove", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(withAgent(".claude/agents"));
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row.is-detected")).toBeTruthy();
+    });
+    expect(labels(v)).toContain("Adopt into Canon");
+    expect(labels(v)).not.toContain("Delete");
+    expect(labels(v)).not.toContain("Publish to registry");
+  });
+});
+
+describe("CanonCockpitView finder", () => {
+  it("searches every kind at once and lands on the owning section, pre-filtered", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValue({
+      installed: [], agents: [{ name: "reviewer" }],
+      commands: [{ name: "deploy", description: null }, { name: "review-diff", description: null }],
+      contexts: [], memory: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    const finder = document.querySelector<HTMLElement>(".canon-finder")!;
+    expect(finder).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(finder.querySelectorAll(".command-palette-item").length).toBe(3); // across two kinds
+    });
+
+    const input = finder.querySelector<HTMLInputElement>(".command-palette-input")!;
+    input.value = "review";
+    input.dispatchEvent(new Event("input"));
+    const shown = [...finder.querySelectorAll(".cp-title")].map((e) => e.textContent);
+    expect(shown).toEqual(["reviewer", "review-diff"]);
+
+    // Picking a command jumps to Commands with its name already in the filter.
+    finder.querySelectorAll<HTMLElement>(".command-palette-item")[1].click();
+    expect(document.querySelector(".canon-finder")).toBeNull();
+    expect(v.element.querySelector('[data-section="commands"].is-active')).toBeTruthy();
+    await vi.waitFor(() => {
+      const rows = [...v.element.querySelectorAll<HTMLElement>(".canon-skill-row")];
+      expect(rows.length).toBe(2);
+      expect(rows.filter((r) => !r.hidden).map((r) => r.textContent)).toEqual([
+        expect.stringContaining("review-diff"),
+      ]);
+    });
+    vi.mocked(canonLocalStatus).mockResolvedValue({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+  });
+});
+
+describe("CanonCockpitView doors", () => {
+  it("opens at the section it was asked for", () => {
+    const v = new CanonCockpitView({ ...opts, section: "registry" });
+    v.open();
+    expect(v.element.querySelector('[data-section="registry"].is-active')).toBeTruthy();
+  });
+
+  it("empty states offer the crawler as a second CTA", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    let crawled = false;
+    const v = new CanonCockpitView({ ...opts, onNewContext: () => { crawled = true; } });
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-cockpit-empty")).toBeTruthy();
+    });
+    const btns = [...v.element.querySelectorAll<HTMLButtonElement>(".rail-empty-btn")];
+    expect(btns.map((b) => b.textContent)).toEqual(["New subagent", "Crawl repo"]);
+    btns[1].click();
+    expect(crawled).toBe(true);
   });
 });
 

@@ -22,6 +22,8 @@ import {
   canonLocalStatus,
   canonReadLocal,
   canonReadSource,
+  canonUnitPath,
+  canonDeleteUnit,
   canonPublish,
   canonAdopt,
   canonNewUnit,
@@ -76,6 +78,10 @@ export interface CanonCockpitOpts {
    *  authored there, not scaffolded — the creator is a better surface than an
    *  empty file, as long as it is scoped to the repo being worked on. */
   onNewSpec?: (repoRoot: string) => void;
+  /** Section to land on instead of Organization — lets anything in the app
+   *  say "open Canon at the Registry" (`covenant:open-canon`) rather than
+   *  dropping the user on the least actionable screen. */
+  section?: SectionKey;
   /** Called after the overlay is torn down — lets the caller refresh the
    *  still-mounted rail panel, whose org chip otherwise goes stale until
    *  its next own refresh (e.g. after this cockpit switched/created an org). */
@@ -133,8 +139,9 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
  *  A section with an entry here is also the set whose header carries "New" —
  *  the two lists were always the same list. */
 interface UnitSpec {
-  /** Authoring/reading kind (`canonNewUnit`, `canonReadSource`). */
-  kind: CanonNewKind & Parameters<typeof canonReadSource>[1];
+  /** Authoring/reading/deleting kind — narrower than `CanonNewKind` on
+   *  purpose: a skill is not one of these (it has its own renderer). */
+  kind: "agent" | "command" | "mcp" | "memory";
   /** Registry kind, or null for kinds the registry doesn't carry (memory) —
    *  which is also what gates the publish/adopt row actions. */
   pkg: CanonPkgKind | null;
@@ -146,6 +153,8 @@ interface UnitSpec {
   emptyTitle: string;
   emptyHint: string;
   noRepoHint: string;
+  /** Its empty state tells you to crawl the repo, so it carries the door. */
+  crawlable?: true;
   list: (s: CanonStatus) => readonly UnitRow[];
 }
 
@@ -166,6 +175,7 @@ const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
     emptyTitle: "No subagents yet",
     emptyHint: `Install a subagent, or crawl the repo for context — ${DETECTED_HINT}`,
     noRepoHint: "Point this group at a repo from the rail to manage subagents.",
+    crawlable: true,
     list: (s) => s.agents,
   },
   commands: {
@@ -174,6 +184,7 @@ const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
     emptyTitle: "No commands yet",
     emptyHint: `Install a command, or crawl the repo for context — ${DETECTED_HINT}`,
     noRepoHint: "Point this group at a repo from the rail to manage commands.",
+    crawlable: true,
     list: (s) => s.commands,
   },
   mcp: {
@@ -182,6 +193,7 @@ const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
     emptyTitle: "No MCP servers yet",
     emptyHint: `Install an MCP server, or crawl the repo for context — ${DETECTED_HINT}`,
     noRepoHint: "Point this group at a repo from the rail to manage MCP servers.",
+    crawlable: true,
     list: (s) => s.mcp,
   },
   memory: {
@@ -221,12 +233,15 @@ export class CanonCockpitView {
    *  without this each adopt/publish/uninstall walked the whole repo again to
    *  redraw one row. Mutations call `invalidateStatus()` before re-rendering. */
   private statusCache: Promise<CanonStatus> | null = null;
+  /** A name the ⌘K finder picked, applied by the next section's filter. */
+  private pendingFilter: string | null = null;
 
   /** The root element of the overlay — used by tests and by callers that
    *  need to query the rendered content without going through document. */
   get element(): HTMLElement { return this.root; }
 
   constructor(private opts: CanonCockpitOpts) {
+    if (opts.section) this.current = opts.section;
     this.root = document.createElement("div");
     this.root.className = "canon-cockpit";
 
@@ -266,7 +281,16 @@ export class CanonCockpitView {
   }
 
   private readonly onKey = (e: KeyboardEvent): void => {
-    if (e.key === "Escape") this.close();
+    // A torn-down cockpit owns no keys, whatever happened to its listener.
+    if (!this.root.isConnected) return;
+    if (e.key === "Escape") { this.close(); return; }
+    // ⌘K is the app's agent-panel toggle; while this modal is open it belongs
+    // to the modal, hence capture + stopPropagation.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.openFinder();
+    }
   };
 
   open(): void {
@@ -275,14 +299,14 @@ export class CanonCockpitView {
     // z-index 60, positioned for the narrow rail panel) above the full-screen
     // cockpit overlay (z-index 9600) instead of rendering behind it.
     document.body.classList.add("canon-cockpit-open");
-    document.addEventListener("keydown", this.onKey);
+    document.addEventListener("keydown", this.onKey, true);
     this.showSection(this.current);
   }
 
   close(): void {
     this.root.remove();
     document.body.classList.remove("canon-cockpit-open");
-    document.removeEventListener("keydown", this.onKey);
+    document.removeEventListener("keydown", this.onKey, true);
     this.opts.onClose?.();
   }
 
@@ -416,8 +440,11 @@ export class CanonCockpitView {
    *  client-side, by substring over each `.canon-skill-row`'s text (name +
    *  meta). Starts hidden — the section reveals it once its list confirms it
    *  has rows (a lone filter box over an empty state reads as noise). A
-   *  "no matches" note appears when a query hides everything. */
-  private filterToolbar(list: HTMLElement, placeholder: string): HTMLElement {
+   *  "no matches" note appears when a query hides everything.
+   *
+   *  Returns `{ element, reveal }` like `newUnitBar` — `reveal()` also
+   *  re-applies a query the finder pre-filled, which lands before the rows do. */
+  private filterToolbar(list: HTMLElement, placeholder: string): { element: HTMLElement; reveal: () => void } {
     const bar = document.createElement("div");
     // NOT "canon-toolbar" — that class belongs to the rail panel's org-chip
     // toolbar (canon/styles.css) and carries padding + a border-bottom that
@@ -452,7 +479,131 @@ export class CanonCockpitView {
       }
     });
     bar.appendChild(input);
-    return bar;
+    // A ⌘K pick lands here before the section's rows exist; `reveal()` runs the
+    // filter once they do.
+    if (this.pendingFilter) {
+      input.value = this.pendingFilter;
+      this.pendingFilter = null;
+    }
+    return {
+      element: bar,
+      reveal: () => {
+        bar.hidden = false;
+        if (input.value) input.dispatchEvent(new Event("input"));
+      },
+    };
+  }
+
+  /** Every unit the shared status knows about, flattened for the finder.
+   *  Exported shape is deliberately flat — kind label + name + the section
+   *  that owns it is everything a search result needs. */
+  private static finderRows(s: CanonStatus): { section: SectionKey; kind: string; name: string }[] {
+    const rows: { section: SectionKey; kind: string; name: string }[] = [];
+    const push = (section: SectionKey, kind: string, names: readonly { name: string }[]): void => {
+      for (const u of names) rows.push({ section, kind, name: u.name });
+    };
+    push("skills", "skill", s.installed);
+    push("skills", "skill", s.detectedSkills);
+    push("agents", "subagent", s.agents);
+    push("commands", "command", s.commands);
+    push("mcp", "mcp", s.mcp);
+    push("memory", "memory", s.memory);
+    push("context", "context", s.contexts);
+    push("spec", "spec", s.specs);
+    return rows;
+  }
+
+  /** ⌘K — one search across every kind, instead of seven per-section filters
+   *  that can't see each other. Picking a row opens its section with the name
+   *  pre-filled in that section's filter. Reuses the command palette's chrome
+   *  (styles.css) rather than growing a second overlay language. */
+  private openFinder(): void {
+    const cwd = this.opts.groupRootDir;
+    if (!cwd) {
+      pushInfoToast({ message: "Point this group at a repo to search its Canon." });
+      return;
+    }
+    if (document.querySelector(".canon-finder")) return;
+
+    const overlay = document.createElement("div");
+    overlay.className = "command-palette-overlay canon-finder";
+    const card = document.createElement("div");
+    card.className = "command-palette-card";
+    card.innerHTML = `
+      <div class="command-palette-input-row">
+        <span class="cp-caret">›</span>
+        <input type="text" class="command-palette-input" placeholder="Search this repo's Canon…"
+               autocomplete="off" spellcheck="false" aria-label="Search this repo's Canon" />
+      </div>
+      <div class="command-palette-list" role="listbox"></div>`;
+    overlay.appendChild(card);
+
+    const input = card.querySelector<HTMLInputElement>(".command-palette-input")!;
+    const listEl = card.querySelector<HTMLElement>(".command-palette-list")!;
+    let rows: { section: SectionKey; kind: string; name: string }[] = [];
+    let shown: typeof rows = [];
+    let active = 0;
+
+    const close = (): void => { overlay.remove(); };
+    const choose = (row: { section: SectionKey; name: string } | undefined): void => {
+      if (!row) return;
+      close();
+      this.pendingFilter = row.name;
+      this.showSection(row.section);
+    };
+    const render = (): void => {
+      const q = input.value.trim().toLowerCase();
+      shown = (q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows).slice(0, 40);
+      active = 0;
+      listEl.replaceChildren();
+      if (shown.length === 0) {
+        const none = document.createElement("div");
+        none.className = "command-palette-empty";
+        none.textContent = rows.length === 0 ? "Nothing in Canon yet" : "No matches";
+        listEl.appendChild(none);
+        return;
+      }
+      shown.forEach((r, i) => {
+        const item = document.createElement("div");
+        item.className = i === 0 ? "command-palette-item active" : "command-palette-item";
+        item.setAttribute("role", "option");
+        const main = document.createElement("span");
+        main.className = "cp-main";
+        const title = document.createElement("span");
+        title.className = "cp-title";
+        title.textContent = r.name;
+        main.appendChild(title);
+        const sub = document.createElement("span");
+        sub.className = "cp-sub";
+        sub.textContent = r.kind;
+        item.append(main, sub);
+        item.addEventListener("click", () => choose(r));
+        listEl.appendChild(item);
+      });
+    };
+    const move = (delta: number): void => {
+      const items = listEl.querySelectorAll<HTMLElement>(".command-palette-item");
+      if (!items.length) return;
+      active = (active + delta + items.length) % items.length;
+      items.forEach((el, i) => el.classList.toggle("active", i === active));
+      items[active].scrollIntoView({ block: "nearest" });
+    };
+
+    input.addEventListener("input", render);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    // Own every key while open — Escape must close the finder, not the cockpit.
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+      else if (e.key === "Enter") { e.preventDefault(); choose(shown[active]); }
+    }, true);
+
+    document.body.appendChild(overlay);
+    input.focus();
+    void this.status(cwd)
+      .then((s) => { rows = CanonCockpitView.finderRows(s); render(); })
+      .catch(() => { rows = []; render(); });
   }
 
   /** Homologated empty state — every section renders the same icon + title +
@@ -463,24 +614,38 @@ export class CanonCockpitView {
     title: string;
     hint: string;
     action?: { label: string; onClick: () => void };
+    /** Secondary CTA — used where the hint says "crawl the repo" and the door
+     *  to the miner would otherwise be in another section. */
+    altAction?: { label: string; onClick: () => void };
   }): HTMLElement {
     const el = document.createElement("div");
     el.className = "rail-empty canon-cockpit-empty";
     el.innerHTML = opts.icon
       + `<div class="rail-empty-title">${opts.title}</div>`
       + `<div class="rail-empty-hint">${opts.hint}</div>`;
-    if (opts.action) {
+    if (opts.action || opts.altAction) {
       const actions = document.createElement("div");
       actions.className = "rail-empty-actions";
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "rail-empty-btn";
-      btn.textContent = opts.action.label;
-      btn.addEventListener("click", opts.action.onClick);
-      actions.appendChild(btn);
+      for (const a of [opts.action, opts.altAction]) {
+        if (!a) continue;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "rail-empty-btn";
+        btn.textContent = a.label;
+        btn.addEventListener("click", a.onClick);
+        actions.appendChild(btn);
+      }
       el.appendChild(actions);
     }
     return el;
+  }
+
+  /** The Context Miner, as an empty-state CTA. Five empty states tell you to
+   *  crawl the repo; without this the only door is the Context section. */
+  private crawlAction(): { label: string; onClick: () => void } | undefined {
+    const crawl = this.opts.onNewContext;
+    if (!crawl || !this.opts.groupRootDir) return undefined;
+    return { label: "Crawl repo", onClick: () => crawl() };
   }
 
   /** Shared empty state for org-gated sections (Members, Registry). */
@@ -550,6 +715,45 @@ export class CanonCockpitView {
           btn.disabled = false;
           pushInfoToast({ message: `Adopt failed: ${this.friendlyError(e)}` });
         });
+    });
+    return btn;
+  }
+
+  /** Open a unit's source in the workspace editor — the row's answer to the
+   *  most common move after reading a preview. Resolves the path backend-side
+   *  so a detected unit opens where it actually sits. */
+  private unitOpenAction(cwd: string, kind: Parameters<typeof canonUnitPath>[1], name: string): HTMLButtonElement | null {
+    if (!this.opts.onOpenFile) return null;
+    const btn = iconButton(Icons.pencil({ size: 15 }), "Open in editor", () => {
+      btn.disabled = true;
+      void canonUnitPath(cwd, kind, name)
+        .then((path) => { this.close(); this.opts.onOpenFile?.(path); })
+        .catch((e) => {
+          btn.disabled = false;
+          pushInfoToast({ message: `Couldn't open ${name}: ${this.friendlyError(e)}` });
+        });
+    });
+    return btn;
+  }
+
+  /** Delete an adopted unit. Detected rows don't get one — a foreign file
+   *  Canon merely noticed is not Canon's to remove (the backend agrees). */
+  private unitDeleteAction(cwd: string, kind: Parameters<typeof canonDeleteUnit>[1], name: string): HTMLButtonElement {
+    const btn = iconButton(Icons.trash({ size: 15 }), "Delete", () => {
+      openConfirmPrompt({
+        label: "Delete unit",
+        message: `Delete "${name}"? Removes it from this repo and every executor projection.`,
+        confirmText: "Delete",
+        onConfirm: () => {
+          btn.disabled = true;
+          void canonDeleteUnit(cwd, kind, name)
+            .then(() => { this.invalidateStatus(); this.showSection(this.current); })
+            .catch((e) => {
+              btn.disabled = false;
+              pushInfoToast({ message: `Delete failed: ${this.friendlyError(e)}` });
+            });
+        },
+      });
     });
     return btn;
   }
@@ -1096,7 +1300,7 @@ export class CanonCockpitView {
     list.appendChild(this.note("Loading…"));
     const toolbar = this.filterToolbar(list, `Filter ${spec.plural}…`);
     const create = this.newUnitBar(cwd, spec.kind, headBtn, () => this.showSection(key));
-    el.append(create.element, toolbar, list);
+    el.append(create.element, toolbar.element, list);
 
     void this.status(cwd)
       .then((status) => {
@@ -1108,17 +1312,25 @@ export class CanonCockpitView {
             title: spec.emptyTitle,
             hint: spec.emptyHint,
             action: this.canCreate() ? { label: `New ${spec.noun}`, onClick: create.reveal } : undefined,
+            altAction: spec.crawlable ? this.crawlAction() : undefined,
           }));
           return;
         }
-        toolbar.hidden = false;
         // No registry kind (memory) means neither publish nor adopt applies.
         const pkg = spec.pkg;
         for (const u of units) {
           const detected = !!u.detectedIn;
-          const actions = !pkg ? []
-            : detected ? [this.unitAdoptAction(cwd, pkg, u.name)]
-            : (() => { const p = this.unitPublishAction(cwd, pkg, u.name); return p ? [p] : []; })();
+          // Open · Publish (Adopt while detected) · Delete — the same row
+          // verbs everywhere, minus what a kind or a role can't do.
+          const actions: HTMLButtonElement[] = [];
+          const open = this.unitOpenAction(cwd, spec.kind, u.name);
+          if (open) actions.push(open);
+          if (pkg && detected) actions.push(this.unitAdoptAction(cwd, pkg, u.name));
+          else if (pkg) {
+            const publish = this.unitPublishAction(cwd, pkg, u.name);
+            if (publish) actions.push(publish);
+          }
+          if (!detected && this.canCreate()) actions.push(this.unitDeleteAction(cwd, spec.kind, u.name));
           list.appendChild(skillCard({
             name: u.name,
             meta: detected ? `detected · ${u.detectedIn}` : (u.description ?? u.transport ?? ""),
@@ -1128,6 +1340,7 @@ export class CanonCockpitView {
             actions,
           }));
         }
+        toolbar.reveal();
       })
       .catch((e) => {
         list.replaceChildren();
@@ -1154,7 +1367,7 @@ export class CanonCockpitView {
     list.className = "canon-cockpit-spec-list";
     list.appendChild(this.note("Loading…"));
     const toolbar = this.filterToolbar(list, "Filter specs…");
-    el.append(toolbar, list);
+    el.append(toolbar.element, list);
 
     void this.status(cwd)
       .then((status) => {
@@ -1170,7 +1383,6 @@ export class CanonCockpitView {
           }));
           return;
         }
-        toolbar.hidden = false;
         for (const sp of sortSpecs(status.specs)) {
           const id = /^[\d.]+(?=-)/.exec(sp.name)?.[0] ?? "";
           list.appendChild(skillCard({
@@ -1186,6 +1398,7 @@ export class CanonCockpitView {
             actions: [],
           }));
         }
+        toolbar.reveal();
       })
       .catch((e) => {
         list.replaceChildren();
@@ -1295,13 +1508,15 @@ export class CanonCockpitView {
               // scratch as the first move here; the header's Add action is the
               // door to a new skill.
               action: { label: "Browse registry", onClick: () => this.showSection("registry") },
+              altAction: this.crawlAction(),
             }));
             return;
           }
-          toolbar.hidden = false;
           const active = this.activeOrg();
           for (const i of status.installed) {
             const actions: HTMLButtonElement[] = [];
+            const open = this.unitOpenAction(cwd, "skill", i.name);
+            if (open) actions.push(open);
             if (active && !i.source.startsWith("registry:")) {
               const pub = iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => {
                 errorEl.hidden = true;
@@ -1358,6 +1573,7 @@ export class CanonCockpitView {
               actions: [this.unitAdoptAction(cwd, "skill", d.name)],
             }));
           }
+          toolbar.reveal();
         })
         .catch((e) => {
           list.replaceChildren();
@@ -1365,7 +1581,7 @@ export class CanonCockpitView {
         });
     };
 
-    el.append(importBar, toolbar, list, errorEl);
+    el.append(importBar, toolbar.element, list, errorEl);
     load();
     return el;
   }
@@ -1599,13 +1815,18 @@ export class CanonCockpitView {
         }
         if (headAction) headAction.hidden = false;
         for (const c of status.contexts) {
+          const actions: HTMLButtonElement[] = [];
+          const open = this.unitOpenAction(cwd, "context", c.name);
+          if (open) actions.push(open);
           const pub = this.unitPublishAction(cwd, "context", c.name);
+          if (pub) actions.push(pub);
+          if (this.canCreate()) actions.push(this.unitDeleteAction(cwd, "context", c.name));
           list.appendChild(skillCard({
             name: c.name,
             meta: c.summary ?? "context",
             className: "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "context", c.name),
-            actions: pub ? [pub] : [],
+            actions,
           }));
         }
       })

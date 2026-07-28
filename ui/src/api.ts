@@ -1895,6 +1895,26 @@ export async function canonReadSource(
 ): Promise<string> {
   return invoke<string>("canon_read_source", { cwd, kind, name });
 }
+
+/** Absolute path of the file backing a unit — the Canon source once adopted,
+ *  else where it was detected. For opening the row in the editor. */
+export async function canonUnitPath(
+  cwd: string,
+  kind: "agent" | "context" | "memory" | "command" | "mcp" | "spec" | "skill",
+  name: string,
+): Promise<string> {
+  return invoke<string>("canon_unit_path", { cwd, kind, name });
+}
+
+/** Delete a Canon-managed unit and re-project. Skills go through
+ *  `canonUninstallSkill` instead — they carry manifest + lockfile entries. */
+export async function canonDeleteUnit(
+  cwd: string,
+  kind: "agent" | "context" | "memory" | "command" | "mcp",
+  name: string,
+): Promise<void> {
+  return invoke<void>("canon_delete_unit", { cwd, kind, name });
+}
 export async function canonExport(cwd: string): Promise<void> {
   return invoke<void>("canon_export", { cwd });
 }
