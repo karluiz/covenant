@@ -4,14 +4,15 @@ import {
   setOperatorEnabled,
   submitConvergenceReply,
   writeToSession,
+  type AttentionItem,
   type ConvergenceSnapshot,
 } from "../api";
 import type { SessionId } from "../api";
 import { Icons } from "../icons";
 import { formatChord } from "../platform";
-import { renderAttentionCard } from "./attention";
+import { agoLabel } from "./attention";
 import { attentionIndex, sortAgents } from "./model";
-import { renderAgentCard, type ReplyScope } from "./tile";
+import { renderAgentRow, renderDetailPane, type ReplyScope } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
@@ -29,8 +30,9 @@ const POLL_MS = 1000;
 
 export class ConvergenceOverlay {
   private root: HTMLElement | null = null;
-  private attentionEl: HTMLElement | null = null;
-  private gridEl: HTMLElement | null = null;
+  private bodyEl: HTMLElement | null = null;
+  private railEl: HTMLElement | null = null;
+  private detailHostEl: HTMLElement | null = null;
   private summaryEl: HTMLElement | null = null;
   private empty: HTMLElement | null = null;
   private reconnectEl: HTMLElement | null = null;
@@ -63,7 +65,7 @@ export class ConvergenceOverlay {
       this.escHandler = null;
     }
     this.root?.remove();
-    this.root = this.attentionEl = this.gridEl = this.summaryEl = this.empty = this.reconnectEl = null;
+    this.root = this.bodyEl = this.railEl = this.detailHostEl = this.summaryEl = this.empty = this.reconnectEl = null;
     this.snap = null;
     this.filter = "all";
     this.activeSessionId = null;
@@ -109,12 +111,13 @@ export class ConvergenceOverlay {
     }
     strip.append(summary, reconnect, filters);
 
-    const attention = document.createElement("div");
-    attention.className = "mc-attention";
-    attention.hidden = true;
-
-    const grid = document.createElement("div");
-    grid.className = "mc-grid";
+    const body = document.createElement("div");
+    body.className = "mc-body";
+    const rail = document.createElement("div");
+    rail.className = "mc-rail";
+    const detailHost = document.createElement("div");
+    detailHost.className = "mc-detail-host";
+    body.append(rail, detailHost);
 
     const empty = document.createElement("div");
     empty.className = "convergence-overlay__empty";
@@ -128,12 +131,13 @@ export class ConvergenceOverlay {
       </div>
       <kbd class="convergence-overlay__empty-hint">${formatChord(["mod", "shift", "M"])} to toggle convergence</kbd>`;
 
-    root.append(header, strip, attention, grid, empty);
+    root.append(header, strip, body, empty);
     document.body.append(root);
 
     this.root = root;
-    this.attentionEl = attention;
-    this.gridEl = grid;
+    this.bodyEl = body;
+    this.railEl = rail;
+    this.detailHostEl = detailHost;
     this.summaryEl = summary;
     this.empty = empty;
     this.reconnectEl = reconnect;
@@ -182,18 +186,12 @@ export class ConvergenceOverlay {
     this.render();
   }
 
-  /// Grid population: queued (attention) sessions are excluded — the
-  /// queue owns them. Under "needs you" the grid is empty by design and
-  /// only the queue shows.
   private visibleAgents() {
     if (!this.snap) return [];
-    const queued = attentionIndex(this.snap.attention);
-    const sorted = sortAgents(this.snap.agents, this.snap.attention)
-      .filter((card) => !queued.has(card.session_id));
-    return sorted.filter((card) => {
+    return sortAgents(this.snap.agents, this.snap.attention).filter((card) => {
       switch (this.filter) {
         case "all": return true;
-        case "needs you": return false;
+        case "needs you": return card.status === "blocked";
         case "working": return card.status === "working";
         case "idle": return card.status === "idle";
       }
@@ -201,20 +199,19 @@ export class ConvergenceOverlay {
   }
 
   private render(): void {
-    if (!this.attentionEl || !this.gridEl || !this.empty || !this.summaryEl || !this.snap) return;
+    if (!this.bodyEl || !this.railEl || !this.detailHostEl || !this.empty || !this.summaryEl || !this.snap) return;
     const agents = this.snap.agents;
     const attention = this.snap.attention;
     if (agents.length === 0 && attention.length === 0) {
-      this.attentionEl.replaceChildren();
-      this.attentionEl.hidden = true;
-      this.gridEl.replaceChildren();
-      this.gridEl.hidden = true;
+      this.railEl.replaceChildren();
+      this.detailHostEl.replaceChildren();
+      this.bodyEl.hidden = true;
       this.empty.hidden = false;
       this.summaryEl.textContent = "";
       return;
     }
     this.empty.hidden = true;
-    this.gridEl.hidden = false;
+    this.bodyEl.hidden = false;
 
     const working = agents.filter((a) => a.status === "working").length;
     const idle = agents.filter((a) => a.status === "idle").length;
@@ -229,74 +226,93 @@ export class ConvergenceOverlay {
       c.classList.toggle("mc-fchip--on", c.dataset.filter === this.filter);
     });
 
-    // The queue: backend pre-sorts (timestamped oldest-first).
-    this.attentionEl.replaceChildren();
-    this.attentionEl.hidden = attention.length === 0;
-    for (const item of attention) {
-      this.attentionEl.append(
-        renderAttentionCard(item, {
-          onFocus: (sid, keepOpen) => {
-            const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
-            if (ok && !keepOpen) this.close();
-          },
-          onOperatorReply: this.submitReply.bind(this),
-          onPermission: (sid, key, opt) => {
-            void acpRespondPermission(sid as SessionId, key, opt).catch((err) =>
-              console.warn("[convergence] respond permission failed", sid, err),
-            );
-            void this.refresh();
-          },
-          onPtyReply: (sid, text) => {
-            void writeToSession(sid as SessionId, new TextEncoder().encode(text + "\r")).catch(
-              (err) => console.warn("[convergence] pty reply failed", sid, err),
-            );
-            void this.refresh();
-          },
-        }),
-      );
-    }
-
+    const at = attentionIndex(this.snap.attention);
     const list = this.visibleAgents();
     if (!this.activeSessionId || !list.some((a) => a.session_id === this.activeSessionId)) {
       this.activeSessionId = list[0]?.session_id ?? null;
     }
-    this.gridEl.replaceChildren();
+    this.railEl.replaceChildren();
     if (list.length === 0) {
-      // Under "needs you" the queue IS the content — no grid nudge.
-      if (this.filter !== "needs you" && attention.length === 0) {
-        const none = document.createElement("div");
-        none.className = "mc-grid__empty";
-        none.innerHTML = `No agents match <code>${this.filter}</code>. <button type="button" class="mc-grid__reset">Show all</button>`;
-        none.querySelector(".mc-grid__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
-        this.gridEl.append(none);
-      }
-      return;
+      const none = document.createElement("div");
+      none.className = "mc-rail__empty";
+      none.innerHTML = `No agents match <code>${this.filter}</code>. <button type="button" class="mc-rail__reset">Show all</button>`;
+      none.querySelector(".mc-rail__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
+      this.railEl.append(none);
     }
     for (const card of list) {
-      const el = renderAgentCard(card, {
+      const item = at.get(card.session_id);
+      this.railEl.append(
+        renderAgentRow(card, {
+          selected: card.session_id === this.activeSessionId,
+          age: item?.since_unix_ms != null && item.since_unix_ms > 0 ? agoLabel(item.since_unix_ms) : null,
+        }, {
+          onSelect: (sid) => {
+            // Explicit navigation overrides the draft-guard: clicking a
+            // different row must move the pane even if a textarea in the
+            // detail host is focused (clicks don't blur it in the app's
+            // webview). Poll-triggered renders never go through here, so
+            // the draft-survival path is untouched.
+            if (sid !== this.activeSessionId) this.blurComposerIfFocused();
+            this.activeSessionId = sid;
+            this.render();
+          },
+          onFocus: (sid) => { if (this.bridge.activateBySessionId(sid)) this.close(); },
+        }),
+      );
+    }
+    this.renderDetail(at);
+  }
+
+  /// A focused composer means the human is mid-draft — a 1s poll must
+  /// not replace the textarea under their fingers. Checked BEFORE the
+  /// card lookup: if the active session drops out of the filtered list
+  /// (or off "blocked") while the draft is focused, there's no matching
+  /// card this render, but the last-rendered pane must still survive.
+  private renderDetail(at: Map<string, AttentionItem>): void {
+    const host = this.detailHostEl;
+    if (!host || !this.snap) return;
+    const active = document.activeElement;
+    if (active?.tagName === "TEXTAREA" && host.contains(active)) return;
+    const card = this.snap.agents.find((a) => a.session_id === this.activeSessionId);
+    if (!card) { host.replaceChildren(); return; }
+    const scroll = host.scrollTop;
+    host.replaceChildren(
+      renderDetailPane(card, at.get(card.session_id) ?? null, {
         onFocus: (sid, keepOpen) => {
           const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
           if (ok && !keepOpen) this.close();
         },
-        onSubmit: this.submitReply.bind(this),
         onStop: this.stopOperator.bind(this),
-      });
-      if (card.session_id === this.activeSessionId) el.classList.add("mc-card--active");
-      this.gridEl.append(el);
-    }
+        onOperatorReply: this.submitReply.bind(this),
+        onPermission: (sid, key, opt) => {
+          void acpRespondPermission(sid as SessionId, key, opt).catch((err) =>
+            console.warn("[convergence] respond permission failed", sid, err),
+          );
+          void this.refresh();
+        },
+        onPtyReply: (sid, text) => {
+          void writeToSession(sid as SessionId, new TextEncoder().encode(text + "\r")).catch(
+            (err) => console.warn("[convergence] pty reply failed", sid, err),
+          );
+          void this.refresh();
+        },
+      }),
+    );
+    host.scrollTop = scroll;
   }
 
   private renderEmptyError(): void {
-    if (!this.gridEl || !this.empty || !this.summaryEl) return;
+    if (!this.railEl || !this.detailHostEl || !this.empty || !this.summaryEl) return;
     this.empty.hidden = true;
-    this.gridEl.hidden = false;
+    if (this.bodyEl) this.bodyEl.hidden = false;
     this.summaryEl.textContent = "";
-    this.gridEl.replaceChildren();
+    this.railEl.replaceChildren();
+    this.detailHostEl.replaceChildren();
     const err = document.createElement("div");
-    err.className = "mc-grid__empty";
-    err.innerHTML = `Couldn't load agent status. <button type="button" class="mc-grid__reset">Retry</button>`;
-    err.querySelector(".mc-grid__reset")?.addEventListener("click", () => void this.refresh());
-    this.gridEl.append(err);
+    err.className = "mc-rail__empty";
+    err.innerHTML = `Couldn't load agent status. <button type="button" class="mc-rail__reset">Retry</button>`;
+    err.querySelector(".mc-rail__reset")?.addEventListener("click", () => void this.refresh());
+    this.railEl.append(err);
   }
 
   private moveActive(delta: number): void {
@@ -304,8 +320,27 @@ export class ConvergenceOverlay {
     if (list.length === 0) return;
     const idx = list.findIndex((a) => a.session_id === this.activeSessionId);
     const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
-    this.activeSessionId = list[next].session_id;
+    const nextId = list[next].session_id;
+    // Same override as onSelect — arrow-key navigation is explicit intent
+    // too (the ArrowUp/ArrowDown handler already only allows this while
+    // the composer is empty, but the textarea itself may still be
+    // focused and would otherwise freeze the pane via the draft-guard).
+    if (nextId !== this.activeSessionId) this.blurComposerIfFocused();
+    this.activeSessionId = nextId;
     this.render();
+  }
+
+  /// Blur a focused textarea inside the detail host, if any. Called only
+  /// when explicit navigation is about to change `activeSessionId` — the
+  /// draft-guard in `renderDetail` must not survive an intentional row
+  /// change, only a background poll tick.
+  private blurComposerIfFocused(): void {
+    const host = this.detailHostEl;
+    if (!host) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLTextAreaElement && host.contains(active)) {
+      active.blur();
+    }
   }
 
   /// Disable the operator on this session. Fire-and-forget; the next 1s

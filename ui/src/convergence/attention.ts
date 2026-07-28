@@ -1,10 +1,8 @@
 import type { AttentionItem } from "../api";
-import { renderAvatarHtml } from "../operator/avatars";
 import { formatChord } from "../platform";
 import { renderReply, type ReplyScope } from "./tile";
 
 export interface AttentionCallbacks {
-  onFocus: (sessionId: string, keepOpen: boolean) => void;
   /// operator-escalation reply (existing operator resolution pipe)
   onOperatorReply: (sessionId: string, text: string, scope: ReplyScope) => Promise<void>;
   /// acp-permission answer
@@ -13,29 +11,19 @@ export interface AttentionCallbacks {
   onPtyReply: (sessionId: string, text: string) => void;
 }
 
-/// One card of the "needs you" queue. Same chassis as the grid card, but
-/// the body is the inline answer affordance for the item's kind.
-export function renderAttentionCard(
+/// Kind-specific interaction for a blocked session, rendered inside the
+/// detail pane: the question line plus the answer affordance. The tail
+/// is NOT rendered here — the pane already shows card.excerpt.
+export function renderAttentionBody(
   item: AttentionItem,
   cb: AttentionCallbacks,
-): HTMLElement {
-  const root = document.createElement("article");
-  root.className = "mc-card mc-card--blocked mc-attention-card";
-  root.dataset.sessionId = item.session_id;
-
-  root.append(renderHeader(item, cb));
+): DocumentFragment {
+  const frag = document.createDocumentFragment();
 
   const q = document.createElement("p");
-  q.className = "mc-card__question";
+  q.className = "mc-detail__question";
   q.textContent = item.question ?? item.permission?.title ?? "(waiting on you)";
-  root.append(q);
-
-  if (item.excerpt) {
-    const tail = document.createElement("pre");
-    tail.className = "mc-card__tail";
-    tail.textContent = item.excerpt;
-    root.append(tail);
-  }
+  frag.append(q);
 
   switch (item.kind) {
     case "acp-permission": {
@@ -52,70 +40,20 @@ export function renderAttentionCard(
         });
         opts.append(btn);
       }
-      root.append(opts);
+      frag.append(opts);
       break;
     }
     case "pty-waiting":
-      root.append(renderPtyComposer(item.session_id, cb.onPtyReply));
+      frag.append(renderPtyComposer(item.session_id, cb.onPtyReply));
       break;
     case "operator-escalation":
-      root.append(renderReply(item.session_id, cb.onOperatorReply));
+      frag.append(renderReply(item.session_id, cb.onOperatorReply));
       break;
   }
-  return root;
+  return frag;
 }
 
-function renderHeader(item: AttentionItem, cb: AttentionCallbacks): HTMLElement {
-  const head = document.createElement("div");
-  head.className = "mc-card__head";
-
-  const dot = document.createElement("span");
-  dot.className = "mc-dot mc-dot--blocked";
-
-  const exec = document.createElement("strong");
-  exec.className = "mc-card__exec";
-  exec.textContent = item.executor ?? "agent";
-
-  const tab = document.createElement("button");
-  tab.type = "button";
-  tab.className = "mc-card__tab";
-  tab.textContent = `→ ${item.tab_title}`;
-  tab.addEventListener("click", (e) => {
-    e.stopPropagation();
-    cb.onFocus(item.session_id, false);
-  });
-
-  const pill = document.createElement("span");
-  pill.className = "mc-pill mc-pill--blocked";
-  pill.textContent = kindLabel(item.kind);
-
-  head.append(dot, exec, tab, pill);
-
-  if (item.operator_name) {
-    const op = document.createElement("span");
-    op.className = "mc-oplabel";
-    op.innerHTML = `${renderAvatarHtml(item.operator_avatar ?? "👤", 18)}<span>${item.operator_name}</span>`;
-    head.append(op);
-  }
-
-  if (item.since_unix_ms != null && item.since_unix_ms > 0) {
-    const age = document.createElement("span");
-    age.className = "mc-attention-card__age";
-    age.textContent = agoLabel(item.since_unix_ms);
-    head.append(age);
-  }
-  return head;
-}
-
-function kindLabel(kind: AttentionItem["kind"]): string {
-  switch (kind) {
-    case "acp-permission": return "PERMISSION";
-    case "pty-waiting": return "WAITING";
-    case "operator-escalation": return "NEEDS YOU";
-  }
-}
-
-function agoLabel(sinceMs: number): string {
+export function agoLabel(sinceMs: number): string {
   const s = Math.max(0, Math.floor((Date.now() - sinceMs) / 1000));
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;

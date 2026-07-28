@@ -1,7 +1,8 @@
-import type { AgentCard, SubAgentRow, TileStatus } from "../api";
+import type { AgentCard, AttentionItem, SubAgentRow, TileStatus } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
 import { formatChord } from "../platform";
 import { CustomSelect } from "../ui/select";
+import { renderAttentionBody, type AttentionCallbacks } from "./attention";
 
 export type ReplyScope = "one-shot" | "mission" | "global";
 
@@ -15,94 +16,138 @@ const STATUS_LABEL: Record<TileStatus, string> = {
   idle: "idle",
 };
 
-export interface CardCallbacks {
-  /// Jump to a session's tab. keepOpen=false closes the overlay.
-  onFocus: (sessionId: string, keepOpen: boolean) => void;
-  /// Send a reply to a blocked (escalated) operator session.
-  onSubmit: (sessionId: string, text: string, scope: ReplyScope) => Promise<void>;
-  /// Operator cards only: disable the operator on this session.
-  /// Single-click, no confirm — fully reversible (⌘O on the tab re-arms).
-  onStop: (sessionId: string) => void;
+export interface RowCallbacks {
+  onSelect: (sessionId: string) => void;
+  onFocus: (sessionId: string) => void;
 }
 
-/// One grid card per agent session. Blocked sessions surface their full
-/// interaction (question, tail, composer) in the attention queue above
-/// the grid — the grid card stays informational.
-export function renderAgentCard(card: AgentCard, cb: CardCallbacks): HTMLElement {
-  const root = document.createElement("article");
-  root.className = `mc-card mc-card--${card.status}`;
-  root.dataset.sessionId = card.session_id;
-  root.append(renderHeader(card, cb));
-  root.append(renderBody(card));
-  return root;
-}
+/// One rail row. The spine (CSS border-left) is the only status color.
+export function renderAgentRow(
+  card: AgentCard,
+  opts: { selected: boolean; age: string | null },
+  cb: RowCallbacks,
+): HTMLElement {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = `mc-row mc-row--${card.status}${opts.selected ? " mc-row--selected" : ""}`;
+  row.dataset.sessionId = card.session_id;
 
-function renderHeader(card: AgentCard, cb: CardCallbacks): HTMLElement {
-  const head = document.createElement("div");
-  head.className = "mc-card__head";
-
+  const top = document.createElement("div");
+  top.className = "mc-row__top";
   const dot = document.createElement("span");
   dot.className = `mc-dot mc-dot--${card.status}`;
+  const title = document.createElement("span");
+  title.className = "mc-row__title";
+  title.textContent = card.tab_title;
+  top.append(dot, title);
+  if (opts.age) {
+    const age = document.createElement("span");
+    age.className = "mc-row__age";
+    age.textContent = opts.age;
+    top.append(age);
+  }
 
-  const exec = document.createElement("strong");
-  exec.className = "mc-card__exec";
-  exec.textContent = card.executor ?? vendorLabel(card);
+  const sub = document.createElement("div");
+  sub.className = "mc-row__sub";
+  sub.textContent = [card.executor ?? vendorLabel(card), card.operator_name]
+    .filter(Boolean)
+    .join(" · ");
 
-  const tab = document.createElement("button");
-  tab.type = "button";
-  tab.className = "mc-card__tab";
-  tab.textContent = `→ ${card.tab_title}`;
-  tab.addEventListener("click", (e) => {
-    e.stopPropagation();
-    cb.onFocus(card.session_id, false);
-  });
+  const act = document.createElement("div");
+  act.className = "mc-row__activity";
+  act.textContent = card.phase_label ?? activityLine(card);
 
+  row.append(top, sub, act);
+  row.addEventListener("click", () => cb.onSelect(card.session_id));
+  row.addEventListener("dblclick", () => cb.onFocus(card.session_id));
+  return row;
+}
+
+export type DetailCallbacks = {
+  onFocus: (sessionId: string, keepOpen: boolean) => void;
+  onStop: (sessionId: string) => void;
+} & AttentionCallbacks;
+
+/// The right pane: everything known about the selected agent, live.
+/// `attention` is the session's queue item when blocked — its question
+/// and answer affordance render at the bottom of the pane.
+export function renderDetailPane(
+  card: AgentCard,
+  attention: AttentionItem | null,
+  cb: DetailCallbacks,
+): HTMLElement {
+  const pane = document.createElement("section");
+  pane.className = "mc-detail";
+  pane.dataset.sessionId = card.session_id;
+
+  const head = document.createElement("div");
+  head.className = "mc-detail__head";
+  const title = document.createElement("h2");
+  title.className = "mc-detail__title";
+  title.textContent = card.tab_title;
   const pill = document.createElement("span");
   pill.className = `mc-pill mc-pill--${card.status}`;
-  pill.textContent = card.status === "blocked" ? "NEEDS YOU" : STATUS_LABEL[card.status];
+  pill.textContent = STATUS_LABEL[card.status];
+  const actions = document.createElement("div");
+  actions.className = "mc-detail__actions";
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "mc-detail__open";
+  open.textContent = `Open tab ${formatChord(["enter"])}`;
+  open.addEventListener("click", () => cb.onFocus(card.session_id, false));
+  actions.append(open);
+  if (card.operator_id) {
+    const stop = document.createElement("button");
+    stop.type = "button";
+    stop.className = "mc-stop";
+    stop.textContent = "Stop";
+    stop.setAttribute("aria-label", "Stop operator");
+    stop.addEventListener("click", () => cb.onStop(card.session_id));
+    actions.append(stop);
+  }
+  head.append(title, pill, actions);
+  pane.append(head);
 
-  head.append(dot, exec, tab, pill);
-
+  const meta = document.createElement("div");
+  meta.className = "mc-detail__meta";
+  const exec = document.createElement("strong");
+  exec.textContent = card.executor ?? vendorLabel(card);
+  meta.append(exec);
   if (card.operator_id) {
     const op = document.createElement("span");
     op.className = "mc-oplabel";
-    op.innerHTML = `${renderAvatarHtml(card.operator_avatar ?? "👤", 18)}<span>${card.operator_name ?? ""}</span>`;
-    head.append(op);
-
-    // Stop: disable the operator on this session. The disabled session
-    // goes inert; the card itself stays (it's still an agent session).
-    const stop = document.createElement("button");
-    stop.type = "button";
-    stop.className = "mc-card__stop";
-    stop.textContent = "Stop";
-    stop.setAttribute("aria-label", "Stop operator");
-    stop.addEventListener("click", (e) => {
-      e.stopPropagation();
-      cb.onStop(card.session_id);
-    });
-    head.append(stop);
+    op.innerHTML = renderAvatarHtml(card.operator_avatar ?? "👤", 18);
+    const opName = document.createElement("span");
+    opName.textContent = card.operator_name ?? "";
+    op.append(opName);
+    meta.append(op);
   }
-
-  return head;
-}
-
-/// Card body: activity line, context chips, cost bar.
-function renderBody(card: AgentCard): DocumentFragment {
-  const frag = document.createDocumentFragment();
-
-  const act = document.createElement("div");
-  act.className = "mc-card__activity";
-  act.textContent = card.phase_label ?? activityLine(card);
-  frag.append(act);
-
-  if (card.subagents.length > 0) frag.append(renderSubAgents(card.subagents));
-
-  const chips = contextChips(card);
-  if (chips) frag.append(chips);
+  if (card.mission_name) {
+    const chip = document.createElement("span");
+    chip.className = "mc-chip";
+    chip.textContent = `◈ ${card.mission_name}`;
+    meta.append(chip);
+  }
+  if (card.cwd) {
+    const cwd = document.createElement("span");
+    cwd.className = "mc-detail__cwd";
+    cwd.textContent = card.cwd;
+    meta.append(cwd);
+  }
+  pane.append(meta);
 
   const cost = costBar(card);
-  if (cost) frag.append(cost);
-  return frag;
+  if (cost) pane.append(cost);
+
+  if (card.excerpt) {
+    const tail = document.createElement("pre");
+    tail.className = "mc-tail";
+    tail.textContent = card.excerpt;
+    pane.append(tail);
+  }
+  if (card.subagents.length > 0) pane.append(renderSubAgents(card.subagents));
+  if (attention) pane.append(renderAttentionBody(attention, cb));
+  return pane;
 }
 
 /// Live sub-agent rows (ACP Task tool calls). Elapsed is computed per
@@ -150,21 +195,6 @@ function vendorLabel(card: AgentCard): string {
   return card.raw_command_label ?? "shell";
 }
 
-function contextChips(card: AgentCard): HTMLElement | null {
-  const labels: string[] = [];
-  if (card.mission_name) labels.push(`◈ ${card.mission_name}`);
-  if (labels.length === 0) return null;
-  const wrap = document.createElement("div");
-  wrap.className = "mc-chips";
-  for (const l of labels) {
-    const chip = document.createElement("span");
-    chip.className = "mc-chip";
-    chip.textContent = l;
-    wrap.append(chip);
-  }
-  return wrap;
-}
-
 function costBar(card: AgentCard): HTMLElement | null {
   if (card.cost_usd == null || card.budget_usd == null) return null;
   const pct = card.budget_usd > 0 ? Math.min(100, (card.cost_usd / card.budget_usd) * 100) : 0;
@@ -188,7 +218,7 @@ function costBar(card: AgentCard): HTMLElement | null {
 /// operator-escalation cards.
 export function renderReply(
   sessionId: string,
-  onSubmit: CardCallbacks["onSubmit"],
+  onSubmit: (sessionId: string, text: string, scope: ReplyScope) => Promise<void>,
 ): HTMLElement {
   const wrap = document.createElement("form");
   wrap.className = "mc-reply";
