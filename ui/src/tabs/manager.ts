@@ -5452,16 +5452,16 @@ export class TabManager {
           const oldSid = pane0Acp.sessionId;
           if (oldSid) void sessionSetGroup(oldSid, null);
           // A restart mints a fresh session id — a supervisor claim on the
-          // dying session doesn't carry over (applyGroupIntervene's
-          // idempotency check would otherwise skip re-granting on the new
-          // id because the stale flag is still set). Clear it so
-          // syncGroupIntervene below re-derives coverage against the new
-          // session from scratch.
-          if (pane0Acp.supervisorAom) {
-            pane0Acp.supervisorAom = false;
-            pane0Acp.operatorEnabled = false;
-            pane0Acp.operatorLive = false;
-          }
+          // dying session doesn't carry over. Revert it properly (same
+          // path convertPaneToPi uses) WHILE the pane still holds oldSid,
+          // so the backend teardown (setOperatorEnabled/setOperatorLive
+          // false) actually targets the dying session instead of being
+          // silently dropped — a bare local-flag reset would leave the
+          // old session's backend AOM state armed with nothing left to
+          // ever turn it off. syncGroupIntervene below re-grants on the
+          // new session id from a clean slate if the group still
+          // qualifies.
+          this.revertPaneSupervisorAom(pane0Acp);
           pane0Acp.sessionId = sid;
           pane0Acp.acpSessionId = acpSid;
           this.syncSessionGroup(tab);
