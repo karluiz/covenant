@@ -2226,9 +2226,22 @@ export class TabManager {
           if (pane.operator === id) pane.operator = null;
         }
       }
+      // The deleted operator may also be attached as a group supervisor —
+      // detach it so Intervene-claimed panes revert instead of staying
+      // armed under the DEFAULT operator (setGroupSupervisor already
+      // unapplies intervene + syncs the backend).
+      this.detachSupervisorEverywhere(id);
       // Pull fresh data from backend (handles default re-pin etc.) and
       // re-render. refreshOperatorCache also calls renderTabbar.
       void this.refreshOperatorCache();
+    });
+    // Supervision capability revoked without deleting the operator (see
+    // creator.ts's capability-off save path) — same cleanup as
+    // operator:deleted, scoped to the group-supervisor attach only.
+    window.addEventListener("operator:supervision-disabled", (ev: Event) => {
+      const id = (ev as CustomEvent<{ id: string }>).detail?.id;
+      if (!id) return;
+      this.detachSupervisorEverywhere(id);
     });
     // Terminal Share: prime the local cache and re-render the strip
     // whenever a share/revoke happens (see structure/tree.ts for the
@@ -6580,6 +6593,13 @@ export class TabManager {
     const stash = this.hibernated.get(workspaceId);
     if (!stash) return;
     this.hibernated.delete(workspaceId);
+    // The stash's groups (and any supervisor attach on them) are about to
+    // be dropped with no further reference — clear each supervised group's
+    // backend attach here or `group_supervisors` leaks an entry forever
+    // (mirrors the cleanup ungroup/destroyGroup do for live groups).
+    for (const g of stash.groups.values()) {
+      if (g.supervisorId) void groupSetSupervisor(g.id, null, false);
+    }
     // Temporarily swap the stashed tabs into this.tabs so finalizeCloseTab
     // (which expects to find the tab by id) can do the full teardown.
     const live = this.tabs.slice();
@@ -7117,6 +7137,16 @@ export class TabManager {
   /// to a group. Detaching also clears the Phase 3 intervene gate — an
   /// intervene flag with no supervisor attached is meaningless. Public so
   /// Task 7's runtime hook can drive this from elsewhere.
+  /// Detach `operatorId` as supervisor from every group currently
+  /// attached to it — used when the operator is deleted or loses the
+  /// Supervision capability. Routes through setGroupSupervisor so
+  /// Intervene-claimed panes revert and the backend attach clears too.
+  private detachSupervisorEverywhere(operatorId: string): void {
+    for (const g of this.groups.values()) {
+      if (g.supervisorId === operatorId) this.setGroupSupervisor(g.id, null);
+    }
+  }
+
   public setGroupSupervisor(groupId: string, operatorId: string | null): void {
     const g = this.groups.get(groupId);
     if (!g) return;
@@ -7155,8 +7185,8 @@ export class TabManager {
       p.supervisorAom = true;
       p.operatorEnabled = true;
       p.operatorLive = true;
-      void setOperatorEnabled(p.sessionId as SessionId, true);
-      void setOperatorLive(p.sessionId as SessionId, true);
+      void setOperatorEnabled(p.sessionId as SessionId, true).catch(() => undefined);
+      void setOperatorLive(p.sessionId as SessionId, true).catch(() => undefined);
     }
     this.renderTabbar();
   }
@@ -7185,8 +7215,8 @@ export class TabManager {
     p.operatorEnabled = false;
     p.operatorLive = false;
     if (p.sessionId) {
-      void setOperatorEnabled(p.sessionId as SessionId, false);
-      void setOperatorLive(p.sessionId as SessionId, false);
+      void setOperatorEnabled(p.sessionId as SessionId, false).catch(() => undefined);
+      void setOperatorLive(p.sessionId as SessionId, false).catch(() => undefined);
     }
   }
 

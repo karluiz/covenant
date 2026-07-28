@@ -973,3 +973,26 @@ describe("group supervisor Intervene — apply/unapply", () => {
     expect(covered.operatorLive).toBe(false);
   });
 });
+
+describe("operator:deleted detaches a group's supervisor attach", () => {
+  it("reverts Intervene-claimed panes and clears supervisorId when the supervisor is deleted", () => {
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      groups: Map<string, { supervisorId: string | null }>;
+    };
+    const claimed = ivPane({ id: "p1", sessionId: "s1" });
+    priv.tabs.push(ivTabWith(groupId, [claimed]));
+
+    m.setGroupSupervisor(groupId, "op-1");
+    m.setGroupIntervene(groupId, true);
+    expect(claimed.supervisorAom).toBe(true);
+
+    window.dispatchEvent(new CustomEvent("operator:deleted", { detail: { id: "op-1" } }));
+
+    expect(claimed.supervisorAom).toBe(false);
+    expect(claimed.operatorEnabled).toBe(false);
+    expect(priv.groups.get(groupId)?.supervisorId).toBeNull();
+  });
+});

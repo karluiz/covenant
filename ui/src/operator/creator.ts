@@ -1511,7 +1511,18 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
           // Same registry-side pattern for the supervision capability gate.
           const prevSupervision = handle.state.existing?.supervision_enabled ?? false;
           if (saved.id && handle.state.supervisionEnabled !== prevSupervision) {
-            try { await operatorSetSupervisionEnabled(saved.id, handle.state.supervisionEnabled); } catch (e) {
+            try {
+              await operatorSetSupervisionEnabled(saved.id, handle.state.supervisionEnabled);
+              // Turning the capability off can leave this operator attached
+              // as a group supervisor with Intervene-claimed panes armed
+              // under it — TabManager needs the same cleanup it runs on
+              // operator:deleted (see manager.ts's listener pair).
+              if (!handle.state.supervisionEnabled) {
+                window.dispatchEvent(
+                  new CustomEvent("operator:supervision-disabled", { detail: { id: saved.id } }),
+                );
+              }
+            } catch (e) {
               console.warn("operator_set_supervision_enabled failed", e);
             }
           }
