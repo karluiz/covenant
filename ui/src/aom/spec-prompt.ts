@@ -17,6 +17,8 @@ export interface SpecPromptHost {
   setMissionForTab(tabId: string, path: string): Promise<void>;
   /** Optional: human-friendly name to display on the toast. */
   getTabLabel?(tabId: string): string;
+  /** Optional: open the spec file in the editor (preview before accepting). */
+  openSpecFile?(path: string): void;
 }
 
 let stateSingleton: SpecPromptState | null = null;
@@ -32,7 +34,8 @@ export function _resetForTest() {
   startedRoots.clear();
 }
 
-const TOAST_TIMEOUT_MS = 30_000;
+// Auto-close duration lives in CSS (spec-toast-countdown, 30s) — the toast
+// closes on the countdown bar's animationend, so hover-pause stays in sync.
 const STACK_ID = "spec-prompt-stack";
 
 export function getSpecPromptState(): SpecPromptState {
@@ -126,6 +129,8 @@ function getStack(): HTMLElement {
   if (!stack) {
     stack = document.createElement("div");
     stack.id = STACK_ID;
+    stack.setAttribute("role", "status");
+    stack.setAttribute("aria-live", "polite");
     document.body.appendChild(stack);
   }
   return stack;
@@ -144,15 +149,21 @@ function renderToast(host: SpecPromptHost, tab: TabSnapshot, cand: SpecCandidate
   el.innerHTML = `
     <div class="spec-prompt-toast-head">
       <span class="spec-prompt-toast-label">${escapeHtml(label)}</span>
-      <span class="spec-prompt-toast-file">${escapeHtml(fileName)}</span>
     </div>
-    <div class="spec-prompt-toast-target">→ ${escapeHtml(tabLabel)}</div>
+    <div class="spec-prompt-toast-grid">
+      <span class="spec-prompt-toast-key">Spec</span>
+      <button type="button" class="spec-prompt-toast-file">${escapeHtml(fileName)}</button>
+      <span class="spec-prompt-toast-key">Target tab</span>
+      <span class="spec-prompt-toast-target">${escapeHtml(tabLabel)}</span>
+    </div>
     <div class="spec-prompt-toast-snippet">${escapeHtml(cand.goal_snippet)}</div>
     <div class="spec-prompt-toast-actions">
-      <button type="button" class="spec-prompt-toast-set">Set as spec</button>
+      <button type="button" class="spec-prompt-toast-set">Set on ${escapeHtml(tabLabel)}</button>
       <button type="button" class="spec-prompt-toast-dismiss">Dismiss</button>
     </div>
+    <div class="spec-prompt-toast-countdown"></div>
   `;
+  const setBtn = el.querySelector(".spec-prompt-toast-set") as HTMLButtonElement;
 
   // The heuristic pick is only a default — when several tabs are eligible,
   // let the user redirect the spec via a select (DESIGN.md rule 14).
@@ -166,23 +177,46 @@ function renderToast(host: SpecPromptHost, tab: TabSnapshot, cand: SpecCandidate
       })),
       value: tab.id,
       ariaLabel: "Target tab",
+      onChange: (id) => {
+        setBtn.textContent = `Set on ${host.getTabLabel?.(id) ?? id}`;
+      },
     });
     const targetEl = el.querySelector(".spec-prompt-toast-target")!;
-    targetEl.textContent = "→ ";
+    targetEl.textContent = "";
     targetEl.appendChild(tabSelect.element);
   }
   stack.appendChild(el);
 
+  let closed = false;
   const close = () => {
-    el.remove();
+    if (closed) return;
+    closed = true;
+    el.classList.add("is-leaving");
+    const finish = () => el.remove();
+    el.addEventListener("transitionend", finish, { once: true });
+    setTimeout(finish, 200);
   };
-  const timer = setTimeout(() => {
+  const dismiss = () => {
     getSpecPromptState().dismiss(tab.id, cand.path);
     close();
-  }, TOAST_TIMEOUT_MS);
+  };
 
-  el.querySelector(".spec-prompt-toast-set")!.addEventListener("click", async () => {
-    clearTimeout(timer);
+  // Auto-close is soft: the candidate stays pending (badge + last-call modal
+  // still offer it) — only the explicit Dismiss button records a dismissal.
+  const countdown = el.querySelector(".spec-prompt-toast-countdown")!;
+  countdown.addEventListener("animationend", () => close());
+  // Any engagement (click, select open) cancels auto-close entirely — the
+  // select popover mounts on document.body, so :hover alone can't cover it.
+  el.addEventListener("pointerdown", () => countdown.remove(), { once: true });
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") dismiss();
+  });
+
+  el.querySelector(".spec-prompt-toast-file")!.addEventListener("click", () => {
+    host.openSpecFile?.(cand.path);
+  });
+
+  setBtn.addEventListener("click", async () => {
     const targetId = tabSelect?.value || tab.id;
     getSpecPromptState().acceptOnTab(targetId, cand.path);
     try {
@@ -192,11 +226,7 @@ function renderToast(host: SpecPromptHost, tab: TabSnapshot, cand: SpecCandidate
     }
     close();
   });
-  el.querySelector(".spec-prompt-toast-dismiss")!.addEventListener("click", () => {
-    clearTimeout(timer);
-    getSpecPromptState().dismiss(tab.id, cand.path);
-    close();
-  });
+  el.querySelector(".spec-prompt-toast-dismiss")!.addEventListener("click", dismiss);
 }
 
 function escapeHtml(s: string): string {

@@ -1977,6 +1977,7 @@ async function boot(): Promise<void> {
     getActiveTabId: () => manager.getActiveTabId(),
     setMissionForTab: (tabId, path) => manager.setMissionPathForTab(tabId, path),
     getTabLabel: (tabId) => manager.getTabLabel(tabId),
+    openSpecFile: (path) => manager.openFileAtLine(path),
   });
 
   installSpecLinkInterceptor({
