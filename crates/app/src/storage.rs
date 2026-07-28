@@ -777,6 +777,12 @@ impl Storage {
             "ALTER TABLE operators ADD COLUMN perception_enabled INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // Supervision: operator can be attached to a tab group as its
+        // supervisor. Existing operators default off, like perception.
+        let _ = conn.execute(
+            "ALTER TABLE operators ADD COLUMN supervision_enabled INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         // Teammate phase 1: rolling summary per operator for prompt
         // caching when DMing. Empty for existing rows.
         let _ = conn.execute(
@@ -1905,8 +1911,8 @@ impl Storage {
                 "INSERT INTO operators (id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
                  created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path, github_access, \
-                 acp_enabled, perception_enabled, org_slug) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+                 acp_enabled, perception_enabled, supervision_enabled, org_slug) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1928,6 +1934,7 @@ impl Storage {
                     github_access_to_str(op.github_access),
                     if op.acp_enabled { 1_i64 } else { 0_i64 },
                     if op.perception_enabled { 1_i64 } else { 0_i64 },
+                    if op.supervision_enabled { 1_i64 } else { 0_i64 },
                     op.org_slug,
                 ],
             )?;
@@ -1950,7 +1957,7 @@ impl Storage {
                 "UPDATE operators SET name=?2, emoji=?3, color=?4, tags_json=?5, \
                  persona=?6, escalate_threshold=?7, model=?8, hard_constraints=?9, \
                  updated_at_unix_ms=?10, voice=?11, soul_path=?12, github_access=?13, \
-                 acp_enabled=?14, perception_enabled=?15, org_slug=?16 WHERE id=?1",
+                 acp_enabled=?14, perception_enabled=?15, supervision_enabled=?16, org_slug=?17 WHERE id=?1",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1969,6 +1976,7 @@ impl Storage {
                     github_access_to_str(op.github_access),
                     if op.acp_enabled { 1_i64 } else { 0_i64 },
                     if op.perception_enabled { 1_i64 } else { 0_i64 },
+                    if op.supervision_enabled { 1_i64 } else { 0_i64 },
                     op.org_slug,
                 ],
             )?;
@@ -2094,6 +2102,27 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    pub async fn operator_set_supervision_enabled(
+        &self,
+        id: String,
+        enabled: bool,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            let n = c.execute(
+                "UPDATE operators SET supervision_enabled=?2 WHERE id=?1",
+                params![id, if enabled { 1_i64 } else { 0_i64 }],
+            )?;
+            if n == 0 {
+                return Err(StorageError::Other(format!("operator id {id} not found")));
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     /// Move an operator to an org. `None` = personal org (NULL sentinel).
     pub async fn operator_set_org(
         &self,
@@ -2126,7 +2155,7 @@ impl Storage {
                 "SELECT id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
                  created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path, github_access, \
-                 acp_enabled, perception_enabled, org_slug \
+                 acp_enabled, perception_enabled, supervision_enabled, org_slug \
                  FROM operators ORDER BY is_default DESC, LOWER(name) ASC",
             )?;
             let rows = stmt
@@ -2170,7 +2199,8 @@ impl Storage {
                             .unwrap_or_default(),
                         acp_enabled: row.get::<_, i64>(16).unwrap_or(0) != 0,
                         perception_enabled: row.get::<_, i64>(17).unwrap_or(0) != 0,
-                        org_slug: row.get(18)?,
+                        supervision_enabled: row.get::<_, i64>(18).unwrap_or(0) != 0,
+                        org_slug: row.get(19)?,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -4852,6 +4882,7 @@ mod tests {
             github_access: GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         let warm_id = warm.id;
@@ -4878,6 +4909,7 @@ mod tests {
             github_access: GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         let terse_id = terse.id;
@@ -4956,6 +4988,7 @@ mod tests {
             github_access: GithubAccess::ReadOnly,
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         let op_id = op.id;
@@ -5004,6 +5037,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn operator_supervision_enabled_round_trip() {
+        use crate::operator_registry::{GithubAccess, Operator, OperatorId, VoiceTone};
+        use ulid::Ulid;
+
+        let (s, _g) = fresh();
+
+        let op = Operator {
+            id: OperatorId(Ulid::new()),
+            name: "supervision-test-op".into(),
+            emoji: "🤖".into(),
+            color: "#6B7280".into(),
+            tags: vec![],
+            persona: "p".into(),
+            escalate_threshold: 0.6,
+            model: "m".into(),
+            hard_constraints: String::new(),
+            is_default: false,
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 1,
+            xp: 0,
+            voice: VoiceTone::Terse,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::Off,
+            acp_enabled: false,
+            perception_enabled: false,
+            supervision_enabled: false,
+            org_slug: None,
+        };
+        let op_id = op.id;
+
+        // Insert and verify supervision_enabled defaults off.
+        s.operator_insert(op.clone()).await.unwrap();
+        let listed_operator = s
+            .operator_list()
+            .await
+            .unwrap()
+            .iter()
+            .find(|o| o.id == op_id)
+            .unwrap()
+            .clone();
+        assert!(!listed_operator.supervision_enabled);
+        s.operator_set_supervision_enabled(op_id.to_string(), true)
+            .await
+            .unwrap();
+        let relisted_operator = s
+            .operator_list()
+            .await
+            .unwrap()
+            .iter()
+            .find(|o| o.id == op_id)
+            .unwrap()
+            .clone();
+        assert!(relisted_operator.supervision_enabled);
+    }
+
+    #[tokio::test]
     async fn operator_org_slug_roundtrip_and_set() {
         use crate::operator_registry::{GithubAccess, Operator, OperatorId, VoiceTone};
         use ulid::Ulid;
@@ -5030,6 +5120,7 @@ mod tests {
             github_access: GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         op.org_slug = Some("acme".into());
@@ -5152,6 +5243,7 @@ mod task_card_storage_tests {
             github_access: crate::operator_registry::GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         })
         .await

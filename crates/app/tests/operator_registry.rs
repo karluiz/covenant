@@ -44,6 +44,7 @@ fn sample(name: &str, is_default: bool) -> Operator {
         soul_mtime_unix_ms: 0,
         acp_enabled: false,
         perception_enabled: false,
+        supervision_enabled: false,
         org_slug: None,
     }
 }

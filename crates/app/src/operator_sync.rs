@@ -135,6 +135,7 @@ pub(crate) fn build_import_op(
         github_access: Default::default(),
         acp_enabled: false,
         perception_enabled: false,
+        supervision_enabled: false,
         org_slug: None,
     });
     crate::soul::hydrate_operator(&mut op, soul);

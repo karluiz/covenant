@@ -1273,6 +1273,7 @@ mod task_lifecycle_tests {
                 github_access: crate::operator_registry::GithubAccess::Off,
                 acp_enabled: false,
                 perception_enabled: false,
+                supervision_enabled: false,
                 org_slug: None,
             })
             .await
@@ -1504,6 +1505,7 @@ mod task_lifecycle_tests {
             github_access: crate::operator_registry::GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         let zeta = mk("Zeta");

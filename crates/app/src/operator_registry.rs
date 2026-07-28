@@ -68,6 +68,12 @@ pub struct Operator {
     /// permission prompts (Perception). Off by default.
     #[serde(default)]
     pub perception_enabled: bool,
+    /// When true, this operator can be attached to a tab group as its
+    /// SUPERVISOR: group perception fallback, cross-tab correlation, and
+    /// (opt-in per group) AOM intervention on unpinned panes. Off by
+    /// default (deny-biased). Registry-only (NOT SOUL frontmatter).
+    #[serde(default)]
+    pub supervision_enabled: bool,
     /// Org this operator belongs to; None = personal org. Registry-only (NOT SOUL frontmatter).
     #[serde(default)]
     pub org_slug: Option<String>,
@@ -284,6 +290,7 @@ impl OperatorRegistry {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         by_id.insert(op.id, op);
@@ -470,6 +477,7 @@ impl OperatorRegistry {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         crate::soul::hydrate_operator(&mut op, &soul);
@@ -637,6 +645,24 @@ impl OperatorRegistry {
         Ok(())
     }
 
+    pub async fn set_supervision_enabled(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        enabled: bool,
+    ) -> Result<(), RegistryError> {
+        if !self.by_id.read().unwrap().contains_key(&id) {
+            return Err(RegistryError::NotFound(id));
+        }
+        storage
+            .operator_set_supervision_enabled(id.to_string(), enabled)
+            .await?;
+        if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+            op.supervision_enabled = enabled;
+        }
+        Ok(())
+    }
+
     /// Move an operator to an org (`None` = personal org).
     pub async fn set_org(
         &self,
@@ -753,6 +779,7 @@ impl OperatorRegistry {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         let id = op.id;
@@ -979,6 +1006,7 @@ pub mod commands {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         registry.create(&storage, op).await.map_err(map_err)
@@ -1015,6 +1043,7 @@ pub mod commands {
             github_access: existing.github_access,
             acp_enabled: existing.acp_enabled,
             perception_enabled: existing.perception_enabled,
+            supervision_enabled: existing.supervision_enabled,
             org_slug: existing.org_slug.clone(),
         };
         let op = registry.update(&storage, updated).await.map_err(map_err)?;
@@ -1080,6 +1109,20 @@ pub mod commands {
         let id: OperatorId = id.parse().map_err(map_err)?;
         registry
             .set_perception_enabled(&storage, id, enabled)
+            .await
+            .map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_set_supervision_enabled(
+        id: String,
+        enabled: bool,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<(), String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry
+            .set_supervision_enabled(&storage, id, enabled)
             .await
             .map_err(map_err)
     }
@@ -1156,6 +1199,7 @@ mod voice_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         assert!(matches!(op.voice, VoiceTone::Terse));
@@ -1293,6 +1337,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         let created = reg.create(&storage, op).await.unwrap();
@@ -1338,6 +1383,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         storage.operator_insert(op.clone()).await.unwrap();
@@ -1385,6 +1431,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         reg.create(&storage, existing_op.clone()).await.unwrap();
@@ -1411,6 +1458,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         let id = op.id;
@@ -1467,6 +1515,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         let created = reg.create(&storage, op).await.unwrap();
@@ -1514,6 +1563,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            supervision_enabled: false,
             org_slug: None,
         };
         let created = reg.create(&storage, op).await.unwrap();
