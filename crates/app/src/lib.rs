@@ -1140,6 +1140,11 @@ async fn close_session(
     state.operator.forget_tab_title(id).await;
     state.claude_statusline.unregister(id);
     registry.unpin_session(id);
+    // Group supervision: drop this session's membership so it can't
+    // outlive the session itself. Without this, session_groups accumulates
+    // a dead entry for the process lifetime — group_sessions() would keep
+    // surfacing a closed session id as a live supervised member.
+    registry.set_session_group(id, None);
     let mut sessions = state.sessions.lock().await;
     if let Some(mut managed) = sessions.remove(&id) {
         let _ = managed.session.kill();

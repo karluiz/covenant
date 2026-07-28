@@ -5410,6 +5410,12 @@ export class TabManager {
         // so routing (context menu, prompts) and manifest persistence
         // follow the live session instead of the dead one.
         onSessionChange: (sid, acpSid) => {
+          // The old session id is dying (restart), not closing through the
+          // normal tab-close teardown — nothing else will ever clear its
+          // backend group-membership entry, so do it explicitly before
+          // pushing the new one.
+          const oldSid = pane0Acp.sessionId;
+          if (oldSid) void sessionSetGroup(oldSid, null);
           pane0Acp.sessionId = sid;
           pane0Acp.acpSessionId = acpSid;
           this.syncSessionGroup(tab);
