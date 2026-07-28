@@ -1,0 +1,61 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base
+  title="Privacy policy — Covenant"
+  description="What data the Covenant website collects and how it is used."
+>
+  <main class="mx-auto max-w-3xl px-6 py-16 md:py-24">
+    <h1 class="text-3xl md:text-5xl font-semibold tracking-tight">Privacy policy</h1>
+    <div class="prose-covenant mt-12">
+      <p>
+        This policy covers the Covenant website (covenant.uno). The Covenant
+        desktop app is a separate thing: it runs on your machine and sends
+        nothing to us.
+      </p>
+
+      <h2>Analytics</h2>
+      <p>
+        If you accept analytics cookies, we use
+        <a href="https://clarity.microsoft.com">Microsoft Clarity</a> to
+        understand how the site is used — pages visited, clicks, scrolling.
+        Clarity sets cookies (<code>_clck</code>, <code>_clsk</code>) and
+        processes usage data under
+        <a href="https://www.microsoft.com/privacy/privacystatement">Microsoft's privacy statement</a>.
+        We do not use this data for advertising, and we do not sell it.
+      </p>
+      <p>
+        If you decline, no analytics run and no tracking cookies are set. Your
+        choice is stored in your browser's local storage; clear it to be asked
+        again.
+      </p>
+
+      <h2>What we don't collect</h2>
+      <p>
+        The site has no accounts, no forms, and no ads. We don't collect names,
+        emails, or anything that identifies you personally.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions? Open an issue at
+        <a href="https://github.com/karluiz/covenant">github.com/karluiz/covenant</a>.
+      </p>
+    </div>
+  </main>
+</Base>
+
+<style is:global>
+  .prose-covenant { line-height: 1.7; }
+  .prose-covenant > * + * { margin-top: 1.25rem; }
+  .prose-covenant p { max-width: 68ch; color: rgb(232 239 230 / 0.8); }
+  .prose-covenant h2 {
+    margin-top: 3rem; font-size: 1.5rem; font-weight: 600;
+    letter-spacing: -0.02em; color: theme(colors.mist);
+  }
+  .prose-covenant a { color: theme(colors.moss.400); text-decoration: underline; }
+  .prose-covenant code {
+    font-family: ui-monospace, monospace; font-size: 0.875em;
+    background: rgb(232 239 230 / 0.08); padding: 0.1em 0.35em; border-radius: 4px;
+  }
+</style>
