@@ -7,12 +7,12 @@ import {
   type AttentionItem,
   type ConvergenceSnapshot,
 } from "../api";
-import type { SessionId } from "../api";
+import type { AgentCard, SessionId } from "../api";
 import { Icons } from "../icons";
 import { formatChord } from "../platform";
 import { agoLabel } from "./attention";
 import { attentionIndex, sortAgents } from "./model";
-import { renderAgentRow, renderDetailPane, type ReplyScope } from "./tile";
+import { elapsedLabel, renderAgentRow, renderDetailPane, type ReplyScope } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
@@ -160,6 +160,14 @@ export class ConvergenceOverlay {
         this.bridge.activateBySessionId(this.activeSessionId);
         this.close();
       }
+      if (e.key >= "1" && e.key <= "9" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const active = document.activeElement as HTMLElement | null;
+        if (active?.closest("textarea, input, select")) return;
+        const target = this.visibleAgents()[Number(e.key) - 1];
+        if (!target) return;
+        e.preventDefault();
+        this.navigateTo(target.session_id);
+      }
     };
     document.addEventListener("keydown", this.escHandler, { capture: true });
   }
@@ -241,21 +249,20 @@ export class ConvergenceOverlay {
     }
     for (const card of list) {
       const item = at.get(card.session_id);
+      // Blocked rows show how long they've been waiting on the human;
+      // everything else shows session uptime (Ulid-decoded start).
+      const age =
+        item?.since_unix_ms != null && item.since_unix_ms > 0
+          ? agoLabel(item.since_unix_ms)
+          : card.started_at_unix_ms != null
+            ? elapsedLabel(card.started_at_unix_ms)
+            : null;
       this.railEl.append(
         renderAgentRow(card, {
           selected: card.session_id === this.activeSessionId,
-          age: item?.since_unix_ms != null && item.since_unix_ms > 0 ? agoLabel(item.since_unix_ms) : null,
+          age,
         }, {
-          onSelect: (sid) => {
-            // Explicit navigation overrides the draft-guard: clicking a
-            // different row must move the pane even if a textarea in the
-            // detail host is focused (clicks don't blur it in the app's
-            // webview). Poll-triggered renders never go through here, so
-            // the draft-survival path is untouched.
-            if (sid !== this.activeSessionId) this.blurComposerIfFocused();
-            this.activeSessionId = sid;
-            this.render();
-          },
+          onSelect: (sid) => this.navigateTo(sid),
           onFocus: (sid) => { if (this.bridge.activateBySessionId(sid)) this.close(); },
         }),
       );
@@ -283,17 +290,22 @@ export class ConvergenceOverlay {
           if (ok && !keepOpen) this.close();
         },
         onStop: this.stopOperator.bind(this),
-        onOperatorReply: this.submitReply.bind(this),
+        onOperatorReply: async (sid, text, scope) => {
+          await this.submitReply(sid, text, scope);
+          this.advanceAfterAnswer(sid);
+        },
         onPermission: (sid, key, opt) => {
           void acpRespondPermission(sid as SessionId, key, opt).catch((err) =>
             console.warn("[convergence] respond permission failed", sid, err),
           );
+          this.advanceAfterAnswer(sid);
           void this.refresh();
         },
         onPtyReply: (sid, text) => {
           void writeToSession(sid as SessionId, new TextEncoder().encode(text + "\r")).catch(
             (err) => console.warn("[convergence] pty reply failed", sid, err),
           );
+          this.advanceAfterAnswer(sid);
           void this.refresh();
         },
       }),
@@ -320,14 +332,28 @@ export class ConvergenceOverlay {
     if (list.length === 0) return;
     const idx = list.findIndex((a) => a.session_id === this.activeSessionId);
     const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
-    const nextId = list[next].session_id;
-    // Same override as onSelect — arrow-key navigation is explicit intent
-    // too (the ArrowUp/ArrowDown handler already only allows this while
-    // the composer is empty, but the textarea itself may still be
-    // focused and would otherwise freeze the pane via the draft-guard).
-    if (nextId !== this.activeSessionId) this.blurComposerIfFocused();
-    this.activeSessionId = nextId;
+    this.navigateTo(list[next].session_id);
+  }
+
+  /// Explicit navigation to a session — overrides the draft-guard
+  /// (clicks/keys don't blur a focused textarea in the app's webview).
+  /// Poll-triggered renders never go through here, so the draft-survival
+  /// path is untouched.
+  private navigateTo(sid: string): void {
+    if (sid !== this.activeSessionId) this.blurComposerIfFocused();
+    this.activeSessionId = sid;
     this.render();
+  }
+
+  /// Chained triage: after answering a blocked session, jump to the next
+  /// blocked one (rail order, wrapping) instead of idling on the answered
+  /// pane. No-op when nothing else is blocked.
+  private advanceAfterAnswer(from: string): void {
+    const list = this.visibleAgents();
+    const idx = list.findIndex((a) => a.session_id === from);
+    const isNextBlocked = (a: AgentCard) => a.status === "blocked" && a.session_id !== from;
+    const next = list.slice(idx + 1).find(isNextBlocked) ?? list.find(isNextBlocked);
+    if (next) this.navigateTo(next.session_id);
   }
 
   /// Blur a focused textarea inside the detail host, if any. Called only

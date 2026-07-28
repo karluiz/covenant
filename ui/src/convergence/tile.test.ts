@@ -7,7 +7,7 @@ const agent = (over: Partial<AgentCard>): AgentCard => ({
   session_id: "s1", tab_title: "agent tests", tab_color: null, lane: "pty",
   executor: "claude", status: "working" as TileStatus, phase_label: null,
   cwd: null, vendor: "claude", raw_command_label: null,
-  last_command: "cargo test --workspace", last_output_line: null, excerpt: null,
+  last_command: "cargo test --workspace", last_output_line: null, excerpt: null, started_at_unix_ms: null,
   mission_name: null, operator_id: null, operator_name: null,
   operator_avatar: null, cost_usd: null, budget_usd: null, subagents: [], ...over,
 });
