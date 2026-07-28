@@ -16,6 +16,7 @@ vi.mock("../api", () => ({
 import {
   StructureTree,
   isShareableAsGist,
+  fallbackRoot,
   __resetRepoSummaryCacheForTests,
 } from "./tree";
 import { structureListDir, structureMoveInto, getDirContext, gitRepoSummary } from "../api";
@@ -665,5 +666,63 @@ describe("StructureTree footer layout", () => {
     expect(host.querySelector(".structure-header .structure-action")).not.toBeNull();
     expect(host.querySelector(".structure-header .structure-branch")).toBeNull();
     expect(host.querySelector(".structure-title")?.textContent).toBe("Files");
+  });
+});
+
+describe("fallbackRoot", () => {
+  it("strips a pruned .covenant worktree back to the main checkout", () => {
+    expect(fallbackRoot("/r/karlTerminal/.covenant/worktrees/agent-claude-0727-nyn"))
+      .toEqual({ root: "/r/karlTerminal", wasWorktree: true });
+  });
+
+  it("strips even when cwd is deep inside the worktree", () => {
+    expect(fallbackRoot("/r/proj/.claude/worktrees/slug/ui/src"))
+      .toEqual({ root: "/r/proj", wasWorktree: true });
+  });
+
+  it("walks one level up for non-worktree paths", () => {
+    expect(fallbackRoot("/Users/me/gone")).toEqual({ root: "/Users/me", wasWorktree: false });
+  });
+
+  it("returns null at the filesystem root", () => {
+    expect(fallbackRoot("/gone")).toBeNull();
+  });
+});
+
+describe("StructureTree vanished root", () => {
+  let host: HTMLDivElement;
+  let tree: StructureTree;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    listDirMock.mockReset();
+    dirCtxMock.mockReset();
+    repoSummaryMock.mockReset();
+    repoSummaryMock.mockResolvedValue({ worktrees: [] });
+    dirCtxMock.mockResolvedValue({ git: null, runtime: null });
+    __resetRepoSummaryCacheForTests();
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    tree = new StructureTree(host, () => undefined);
+  });
+
+  it("falls back to the main checkout instead of showing the raw error", async () => {
+    listDirMock.mockImplementation((cwd: string) =>
+      cwd === "/r/proj"
+        ? Promise.resolve([entry("/r/proj/a.md", "a.md", "file")])
+        : Promise.reject("not a directory: " + cwd),
+    );
+    await tree.setCwd("/r/proj/.covenant/worktrees/agent-x");
+    await flush();
+    expect(host.querySelector(".structure-error")).toBeNull();
+    expect(host.textContent).toContain("a.md");
+  });
+
+  it("still shows other errors verbatim", async () => {
+    listDirMock.mockRejectedValue("permission denied: /r/proj");
+    await tree.setCwd("/r/proj");
+    await flush();
+    expect(host.querySelector(".structure-error")?.textContent).toContain("permission denied");
   });
 });

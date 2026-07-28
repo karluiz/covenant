@@ -977,10 +977,23 @@ export class StructureTree {
     } catch (err) {
       if (gen !== this.refreshGen) return;
       // Pinned worktree vanished (pruned/deleted) — fall back to the terminal.
-      if (this.pinnedRoot === cwd && this.lastTerminalCwd) {
+      if (this.pinnedRoot === cwd && this.lastTerminalCwd && this.lastTerminalCwd !== cwd) {
         this.pinnedRoot = null;
         void this.reroot(this.lastTerminalCwd);
         return;
+      }
+      // The root itself is gone (worktree merged + pruned while a shell
+      // still sat in it). Land somewhere real instead of a raw error.
+      if (String(err).includes("not a directory")) {
+        if (this.pinnedRoot === cwd) this.pinnedRoot = null;
+        const fb = fallbackRoot(cwd);
+        if (fb) {
+          if (fb.wasWorktree) {
+            pushInfoToast({ message: "Worktree is gone — back to the main checkout" });
+          }
+          void this.reroot(fb.root);
+          return;
+        }
       }
       this.showError(String(err));
       return;
@@ -1580,6 +1593,20 @@ export class StructureTree {
     err.textContent = msg;
     this.listEl.appendChild(err);
   }
+}
+
+/// Where to land when the tree's root no longer exists. A path inside a
+/// pruned agent worktree (…/.covenant/worktrees/<slug>/… or
+/// …/.claude/worktrees/<slug>/…) falls back to the main checkout;
+/// anything else walks one level up. Returns null at the filesystem
+/// root. If the fallback is also gone, the next refreshRoot fails again
+/// and walks up once more — each hop strictly shortens the path.
+export function fallbackRoot(gone: string): { root: string; wasWorktree: boolean } | null {
+  const m = gone.match(/^(.+)\/\.(?:covenant|claude)\/worktrees\/[^/]+(?:\/|$)/);
+  if (m) return { root: m[1], wasWorktree: true };
+  const parent = parentDir(gone, "");
+  if (!parent || parent === gone) return null;
+  return { root: parent, wasWorktree: false };
 }
 
 /// Parent directory of `path`, falling back to `fallback` (the cwd) if
