@@ -1,88 +1,93 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from "vitest";
-import { renderAgentCard, type CardCallbacks } from "./tile";
-import type { AgentCard, TileStatus } from "../api";
+import { renderAgentRow, renderDetailPane, type RowCallbacks, type DetailCallbacks } from "./tile";
+import type { AgentCard, AttentionItem, TileStatus } from "../api";
 
 const agent = (over: Partial<AgentCard>): AgentCard => ({
-  session_id: "s1", tab_title: "awareness", tab_color: null, lane: "pty",
+  session_id: "s1", tab_title: "agent tests", tab_color: null, lane: "pty",
   executor: "claude", status: "working" as TileStatus, phase_label: null,
   cwd: null, vendor: "claude", raw_command_label: null,
-  last_command: "editing storage.rs", last_output_line: null,
+  last_command: "cargo test --workspace", last_output_line: null, excerpt: null,
   mission_name: null, operator_id: null, operator_name: null,
   operator_avatar: null, cost_usd: null, budget_usd: null, subagents: [], ...over,
 });
 
-const cbs = (): CardCallbacks => ({
-  onFocus: vi.fn(),
-  onSubmit: vi.fn(async () => {}),
-  onStop: vi.fn(),
+const rowCbs = (): RowCallbacks => ({ onSelect: vi.fn(), onFocus: vi.fn() });
+const detailCbs = (): DetailCallbacks => ({
+  onFocus: vi.fn(), onStop: vi.fn(),
+  onOperatorReply: vi.fn(async () => {}), onPermission: vi.fn(), onPtyReply: vi.fn(),
 });
 
-describe("renderAgentCard", () => {
-  it("renders executor, title, status pill and phase label", () => {
-    const el = renderAgentCard(
-      agent({ executor: "codex", phase_label: "writing a.rs", tab_title: "fix parser" }),
-      cbs(),
+describe("renderAgentRow", () => {
+  it("headline is the tab title; sub-line is executor · operator; activity is mono line", () => {
+    const el = renderAgentRow(
+      agent({ executor: "codex", operator_name: "Zeta", phase_label: "editing a.rs" }),
+      { selected: false, age: null }, rowCbs(),
     );
-    expect(el.querySelector(".mc-card__exec")?.textContent).toBe("codex");
-    expect(el.textContent).toContain("fix parser");
-    expect(el.querySelector(".mc-pill")?.textContent).toBe("working");
-    expect(el.querySelector(".mc-card__activity")?.textContent).toContain("writing a.rs");
-    expect(el.querySelector(".mc-card__stop")).toBeNull(); // no operator → no Stop
+    expect(el.classList.contains("mc-row--working")).toBe(true);
+    expect(el.querySelector(".mc-row__title")?.textContent).toBe("agent tests");
+    expect(el.querySelector(".mc-row__sub")?.textContent).toBe("codex · Zeta");
+    expect(el.querySelector(".mc-row__activity")?.textContent).toBe("editing a.rs");
   });
 
-  it("shows operator badge + Stop when an operator is enabled", () => {
-    const onStop = vi.fn();
-    const el = renderAgentCard(
-      agent({ operator_id: "o1", operator_name: "Raven", operator_avatar: "🦅" }),
-      { ...cbs(), onStop },
+  it("selected + age render; click selects; double-click focuses the tab", () => {
+    const cb = rowCbs();
+    const el = renderAgentRow(agent({ status: "blocked" }), { selected: true, age: "2m ago" }, cb);
+    expect(el.classList.contains("mc-row--selected")).toBe(true);
+    expect(el.querySelector(".mc-row__age")?.textContent).toBe("2m ago");
+    el.click();
+    expect(cb.onSelect).toHaveBeenCalledWith("s1");
+    el.dispatchEvent(new MouseEvent("dblclick"));
+    expect(cb.onFocus).toHaveBeenCalledWith("s1");
+  });
+});
+
+describe("renderDetailPane", () => {
+  it("head has title + status pill + Open tab; no Stop without an operator", () => {
+    const cb = detailCbs();
+    const el = renderDetailPane(agent({}), null, cb);
+    expect(el.querySelector(".mc-detail__title")?.textContent).toBe("agent tests");
+    expect(el.querySelector(".mc-pill--working")?.textContent).toBe("working");
+    expect(el.querySelector(".mc-stop")).toBeNull();
+    el.querySelector<HTMLButtonElement>(".mc-detail__open")!.click();
+    expect(cb.onFocus).toHaveBeenCalledWith("s1", false);
+  });
+
+  it("operator: meta shows the badge, Stop stops", () => {
+    const cb = detailCbs();
+    const el = renderDetailPane(
+      agent({ operator_id: "o1", operator_name: "Zeta", mission_name: "release", cwd: "/x", cost_usd: 0.4, budget_usd: 1 }),
+      null, cb,
     );
-    expect(el.querySelector(".mc-oplabel")?.textContent).toContain("Raven");
-    el.querySelector<HTMLButtonElement>(".mc-card__stop")!.click();
-    expect(onStop).toHaveBeenCalledWith("s1");
+    expect(el.querySelector(".mc-oplabel")?.textContent).toContain("Zeta");
+    expect(el.querySelector(".mc-chip")?.textContent).toContain("release");
+    expect(el.querySelector(".mc-detail__cwd")?.textContent).toBe("/x");
+    expect(el.querySelector(".mc-cost")).not.toBeNull();
+    el.querySelector<HTMLButtonElement>(".mc-stop")!.click();
+    expect(cb.onStop).toHaveBeenCalledWith("s1");
   });
 
-  it("blocked card is informational — no composer (the queue owns the interaction)", () => {
-    const el = renderAgentCard(
-      agent({ status: "blocked", phase_label: "waiting: permission" }),
-      cbs(),
-    );
-    expect(el.querySelector(".mc-pill")?.textContent).toBe("NEEDS YOU");
-    expect(el.querySelector(".mc-reply")).toBeNull();
-    expect(el.querySelector(".mc-card__activity")?.textContent).toContain("waiting: permission");
-  });
-
-  it("clicking the tab link focuses the session", () => {
-    const c = cbs();
-    const el = renderAgentCard(agent({}), c);
-    el.querySelector<HTMLElement>(".mc-card__tab")!.click();
-    expect(c.onFocus).toHaveBeenCalledWith("s1", false);
-  });
-
-  it("renders sub-agent rows when present, hidden when empty", () => {
-    expect(renderAgentCard(agent({}), cbs()).querySelector(".mc-subagents")).toBeNull();
-    const el = renderAgentCard(
+  it("live tail renders from card.excerpt; subagent rows render", () => {
+    const el = renderDetailPane(
       agent({
-        subagents: [
-          { id: "t1", label: "find phase detection", detail: "Explore", running: true, started_unix_ms: Date.now() - 65_000 },
-          { id: "t2", label: "review:bugs", detail: null, running: false, started_unix_ms: Date.now() },
-        ],
+        excerpt: "$ cargo test\nrunning 34/210",
+        subagents: [{ id: "t1", label: "fix-flaky", detail: null, running: true, started_unix_ms: Date.now() - 61_000 }],
       }),
-      cbs(),
+      null, detailCbs(),
     );
-    const rows = [...el.querySelectorAll(".mc-subrow")];
-    expect(rows.length).toBe(2);
-    expect(rows[0].textContent).toContain("find phase detection");
-    expect(rows[0].textContent).toContain("Explore");
-    expect(rows[0].textContent).toContain("1m");
-    expect(rows[0].querySelector(".mc-dot--working")).not.toBeNull();
-    expect(rows[1].querySelector(".mc-dot--idle")).not.toBeNull();
-    expect(rows[1].textContent).toContain("done");
+    expect(el.querySelector(".mc-tail")?.textContent).toContain("running 34/210");
+    expect(el.querySelector(".mc-subrow")?.textContent).toContain("fix-flaky");
   });
 
-  it("shows a cost bar only when AOM-enrolled", () => {
-    expect(renderAgentCard(agent({}), cbs()).querySelector(".mc-cost")).toBeNull();
-    const withCost = renderAgentCard(agent({ cost_usd: 0.42, budget_usd: 1 }), cbs());
-    expect(withCost.querySelector(".mc-cost")).not.toBeNull();
+  it("blocked + attention item: the interaction renders inside the pane", () => {
+    const at: AttentionItem = {
+      session_id: "s1", tab_title: "agent tests", tab_color: null, lane: "pty",
+      executor: "claude", kind: "operator-escalation", question: "Ship?",
+      excerpt: null, permission: null, operator_name: "Zeta",
+      operator_avatar: null, mission_name: null, since_unix_ms: 1,
+    };
+    const el = renderDetailPane(agent({ status: "blocked" }), at, detailCbs());
+    expect(el.querySelector(".mc-detail__question")?.textContent).toBe("Ship?");
+    expect(el.querySelector(".mc-reply")).not.toBeNull();
   });
 });

@@ -13,13 +13,13 @@ export function statusPriority(s: TileStatus): number {
   return PRIORITY[s] ?? 99;
 }
 
-/// session_id → attention item, for joining the queue onto the grid
-/// (blocked ordering, grid exclusion).
+/// session_id → attention item, for joining the queue onto rows and the
+/// detail pane.
 export function attentionIndex(items: AttentionItem[]): Map<string, AttentionItem> {
   return new Map(items.map((i) => [i.session_id, i]));
 }
 
-/// Grid order: blocked first (oldest attention timestamp first; blocked
+/// Rail order: blocked first (oldest attention timestamp first; blocked
 /// without a timestamp after those), then status priority, then title.
 export function sortAgents(agents: AgentCard[], attention: AttentionItem[]): AgentCard[] {
   const at = new Map(

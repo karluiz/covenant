@@ -1,72 +1,72 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from "vitest";
-import { renderAttentionCard, type AttentionCallbacks } from "./attention";
+import { renderAttentionBody, agoLabel, type AttentionCallbacks } from "./attention";
 import type { AttentionItem } from "../api";
 
 const item = (over: Partial<AttentionItem>): AttentionItem => ({
   session_id: "s1", tab_title: "deploy", tab_color: null, lane: "pty",
-  executor: "claude", kind: "operator-escalation", question: "OK to push?",
+  executor: "claude", kind: "operator-escalation", question: "Ship it?",
   excerpt: null, permission: null, operator_name: "Zeta",
   operator_avatar: null, mission_name: null, since_unix_ms: 100, ...over,
 });
 
 const cbs = (): AttentionCallbacks => ({
-  onFocus: vi.fn(),
   onOperatorReply: vi.fn(async () => {}),
   onPermission: vi.fn(),
   onPtyReply: vi.fn(),
 });
 
-describe("renderAttentionCard", () => {
-  it("acp-permission renders option buttons and answers with option_id", () => {
-    const c = cbs();
-    const el = renderAttentionCard(item({
-      kind: "acp-permission", lane: "acp", question: "npm test",
-      permission: {
-        request_key: "k1", title: "npm test", since_unix_ms: 1,
-        options: [
-          { option_id: "allow_once", kind: "allow_once", name: "Allow once" },
-          { option_id: "rej", kind: "reject_once", name: null },
-        ],
-      },
-    }), c);
-    const btns = [...el.querySelectorAll<HTMLButtonElement>(".mc-perm-opts button")];
-    expect(btns.map((b) => b.textContent)).toEqual(["Allow once", "reject once"]);
-    btns[0].click();
-    expect(c.onPermission).toHaveBeenCalledWith("s1", "k1", "allow_once");
-    expect(el.querySelector(".mc-reply")).toBeNull(); // options answer it, no prose
+const mounted = (frag: DocumentFragment): HTMLElement => {
+  const host = document.createElement("div");
+  host.append(frag);
+  return host;
+};
+
+describe("renderAttentionBody", () => {
+  it("operator escalation: question + scoped reply composer", () => {
+    const el = mounted(renderAttentionBody(item({}), cbs()));
+    expect(el.querySelector(".mc-detail__question")?.textContent).toBe("Ship it?");
+    expect(el.querySelector(".mc-reply")).not.toBeNull();
+    expect(el.querySelector(".mc-reply__scope")).not.toBeNull();
   });
 
-  it("pty-waiting renders excerpt and submits a PTY reply", () => {
-    const c = cbs();
-    const el = renderAttentionCard(item({
-      kind: "pty-waiting", question: "waiting: input",
-      excerpt: "Overwrite migrations/v2.sql? [y/N]",
-    }), c);
-    expect(el.querySelector(".mc-card__tail")?.textContent).toContain("Overwrite");
+  it("acp permission: title fallback + option buttons answer inline", () => {
+    const onPermission = vi.fn();
+    const el = mounted(renderAttentionBody(
+      item({
+        kind: "acp-permission", question: null,
+        permission: {
+          request_key: "rk", title: "Run cargo test?", since_unix_ms: 1,
+          options: [{ option_id: "allow", name: "Allow", kind: "allow_once" }],
+        },
+      }),
+      { ...cbs(), onPermission },
+    ));
+    expect(el.querySelector(".mc-detail__question")?.textContent).toBe("Run cargo test?");
+    el.querySelector<HTMLButtonElement>(".mc-perm-opts button")!.click();
+    expect(onPermission).toHaveBeenCalledWith("s1", "rk", "allow");
+  });
+
+  it("pty waiting: composer writes to the terminal, no scope select", () => {
+    const onPtyReply = vi.fn();
+    const el = mounted(renderAttentionBody(item({ kind: "pty-waiting", question: null }), { ...cbs(), onPtyReply }));
+    expect(el.querySelector(".mc-detail__question")?.textContent).toBe("(waiting on you)");
+    expect(el.querySelector(".mc-reply__scope")).toBeNull();
     const ta = el.querySelector<HTMLTextAreaElement>(".mc-reply__textarea")!;
-    ta.value = " y ";
+    ta.value = "y";
     el.querySelector<HTMLButtonElement>(".mc-reply__send")!.click();
-    expect(c.onPtyReply).toHaveBeenCalledWith("s1", "y");
-    expect(ta.value).toBe("");
+    expect(onPtyReply).toHaveBeenCalledWith("s1", "y");
   });
 
-  it("operator-escalation renders question, excerpt and scoped composer", async () => {
-    const c = cbs();
-    const el = renderAttentionCard(item({ excerpt: "the tail" }), c);
-    expect(el.querySelector(".mc-card__question")?.textContent).toBe("OK to push?");
-    expect(el.querySelector(".mc-card__tail")?.textContent).toBe("the tail");
-    const ta = el.querySelector<HTMLTextAreaElement>(".mc-reply__textarea")!;
-    ta.value = "go";
-    el.querySelector<HTMLButtonElement>(".mc-reply__send")!.click();
-    await Promise.resolve();
-    expect(c.onOperatorReply).toHaveBeenCalledWith("s1", "go", "one-shot");
+  it("never renders the excerpt — the detail pane owns the tail", () => {
+    const el = mounted(renderAttentionBody(item({ excerpt: "$ ls\nfoo" }), cbs()));
+    expect(el.textContent).not.toContain("$ ls");
   });
+});
 
-  it("every kind gets a jump-to-tab affordance", () => {
-    const c = cbs();
-    const el = renderAttentionCard(item({}), c);
-    el.querySelector<HTMLButtonElement>(".mc-card__tab")!.click();
-    expect(c.onFocus).toHaveBeenCalledWith("s1", false);
+describe("agoLabel", () => {
+  it("formats seconds/minutes", () => {
+    expect(agoLabel(Date.now() - 5_000)).toBe("5s ago");
+    expect(agoLabel(Date.now() - 120_000)).toBe("2m ago");
   });
 });

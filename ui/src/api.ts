@@ -2366,6 +2366,8 @@ export interface AgentCard {
   raw_command_label: string | null;
   last_command: string | null;
   last_output_line: string | null;
+  /// Last ~15 screen lines (PTY lanes); null for ACP.
+  excerpt: string | null;
   mission_name: string | null;
   operator_id: string | null;
   operator_name: string | null;
