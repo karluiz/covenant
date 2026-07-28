@@ -1947,11 +1947,11 @@ async fn build_convergence_inputs(
         let sessions = state.sessions.lock().await;
         sessions
             .iter()
-            .map(|(id, ms)| (*id, ms.op_state.clone()))
+            .map(|(id, ms)| (*id, ms.op_state.clone(), ms.session.screen_snapshot()))
             .collect()
     };
     let mut out = Vec::with_capacity(base.len());
-    for (id, op_state) in base {
+    for (id, op_state, screen) in base {
         let id_str = id.to_string();
         let (operator_id, operator_name, operator_avatar) = pinned_operator(id);
         let (tab_title, tab_color) = by_id
@@ -1972,6 +1972,7 @@ async fn build_convergence_inputs(
             operator_avatar,
             notch_phase,
             notch_agent,
+            screen: (!screen.trim().is_empty()).then_some(screen),
         });
     }
 

@@ -40,9 +40,31 @@ describe("renderAgentRow", () => {
     el.dispatchEvent(new MouseEvent("dblclick"));
     expect(cb.onFocus).toHaveBeenCalledWith("s1");
   });
+
+  it("activity falls back to cwd before the ellipsis placeholder", () => {
+    const withCwd = renderAgentRow(
+      agent({ last_command: null, last_output_line: null, cwd: "/x/y" }),
+      { selected: false, age: null }, rowCbs(),
+    );
+    expect(withCwd.querySelector(".mc-row__activity")?.textContent).toBe("/x/y");
+    const bare = renderAgentRow(
+      agent({ last_command: null, last_output_line: null, cwd: null }),
+      { selected: false, age: null }, rowCbs(),
+    );
+    expect(bare.querySelector(".mc-row__activity")?.textContent).toBe("…");
+  });
 });
 
 describe("renderDetailPane", () => {
+  it("acp session without excerpt gets a chat note instead of an empty void", () => {
+    const el = renderDetailPane(agent({ lane: "acp", excerpt: null }), null, detailCbs());
+    expect(el.querySelector(".mc-tail")).toBeNull();
+    expect(el.querySelector(".mc-detail__note")?.textContent).toContain("conversation lives in its tab");
+    // PTY without excerpt stays bare — no note.
+    const pty = renderDetailPane(agent({ lane: "pty", excerpt: null }), null, detailCbs());
+    expect(pty.querySelector(".mc-detail__note")).toBeNull();
+  });
+
   it("head has title + status pill + Open tab; no Stop without an operator", () => {
     const cb = detailCbs();
     const el = renderDetailPane(agent({}), null, cb);
