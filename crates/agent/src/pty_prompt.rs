@@ -175,7 +175,11 @@ fn parse_choice_prompt(lines: &[&str]) -> Option<PermissionRequest> {
             option_count += 1;
             let label = c[2].trim().to_string();
             let low = label.to_ascii_lowercase();
-            if low.contains("(recommended)") || low.contains("(default)") {
+            if low.contains("(recommended)")
+                || low.contains("(default)")
+                || low.contains("(recomendad") // (recomendada) / (recomendado)
+                || low.contains("(por defecto)")
+            {
                 tagged += 1;
                 answer = Some((c[1].to_string(), label));
             }
@@ -381,6 +385,21 @@ Which approach?";
         let req = parse_claude_prompt(screen).expect("should parse");
         assert_eq!(req.tool_call.kind.as_deref(), Some("choice"));
         assert_eq!(req.options[0].option_id, "1");
+    }
+
+    #[test]
+    fn parses_spanish_recommended_choice() {
+        // Real screen from a Claude session answering in Spanish, mixed case.
+        let screen = "\
+Dos opciones de ejecución:
+1. Subagent-driven (Recomendada) — un subagente fresco por tarea.
+2. Inline — ejecuto las tareas en esta sesión.
+
+¿Cuál?";
+        let req = parse_claude_prompt(screen).expect("should parse");
+        assert_eq!(req.tool_call.kind.as_deref(), Some("choice"));
+        assert_eq!(req.options[0].option_id, "1");
+        assert_eq!(req.tool_call.title.as_deref(), Some("¿Cuál?"));
     }
 
     #[test]
