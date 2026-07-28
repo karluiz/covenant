@@ -265,6 +265,19 @@ impl AcpSession {
         // after the script lands in $0/$1... instead of being parsed as sh
         // invocation options (`sh --acp` is an invocation error). copilot
         // accepts its flags in any position.
+        // Scrub Claude Code child-session markers: if Covenant itself was
+        // launched from inside a claude session, the adapter's claude would
+        // inherit them, think it's a nested child session, and stop saving
+        // transcripts (breaking --resume). Same list as karl-pty's
+        // CLAUDE_CHILD_MARKERS (this crate doesn't depend on karl-pty).
+        for k in [
+            "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_PID",
+        ] {
+            cmd.env_remove(k);
+        }
         for (k, v) in &opts.env {
             cmd.env(k, v);
         }
