@@ -14,7 +14,7 @@ interface CrossSessionFinding {
   timestamp_unix_ms: number;
 }
 
-interface GroupSupervisionFinding {
+export interface GroupSupervisionFinding {
   group_id: string;
   operator_id: string;
   operator_name: string;
@@ -23,9 +23,18 @@ interface GroupSupervisionFinding {
 }
 
 interface ToastOptions {
-  /// Called when the user clicks a toast. The finding is passed back so
-  /// callers can route it (e.g. open the agent panel pre-filled).
+  /// Called when the user clicks a cross-session finding toast. The
+  /// finding is passed back so callers can route it (e.g. open the
+  /// agent panel pre-filled).
   onClick: (finding: CrossSessionFinding) => void;
+  /// Called when the user clicks a group-supervision finding toast.
+  /// Distinct from `onClick` because the payload carries the attributing
+  /// supervisor (`operator_name`/`operator_id`/`group_id`) that callers
+  /// need to label the follow-up correctly — funneling it through the
+  /// `CrossSessionFinding`-typed `onClick` would silently drop that
+  /// attribution. Optional so existing callers aren't forced to handle
+  /// it; unhandled clicks just dismiss the toast.
+  onGroupSupervisionClick?: (finding: GroupSupervisionFinding) => void;
 }
 
 export interface InfoToast {
@@ -382,7 +391,7 @@ export class ToastHost {
     );
 
     card.addEventListener("click", () => {
-      this.opts.onClick(finding);
+      this.opts.onGroupSupervisionClick?.(finding);
       dismiss();
     });
 

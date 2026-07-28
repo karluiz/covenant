@@ -166,7 +166,14 @@ async fn watch_loop(
     mut incoming_rx: mpsc::UnboundedReceiver<(SessionId, SessionEvent)>,
     vitals: crate::vitals::VitalsHandle,
 ) {
-    let mut last_failure_at: Option<(Instant, SessionId, String)> = None;
+    // Deliberately does NOT carry `group_id` (or the `Operator`) across the
+    // debounce window — only `Instant` + `SessionId`. The trigger-time gate
+    // below only decides WHETHER to schedule a check; `check_for_pattern`
+    // re-derives `(group_id, op)` atomically at check time via
+    // `supervised_group_for`, so a session that moves to a *different*
+    // supervised group mid-debounce can never have its old group_id paired
+    // with its new supervisor (or vice versa).
+    let mut last_failure_at: Option<(Instant, SessionId)> = None;
     let mut rate = SimpleRate::new(MAX_CHECKS_PER_MINUTE, Duration::from_secs(60));
 
     loop {
@@ -180,23 +187,21 @@ async fn watch_loop(
                     ..
                 } = event
                 {
-                    if code != 0 {
-                        if let Some((group_id, _op)) = supervised_group_for(&registry, session_id) {
-                            last_failure_at = Some((Instant::now(), session_id, group_id));
-                        }
+                    if code != 0 && supervised_group_for(&registry, session_id).is_some() {
+                        last_failure_at = Some((Instant::now(), session_id));
                     }
                 }
             }
 
-            _ = wait_until_debounce(last_failure_at.as_ref().map(|(t, _, _)| *t)) => {
+            _ = wait_until_debounce(last_failure_at.map(|(t, _)| t)) => {
                 let trigger = last_failure_at.take();
                 if !rate.try_acquire() {
                     tracing::debug!("group-supervision rate-limited");
                     continue;
                 }
-                if let Some((_, trigger_id, group_id)) = trigger {
+                if let Some((_, trigger_id)) = trigger {
                     if let Err(e) =
-                        check_for_pattern(&inner, &settings, &app, &registry, trigger_id, &group_id, &vitals).await
+                        check_for_pattern(&inner, &settings, &app, &registry, trigger_id, &vitals).await
                     {
                         tracing::warn!(error = %e, "group-supervision check failed");
                     }
@@ -218,23 +223,24 @@ async fn wait_until_debounce(last: Option<Instant>) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn check_for_pattern(
     inner: &Arc<Mutex<Inner>>,
     settings: &Arc<Mutex<Settings>>,
     app: &AppHandle,
     registry: &Arc<OperatorRegistry>,
     trigger_id: SessionId,
-    group_id: &str,
     vitals: &crate::vitals::VitalsHandle,
 ) -> Result<(), String> {
-    // Re-resolve the supervisor at check time (not at trigger time) so a
-    // capability revoked or a group detached mid-debounce cancels the
-    // check instead of firing on stale identity.
-    let Some(op) = registry.supervisor_for(trigger_id) else {
+    // Re-derive (group_id, supervisor) TOGETHER at check time, not at
+    // trigger time — `supervised_group_for` returns them as one atomic
+    // pair, so a session that moved to a different supervised group (or
+    // lost supervision entirely) during the debounce window can never
+    // pair a stale group_id with a fresh operator or vice versa.
+    let Some((group_id, op)) = supervised_group_for(registry, trigger_id) else {
         tracing::debug!(session = %trigger_id, "group-supervision: supervisor gone, skipping");
         return Ok(());
     };
+    let group_id = group_id.as_str();
 
     // Snapshot state without holding any lock across the http call.
     let resolved = {

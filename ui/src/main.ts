@@ -2269,6 +2269,14 @@ async function boot(): Promise<void> {
       // ask follow-ups about the cross-session pattern.
       agent.openWithSeed(`Re cross-session finding: ${finding.message}\n\n`);
     },
+    onGroupSupervisionClick: (finding) => {
+      // Same follow-up routing, but attributed to the supervisor that
+      // made the call — dropping into the generic cross-session label
+      // would silently lose which operator (and group) flagged it.
+      agent.openWithSeed(
+        `Re finding from supervisor ${finding.operator_name}: ${finding.message}\n\n`,
+      );
+    },
   });
   await toasts.start();
   setSharedToastHost(toasts);
