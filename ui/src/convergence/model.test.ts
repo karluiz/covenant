@@ -7,7 +7,7 @@ const agent = (sid: string, status: TileStatus, title = sid): AgentCard => ({
   session_id: sid, tab_title: title, tab_color: null, lane: "pty",
   executor: "claude", status, phase_label: null, cwd: null,
   vendor: "unknown", raw_command_label: null, last_command: null,
-  last_output_line: null, excerpt: null, mission_name: null, operator_id: null,
+  last_output_line: null, excerpt: null, started_at_unix_ms: null, mission_name: null, operator_id: null,
   operator_name: null, operator_avatar: null, cost_usd: null, budget_usd: null,
   subagents: [],
 });

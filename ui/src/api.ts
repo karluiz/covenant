@@ -2374,6 +2374,8 @@ export interface AgentCard {
   operator_avatar: string | null;
   cost_usd: number | null;
   budget_usd: number | null;
+  /// Wall-clock session start (Ulid-decoded); null when unknown.
+  started_at_unix_ms: number | null;
   /// Live sub-agents (ACP lane only; empty elsewhere).
   subagents: SubAgentRow[];
 }

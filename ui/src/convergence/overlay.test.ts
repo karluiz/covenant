@@ -22,7 +22,7 @@ const agent = (over: Partial<AgentCard>): AgentCard => ({
   session_id: "s1", tab_title: "awareness", tab_color: null, lane: "pty",
   executor: "claude", status: "working", phase_label: null, cwd: null,
   vendor: "claude", raw_command_label: null, last_command: "x",
-  last_output_line: null, excerpt: null, mission_name: null, operator_id: null,
+  last_output_line: null, excerpt: null, started_at_unix_ms: null, mission_name: null, operator_id: null,
   operator_name: null, operator_avatar: null, cost_usd: null, budget_usd: null,
   subagents: [], ...over,
 });
@@ -156,5 +156,61 @@ describe("ConvergenceOverlay.refresh", () => {
     await ov.refreshForTest();
     await ov.refreshForTest();
     expect(document.querySelector(".convergence-overlay__empty")?.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("non-blocked rows show elapsed-since-start; blocked rows keep attention age", async () => {
+    getSnap.mockResolvedValue({
+      agents: [
+        agent({ session_id: "s1", started_at_unix_ms: Date.now() - 65_000 }),
+        agent({ session_id: "s2", status: "blocked", started_at_unix_ms: Date.now() - 300_000 }),
+      ],
+      attention: [attItem({ session_id: "s2", since_unix_ms: Date.now() - 120_000 })],
+    });
+    ov.open();
+    await ov.refreshForTest();
+    await ov.refreshForTest();
+    const age = (sid: string) =>
+      document.querySelector(`.mc-row[data-session-id="${sid}"] .mc-row__age`)?.textContent;
+    expect(age("s1")).toBe("1m 05s");
+    expect(age("s2")).toBe("2m ago");
+  });
+
+  it("answering a blocked session advances the pane to the next blocked one", async () => {
+    getSnap.mockResolvedValue({
+      agents: [
+        agent({ session_id: "s1", tab_title: "alpha", status: "blocked" }),
+        agent({ session_id: "s2", tab_title: "beta", status: "blocked" }),
+        agent({ session_id: "s3", tab_title: "gamma" }),
+      ],
+      attention: [
+        attItem({ session_id: "s1", since_unix_ms: 100 }),
+        attItem({ session_id: "s2", since_unix_ms: 200 }),
+      ],
+    });
+    ov.open();
+    await ov.refreshForTest();
+    await ov.refreshForTest();
+    expect(document.querySelector<HTMLElement>(".mc-detail")?.dataset.sessionId).toBe("s1");
+    const ta = document.querySelector<HTMLTextAreaElement>(".mc-detail .mc-reply__textarea")!;
+    ta.value = "ship it";
+    document.querySelector<HTMLButtonElement>(".mc-detail .mc-reply__send")!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.querySelector<HTMLElement>(".mc-detail")?.dataset.sessionId).toBe("s2");
+  });
+
+  it("number keys jump the pane to the Nth rail row", async () => {
+    getSnap.mockResolvedValue({
+      agents: [
+        agent({ session_id: "s1", tab_title: "alpha" }),
+        agent({ session_id: "s2", tab_title: "beta" }),
+      ],
+      attention: [],
+    });
+    ov.open();
+    await ov.refreshForTest();
+    await ov.refreshForTest();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "2" }));
+    expect(document.querySelector<HTMLElement>(".mc-detail")?.dataset.sessionId).toBe("s2");
   });
 });

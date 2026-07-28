@@ -166,8 +166,18 @@ pub struct AgentCard {
     pub operator_avatar: Option<String>,
     pub cost_usd: Option<f64>,
     pub budget_usd: Option<f64>,
+    /// Wall-clock session start, decoded from the session id's Ulid
+    /// timestamp — no extra plumbing. None when the id isn't a Ulid.
+    pub started_at_unix_ms: Option<u64>,
     /// Live sub-agents (ACP lane only; empty elsewhere).
     pub subagents: Vec<SubAgentRow>,
+}
+
+/// Session start from the Ulid-encoded creation time of the session id.
+fn started_ms_from_id(id: &str) -> Option<u64> {
+    id.parse::<karl_session::SessionId>()
+        .ok()
+        .map(|s| s.0.timestamp_ms())
 }
 
 /// What kind of blocked signal an attention item carries. Determines the
@@ -397,6 +407,7 @@ pub fn pty_agent_card(
         operator_avatar: None,
         cost_usd: None,
         budget_usd: None,
+        started_at_unix_ms: started_ms_from_id(session_id),
         subagents: Vec::new(),
     })
 }
@@ -425,6 +436,7 @@ pub fn acp_agent_card(inp: AcpSessionInput) -> AgentCard {
         operator_avatar: inp.operator_avatar,
         cost_usd: None,
         budget_usd: None,
+        started_at_unix_ms: Some(inp.session_id.0.timestamp_ms()),
         subagents: inp.subagents,
     }
 }
@@ -643,6 +655,7 @@ pub async fn build_convergence_snapshot(
             operator_avatar: op_avatar,
             cost_usd,
             budget_usd: if enrolled { Some(aom_budget) } else { None },
+            started_at_unix_ms: Some(s.session_id.0.timestamp_ms()),
             subagents: Vec::new(),
         };
 
@@ -917,9 +930,22 @@ mod tests {
             operator_avatar: None,
             cost_usd: None,
             budget_usd: None,
+            started_at_unix_ms: None,
             subagents: Vec::new(),
             excerpt: None,
         }
+    }
+
+    #[test]
+    fn cards_carry_started_at_from_the_session_ulid() {
+        let id = karl_session::SessionId::new();
+        let c = pty_agent_card(&id.to_string(), "t", None, Some("claude".into()), None)
+            .expect("foreground agent → card");
+        assert_eq!(c.started_at_unix_ms, Some(id.0.timestamp_ms()));
+        // Non-ulid ids (defensive): no timestamp, no panic.
+        let c2 = pty_agent_card("not-a-ulid", "t", None, Some("claude".into()), None)
+            .expect("foreground agent → card");
+        assert_eq!(c2.started_at_unix_ms, None);
     }
 
     #[test]
