@@ -8525,7 +8525,7 @@ export class TabManager {
     const ops = (await this.listOperators?.().catch(() => [])) ?? [];
     const eligible = ops.filter((o) => o.supervision_enabled);
     let supervisor = group.supervisorId
-      ? ops.find((o) => o.id === group.supervisorId) ?? null
+      ? eligible.find((o) => o.id === group.supervisorId) ?? null
       : null;
     // Stale-attach cleanup: the attached supervisor may have been deleted
     // or lost the Supervision capability since it was attached. Clear it
