@@ -9,6 +9,10 @@ import type { GroupFinding } from "./findings";
 export interface GroupView {
   id: string;
   name: string;
+  /// True when this band stands for another WORKSPACE, not a tab group.
+  /// Those carry no supervisor affordances — you attach an operator to a
+  /// group, never to a workspace — and say where they are instead.
+  foreign?: boolean;
   supervisor: {
     operatorId: string;
     /// Resolved display name; falls back to "supervisor" when the
@@ -62,7 +66,10 @@ export function renderGroupBand(
 
   const sub = document.createElement("div");
   sub.className = "mc-gband__sup";
-  if (v.supervisor) {
+  if (v.foreign) {
+    sub.classList.add("mc-gband__sup--none");
+    sub.textContent = "another workspace";
+  } else if (v.supervisor) {
     const icon = document.createElement("span");
     icon.className = "mc-gband__icon";
     icon.innerHTML = Icons.headphones({ size: 11 });
@@ -72,7 +79,7 @@ export function renderGroupBand(
     const mode = document.createElement("span");
     mode.className = "mc-gband__mode";
     mode.textContent = [
-      v.supervisor.intervene ? "intervenes" : "observes",
+      v.supervisor.intervene ? "decides" : "observes only",
       v.findings.length ? `${v.findings.length} findings` : null,
     ]
       .filter(Boolean)
@@ -113,8 +120,13 @@ export function renderGroupDetail(v: GroupView, cb: GroupCallbacks): HTMLElement
     const open = document.createElement("button");
     open.type = "button";
     open.className = "mc-detail__open";
-    open.textContent = "Open group";
-    attachTooltip(open, "Jump to this group's first tab and close Convergence.");
+    open.textContent = v.foreign ? "Switch to workspace" : "Open group";
+    attachTooltip(
+      open,
+      v.foreign
+        ? "Switch to that workspace, land on this tab, and close Convergence."
+        : "Jump to this group's first tab and close Convergence.",
+    );
     const sid = v.firstSessionId;
     open.addEventListener("click", () => cb.onOpen(sid));
     actions.append(open);
@@ -145,10 +157,12 @@ export function renderGroupDetail(v: GroupView, cb: GroupCallbacks): HTMLElement
     toggle.type = "button";
     toggle.className =
       "mc-gdetail__intervene" + (v.supervisor.intervene ? " mc-gdetail__intervene--on" : "");
-    toggle.textContent = v.supervisor.intervene ? "Intervene ON" : "Intervene OFF";
+    toggle.textContent = v.supervisor.intervene ? "Decides" : "Observes only";
     attachTooltip(
       toggle,
-      "When on, the supervisor claims unpinned panes in this group for autonomous mode.",
+      v.supervisor.intervene
+        ? "Answers for you in this group's unpinned panes, and escalates what it won't decide. Click to downgrade to watching."
+        : "Watches without acting — an executor's question comes back to you. Click to let it decide.",
     );
     const next = !v.supervisor.intervene;
     toggle.addEventListener("click", () => cb.onToggleIntervene(v.id, next));
@@ -157,11 +171,18 @@ export function renderGroupDetail(v: GroupView, cb: GroupCallbacks): HTMLElement
   } else {
     const note = document.createElement("div");
     note.className = "mc-detail__note";
-    note.textContent = "No supervisor attached — right-click the group in the tab bar to attach one.";
+    note.textContent = v.foreign
+      ? "These agents are running in another workspace. Their tabs are detached, not closed — output keeps flowing."
+      : "No supervisor attached — right-click the group in the tab bar to attach one.";
     pane.append(note);
   }
 
   pane.append(stats(v));
+
+  // Findings belong to a supervised GROUP. A workspace band has no
+  // supervisor to produce them — an empty "Findings" header would read
+  // as a broken feature rather than an inapplicable one.
+  if (v.foreign) return pane;
 
   const label = document.createElement("div");
   label.className = "mc-gdetail__label";

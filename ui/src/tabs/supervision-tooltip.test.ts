@@ -46,7 +46,7 @@ describe("supervisionTooltip", () => {
         nowMs: NOW,
       }),
     );
-    expect(c.meta).toBe("Observes + intervenes · 2 tabs · 2 findings");
+    expect(c.meta).toBe("Decides for you · 2 tabs · 2 findings");
     expect(c.metaTone).toBe("warn");
   });
 

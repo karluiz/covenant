@@ -41,7 +41,7 @@ export function renderAgentRow(
   dot.className = `mc-dot mc-dot--${card.status}`;
   const title = document.createElement("span");
   title.className = "mc-row__title";
-  title.textContent = card.tab_title;
+  title.textContent = displayTitle(card);
   top.append(dot, title);
   if (opts.age) {
     const age = document.createElement("span");
@@ -91,7 +91,7 @@ export function renderDetailPane(
   head.className = "mc-detail__head";
   const title = document.createElement("h2");
   title.className = "mc-detail__title";
-  title.textContent = card.tab_title;
+  title.textContent = displayTitle(card);
   const pill = document.createElement("span");
   pill.className = `mc-pill mc-pill--${card.status}`;
   pill.textContent = STATUS_LABEL[card.status];
@@ -232,6 +232,18 @@ function brandMark(card: AgentCard, size: number): HTMLElement | null {
   span.style.color = BRAND_COLORS[key] ?? "var(--muted)";
   span.innerHTML = svg;
   return span;
+}
+
+/// What to call this agent. A tab that was never renamed carries the
+/// literal "untitled", and a rail of those tells you nothing — fall back
+/// to the last segment of its cwd, which for a worktree is the branch
+/// slug and for a repo is the repo. Exported for the detail pane so both
+/// surfaces agree on the name.
+export function displayTitle(card: AgentCard): string {
+  const t = card.tab_title.trim();
+  if (t && t.toLowerCase() !== "untitled") return t;
+  const leaf = (card.cwd ?? "").replace(/\/+$/, "").split("/").pop();
+  return leaf || t || "untitled";
 }
 
 function vendorLabel(card: AgentCard): string {

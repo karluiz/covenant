@@ -27,11 +27,18 @@ export interface TabMeta {
   groupId?: string | null;
   /// Supervisor attached to this session's group, if any.
   supervisor?: { operatorId: string; intervene: boolean } | null;
+  /// Set only when the session lives in a workspace the user is NOT
+  /// looking at. Those bucket by workspace instead of by group — one
+  /// band per foreign workspace, below your own.
+  workspace?: { id: string; name: string } | null;
 }
 
 export interface ConvergenceTabBridge {
   listTabs(): TabMeta[];
   activateBySessionId(sessionId: string, opts?: { keepOverlayOpen?: boolean }): boolean;
+  /// Session of the tab the user is looking at right now, if it has one.
+  /// Seeds the detail pane so Convergence opens on where you already are.
+  activeSessionId?(): string | null;
   /// Group supervision controls. Optional — a bridge without them just
   /// renders the group detail read-only.
   setGroupSupervisor?(groupId: string, operatorId: string | null): void;
@@ -40,6 +47,10 @@ export interface ConvergenceTabBridge {
 
 type Filter = "all" | "needs you" | "working" | "idle";
 const POLL_MS = 1000;
+
+/// Rail bucket key for a whole foreign workspace. Prefixed so it can
+/// never collide with a real group id.
+const wsKey = (workspaceId: string): string => `ws:${workspaceId}`;
 
 export class ConvergenceOverlay {
   private root: HTMLElement | null = null;
@@ -63,6 +74,10 @@ export class ConvergenceOverlay {
   /// group id → name + attached supervisor, from the same hints.
   private groupMeta: Map<string, { name: string; supervisor: { operatorId: string; intervene: boolean } | null }> =
     new Map();
+  /// Bucket keys that stand for a whole OTHER workspace, not a group.
+  /// They render a plain band (no supervisor controls — you can't attach
+  /// an operator to a workspace) and sort below your own.
+  private foreignBuckets: Set<string> = new Set();
   /// operator id → {name, avatar}. Fetched once per open — operators
   /// don't get renamed mid-session often enough to poll for it.
   private operatorNames: Map<string, { name: string; avatar: string }> = new Map();
@@ -92,6 +107,12 @@ export class ConvergenceOverlay {
     if (this.visible) return;
     this.mount();
     this.visible = true;
+    // Open on where you already are. Without this the pane landed on
+    // whatever sorted first across every workspace — usually somebody
+    // else's agent, which read as Convergence ignoring the tab you
+    // opened it from. `render()` still falls back to the first row when
+    // the active tab runs no agent.
+    this.activeSessionId = this.bridge.activeSessionId?.() ?? null;
     void this.loadOperatorNames();
     void this.refresh();
     this.pollHandle = window.setInterval(() => void this.refresh(), POLL_MS);
@@ -236,14 +257,23 @@ export class ConvergenceOverlay {
     const hints = this.bridge.listTabs();
     // Bucket by group ID (two groups may share a name); the name is the
     // bucket's label. A hint without an id falls back to its name so a
-    // bridge that only knows names still groups.
-    this.groupBySession = new Map(hints.map((t) => [t.sessionId, t.groupId ?? t.group]));
+    // bridge that only knows names still groups. A session in another
+    // workspace buckets by WORKSPACE instead — its own groups are not
+    // yours and would read as peers of them in the rail.
+    const bucketOf = (t: TabMeta): string | null =>
+      t.workspace ? wsKey(t.workspace.id) : t.groupId ?? t.group;
+    this.groupBySession = new Map(hints.map((t) => [t.sessionId, bucketOf(t)]));
+    this.foreignBuckets = new Set(
+      hints.filter((t) => t.workspace).map((t) => wsKey(t.workspace!.id)),
+    );
     this.groupMeta = new Map(
       hints
-        .filter((t) => (t.groupId ?? t.group) !== null)
+        .filter((t) => bucketOf(t) !== null)
         .map((t) => [
-          (t.groupId ?? t.group) as string,
-          { name: t.group ?? "group", supervisor: t.supervisor ?? null },
+          bucketOf(t) as string,
+          t.workspace
+            ? { name: t.workspace.name, supervisor: null }
+            : { name: t.group ?? "group", supervisor: t.supervisor ?? null },
         ]),
     );
     // Backend hint shape is exactly {session_id, title, color} — group
@@ -278,7 +308,11 @@ export class ConvergenceOverlay {
         case "idle": return card.status === "idle";
       }
     });
-    return groupAgents(flat, (sid) => this.groupBySession.get(sid) ?? null);
+    return groupAgents(
+      flat,
+      (sid) => this.groupBySession.get(sid) ?? null,
+      (key) => key !== null && this.foreignBuckets.has(key),
+    );
   }
 
   private visibleAgents() {
@@ -367,7 +401,9 @@ export class ConvergenceOverlay {
     const spansGroups = grouped.length > 1;
     for (const bucket of grouped) {
       const view = bucket.key ? this.groupView(bucket.key, bucket.cards) : null;
-      if (view && (spansGroups || view.supervisor)) {
+      // A foreign workspace ALWAYS gets its band: it's the only thing
+      // saying these agents aren't in front of you.
+      if (view && (spansGroups || view.supervisor || view.foreign)) {
         this.railEl.append(
           renderGroupBand(view, view.id === this.activeGroupId, this.groupCallbacks()),
         );
@@ -456,6 +492,7 @@ export class ConvergenceOverlay {
     return {
       id: groupId,
       name: meta?.name ?? groupId,
+      foreign: this.foreignBuckets.has(groupId),
       supervisor: sup
         ? {
             operatorId: sup.operatorId,

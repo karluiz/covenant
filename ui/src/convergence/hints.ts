@@ -19,6 +19,12 @@ export interface SessionHint {
   /// Supervisor attached to this session's group, if any. Carries the
   /// operator id only — the overlay resolves the display name itself.
   supervisor: { operatorId: string; intervene: boolean } | null;
+  /// Set only for a session that belongs to a HIBERNATED workspace — one
+  /// the user is not looking at. Its PTY is alive and the backend
+  /// enumerates it either way; without the hint it reached Convergence
+  /// as an anonymous "untitled" row (`build_convergence_inputs`'s
+  /// unwrap_or_else). Null = the active workspace.
+  workspace?: { id: string; name: string } | null;
 }
 
 /// What the overlay needs to know about a tab group, keyed by group id.
@@ -46,6 +52,7 @@ export interface HintTab {
 export function sessionHintsFromTabs(
   tabs: ReadonlyArray<HintTab>,
   groups?: ReadonlyMap<string, GroupInfo>,
+  workspace?: { id: string; name: string } | null,
 ): SessionHint[] {
   const out: SessionHint[] = [];
   for (const t of tabs) {
@@ -67,6 +74,7 @@ export function sessionHintsFromTabs(
         group: info?.name ?? null,
         groupId,
         supervisor,
+        workspace: workspace ?? null,
       });
     }
   }

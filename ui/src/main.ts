@@ -1595,7 +1595,9 @@ async function boot(): Promise<void> {
     },
   });
 
-  const convergence = new ConvergenceOverlay(makeTabsBridge(manager));
+  const convergence = new ConvergenceOverlay(
+    makeTabsBridge(manager, (wsId) => workspaceManager.switchTo(wsId)),
+  );
 
   // 3.7 status bar — bottom of #layout. Hidden when status_bar_enabled
   // is false (collapses the third grid row). TabManager pushes the

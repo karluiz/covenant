@@ -798,7 +798,12 @@ describe("group chip chassis hooks", () => {
 
     expect(chip().dataset.supervision).toBeUndefined();
 
+    // Attach = decide: handing the group to an operator hands it the
+    // decisions, so the ring starts armed. Watching is the downgrade.
     m.setGroupSupervisor(groupId, "op-1");
+    expect(chip().dataset.supervision).toBe("intervene");
+
+    m.setGroupIntervene(groupId, false);
     expect(chip().dataset.supervision).toBe("observe");
 
     m.setGroupIntervene(groupId, true);

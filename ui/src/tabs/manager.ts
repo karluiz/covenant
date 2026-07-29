@@ -3465,6 +3465,20 @@ export class TabManager {
     return (tab ? activePane(tab).sessionId : null) as SessionId | null;
   }
 
+  /// Workspace id holding a HIBERNATED session, or null when the session
+  /// is in the live workspace (or gone). Lets Convergence turn a row for
+  /// another workspace's agent into a real jump instead of a dead click.
+  workspaceIdForSession(sessionId: string): string | null {
+    for (const [wsId, stash] of this.hibernated) {
+      for (const t of stash.tabs) {
+        if (t.panes.some((p) => p.sessionId === sessionId || p.acpSessionId === sessionId)) {
+          return wsId;
+        }
+      }
+    }
+    return null;
+  }
+
   /// Returns the sessionId of the currently active tab that belongs to
   /// `groupId`, or null if no tab in that group is active.
   activeSessionInGroup(groupId: string): string | null {
@@ -3694,15 +3708,33 @@ export class TabManager {
   /// an unchecked cast; that cast silently broke when Phase C moved
   /// `sessionId` from `Tab` onto `Pane`. See spec 2026-06-06.
   listSessionHints(): SessionHint[] {
-    const infos = new Map<string, GroupInfo>();
-    for (const [id, g] of this.groups) {
-      infos.set(id, {
-        name: g.name,
-        supervisorId: g.supervisorId,
-        supervisorIntervene: g.supervisorIntervene,
-      });
+    const infosOf = (groups: ReadonlyMap<string, TabGroup>): Map<string, GroupInfo> => {
+      const infos = new Map<string, GroupInfo>();
+      for (const [id, g] of groups) {
+        infos.set(id, {
+          name: g.name,
+          supervisorId: g.supervisorId,
+          supervisorIntervene: g.supervisorIntervene,
+        });
+      }
+      return infos;
+    };
+    const out = sessionHintsFromTabs(this.tabs, infosOf(this.groups));
+    // Hibernated workspaces are DETACHED, not closed — their PTYs stay
+    // alive, so the backend enumerates them into every Convergence
+    // snapshot. Hinting only `this.tabs` left them anonymous: no title,
+    // no color, no group, which is how another workspace's agents showed
+    // up as untitled rows floating above your own.
+    const names = new Map((this.listWorkspaces?.() ?? []).map((w) => [w.id, w.name]));
+    for (const [wsId, stash] of this.hibernated) {
+      out.push(
+        ...sessionHintsFromTabs(stash.tabs, infosOf(stash.groups), {
+          id: wsId,
+          name: names.get(wsId) ?? "workspace",
+        }),
+      );
     }
-    return sessionHintsFromTabs(this.tabs, infos);
+    return out;
   }
 
   activateRelative(delta: number): void {
@@ -7283,8 +7315,14 @@ export class TabManager {
       this.unapplyGroupIntervene(groupId);
     }
     g.supervisorId = operatorId;
-    if (!operatorId) g.supervisorIntervene = false;
+    // Attach = decide. Handing a group to an operator hands it the
+    // decisions in that group — an operator that can only watch has no
+    // move when the executor asks something, so it forwards the question
+    // back to you, which is the noise this replaced. Observe-only stays
+    // reachable through the toggle, as a deliberate choice.
+    g.supervisorIntervene = operatorId !== null;
     void groupSetSupervisor(groupId, operatorId, g.supervisorIntervene);
+    if (operatorId) this.applyGroupIntervene(groupId);
     this.renderTabbar();
     this.scheduleSave();
   }
@@ -8911,7 +8949,7 @@ export class TabManager {
           ? [
               { divider: true as const },
               {
-                label: group.supervisorIntervene ? "Intervene: on" : "Intervene: off",
+                label: group.supervisorIntervene ? "Decides for you" : "Observes only",
                 onClick: () => this.setGroupIntervene(group.id, !group.supervisorIntervene),
               },
               { label: "Detach supervisor", onClick: () => this.setGroupSupervisor(group.id, null) },

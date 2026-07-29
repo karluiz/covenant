@@ -34,7 +34,7 @@ export function supervisionTooltip(input: SupervisionTooltipInput): TooltipConte
   const { operatorName, intervene, tabCount, findings, nowMs } = input;
 
   const segments = [
-    intervene ? "Observes + intervenes" : "Observes only",
+    intervene ? "Decides for you" : "Observes only",
     tabCount > 0 ? `${tabCount} ${tabCount === 1 ? "tab" : "tabs"}` : null,
     findings.length > 0
       ? `${findings.length} ${findings.length === 1 ? "finding" : "findings"}`

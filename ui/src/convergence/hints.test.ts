@@ -11,7 +11,7 @@ const tab = (over: Partial<HintTab>): HintTab => ({
   ...over,
 });
 
-const bare = { group: null, groupId: null, supervisor: null };
+const bare = { group: null, groupId: null, supervisor: null, workspace: null };
 
 describe("sessionHintsFromTabs", () => {
   it("emits one hint per shell tab using defaultTitle", () => {

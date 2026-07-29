@@ -288,24 +288,6 @@ pub fn last_non_empty_line(bytes: &[u8], max_chars: usize) -> Option<String> {
     Some(line.chars().take(max_chars).collect())
 }
 
-/// ANSI-strips and returns the last `max_lines` non-empty lines joined
-/// in original order. Each line truncated to `max_chars_per_line`.
-/// Used to surface the executor's actual on-screen content (e.g. the
-/// pending question) on an escalation card, so the user has context to
-/// reply without flipping back to the tab.
-pub fn last_non_empty_lines(
-    bytes: &[u8],
-    max_lines: usize,
-    max_chars_per_line: usize,
-) -> Option<String> {
-    let stripped = strip_ansi_escapes::strip(bytes);
-    last_lines_of_str(
-        &String::from_utf8_lossy(&stripped),
-        max_lines,
-        max_chars_per_line,
-    )
-}
-
 /// Last `max_lines` non-empty lines of already-plain text.
 fn last_lines_of_str(s: &str, max_lines: usize, max_chars_per_line: usize) -> Option<String> {
     let mut tail: Vec<String> = s
@@ -327,10 +309,19 @@ fn last_lines_of_str(s: &str, max_lines: usize, max_chars_per_line: usize) -> Op
 /// stream scrambles words and leaves control residue — and fall back to
 /// the stripped raw tail only when the screen is blank (e.g. just
 /// spawned). Always secret-masked.
+///
+/// Chrome is normalized BEFORE the last-15 cut: the composer frame and its
+/// status footer are the last thing on a Claude Code screen, so trimming
+/// after the cut would spend the whole pane on them (the "raw PTY dump"
+/// the detail pane used to show).
 fn pty_excerpt(screen: Option<&str>, tail_bytes: &[u8]) -> Option<String> {
+    let clean = |s: &str| crate::operator::normalize_executor_chrome(s);
     screen
-        .and_then(|s| last_lines_of_str(s, 15, 200))
-        .or_else(|| last_non_empty_lines(tail_bytes, 15, 200))
+        .and_then(|s| last_lines_of_str(&clean(s), 15, 200))
+        .or_else(|| {
+            let raw = strip_ansi_escapes::strip(tail_bytes);
+            last_lines_of_str(&clean(&String::from_utf8_lossy(&raw)), 15, 200)
+        })
         .map(|e| crate::safety::mask_secrets(&e))
 }
 
@@ -852,6 +843,29 @@ mod tests {
     }
 
     #[test]
+    fn pty_excerpt_drops_the_composer_frame_and_status_footer() {
+        // The bottom of a live Claude Code screen. Everything below the
+        // agent's last real line is chrome; without normalizing BEFORE
+        // the last-15 cut it ate most of the detail pane.
+        let screen = "\
+groowcity-frontend → write (verified)\n\
+✱ Cooking… (1m 19s)\n\
+────────────────────────────────\n\
+❯ desarchiva groowcity-frontend-newui\n\
+────────────────────────────────\n\
+  ~/Sources/groowcity [agent/repo-access] Opus 5 (1M context) ctx:5%\n\
+  ⏵⏵ bypass permissions on (shift+tab to cycle)\n";
+        let e = pty_excerpt(Some(screen), b"").expect("some excerpt");
+        assert!(!e.contains("────"), "composer frame leaked: {e:?}");
+        assert!(!e.contains("ctx:5%"), "status footer leaked: {e:?}");
+        assert!(!e.contains("bypass permissions"), "footer leaked: {e:?}");
+        assert!(!e.contains("Cooking"), "spinner leaked: {e:?}");
+        // Real output and the pending prompt survive.
+        assert!(e.contains("groowcity-frontend → write"));
+        assert!(e.contains("desarchiva groowcity-frontend-newui"));
+    }
+
+    #[test]
     fn pty_excerpt_masks_secrets_from_the_screen_render_too() {
         let screen = "token=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA suffix\n";
         let e = pty_excerpt(Some(screen), b"").expect("some excerpt");
@@ -860,15 +874,11 @@ mod tests {
 
     #[test]
     fn excerpt_pipeline_masks_secrets_and_keeps_newline_structure() {
-        // Same composition used at both AgentCard.excerpt call sites in
-        // `build_convergence_snapshot`: last_non_empty_lines(...) then
-        // mask_secrets(...). A leaked API key on the PTY tail must not
-        // survive into the card's excerpt.
+        // A leaked API key on the PTY tail must not survive into the
+        // card's excerpt.
         let tail =
             b"about to authenticate\ntoken=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA suffix\ndone\n";
-        let excerpt = last_non_empty_lines(tail, 15, 200)
-            .map(|e| crate::safety::mask_secrets(&e))
-            .expect("some excerpt");
+        let excerpt = pty_excerpt(None, tail).expect("some excerpt");
         assert!(
             !excerpt.contains("sk-ant-api03"),
             "secret leaked into excerpt: {excerpt}"

@@ -286,7 +286,7 @@ describe("ConvergenceOverlay.refresh", () => {
     const band = document.querySelector<HTMLElement>(".mc-rail__group")!;
     expect(band.classList.contains("mc-gband--supervised")).toBe(true);
     expect(band.querySelector(".mc-gband__who")?.textContent).toBe("Warden");
-    expect(band.querySelector(".mc-gband__mode")?.textContent).toContain("intervenes");
+    expect(band.querySelector(".mc-gband__mode")?.textContent).toContain("decides");
     expect(document.querySelector(".mc-strip__sup")?.textContent).toBe("1 supervised");
     ov2.close();
   });
@@ -368,5 +368,46 @@ describe("ConvergenceOverlay.refresh", () => {
     await ov.refreshForTest();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "2" }));
     expect(document.querySelector<HTMLElement>(".mc-detail")?.dataset.sessionId).toBe("s2");
+  });
+
+  it("bands another workspace's agents, sinks them below yours, and never offers a supervisor there", async () => {
+    // The bug: hibernated workspaces stay alive on the backend, so their
+    // agents arrived unhinted — untitled, ungrouped, and (being older)
+    // sorted on top of the tabs actually in front of you.
+    const b = {
+      listTabs: () => [
+        { sessionId: "mine", title: "covenant", color: null, group: "COVENANT", groupId: "g1" },
+        {
+          sessionId: "far", title: "repo access", color: null, group: null, groupId: null,
+          workspace: { id: "ws-2", name: "groowcity" },
+        },
+      ],
+      activateBySessionId: vi.fn(() => true),
+      activeSessionId: () => "mine",
+    };
+    const ov2 = new ConvergenceOverlay(b);
+    getSnap.mockResolvedValue({
+      agents: [agent({ session_id: "far" }), agent({ session_id: "mine" })],
+      attention: [],
+    });
+    ov2.open();
+    await ov2.refreshForTest();
+    await ov2.refreshForTest();
+
+    const rail = [...document.querySelectorAll<HTMLElement>(".mc-rail > *")];
+    const names = rail.map((el) => el.className.includes("mc-gband")
+      ? `band:${el.querySelector(".mc-gband__name")?.textContent}`
+      : `row:${el.dataset.sessionId}`);
+    expect(names).toEqual(["band:COVENANT", "row:mine", "band:groowcity", "row:far"]);
+
+    // Opened from a tab in COVENANT → that's what the pane shows.
+    expect(document.querySelector<HTMLElement>(".mc-detail")?.dataset.sessionId).toBe("mine");
+
+    // The workspace band is not a group: no supervisor to attach or detach.
+    rail.find((el) => el.querySelector(".mc-gband__name")?.textContent === "groowcity")!.click();
+    expect(document.querySelector(".mc-gdetail__intervene")).toBeNull();
+    expect(document.querySelector(".mc-gdetail .mc-stop")).toBeNull();
+    expect(document.querySelector(".mc-gdetail__label")).toBeNull();
+    ov2.close();
   });
 });
