@@ -6,6 +6,41 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.1 — Start agent here (current worktree) + perf polish
+
+### Added
+
+- **"Start agent here" for panes already in a worktree**: right-clicking a
+  pane whose cwd is already a linked (non-main) git worktree now offers
+  "Start agent here" next to "Start agent" — it launches the default spawn
+  directly at that cwd, skipping `resolveLaunch`/`isolateCwd` so no
+  worktree gets nested inside another. Mirrors the git popover's "Agent"
+  row, which does the same for an idle worktree row
+  (`ui/src/tabs/manager.ts`, `ui/src/main.ts`).
+
+### Changed
+
+- **Hidden-pane PTY output batched off the UI thread**: a background tab
+  streaming agent output used to feed every IPC chunk straight into xterm,
+  competing with the visible terminal's parser and renderer for the UI
+  thread. `HiddenOutputBatch` now coalesces hidden-pane writes into one
+  merged write per 16ms frame — no bytes dropped, active panes keep
+  immediate echo — flushed before a tab reveals so stream order holds.
+  `selectTab` also now records an activation metric and warns when a tab
+  switch takes >120ms, with hidden-output byte/chunk counters to tell a
+  busy background terminal apart from a geometry/refit regression
+  (`ui/src/tabs/manager.ts`).
+
+### Fixed
+
+- **Worktree branch named after the live spawn command, not a stale id**:
+  editing a spawn row's preset (e.g. Codex → Cursor) updates `command` but
+  leaves `id` frozen since it's the upsert key in `spawns_store.rs` — so
+  launching a Cursor session could still cut a branch named
+  `agent/codex-...`. `resolveLaunch` now derives the branch segment via
+  `detectExecutor()` on the live command/args, falling back to `spec.id`
+  only when detection misses (`ui/src/spawns/worktree-launch.ts`).
+
 ## v0.11.0 — A supervisor that decides instead of forwarding
 
 ### Added
