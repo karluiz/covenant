@@ -129,10 +129,11 @@ jobs:
           # unconditionally, swallow the failure, and let the uploads below
           # be the real gate — they fail loudly if the release truly is not
           # there.
-          gh release create "$TAG" --title "$TAG" --prerelease --notes "Automated release. See CHANGELOG for details." || true
-          gh release upload "$TAG" "${{ steps.artifacts.outputs.tgz }}" --clobber
-          gh release upload "$TAG" "${{ steps.artifacts.outputs.sig }}" --clobber
-          gh release upload "$TAG" "${{ steps.artifacts.outputs.dmg }}" --clobber
+          RETRY=scripts/ci/gh-retry.sh
+          $RETRY gh release create "$TAG" --title "$TAG" --prerelease --notes "Automated release. See CHANGELOG for details." || true
+          $RETRY gh release upload "$TAG" "${{ steps.artifacts.outputs.tgz }}" --clobber
+          $RETRY gh release upload "$TAG" "${{ steps.artifacts.outputs.sig }}" --clobber
+          $RETRY gh release upload "$TAG" "${{ steps.artifacts.outputs.dmg }}" --clobber
 
   # ── Update the Homebrew cask once, after BOTH arches are on the release ───
   cask:
