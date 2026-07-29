@@ -1,4 +1,5 @@
 import type { SpawnSpec } from "./types";
+import { detectExecutor } from "../executor";
 
 /// Absent means isolated. A spawns.json written before this field existed
 /// opts IN, so upgrading installs get isolation without a migration.
@@ -79,7 +80,12 @@ export async function resolveLaunch(
   deps: LaunchDeps,
 ): Promise<LaunchResolution> {
   if (!wantsWorktree(spec)) return { cwd: baseCwd, isolated: false };
-  return isolateCwd(baseCwd, spec.id, deps);
+  // `spec.id` is a stable settings-row key, not necessarily the live
+  // executor — editing a spawn row to a different preset (e.g. Codex →
+  // Cursor) updates `command` but leaves `id` frozen (it's the upsert
+  // key). Branch naming from `command` instead keeps it truthful.
+  const executor = detectExecutor([spec.command, ...spec.args].join(" ")) ?? spec.id;
+  return isolateCwd(baseCwd, executor, deps);
 }
 
 /// The same decision with no spawn spec behind it — an ACP chat tab opened

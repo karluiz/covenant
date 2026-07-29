@@ -138,6 +138,17 @@ describe("resolveLaunch", () => {
     });
     expect(d.create).toHaveBeenCalledWith("/repo", expect.stringMatching(/^agent\/codex-0719-/));
   });
+
+  it("names the branch after the live command, not a stale id", async () => {
+    // Editing a spawn row's preset (Codex -> Cursor) updates `command` but
+    // leaves `id` frozen — it's the upsert key. The branch must still read
+    // "cursor", the executor actually running, not "codex".
+    const d = deps();
+    d.create.mockResolvedValue("/repo/.covenant/worktrees/agent/cursor-0719-abc");
+    const result = await resolveLaunch(spec({ id: "codex", command: "agent" }), "/repo", d);
+    expect(result.isolated).toBe(true);
+    expect(d.create).toHaveBeenCalledWith("/repo", expect.stringMatching(/^agent\/cursor-0719-/));
+  });
 });
 
 describe("spec-less isolation (ACP chat tabs)", () => {
