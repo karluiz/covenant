@@ -251,6 +251,8 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
     const grid = document.createElement("div");
     grid.className = "spawns-md-grid";
     grid.innerHTML = `
+      <label class="spawns-md-label" data-role="name-label">Name</label>
+      <input class="spawns-settings-input" type="text" name="label" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. Serval" value="${escHtml(spec.label)}" />
       <label class="spawns-md-label">Command</label>
       <input class="spawns-settings-input" type="text" name="command" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. claude, gh, ollama" value="${escHtml(spec.command)}" />
       <label class="spawns-md-label">Args</label>
@@ -260,6 +262,18 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
 
     const cmdInp = grid.querySelector<HTMLInputElement>('input[name="command"]')!;
     const argsInp = grid.querySelector<HTMLInputElement>('input[name="args"]')!;
+    const nameInp = grid.querySelector<HTMLInputElement>('input[name="label"]')!;
+    const nameLbl = grid.querySelector<HTMLElement>('[data-role="name-label"]')!;
+    // Presets own their label; the Name row only exists for custom spawns.
+    const updateNameRow = (): void => {
+      const custom = brandSelect.value === "__custom__";
+      nameInp.hidden = !custom;
+      nameLbl.hidden = !custom;
+    };
+    updateNameRow();
+    nameInp.addEventListener("change", () => {
+      void persist().then(render);
+    });
 
     const chipsHost = document.createElement("div");
     chipsHost.className = "spawns-md-hint";
@@ -323,7 +337,10 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
 
     const collect = (): SpawnSpec => {
       const selVal = brandSelect.value;
-      const label = selVal === "__custom__" ? (spec.label || spec.id) : selVal;
+      const label =
+        selVal === "__custom__"
+          ? nameInp.value.trim() || spec.label || spec.id
+          : selVal;
       const argsRaw = argsInp.value.trim();
       const draft = {
         ...spec,

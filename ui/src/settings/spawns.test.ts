@@ -118,6 +118,27 @@ describe("renderSpawnsTab (master-detail)", () => {
   });
 });
 
+describe("custom spawn name", () => {
+  it("hides the Name row for presets, shows it for custom, and persists renames", async () => {
+    vi.mocked(listSpawns).mockResolvedValue([
+      claude(),
+      spec({ id: "s-serval", label: "New spawn", command: "serval" }),
+    ]);
+    const host = await mount();
+    expect(host.querySelector<HTMLInputElement>('input[name="label"]')!.hidden).toBe(true);
+
+    host.querySelectorAll<HTMLButtonElement>(".spawns-md-item")[1]!.click();
+    const name = host.querySelector<HTMLInputElement>('input[name="label"]')!;
+    expect(name.hidden).toBe(false);
+    name.value = "Serval";
+    name.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    const calls = vi.mocked(upsertSpawn).mock.calls;
+    expect(calls[calls.length - 1]![0].label).toBe("Serval");
+    expect(host.querySelectorAll(".spawns-md-item")[1]!.textContent).toContain("Serval");
+  });
+});
+
 describe("Launch as ACP tab", () => {
   const acpRow = (host: HTMLElement): HTMLElement =>
     host.querySelector<HTMLElement>('[data-role="acp"]')!;
