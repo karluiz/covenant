@@ -227,8 +227,7 @@ pub async fn teammate_send_text_message(
         for (sid, world_arc, screen) in &session_data {
             let w = world_arc.lock().await;
             let is_active = Some(*sid) == active_session_id_parsed;
-            let mut snap =
-                crate::teammate::world_snapshot::project(*sid, &*w, is_active, now_ms());
+            let mut snap = crate::teammate::world_snapshot::project(*sid, &*w, is_active, now_ms());
             // Active tab running an interactive foreground (agent TUI, REPL):
             // blocks are blind there, so push the rendered screen into the
             // context instead of hoping the model calls read_terminal_screen.

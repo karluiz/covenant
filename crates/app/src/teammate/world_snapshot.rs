@@ -438,7 +438,10 @@ mod tests {
     fn screen_tail_caps_lines_and_handles_blank() {
         assert_eq!(screen_tail("   \n\n", 40), None);
         assert_eq!(screen_tail("", 40), None);
-        let many = (0..100).map(|i| format!("l{i}")).collect::<Vec<_>>().join("\n");
+        let many = (0..100)
+            .map(|i| format!("l{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let tail = screen_tail(&many, 40).unwrap();
         assert_eq!(tail.lines().count(), 40);
         assert!(tail.starts_with("l60"));
