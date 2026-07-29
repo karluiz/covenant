@@ -89,6 +89,7 @@ import {
   type MissionInfo,
   type Operator,
   type SessionId,
+  type SessionUiEvent,
   type TerminalConfig,
 } from "../api";
 import { BlockManager } from "../blocks/manager";
@@ -1244,7 +1245,13 @@ export class TabManager {
     const sessionId = await spawnSession(
       {
         onOutput: (chunk) => { xtermRef?.write(chunk); },
-        onSessionEvent: (_event) => { /* TODO: D13 — full event wiring */ },
+        // Pane-scoped state only — the sidebar chrome (blocks, recall,
+        // cd picker) belongs to pane 0. Resolved by session id at event
+        // time because the Pane object doesn't exist yet at spawn.
+        onSessionEvent: (event) => {
+          const hit = this.paneOfSession(event.session);
+          if (hit) this.handlePaneSessionEvent(hit.tab, hit.idx, event);
+        },
       },
       { initialCwd: cwd, paneId },
     );
@@ -1491,7 +1498,10 @@ export class TabManager {
       sessionId = await spawnSession(
         {
           onOutput: (chunk) => { secondPaneXterm?.write(chunk); },
-          onSessionEvent: (_event) => { /* TODO: full event wiring (D13-equivalent for restore) */ },
+          onSessionEvent: (event) => {
+            const hit = this.paneOfSession(event.session);
+            if (hit) this.handlePaneSessionEvent(hit.tab, hit.idx, event);
+          },
         },
         {
           initialCwd: cwd || null,
@@ -2413,6 +2423,104 @@ export class TabManager {
         `.tab-btn[data-tab-id="${tab.id}"]`,
       );
       if (pill) this.applyEscalationDot(pill, next.has(pane.sessionId));
+    }
+  }
+
+  /// The pane a session belongs to, resolved at event time. The split
+  /// spawns pane[1]'s PTY before the Pane object exists (and panes can be
+  /// swapped afterwards), so a closure capture would go stale.
+  private paneOfSession(sessionId: SessionId): { tab: Tab; idx: 0 | 1 } | null {
+    for (const tab of this.tabs) {
+      const idx = tab.panes.findIndex((p) => p.sessionId === sessionId);
+      if (idx >= 0) return { tab, idx: idx as 0 | 1 };
+    }
+    return null;
+  }
+
+  /// Pane-scoped reaction to a session event: executor, idle badge, busy
+  /// dot, cwd. Runs for BOTH panes — pane[1]'s spawn used to drop every
+  /// event on the floor, so a split pane's `cd` never reached the status
+  /// bar, the files palette or persistence, and an agent running there was
+  /// invisible to the idle badge and the busy dot. Pane-0-only chrome
+  /// (blocks, recall, cd picker, launch scrub, initial command, tab title)
+  /// stays in the spawn closure.
+  private handlePaneSessionEvent(tab: Tab, idx: 0 | 1, event: SessionUiEvent): void {
+    const p = tab.panes[idx];
+    if (!p) return;
+    // Front = this pane is what the user is looking at. Gates every push
+    // to the status bar so a background pane can't overwrite the chrome.
+    const isFront = tab.id === this.activeId && tab.layout.activePaneIdx === idx;
+    const pushExecutor = (next: string | null): void => {
+      if (!isFront) return;
+      this.statusBar?.setExecutor(next);
+      this.onActiveExecutorChange?.(next);
+    };
+
+    if (event.kind === "block_started") {
+      const next = detectExecutor(event.command);
+      if (p.executor !== next) {
+        p.executor = next;
+        p.fgExecutor = false;
+        if (next) dismissWelcomeHint();
+        pushExecutor(next);
+      }
+    } else if (event.kind === "block_finished") {
+      if (p.executor !== null) {
+        p.executor = null;
+        pushExecutor(null);
+      }
+    } else if (event.kind === "agent_idle_waiting") {
+      p.idleAgent = {
+        agent: event.agent,
+        sinceMs: Date.now() - event.quiet_ms,
+        promptText: event.prompt_text,
+      };
+      this.renderTabBadge(tab);
+    } else if (event.kind === "agent_resumed") {
+      p.idleAgent = null;
+      this.renderTabBadge(tab);
+    } else if (event.kind === "foreground_changed") {
+      // OSC 133 command detection misses launchers that exec through
+      // wrapper scripts (Cursor's `agent` → bundled node): fall back to
+      // the foreground process's logical name. A shell returning to the
+      // foreground clears only fg-derived state — block_finished owns the
+      // command-detected lifecycle.
+      const fgExec = event.name ? detectExecutor(event.name) : null;
+      const fgIsShell = /^(zsh|bash|fish|sh|nu|tcsh)$/.test(event.name ?? "");
+      if (fgExec && p.executor !== fgExec && !p.executor) {
+        p.executor = fgExec;
+        p.fgExecutor = true;
+        dismissWelcomeHint();
+        pushExecutor(fgExec);
+      } else if (!fgExec && fgIsShell && p.fgExecutor && p.executor) {
+        p.executor = null;
+        p.fgExecutor = false;
+        pushExecutor(null);
+      }
+      // The backend already discriminates: busy_proc is only a
+      // listen-checked dev server under this tab's shell, agent CLIs
+      // excluded. So the dot shows on ANY tab kind — an agent that
+      // started `tauri dev` underneath counts. busySince marks the
+      // transition into serving, so a scan that merely re-reports the
+      // same server doesn't reset the clock; stopping clears it.
+      if (event.busy_proc && p.busyProc !== event.busy_proc) {
+        p.busySince = Date.now();
+      } else if (!event.busy_proc) {
+        p.busySince = null;
+      }
+      p.busyProc = event.busy_proc;
+      p.busyPort = event.busy_port;
+      p.busyPid = event.busy_pid;
+      this.renderTabBusyDot(tab);
+    } else if (event.kind === "cwd_changed") {
+      p.cwd = event.cwd ?? "";
+      this.onAnyTabContextChange?.(event.cwd);
+      this.renderTabLiveDot(tab);
+      this.scheduleSave();
+      if (isFront) {
+        this.onActiveContextChange?.(event.cwd);
+        this.emitActiveTab();
+      }
     }
   }
 
@@ -3909,10 +4017,20 @@ export class TabManager {
           },
           onSessionEvent: (event) => {
             blocks?.handleEvent(event);
-            // Track which agentic executor (if any) is running in this
-            // tab — the status-bar brand chip reads it for the active
-            // tab. Detection mirrors the Rust `detect_executor` so the
-            // operator panel and the bar agree on the name.
+            // Executor transitions belong to handlePaneSessionEvent, but
+            // Recall needs to know a NEW executor just took the PTY — so
+            // sample the transition before the state is mutated.
+            let execTookOver = false;
+            if (event.kind === "block_started") {
+              const next = detectExecutor(event.command);
+              execTookOver =
+                next !== null && tabRef.current?.panes[0].executor !== next;
+            }
+            // Everything pane-scoped (executor, idle badge, busy dot, cwd)
+            // lives in one place, shared with pane[1].
+            if (tabRef.current) this.handlePaneSessionEvent(tabRef.current, 0, event);
+
+            // ── pane-0-only chrome below ──────────────────────────────
             if (event.kind === "block_started") {
               atPrompt = false;
               promptHint.reset();
@@ -3924,34 +4042,10 @@ export class TabManager {
                   if (tabRef.current) this.refocusAfterScrub(tabRef.current);
                 });
               }
-              const next = detectExecutor(event.command);
-              if (tabRef.current) {
-                const p = tabRef.current.panes[0];
-                if (p.executor !== next) {
-                  p.executor = next;
-                  p.fgExecutor = false;
-                  if (next) dismissWelcomeHint();
-                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
-                    this.statusBar?.setExecutor(next);
-                    this.onActiveExecutorChange?.(next);
-                  }
-                  // Tear down any Recall popup the moment an executor
-                  // takes over the PTY: its buffer is now stale shell
-                  // input that no longer maps to a prompt.
-                  if (next) recall?.notifyPromptStart();
-                }
-              }
-            } else if (event.kind === "block_finished") {
-              if (tabRef.current) {
-                const p = tabRef.current.panes[0];
-                if (p.executor !== null) {
-                  p.executor = null;
-                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
-                    this.statusBar?.setExecutor(null);
-                    this.onActiveExecutorChange?.(null);
-                  }
-                }
-              }
+              // Tear down any Recall popup the moment an executor takes
+              // over the PTY: its buffer is now stale shell input that no
+              // longer maps to a prompt.
+              if (execTookOver) recall?.notifyPromptStart();
             }
             // Recall reacts to two flavors of session event:
             //   - prompt_start: shell drew a fresh prompt → reset
@@ -3987,65 +4081,6 @@ export class TabManager {
                   (err) => console.error("initial command write failed", err),
                 );
               }
-            } else if (event.kind === "agent_idle_waiting") {
-              if (tabRef.current) {
-                const idleState = {
-                  agent: event.agent,
-                  sinceMs: Date.now() - event.quiet_ms,
-                  promptText: event.prompt_text,
-                };
-                tabRef.current.panes[0].idleAgent = idleState;
-                this.renderTabBadge(tabRef.current);
-              }
-            } else if (event.kind === "agent_resumed") {
-              if (tabRef.current) {
-                tabRef.current.panes[0].idleAgent = null;
-                this.renderTabBadge(tabRef.current);
-              }
-            } else if (event.kind === "foreground_changed") {
-              if (tabRef.current) {
-                const pFg = tabRef.current.panes[0];
-                // OSC 133 command detection misses launchers that exec
-                // through wrapper scripts (Cursor's `agent` → bundled
-                // node): fall back to the foreground process's logical
-                // name. A shell returning to the foreground clears only
-                // fg-derived state — block_finished owns the
-                // command-detected lifecycle.
-                const fgExec = event.name ? detectExecutor(event.name) : null;
-                const fgIsShell = /^(zsh|bash|fish|sh|nu|tcsh)$/.test(event.name ?? "");
-                if (fgExec && pFg.executor !== fgExec && !pFg.executor) {
-                  pFg.executor = fgExec;
-                  pFg.fgExecutor = true;
-                  dismissWelcomeHint();
-                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
-                    this.statusBar?.setExecutor(fgExec);
-                    this.onActiveExecutorChange?.(fgExec);
-                  }
-                } else if (!fgExec && fgIsShell && pFg.fgExecutor && pFg.executor) {
-                  pFg.executor = null;
-                  pFg.fgExecutor = false;
-                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
-                    this.statusBar?.setExecutor(null);
-                    this.onActiveExecutorChange?.(null);
-                  }
-                }
-                // The backend already discriminates: busy_proc is only a
-                // listen-checked dev server under this tab's shell, agent
-                // CLIs excluded. So the dot shows on ANY tab kind — an
-                // agent that started `tauri dev` underneath counts.
-                // busySince marks the transition into serving, so a scan
-                // that merely re-reports the same server doesn't reset the
-                // clock; stopping clears it.
-                if (event.busy_proc && pFg.busyProc !== event.busy_proc) {
-                  pFg.busySince = Date.now();
-                } else if (!event.busy_proc) {
-                  pFg.busySince = null;
-                }
-                pFg.busyProc = event.busy_proc;
-                pFg.busyPort = event.busy_port;
-                pFg.busyPid = event.busy_pid;
-                this.renderTabBusyDot(tabRef.current);
-              }
             } else if (event.kind === "title_suggested") {
               // AI-generated activity label. Only update the auto title;
               // a user-set customName always wins (see tabDisplayName).
@@ -4053,26 +4088,12 @@ export class TabManager {
                 applyInferredTitle(tabRef.current, event.title, () => this.renderTabbar());
               }
             } else if (event.kind === "cwd_changed") {
-              if (tabRef.current) {
-                tabRef.current.panes[0].cwd = event.cwd ?? "";
-              }
-              this.onAnyTabContextChange?.(event.cwd);
+              // pane.cwd, the live dot, persistence and the status-bar
+              // push are handled above. Recall and the Files tree are
+              // pane-0 sidebar chrome, so they stay here.
               recall?.setCwd(event.cwd);
               if (tabRef.current?.structure?.isVisible()) {
                 void tabRef.current.structure.setCwd(event.cwd);
-              }
-              if (tabRef.current) this.renderTabLiveDot(tabRef.current);
-              this.scheduleSave();
-              // Status bar: only push when this tab is the visible one AND
-              // pane[0] is the active pane. If the user focused pane[1],
-              // pane[0]'s cwd change must not overwrite the bar.
-              if (
-                tabRef.current &&
-                tabRef.current.id === this.activeId &&
-                tabRef.current.layout.activePaneIdx === 0
-              ) {
-                this.onActiveContextChange?.(event.cwd);
-                this.emitActiveTab();
               }
             }
           },
