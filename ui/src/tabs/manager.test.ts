@@ -1114,3 +1114,96 @@ describe("a browser tab joins the group you are working in", () => {
     expect(priv.tabs.map((t) => t.id)).toEqual(["a", "browser"]);
   });
 });
+
+describe("split pane[1] reacts to its own session events", () => {
+  // pane[1]'s spawn used to pass `onSessionEvent: (_event) => {}`, so a
+  // `cd` in the right-hand pane never reached pane.cwd — the status bar,
+  // the files palette and the manifest all kept the split-time path.
+  function splitTab(): Record<string, unknown> {
+    return {
+      id: "t1",
+      groupId: null,
+      kind: "shell",
+      pane: document.createElement("div"),
+      panes: [
+        fakePane({ sessionId: "s0", cwd: "/repo" }),
+        fakePane({ sessionId: "s1", cwd: "/repo" }),
+      ],
+      layout: { kind: "split", orientation: "vertical", activePaneIdx: 1 },
+      disposers: [],
+    };
+  }
+
+  function seedTab(m: TabManager, tab: Record<string, unknown>) {
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      activeId: string | null;
+      paneOfSession: (s: string) => { tab: unknown; idx: 0 | 1 } | null;
+      handlePaneSessionEvent: (t: unknown, i: 0 | 1, e: unknown) => void;
+    };
+    priv.tabs.push(tab);
+    priv.activeId = "t1";
+    return priv;
+  }
+
+  it("routes a cwd_changed to the pane that owns the session", () => {
+    const m = makeManager();
+    const tab = splitTab();
+    const priv = seedTab(m, tab);
+
+    const hit = priv.paneOfSession("s1");
+    expect(hit?.idx).toBe(1);
+    priv.handlePaneSessionEvent(hit!.tab, hit!.idx, {
+      kind: "cwd_changed",
+      session: "s1",
+      cwd: "/repo/other",
+    });
+
+    const panes = tab.panes as Array<Record<string, unknown>>;
+    expect(panes[1]!.cwd).toBe("/repo/other");
+    expect(panes[0]!.cwd).toBe("/repo"); // pane 0 untouched
+  });
+
+  it("pushes the cwd to the status bar only when that pane is the front one", () => {
+    const m = makeManager();
+    const tab = splitTab();
+    const priv = seedTab(m, tab);
+    const seen: Array<string | null> = [];
+    m.onActiveContextChange = (cwd) => seen.push(cwd);
+
+    // activePaneIdx is 1, so pane 0's move must NOT reach the bar.
+    priv.handlePaneSessionEvent(tab, 0, {
+      kind: "cwd_changed",
+      session: "s0",
+      cwd: "/repo/left",
+    });
+    expect(seen).toEqual([]);
+
+    priv.handlePaneSessionEvent(tab, 1, {
+      kind: "cwd_changed",
+      session: "s1",
+      cwd: "/repo/right",
+    });
+    expect(seen).toEqual(["/repo/right"]);
+  });
+
+  it("tracks the busy server per pane", () => {
+    const m = makeManager();
+    const tab = splitTab();
+    const priv = seedTab(m, tab);
+
+    priv.handlePaneSessionEvent(tab, 1, {
+      kind: "foreground_changed",
+      session: "s1",
+      name: "zsh",
+      busy_proc: "vite",
+      busy_port: 5173,
+      busy_pid: 42,
+    });
+
+    const panes = tab.panes as Array<Record<string, unknown>>;
+    expect(panes[1]!.busyProc).toBe("vite");
+    expect(panes[1]!.busyPort).toBe(5173);
+    expect(panes[0]!.busyProc).toBeUndefined();
+  });
+});
