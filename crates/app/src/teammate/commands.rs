@@ -224,15 +224,21 @@ pub async fn teammate_send_text_message(
 
         // Build snapshot per session under each world's own lock.
         let mut snapshots = Vec::with_capacity(session_data.len());
-        for (sid, world_arc, _screen) in &session_data {
+        for (sid, world_arc, screen) in &session_data {
             let w = world_arc.lock().await;
             let is_active = Some(*sid) == active_session_id_parsed;
-            snapshots.push(crate::teammate::world_snapshot::project(
-                *sid,
-                &*w,
-                is_active,
-                now_ms(),
-            ));
+            let mut snap =
+                crate::teammate::world_snapshot::project(*sid, &*w, is_active, now_ms());
+            // Active tab running an interactive foreground (agent TUI, REPL):
+            // blocks are blind there, so push the rendered screen into the
+            // context instead of hoping the model calls read_terminal_screen.
+            if is_active && snap.in_flight.is_some() {
+                if let Ok(grid) = screen.lock() {
+                    snap.screen_tail = crate::teammate::world_snapshot::screen_tail(&grid, 40)
+                        .map(|t| crate::safety::mask_secrets(&t));
+                }
+            }
+            snapshots.push(snap);
         }
         let acp_snapshots: Vec<crate::teammate::world_snapshot::AcpTabSnapshot> = acp_worlds
             .into_iter()
