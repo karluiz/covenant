@@ -2286,12 +2286,10 @@ async function boot(): Promise<void> {
       agent.openWithSeed(`Re cross-session finding: ${finding.message}\n\n`);
     },
     onGroupSupervisionClick: (finding) => {
-      // Same follow-up routing, but attributed to the supervisor that
-      // made the call — dropping into the generic cross-session label
-      // would silently lose which operator (and group) flagged it.
-      agent.openWithSeed(
-        `Re finding from supervisor ${finding.operator_name}: ${finding.message}\n\n`,
-      );
+      // Land on the group the supervisor is talking about — its tabs and
+      // its retained findings. Seeding ⌘K with the sentence instead just
+      // asked a second agent to speculate about a tab you can see.
+      convergence.openGroup(finding.group_id);
     },
   });
   await toasts.start();

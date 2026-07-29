@@ -220,7 +220,7 @@ async fn check_for_pattern(
         entries
     };
 
-    let user_msg = build_snapshot_message(&snapshots, trigger_id).await;
+    let user_msg = build_snapshot_message(&snapshots, trigger_id, "failed").await;
 
     let started = Instant::now();
     let req = karl_agent::AskRequest {
@@ -296,15 +296,21 @@ fn position_of(
 /// flagged as the one that just failed. Extracted so `group_supervision`
 /// doesn't duplicate the formatting — the *architecture* (watch loop, rate
 /// limiting, prompt framing) still diverges per-watcher by design.
+/// `trigger_verb` is what the trigger session just did — "failed",
+/// "went idle". It drives both the header and the per-session marker:
+/// group-supervision reuses this builder for an IDLE trigger, and
+/// hardcoding "JUST FAILED" told the model a perfectly healthy executor
+/// tab had failed, which it then dutifully toasted.
 pub(crate) async fn build_snapshot_message(
     snapshots: &[(SessionId, Arc<Mutex<SessionWorldModel>>)],
     trigger_id: SessionId,
+    trigger_verb: &str,
 ) -> String {
     let mut user_msg = String::with_capacity(4096);
     user_msg.push_str("# Open sessions snapshot\n");
     user_msg.push_str(&format!(
-        "(triggered by failure in session {})\n\n",
-        position_of(snapshots, trigger_id)
+        "(triggered by session {n}, which just {trigger_verb})\n\n",
+        n = position_of(snapshots, trigger_id)
             .map(|p| (p + 1).to_string())
             .unwrap_or_else(|| trigger_id.to_string())
     ));
@@ -315,9 +321,9 @@ pub(crate) async fn build_snapshot_message(
             "## Session {n} {is_trigger}\n",
             n = i + 1,
             is_trigger = if *session_id == trigger_id {
-                "(JUST FAILED)"
+                format!("(JUST {})", trigger_verb.to_uppercase())
             } else {
-                ""
+                String::new()
             }
         ));
         if !w.cwd.as_os_str().is_empty() {
@@ -335,8 +341,13 @@ pub(crate) async fn build_snapshot_message(
                     .exit_code
                     .map(|c| c.to_string())
                     .unwrap_or_else(|| "?".to_string());
+                // `[prior session]` matters as much as the exit code: a
+                // tab seeds its world model from this cwd's history, so
+                // an `exit 1` from LAST WEEK sits in "recent blocks" and
+                // reads as a live failure unless it says otherwise.
+                let prior = if b.inherited { " [prior session]" } else { "" };
                 user_msg.push_str(&format!(
-                    "  $ {cmd}    [exit {exit}, {dur}ms]\n",
+                    "  $ {cmd}    [exit {exit}, {dur}ms]{prior}\n",
                     cmd = b.command,
                     dur = b.duration_ms,
                 ));
@@ -413,6 +424,37 @@ mod tests {
     #[test]
     fn missing_finding_returns_none() {
         assert!(parse_finding("nothing here").is_none());
+    }
+
+    /// The bug that made a supervised executor tab get toasted as
+    /// "session 3 failed `claude ...`": an IDLE trigger rendered its own
+    /// tab as JUST FAILED, and a block inherited from the cwd's history
+    /// looked live.
+    #[tokio::test]
+    async fn idle_trigger_is_not_labelled_failed_and_prior_blocks_say_so() {
+        let sid = SessionId::new();
+        let mut w = SessionWorldModel::default();
+        w.seed_history(
+            vec![crate::world::BlockSnapshot {
+                command: "claude --dangerously-skip-permissions".into(),
+                cwd: std::path::PathBuf::from("/tmp"),
+                exit_code: Some(1),
+                duration_ms: 5000,
+                output_text: String::new(),
+                inherited: true,
+            }],
+            None,
+        );
+        let snaps = vec![(sid, Arc::new(Mutex::new(w)))];
+
+        let msg = build_snapshot_message(&snaps, sid, "went idle").await;
+        assert!(msg.contains("just went idle"), "{msg}");
+        assert!(msg.contains("(JUST WENT IDLE)"), "{msg}");
+        assert!(!msg.contains("FAILED"), "{msg}");
+        assert!(msg.contains("[prior session]"), "{msg}");
+
+        let msg = build_snapshot_message(&snaps, sid, "failed").await;
+        assert!(msg.contains("(JUST FAILED)"), "{msg}");
     }
 
     #[test]

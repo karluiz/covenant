@@ -78,6 +78,16 @@ export class ConvergenceOverlay {
   isVisible(): boolean { return this.visible; }
   toggle(): void { if (this.visible) this.close(); else this.open(); }
 
+  /// Open straight to one group's detail pane. Where a clicked
+  /// supervision toast lands: the finding it showed for 12s is retained
+  /// there, next to the tabs it is about.
+  openGroup(groupId: string): void {
+    this.open();
+    this.activeSessionId = null;
+    this.activeGroupId = groupId;
+    if (this.snap) this.render();
+  }
+
   open(): void {
     if (this.visible) return;
     this.mount();

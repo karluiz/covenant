@@ -215,12 +215,16 @@ pub(crate) fn supervised_group_for(
 /// Which events wake the supervisor. A zero exit is not news, and an
 /// executor going idle IS a turn boundary — `idle::Detector` fires one
 /// edge per turn, so this never degrades into polling.
+///
+/// 128+n exits are not news either: that's the shell reporting a signal,
+/// which is nearly always the user ⌃C'ing a dev server or quitting an
+/// interactive TUI. Deliberate stops must never read as failures.
 pub(crate) fn trigger_kind(event: &SessionEvent) -> Option<TriggerKind> {
     match event {
         SessionEvent::BlockFinished {
             exit_code: Some(code),
             ..
-        } if *code != 0 => Some(TriggerKind::Failure),
+        } if *code != 0 && *code < 128 => Some(TriggerKind::Failure),
         SessionEvent::AgentIdleWaiting { agent, .. } => Some(TriggerKind::Idle {
             agent: agent.clone(),
         }),
@@ -347,7 +351,11 @@ async fn check_for_pattern(
         entries
     };
 
-    let mut user_msg = build_snapshot_message(&snapshots, trigger_id).await;
+    let verb = match kind {
+        TriggerKind::Failure => "failed",
+        TriggerKind::Idle { .. } => "went idle",
+    };
+    let mut user_msg = build_snapshot_message(&snapshots, trigger_id, verb).await;
     // The whole point of the idle trigger: an executor tab's world model is
     // empty (its block never finishes), so the rendered screen is the only
     // place its report exists.
@@ -537,6 +545,11 @@ mod tests {
 
         // A clean exit is not news.
         assert!(trigger_kind(&block_finished(sid, 0)).is_none());
+
+        // Neither is ⌃C on a dev server, or a kill: 128+signal.
+        assert!(trigger_kind(&block_finished(sid, 130)).is_none()); // SIGINT
+        assert!(trigger_kind(&block_finished(sid, 137)).is_none()); // SIGKILL
+        assert!(trigger_kind(&block_finished(sid, 143)).is_none()); // SIGTERM
 
         // The executor finished its turn — this is the proactive trigger.
         let idle = trigger_kind(&SessionEvent::AgentIdleWaiting {
