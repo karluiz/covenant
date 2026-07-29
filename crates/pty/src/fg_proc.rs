@@ -246,6 +246,60 @@ pub fn busy_server_descendant(
     None
 }
 
+/// Working directory of `pid`, straight from the kernel.
+///
+/// The shell reports its cwd via OSC 7, but a spawn that runs an agent
+/// binary directly (`claude`, `codex`, …) has no shell and never emits
+/// one — its tab's cwd would stay frozen at spawn time even after the
+/// process moved (or its dir was deleted out from under it). Polling the
+/// pid covers those tabs.
+#[cfg(target_os = "macos")]
+pub fn process_cwd(pid: u32) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    // SAFETY: zeroed POD struct, size passed to match; libc validates pid.
+    let info = unsafe {
+        let mut info = std::mem::zeroed::<libc::proc_vnodepathinfo>();
+        let n = libc::proc_pidinfo(
+            pid as i32,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            std::mem::size_of::<libc::proc_vnodepathinfo>() as i32,
+        );
+        if n < std::mem::size_of::<libc::proc_vnodepathinfo>() as i32 {
+            return None;
+        }
+        info
+    };
+    // vip_path is `[[c_char; 32]; 32]` — a chunked MAXPATHLEN buffer.
+    let bytes: Vec<u8> = info
+        .pvi_cdir
+        .vip_path
+        .iter()
+        .flatten()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as u8)
+        .collect();
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(
+        &bytes,
+    )))
+}
+
+#[cfg(target_os = "linux")]
+pub fn process_cwd(pid: u32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+}
+
+// ponytail: no Windows path — the fg-proc module is already unix-only, and
+// Windows would need a whole separate NtQueryInformationProcess dance.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn process_cwd(_pid: u32) -> Option<std::path::PathBuf> {
+    None
+}
+
 /// First argv element whose basename (with or without extension) passes
 /// `is_busy` — recovers the logical tool name for runtime-hosted servers
 /// (`node …/vite/bin/vite.js` → "vite").
@@ -330,6 +384,14 @@ pub fn pgrp_alive(pgid: i32) -> bool {
 mod tests {
     use super::*;
     use crate::{PtySession, SpawnOptions};
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn process_cwd_reads_our_own_dir() {
+        let ours = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+        let read = process_cwd(std::process::id()).expect("process_cwd returned None");
+        assert_eq!(std::fs::canonicalize(read).unwrap(), ours);
+    }
 
     #[tokio::test]
     async fn returns_shell_name_for_idle_zsh() {
