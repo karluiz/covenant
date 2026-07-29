@@ -153,6 +153,16 @@ export class ToastHost {
   /// event). Used for one-shot setup hints like "zsh-autosuggestions
   /// not detected — `brew install zsh-autosuggestions`".
   pushInfo(toast: InfoToast): void {
+    // Dedupe: a repeated message while its toast is still visible would
+    // stack identical cards (e.g. every tree refresh against a pruned
+    // worktree). Refresh the existing card's lifetime instead.
+    for (const el of this.container.querySelectorAll<HTMLElement>(".toast-info:not(.toast-leaving)")) {
+      if (el.querySelector(".toast-msg")?.textContent === toast.message) {
+        el.dispatchEvent(new Event("mouseenter"));
+        el.dispatchEvent(new Event("mouseleave"));
+        return;
+      }
+    }
     const card = document.createElement("button");
     card.type = "button";
     card.className = "toast toast-info";
