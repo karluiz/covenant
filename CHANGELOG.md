@@ -6,6 +6,90 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.81 — Canon cockpit rebuilt around state + supervisors that speak up
+
+### Added
+
+- **Canon Overview is the cockpit's front door**: a new first section that
+  answers "what state is my context in?" — an inventory per kind, each row
+  routing to its section, above an attention block that only renders when
+  something needs a decision. It opens with a projection strip: one chip per
+  executor with its state, when the sources were last edited, and Re-project
+  when something drifted. Org-default drift is named where it's felt ("2 of 3
+  org defaults missing here" + Install all), and Loop grows an "Unused" list
+  — installed, projected into every prompt, used zero times — each row
+  carrying the uninstall that removes it. Adds no new backend call; it
+  composes the shared repo status and the usage numbers Loop already read
+  (`ui/src/canon/cockpit/view.ts`, `cockpit.css`).
+
+- **Symmetric row verbs and one search across kinds**: every kind gets the
+  same Open · Publish (Adopt while detected) · Delete, backed by two new
+  commands, `canon_unit_path` and `canon_delete_unit`. Deleting is refused
+  for skills (the manifest + lockfile mean `uninstall_skill` owns it), for
+  specs, and for detected units — a foreign file Canon merely noticed is not
+  Canon's to remove. ⌘K inside the cockpit searches every kind at once
+  instead of seven per-section filters that can't see each other, and picking
+  a row opens its section pre-filtered. Installed skills now carry their
+  currency ("update available · v2.1.0", or "modified locally", the latter
+  from the backend re-hashing SKILL.md against the sha it recorded at
+  install), and a skill's evals run from the row that owns it with the lift
+  verdict inline (`ui/src/canon/evals.ts`).
+
+- **A supervisor can read any tab in the group it watches**: asking one what
+  a supervised tab was doing had no answer path — the chat context said only
+  "you supervise group `g1`", and `read_terminal_screen` was hardwired to the
+  ACTIVE tab. An executor tab (claude/codex/pi) never finishes a block, so
+  its world model is empty and the rendered screen is the only place its
+  state exists. The tool now takes an optional `session_id`, matched by
+  suffix so the short id printed in the world context resolves, and the
+  supervision context block lists each group's member tabs
+  (`crates/app/src/teammate/tools.rs`, `teammate/commands.rs`).
+
+- **Supervisors wake when an executor finishes its turn**: the watcher only
+  woke on a non-zero exit, which an executor tab never produces.
+  `AgentIdleWaiting` is now a second trigger — a turn boundary, not a poll,
+  since the idle detector fires one edge per turn. Idle checks accept a group
+  of one (a failure needs a sibling tab to be a cross-session pattern; a
+  finished turn does not) and carry the tab's rendered screen, secret-masked
+  and tail-capped. A separate prompt asks what the user has to decide rather
+  than what correlates, and findings are de-duplicated per group
+  (`crates/app/src/group_supervision.rs`).
+
+### Changed
+
+- **One repo walk per cockpit open**: `canonLocalStatus` was called from
+  eight places and every mutation re-rendered its section, so adopting three
+  subagents walked the repo three times. Sections share `status()` now, and
+  writes call `invalidateStatus()` first; rejections are never cached, so an
+  offline read doesn't stick for the cockpit's life. Subagents/Commands/MCP/
+  Memory were the same renderer four times, differing only in glyph, copy and
+  list — they now share `renderUnitSection` driven by `UNIT_SPECS`. Native
+  `alert()`/`confirm()` gave way to the app's own confirm card and toasts;
+  Tauri's capability set doesn't allow native dialogs
+  (`ui/src/canon/cockpit/view.ts`).
+
+### Fixed
+
+- **Spec Creator ignored the active theme**: the immersive Spec Creator and
+  its entrance shipped a hardcoded indigo/green palette plus three per-theme
+  override blocks, so an app on a teal Special Theme accent still got
+  `#7c8cff` buttons. Both stylesheets alias the app tokens now and let
+  `--accent` inherit from body; the per-theme blocks are deleted and every
+  `rgba()` accent tint became `color-mix()` over the token
+  (`ui/src/spec-chat/entrance.css`, `immersive.css`).
+
+- **Runtime-version tests failed on any machine with node or rustc
+  installed**: `detect_runtime` falls back to running the binary when neither
+  the manifest nor a version file declares a version, so two tests were
+  asserting a no-subprocess contract the tier-3 fallback had retired.
+  `detect_runtime_inner(cwd, probe_binary)` lets those cases exercise the
+  file tiers only (`crates/app/src/context.rs`).
+
+- **Placeholder notes sat flush against the list border**: a note standing in
+  for rows (Loading… / no defaults / offline) read as broken chrome rather
+  than an empty panel. It takes the rows' padding now
+  (`ui/src/canon/cockpit/cockpit.css`).
+
 ## v0.9.80 — Supervised groups visible in Convergence
 
 ### Added
