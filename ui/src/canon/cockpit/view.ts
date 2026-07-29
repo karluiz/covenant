@@ -8,7 +8,7 @@
 // vibrancy-bleed gotcha this avoids).
 
 import "./cockpit.css";
-import type { CanonStatus, Org, Member, Operator, PkgMeta, CanonPkgKind, CanonNewKind } from "../../api";
+import type { CanonStatus, Org, Member, Operator, PkgMeta, CanonPkgKind, CanonNewKind, ProjectionStatus } from "../../api";
 import {
   canonOrgDefaults,
   canonOrgDefaultSet,
@@ -22,6 +22,8 @@ import {
   canonLocalStatus,
   canonReadLocal,
   canonReadSource,
+  canonProjectionStatus,
+  canonExport,
   canonUnitPath,
   canonDeleteUnit,
   canonPublish,
@@ -51,6 +53,7 @@ import { pushInfoToast } from "../../notifications/toast";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { liftRow, groupVerdict } from "./lift";
+import { runEvals } from "../evals";
 
 export type SectionKey = "overview" | "org" | "members" | "operators" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
 
@@ -104,6 +107,37 @@ export function sortSpecs<T extends { name: string }>(specs: readonly T[]): T[] 
   });
 }
 
+/** "3h ago" for the projection strip. Same rounding the Capabilities panel
+ *  uses; not worth a shared module for four lines. */
+function relTime(unixSecs: number): string {
+  const diff = Math.max(0, Math.floor(Date.now() / 1000 - unixSecs));
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+/** Is an installed skill current, behind the registry, or edited in place?
+ *
+ *  A registry without a staleness signal is a download page. Both comparisons
+ *  are ones we can actually trust: the version string comes from the same
+ *  `skill.toml` on both sides, and "modified" is the backend comparing the
+ *  file's hash against the sha IT recorded at install — the registry's own
+ *  digest is never assumed to be computed the same way.
+ *
+ *  Returns null when there's nothing to say — a badge on every row is noise. */
+export function skillCurrency(
+  installed: { name: string; version: string },
+  publishedVersion: string | undefined,
+  modified: readonly string[],
+): string | null {
+  if (modified.includes(installed.name)) return "modified locally";
+  if (publishedVersion && publishedVersion !== installed.version) {
+    return `update available · v${publishedVersion}`;
+  }
+  return null;
+}
+
 /** Installed units nothing has used. Context that ships into every prompt and
  *  earns nothing is the one thing Observe should say out loud — it's what
  *  tells the next Generate what to stop authoring. Zero is the only threshold
@@ -139,21 +173,39 @@ function loopSubhead(text: string): HTMLElement {
   return el;
 }
 
-const SECTIONS: { key: SectionKey; label: string }[] = [
-  { key: "overview", label: "Overview" },
-  { key: "org", label: "Organization" },
-  { key: "members", label: "Members" },
-  { key: "operators", label: "Operators" },
-  { key: "agents", label: "Subagents" },
-  { key: "commands", label: "Commands" },
-  { key: "mcp", label: "MCP" },
-  { key: "spec", label: "Specs" },
-  { key: "memory", label: "Memory" },
-  { key: "skills", label: "Skills" },
-  { key: "registry", label: "Registry" },
-  { key: "context", label: "Context" },
-  { key: "loop", label: "Loop" },
+/** The nav, grouped by what each section is FOR — the lifecycle Canon exists
+ *  to run (docs/canon-context-is-the-new-code.md), not the directory layout.
+ *  A flat list of twelve made "Loop" sit beside "MCP" as if they were the same
+ *  kind of thing; the group label does the teaching instead. */
+const SECTION_GROUPS: { title: string | null; items: { key: SectionKey; label: string }[] }[] = [
+  { title: null, items: [{ key: "overview", label: "Overview" }] },
+  {
+    title: "Authoring",
+    items: [
+      { key: "agents", label: "Subagents" },
+      { key: "commands", label: "Commands" },
+      { key: "mcp", label: "MCP" },
+      { key: "spec", label: "Specs" },
+      { key: "memory", label: "Memory" },
+      { key: "skills", label: "Skills" },
+      { key: "context", label: "Context" },
+    ],
+  },
+  {
+    title: "Sharing",
+    items: [
+      { key: "org", label: "Organization" },
+      { key: "members", label: "Members" },
+      { key: "operators", label: "Operators" },
+      { key: "registry", label: "Registry" },
+    ],
+  },
+  // "Loop" named an abstraction; every other label names something you can
+  // point at. What the section actually answers is whether the context earned
+  // its keep.
+  { title: "Impact", items: [{ key: "loop", label: "Impact" }] },
 ];
+
 
 /** The single-file kinds that render identically — a filter, an inline create
  *  bar, and one card per unit. Only the copy, the glyph and the list differ, so
@@ -247,7 +299,7 @@ const SECTION_HEAD: Record<SectionKey, [string, string]> = {
   skills: ["Skills", "Skills installed in this group, projected to your executors."],
   registry: ["Registry", "Browse and install everything your organization publishes — skills, operators, subagents, commands, context and MCP servers."],
   context: ["Context", "Repo-mined context this group carries into every session."],
-  loop: ["Loop", "Adoption, inference footprint, and eval pass-rate for this group."],
+  loop: ["Impact", "Whether this group's context earned its keep — adoption, dead weight, inference footprint and eval lift."],
 };
 
 export class CanonCockpitView {
@@ -279,14 +331,22 @@ export class CanonCockpitView {
     title.className = "canon-cockpit-nav-title";
     title.textContent = `Canon — ${this.opts.groupLabel}`;
     this.nav.appendChild(title);
-    for (const s of SECTIONS) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "canon-cockpit-nav-btn";
-      b.dataset.section = s.key;
-      b.textContent = s.label;
-      b.addEventListener("click", () => this.showSection(s.key));
-      this.nav.appendChild(b);
+    for (const group of SECTION_GROUPS) {
+      if (group.title) {
+        const head = document.createElement("div");
+        head.className = "canon-cockpit-nav-group";
+        head.textContent = group.title;
+        this.nav.appendChild(head);
+      }
+      for (const s of group.items) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "canon-cockpit-nav-btn";
+        b.dataset.section = s.key;
+        b.textContent = s.label;
+        b.addEventListener("click", () => this.showSection(s.key));
+        this.nav.appendChild(b);
+      }
     }
 
     this.content = document.createElement("section");
@@ -901,8 +961,17 @@ export class CanonCockpitView {
       return el;
     }
 
-    // Attention first — a landing screen that opens with an inventory buries
-    // the only two lines that ask for a decision.
+    // Projection first: Canon's whole claim is one source projected into every
+    // executor, and until now the UI never said where anything landed.
+    const projection = document.createElement("div");
+    projection.className = "canon-projection";
+    el.appendChild(projection);
+    void canonProjectionStatus(cwd)
+      .then((proj) => this.renderProjectionStrip(cwd, projection, proj))
+      .catch(() => { projection.remove(); });
+
+    // Attention next — a landing screen that opens with an inventory buries
+    // the lines that ask for a decision.
     const attention = document.createElement("div");
     const inventory = document.createElement("div");
     inventory.className = "canon-cockpit-list canon-cockpit-inventory";
@@ -934,6 +1003,60 @@ export class CanonCockpitView {
 
     void this.renderAttention(cwd, attention);
     return el;
+  }
+
+  /** Where this repo's Canon actually lands: one chip per executor, its state,
+   *  and when the sources were last edited. Re-project is right there when
+   *  something drifted — a managed block someone hand-edited is the one
+   *  failure mode that silently un-does the whole distribution story. */
+  private renderProjectionStrip(cwd: string, host: HTMLElement, proj: ProjectionStatus): void {
+    host.replaceChildren();
+    if (proj.executors.length === 0) {
+      host.remove();
+      return;
+    }
+    const label = document.createElement("span");
+    label.className = "canon-projection-label";
+    label.textContent = "Projected to";
+    host.appendChild(label);
+
+    for (const ex of proj.executors) {
+      const chip = document.createElement("span");
+      chip.className = `canon-projection-chip is-${ex.state}`;
+      chip.textContent = ex.tool;
+      attachTooltip(chip, ex.state === "synced" ? "In sync with the Canon source"
+        : ex.state === "stale" ? "Projected block is older than the source — re-project"
+        : "Never projected here");
+      host.appendChild(chip);
+    }
+
+    if (proj.source_edited_unix != null) {
+      const edited = document.createElement("span");
+      edited.className = "canon-projection-edited";
+      edited.textContent = `sources edited ${relTime(proj.source_edited_unix)}`;
+      host.appendChild(edited);
+    }
+
+    if (proj.executors.some((e) => e.state === "stale")) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "canon-cockpit-listitem-action";
+      btn.textContent = "Re-project";
+      btn.addEventListener("click", () => {
+        btn.disabled = true;
+        void canonExport(cwd)
+          .then(() => canonProjectionStatus(cwd))
+          .then((fresh) => {
+            pushInfoToast({ message: "Re-projected into every executor" });
+            this.renderProjectionStrip(cwd, host, fresh);
+          })
+          .catch((e) => {
+            btn.disabled = false;
+            pushInfoToast({ message: `Re-project failed: ${this.friendlyError(e)}` });
+          });
+      });
+      host.appendChild(btn);
+    }
   }
 
   /** The Overview's attention block: org-default drift and dead weight, each
@@ -1682,8 +1805,18 @@ export class CanonCockpitView {
     const reload = (): void => { this.invalidateStatus(); load(); };
 
     const load = (): void => {
-      void this.status(cwd)
-        .then((status) => {
+      const org = this.activeOrg();
+      void Promise.all([
+        this.status(cwd),
+        // What the org publishes, to tell "current" from "3 versions behind";
+        // and the local eval results, so the verdict sits next to the unit it
+        // judges instead of only in Loop. Both optional — a row still renders.
+        org ? canonSearch(org.slug, null, "skill").catch(() => [] as PkgMeta[]) : Promise.resolve([] as PkgMeta[]),
+        canonEvalSummary(cwd).catch(() => []),
+      ])
+        .then(([status, published, evals]) => {
+          const latest = new Map(published.map((p) => [p.name, p.version]));
+          const lifts = new Map(evals.map((e) => [e.skill, liftRow(e)]));
           list.replaceChildren();
           if (status.installed.length === 0 && status.detectedSkills.length === 0) {
             list.appendChild(this.emptyState({
@@ -1717,15 +1850,25 @@ export class CanonCockpitView {
               });
               actions.push(pub);
             }
+            const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
+              runEvals(cwd, i.name, runBtn, () => { this.invalidateStatus(); load(); });
+            });
+            actions.push(runBtn);
             actions.push(this.skillUninstallAction(cwd, i.name, reload));
+            const currency = skillCurrency(i, latest.get(i.name), status.modifiedSkills ?? []);
+            const lift = lifts.get(i.name);
+            const stats = [`v${i.version}`, i.source];
+            if (currency) stats.push(currency);
+            if (lift) stats.push(`lift ${lift.label}`);
             list.appendChild(skillCard({
               name: i.name,
-              meta: `${i.version} · ${i.source}`,
+              meta: [currency, lift ? `lift ${lift.label}` : "", `${i.version} · ${i.source}`]
+                .filter(Boolean).join(" · "),
               className: "canon-skill-row",
               leadIcon: Icons.packageBox({ size: 15 }),
               fetchPreview: () => canonReadLocal(cwd, i.name),
               actions,
-              stats: [`v${i.version}`, i.source],
+              stats,
             }));
           }
           for (const d of status.detectedSkills) {

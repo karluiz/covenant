@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { CanonCockpitView, unusedUnits, inventoryRows } from "./view";
+import { CanonCockpitView, unusedUnits, inventoryRows, skillCurrency } from "./view";
 
 // Mock the api module so tests don't invoke Tauri IPC.
 vi.mock("../../api", () => ({
@@ -19,6 +19,10 @@ vi.mock("../../api", () => ({
   canonNewUnit: vi.fn(async () => "/x/.covenant/canon/agents/reviewer.md"),
   canonImportSkill: vi.fn(async () => [] as string[]),
   canonAdopt: vi.fn(async () => undefined),
+  canonProjectionStatus: vi.fn(async () => ({ executors: [], source_edited_unix: null })),
+  canonExport: vi.fn(async () => undefined),
+  canonRunEvals: vi.fn(async () => undefined),
+  onCanonEvalProgress: vi.fn(async () => () => {}),
   canonUnitPath: vi.fn(async () => "/x/.covenant/canon/agents/reviewer.md"),
   canonDeleteUnit: vi.fn(async () => undefined),
   canonReadSource: vi.fn(async () => ""),
@@ -44,6 +48,7 @@ import {
   operatorList, canonPublish, canonUninstallSkill,
   canonOrgDefaults, canonOrgDefaultSet, canonUnitInstalled,
   canonNewUnit, canonImportSkill, canonUnitPath, canonDeleteUnit, scoreSkillUsage,
+  canonProjectionStatus, canonExport, canonRunEvals,
   type Operator,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
@@ -703,6 +708,117 @@ describe("Canon dead weight", () => {
   });
 });
 
+describe("Canon staleness", () => {
+  it("skillCurrency prefers local edits, then version drift, then silence", () => {
+    const kyc = { name: "kyc", version: "1.0.0" };
+    expect(skillCurrency(kyc, "1.0.0", [])).toBeNull();
+    expect(skillCurrency(kyc, undefined, [])).toBeNull();
+    expect(skillCurrency(kyc, "2.1.0", [])).toBe("update available · v2.1.0");
+    // A local edit is the more actionable fact — it outranks the version gap.
+    expect(skillCurrency(kyc, "2.1.0", ["kyc"])).toBe("modified locally");
+  });
+
+  it("marks an installed skill the registry has moved past", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "kyc", version: "1.0.0", source: "registry:karluiz", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+      modifiedSkills: [],
+    });
+    vi.mocked(canonSearch).mockResolvedValueOnce([
+      { id: 1, name: "kyc", version: "2.1.0", description: "", publisher_login: "karluiz", installs: 9, sha: "zzz", kind: "skill" },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")?.textContent).toContain("update available · v2.1.0");
+    });
+  });
+});
+
+describe("CanonCockpitView projection strip", () => {
+  it("names every executor and offers a re-project when one drifted", async () => {
+    vi.mocked(canonProjectionStatus).mockResolvedValue({
+      executors: [{ tool: "claude", state: "synced" }, { tool: "codex", state: "stale" }],
+      source_edited_unix: Math.floor(Date.now() / 1000) - 120,
+    });
+    vi.mocked(canonExport).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.querySelectorAll(".canon-projection-chip").length).toBe(2);
+    });
+    const strip = v.element.querySelector(".canon-projection")!;
+    expect(strip.textContent).toContain("claude");
+    expect(strip.textContent).toContain("sources edited 2m ago");
+    expect(strip.querySelector(".canon-projection-chip.is-stale")).toBeTruthy();
+
+    strip.querySelector<HTMLButtonElement>(".canon-cockpit-listitem-action")!.click();
+    await vi.waitFor(() => {
+      expect(canonExport).toHaveBeenCalledWith("/x");
+    });
+    vi.mocked(canonProjectionStatus).mockResolvedValue({ executors: [], source_edited_unix: null });
+  });
+
+  it("stays out of the way when everything is in sync", async () => {
+    vi.mocked(canonProjectionStatus).mockResolvedValueOnce({
+      executors: [{ tool: "claude", state: "synced" }], source_edited_unix: null,
+    });
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-projection-chip")).toBeTruthy();
+    });
+    expect(v.element.querySelector(".canon-projection .canon-cockpit-listitem-action")).toBeNull();
+  });
+});
+
+describe("CanonCockpitView nav", () => {
+  it("groups sections by what they are for, and Loop is Impact", () => {
+    const v = new CanonCockpitView(opts);
+    v.open();
+    const groups = [...v.element.querySelectorAll(".canon-cockpit-nav-group")].map((g) => g.textContent);
+    expect(groups).toEqual(["Authoring", "Sharing", "Impact"]);
+    expect(v.element.querySelector('[data-section="loop"]')?.textContent).toBe("Impact");
+    // Every section still reachable — grouping is presentation, not pruning.
+    expect(v.element.querySelectorAll(".canon-cockpit-nav-btn").length).toBe(13);
+  });
+});
+
+describe("CanonCockpitView eval from the row", () => {
+  it("runs a skill's evals behind the confirm card", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    vi.mocked(canonRunEvals).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Run evals']")).toBeTruthy();
+    });
+    v.element.querySelector<HTMLButtonElement>("[aria-label='Run evals']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
+    await vi.waitFor(() => {
+      expect(canonRunEvals).toHaveBeenCalledWith("/x", "kyc");
+    });
+  });
+
+  it("shows the lift verdict on the row it judges", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    vi.mocked(canonEvalSummary).mockResolvedValueOnce([
+      { skill: "kyc", passed: 4, total: 5, baseline_passed: 2, baseline_total: 5 },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")?.textContent).toContain("lift");
+    });
+  });
+});
+
 describe("CanonCockpitView module filter toolbar", () => {
   it("reveals the filter only when a section has rows, and filters live by substring", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
@@ -833,7 +949,11 @@ describe("CanonCockpitView homologated empty states", () => {
   it("renders the shared empty block with a CTA that routes to the registry when no skills are installed", async () => {
     const v = new CanonCockpitView(opts); // canonLocalStatus mock: all lists empty
     v.open(); v.showSection("skills");
-    await Promise.resolve(); await Promise.resolve();
+    // The section joins status + registry catalogue + eval summary, so wait on
+    // the render rather than counting microtasks.
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-cockpit-empty")).toBeTruthy();
+    });
     const empty = v.element.querySelector(".canon-cockpit-empty") as HTMLElement;
     expect(empty.textContent).toContain("No skills installed");
     (empty.querySelector(".rail-empty-btn") as HTMLButtonElement).click();

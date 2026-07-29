@@ -80,6 +80,19 @@ body.tabbar-left .canon-cockpit {
   font-weight: 600;
 }
 
+/* Group heads (Authoring / Sharing / Impact) — the nav's own subheads, sized
+   below the panel title so the hierarchy reads title > group > item. */
+.canon-cockpit-nav-group {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  opacity: 0.7;
+  padding: 14px 10px 5px;
+}
+.canon-cockpit-nav-group:first-of-type { padding-top: 8px; }
+
 /* ── Content ────────────────────────────────────────────────────────── */
 
 .canon-cockpit-content {
@@ -306,6 +319,42 @@ body.tabbar-left .canon-cockpit {
 }
 
 /* ── Overview section ───────────────────────────────────────────────── */
+
+/* Projection strip — where this repo's Canon actually lands. One line, chips
+   per executor, states carried by the semantic tokens (never ad-hoc red/green). */
+.canon-projection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  background: var(--canon-lift-1, transparent);
+}
+.canon-projection-label,
+.canon-projection-edited {
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.canon-projection-edited { margin-left: auto; }
+.canon-projection-chip {
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+}
+.canon-projection-chip.is-synced {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+.canon-projection-chip.is-stale {
+  color: var(--running, var(--fg));
+  border-color: color-mix(in srgb, var(--running, var(--fg)) 45%, transparent);
+}
+.canon-projection-chip.is-not_projected { opacity: 0.6; }
 
 /* An attention row states a fact and offers the one action that resolves it,
    so its meta is prose (the names behind the count), not a status chip —

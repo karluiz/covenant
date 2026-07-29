@@ -71,6 +71,10 @@ pub struct MemoryRef {
 #[serde(rename_all = "camelCase")]
 pub struct CanonStatus {
     pub installed: Vec<InstalledRef>,
+    /// Installed skills whose SKILL.md no longer hashes to the sha recorded at
+    /// install time — i.e. edited in place since. Purely local: the registry's
+    /// own digest is never trusted for this, only what we wrote down.
+    pub modified_skills: Vec<String>,
     pub agents: Vec<AgentRef>,
     pub contexts: Vec<ContextRef>,
     pub commands: Vec<CommandRef>,
@@ -284,6 +288,19 @@ fn write_lock(repo_root: &Path, m: &CanonManifest) -> Result<(), CanonError> {
 
 pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
     let installed = read_manifest(repo_root)?.installed;
+    let modified_skills = installed
+        .iter()
+        .filter(|i| {
+            let md = canon_dir(repo_root)
+                .join("skills")
+                .join(&i.name)
+                .join("SKILL.md");
+            // A missing file is not "modified" — there's nothing to compare,
+            // and the row already can't preview.
+            std::fs::read(&md).is_ok_and(|b| format!("{:x}", Sha256::digest(&b)) != i.sha)
+        })
+        .map(|i| i.name.clone())
+        .collect();
     let units = crate::list_context(repo_root)?;
     let agents = units
         .iter()
@@ -354,6 +371,7 @@ pub fn status(repo_root: &Path) -> Result<CanonStatus, CanonError> {
         .collect();
     Ok(CanonStatus {
         installed,
+        modified_skills,
         agents,
         contexts,
         commands,
@@ -731,6 +749,25 @@ mod tests {
         assert!(delete_unit(root, ContextKind::Agent, "../../../etc/passwd").is_err());
         assert!(delete_unit(root, ContextKind::Skill, "kyc").is_err());
         assert!(delete_unit(root, ContextKind::Spec, "3.1-alpha").is_err());
+    }
+
+    #[test]
+    fn status_flags_a_skill_edited_since_install() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let src = tmp.path().join("src");
+        write_pkg(&src, "kyc-peru");
+        install_local(root, &src).unwrap();
+        assert!(status(root).unwrap().modified_skills.is_empty());
+
+        // Edit the installed copy in place — the recorded sha no longer matches.
+        let md = root.join(".covenant/canon/skills/kyc-peru/SKILL.md");
+        std::fs::write(&md, "# KYC Peru\nEdited in place.\n").unwrap();
+        assert_eq!(status(root).unwrap().modified_skills, vec!["kyc-peru"]);
+
+        // A missing file is not "modified" — there's nothing to compare.
+        std::fs::remove_file(&md).unwrap();
+        assert!(status(root).unwrap().modified_skills.is_empty());
     }
 
     #[test]

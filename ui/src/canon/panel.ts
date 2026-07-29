@@ -3,17 +3,17 @@ import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
 import { renderMarkdown } from "../ui/markdown";
-import type { CanonStatus, Org, CanonEvalProgress, Operator } from "../api";
+import type { CanonStatus, Org, Operator } from "../api";
 import {
   canonLocalStatus, canonMyOrgs, canonPublish,
-  canonReadLocal, canonReadSource, canonExport, canonRunEvals, onCanonEvalProgress,
+  canonReadLocal, canonReadSource, canonExport,
   canonEvalSummary, operatorList,
 } from "../api";
 import { openOperatorDetail } from "./operator-detail";
 import { liftClass, type LiftBadge } from "./cockpit/lift";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
-import { openConfirmPrompt } from "../workspaces/confirm-prompt";
+import { runEvals } from "./evals";
 import { operatorsForOrg } from "../operator/org-filter";
 // Re-exported so existing consumers (cockpit, tests) keep importing from
 // "../panel"; the definitions live in ./org to avoid a panel↔create-org cycle.
@@ -796,44 +796,7 @@ export class CanonPanel {
   private runEvals(skill: string, btn: HTMLButtonElement): void {
     const cwd = this.opts.groupRootDir;
     if (!cwd) return;
-    openConfirmPrompt({
-      label: "Run evals",
-      message: `Run evals for "${skill}"? Each eval is a full agent run plus a judge call — this can take minutes and costs tokens.`,
-      confirmText: "Run",
-      onConfirm: () => { void this.runEvalsConfirmed(cwd, skill, btn); },
-    });
-  }
-
-  private async runEvalsConfirmed(cwd: string, skill: string, btn: HTMLButtonElement): Promise<void> {
-    btn.disabled = true;
-    let unlisten: (() => void) | undefined;
-    let doneReason = "";
-    try {
-      unlisten = await onCanonEvalProgress((e: CanonEvalProgress) => {
-        if (e.skill !== skill) return;
-        if (e.status === "running") pushInfoToast({ message: `Eval ${e.eval_id}: running…` });
-        else if (e.status === "pass") pushInfoToast({ message: `Eval ${e.eval_id}: PASS` });
-        else if (e.status === "fail") pushInfoToast({ message: `Eval ${e.eval_id}: FAIL — ${e.reason}` });
-        else if (e.status === "skipped") pushInfoToast({ message: `Evals skipped: ${e.reason}` });
-        else if (e.status === "error") pushInfoToast({ message: `Eval ${e.eval_id}: error — ${e.reason}` });
-        else if (e.status === "done") doneReason = e.reason;
-      });
-      await canonRunEvals(cwd, skill);
-      // The backend signals an empty run via the done note — don't claim
-      // "finished" when nothing actually ran.
-      pushInfoToast({
-        message:
-          doneReason === "no evals found"
-            ? `No evals for ${skill} — add .toml files under .covenant/canon/skills/${skill}/evals/`
-            : `Evals finished for ${skill}`,
-      });
-      await this.refresh();
-    } catch (e) {
-      pushInfoToast({ message: `Run evals failed: ${String(e)}` });
-    } finally {
-      unlisten?.();
-      btn.disabled = false;
-    }
+    runEvals(cwd, skill, btn, () => this.refresh());
   }
 
   private async exportNow(btn: HTMLButtonElement): Promise<void> {

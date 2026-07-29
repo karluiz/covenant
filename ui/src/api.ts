@@ -1784,6 +1784,10 @@ export interface MemoryRef {
 
 export interface CanonStatus {
   installed: InstalledRef[];
+  /** Installed skills edited in place since install (local sha ≠ recorded sha).
+   *  Optional in the type only so test fixtures needn't spell it out — the
+   *  backend always sends it. */
+  modifiedSkills?: string[];
   agents: AgentRef[];
   contexts: ContextRef[];
   memory: MemoryRef[];
