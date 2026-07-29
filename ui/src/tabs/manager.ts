@@ -51,6 +51,7 @@ import {
   clearAllAomExcluded,
   clearSessionMission,
   closeSession,
+  defaultAcpExecutor,
   getBlockedSessionIds,
   getSessionMission,
   getSettings,
@@ -1888,13 +1889,14 @@ export class TabManager {
     }
 
     // Start an ACP chat tab in this tab's group. Mirrors the group menu's
-    // executor submenu (Copilot default, others gated by acpExecutorFor at
-    // spawn time).
+    // executor submenu — every entry names its agent explicitly, so a menu
+    // labelled "Copilot" launches Copilot whatever Settings' default says.
+    // Only the bare doors (⌘⌥⇧C, Beacon's Remediate) consult the default.
     addSubmenu(
       "Start ACP",
       (
         [
-          { executor: undefined, label: "Copilot", badge: "NEW" },
+          { executor: "copilot", label: "Copilot", badge: "NEW" },
           { executor: "pi", label: "pi", badge: "BETA" },
           { executor: "claude", label: "Claude", badge: "BETA" },
           { executor: "opencode", label: "OpenCode", badge: "BETA" },
@@ -5259,7 +5261,7 @@ export class TabManager {
     const id = crypto.randomUUID();
     const replayKey = id.replace(/-/g, "").slice(0, 26);
     const seq = this.nextSeq++;
-    const executor: AcpExecutor = opts?.executor ?? "copilot";
+    const executor: AcpExecutor = opts?.executor ?? (await defaultAcpExecutor());
     const executorTitle =
       { copilot: "Copilot", pi: "pi", claude: "Claude", opencode: "OpenCode" }[executor];
 
@@ -8917,7 +8919,7 @@ export class TabManager {
         icon: Icons.sparkles(),
         submenu: (
           [
-            { executor: undefined, label: "Copilot", badge: "NEW" },
+            { executor: "copilot", label: "Copilot", badge: "NEW" },
             { executor: "pi", label: "pi", badge: "BETA" },
             { executor: "claude", label: "Claude", badge: "BETA" },
             { executor: "opencode", label: "OpenCode", badge: "BETA" },

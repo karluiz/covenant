@@ -1307,6 +1307,9 @@ export interface Settings {
   model_routes?: Record<string, RouteEntry>;
   /// Per-executor ACP configuration (trust level, model, args, env).
   acp_executors?: Record<string, AcpExecutorConfig>;
+  /// Agent a chat tab opens with when the door doesn't name one
+  /// (⌘⌥⇧C, Beacon's "Remediate"). Unset = the built-in fallback.
+  default_acp_executor?: AcpExecutor;
   /// 3.26 — MCP servers operators may call (streamable-http only).
   /// Defining a server grants nothing; each operator must also
   /// allowlist it by name (`Operator.mcp_servers`).
@@ -3254,6 +3257,21 @@ export interface AcpExecutorConfig {
 /// Executors with an ACP launch profile in the backend
 /// (`AcpSpawnOpts::for_executor`).
 export type AcpExecutor = "copilot" | "pi" | "claude" | "opencode";
+
+export const ACP_EXECUTORS: readonly AcpExecutor[] = ["copilot", "claude", "opencode", "pi"];
+
+/// Which agent a chat tab opens with when the door doesn't name one.
+/// Validated against the known ids — config.json is hand-editable, and an
+/// unknown value there must not spawn a tab with no adapter. Copilot is the
+/// floor so a fresh install always has a working door.
+export async function defaultAcpExecutor(): Promise<AcpExecutor> {
+  try {
+    const chosen = (await getSettings()).default_acp_executor;
+    return ACP_EXECUTORS.includes(chosen as AcpExecutor) ? (chosen as AcpExecutor) : "copilot";
+  } catch {
+    return "copilot";
+  }
+}
 
 export async function spawnAcpSession(
   opts: {
