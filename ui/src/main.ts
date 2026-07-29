@@ -904,6 +904,7 @@ async function boot(): Promise<void> {
     attachSessionToTask: teammateAttachSessionToTask,
     listTasks: teammateListTasks,
     focusTabBySessionId: (sessionId) => manager.activateBySessionId(sessionId as SessionId),
+    groupName: (groupId) => manager.groupName(groupId),
     resolveSessionTab: (short) => {
       const info = manager.tabBySessionShort(short);
       return info ? { name: info.displayName, open: info.open } : null;

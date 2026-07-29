@@ -113,6 +113,10 @@ export interface TeammatePanelDeps {
   deleteTask?: (taskId: string) => Promise<void>;
   /// Activate the tab whose backing SessionId matches. Returns true if found.
   focusTabBySessionId?: (sessionId: string) => boolean;
+  /// Display name for a tab group id. The backend titles supervision tasks
+  /// with the raw group id (it has no manifest), so the panel resolves it
+  /// here. Null when the group is gone.
+  groupName?: (groupId: string) => string | null;
   /// Resolve a 6-char session short (as persisted on operator decision rows)
   /// to its originating tab's display name + liveness. Powers the Activity
   /// tab's origin chips. Null when the short id has never been seen.
@@ -1022,13 +1026,14 @@ export class TeammatePanel {
     const sub = this.headerEl.querySelector<HTMLElement>('[data-role="subtitle"]');
     if (!sub) return;
     if (task) {
+      const label = this.taskTitle(task);
       this.headerEl.classList.add("is-working");
       sub.classList.add("teammate-panel-subtitle--working");
       sub.innerHTML = `
         <span class="teammate-panel-subtitle__dot" aria-hidden="true"></span>
-        <span class="teammate-panel-subtitle__task">${escapeHtml(task.title)}</span>
+        <span class="teammate-panel-subtitle__task">${escapeHtml(label)}</span>
       `;
-      attachTooltip(sub, task.title);
+      attachTooltip(sub, label);
     } else {
       this.headerEl.classList.remove("is-working");
       sub.classList.remove("teammate-panel-subtitle--working");
@@ -1171,7 +1176,7 @@ export class TeammatePanel {
 
     const title = document.createElement("div");
     title.className = "task-item__title";
-    title.textContent = task.title;
+    title.textContent = this.taskTitle(task);
     head.append(title);
 
     const chev = document.createElement("span");
@@ -1631,6 +1636,17 @@ export class TeammatePanel {
     wrap.appendChild(card);
     this.threadEl.appendChild(wrap);
     this.threadEl.scrollTop = this.threadEl.scrollHeight;
+  }
+
+  /// What a task calls itself on screen. Supervision tasks are virtual and
+  /// titled by the backend as "Supervising group <uuid>" — the group name
+  /// lives only in the frontend manifest, so swap it in here. Falls back to
+  /// a short id when the group has since been deleted.
+  private taskTitle(task: Task): string {
+    const gid = task.supervision_group;
+    if (!gid) return task.title;
+    const name = this.deps.groupName?.(gid);
+    return `Supervising ${name ?? gid.slice(0, 8)}`;
   }
 
   private tabLabelForMessage(msg: TeammateMessage): string {

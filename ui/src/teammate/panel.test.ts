@@ -735,6 +735,44 @@ describe("TeammatePanel task action row", () => {
     expect(dead).toHaveLength(0);
   });
 
+  // The backend titles the virtual watch task "Supervising group <uuid>" —
+  // it has no manifest, so only the frontend can name the group.
+  async function mountSupervision(
+    groupName: ((id: string) => string | null) | undefined,
+  ): Promise<HTMLElement> {
+    const operator = makeOp({ id: "op1" });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
+      listMessages:  async () => [],
+      sendText:      vi.fn(),
+      listOperators: async () => [operator],
+      listTasks:     async () => [
+        makeTask({
+          title: "Supervising group e4e348f6-0695-4e45-acf6-b4ca2ac4f4ad",
+          supervision_group: "e4e348f6-0695-4e45-acf6-b4ca2ac4f4ad",
+        }),
+      ],
+      groupName,
+    });
+    await panel.openFor(operator);
+    return host;
+  }
+
+  const titleText = (host: HTMLElement): string =>
+    host.querySelector(".task-item__title")!.textContent!;
+
+  it("titles a supervision task with the group's name, not its id", async () => {
+    const host = await mountSupervision(() => "Covenant");
+    expect(titleText(host)).toBe("Supervising Covenant");
+  });
+
+  it("falls back to a short id when the group is gone", async () => {
+    const host = await mountSupervision(() => null);
+    expect(titleText(host)).toBe("Supervising e4e348f6");
+  });
+
   function markDoneButton(host: HTMLElement): HTMLButtonElement | undefined {
     return Array.from(host.querySelectorAll<HTMLButtonElement>(".task-actions .btn"))
       .find((b) => b.textContent === "Mark done");
