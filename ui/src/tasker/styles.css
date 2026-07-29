@@ -358,6 +358,10 @@ body.theme-true-dark .tasker-task-selected {
   gap: 10px;
   padding: 6px 12px 12px 35px;
 }
+/* Base kv row. Must precede the -notes/-subs overrides below: equal
+   specificity means source order decides align-items. */
+.tasker-kv { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.tasker-kv-key { width: 66px; flex-shrink: 0; color: var(--text-tertiary); }
 /* Notes spans the full sheet width: label on its own row, textarea below. */
 .tasker-kv-notes {
   flex-direction: column;
@@ -688,8 +692,6 @@ body.theme-true-dark .tasker-edit-note .md-editor {
   background: color-mix(in srgb, var(--text-primary) 20%, transparent);
 }
 
-.tasker-kv { display: flex; align-items: center; gap: 10px; font-size: 12px; }
-.tasker-kv-key { width: 66px; flex-shrink: 0; color: var(--text-tertiary); }
 .tasker-seg {
   display: inline-flex;
   border: 1px solid var(--border);
