@@ -1,4 +1,5 @@
 import { Icons } from "../icons";
+import { attachTooltip } from "../tooltip/tooltip";
 import type { SpecPromptState, TabSnapshot } from "./spec-prompt-state";
 
 export interface SpecBadgeHandle {
@@ -20,9 +21,10 @@ export function mountSpecBadge(
   const badge = document.createElement("button");
   badge.type = "button";
   badge.className = "spec-badge hidden";
-  badge.title = "New spec detected";
   badge.setAttribute("aria-label", "New spec detected");
   badge.innerHTML = `<span class="spec-badge-icon">${Icons.target({ size: 13, strokeWidth: 2 })}</span><span class="spec-badge-count"></span>`;
+  let tipText = "New spec detected";
+  attachTooltip(badge, () => tipText);
   parent.appendChild(badge);
 
   const render = () => {
@@ -41,7 +43,7 @@ export function mountSpecBadge(
     const title = pending.length === 1
       ? "1 new spec ready to set"
       : `${pending.length} new specs ready to set`;
-    badge.title = title;
+    tipText = title;
     badge.setAttribute("aria-label", title);
     const count = badge.querySelector(".spec-badge-count")!;
     count.textContent = pending.length > 1 ? String(pending.length) : "";

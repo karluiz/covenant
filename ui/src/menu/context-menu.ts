@@ -4,6 +4,7 @@
 // dismisses on outside click or Escape. No keyboard navigation today
 // (tab/arrows) — mouse-only is enough for these surfaces.
 
+import { attachTooltip } from "../tooltip/tooltip";
 import { Icons } from "../icons";
 
 export interface MenuItem {
@@ -228,7 +229,7 @@ export class ContextMenu {
         const dot = document.createElement("button");
         dot.type = "button";
         dot.className = "ctx-swatch";
-        dot.title = sw.title;
+        attachTooltip(dot, sw.title);
         if (sw.color) {
           dot.style.background = sw.color;
         } else {

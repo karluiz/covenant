@@ -25,6 +25,7 @@ import {
 } from "../api";
 import { pushInfoToast } from "../notifications/toast";
 import { CustomSelect } from "../ui/select";
+import { attachTooltip } from "../tooltip/tooltip";
 
 type ToolKey = "claude" | "copilot" | "opencode" | "codex" | "pi" | "cursor" | "shared" | "covenant";
 type SectionKey =
@@ -361,7 +362,7 @@ export class CapabilitiesPanel {
     root.type = "button";
     root.className = "cap-chip cap-chip-root" + (this.projectRoot ? " set" : "");
     if (this.projectRoot) {
-      root.title = this.projectRoot;
+      attachTooltip(root, this.projectRoot);
       const name = document.createElement("span");
       name.className = "cap-chip-root-name";
       name.textContent = this.projectRoot.split("/").filter(Boolean).pop() ?? this.projectRoot;
@@ -369,7 +370,7 @@ export class CapabilitiesPanel {
       const clear = document.createElement("span");
       clear.className = "cap-chip-root-clear";
       clear.textContent = "×";
-      clear.title = "Clear project root";
+      attachTooltip(clear, "Clear project root");
       clear.onclick = async (e) => {
         e.stopPropagation();
         this.projectRoot = null;
@@ -418,7 +419,7 @@ export class CapabilitiesPanel {
       <button type="button" class="cap-btn ${pending > 0 ? "cap-btn-primary" : ""}" data-act="project" ${hasRoot ? "" : "disabled"}>Project →</button>
     `;
     const btn = bar.querySelector<HTMLButtonElement>('[data-act="project"]')!;
-    if (!hasRoot) btn.title = "Set a project root first";
+    if (!hasRoot) attachTooltip(btn, "Set a project root first");
     btn.onclick = async () => {
       if (!this.projectRoot) return;
       btn.disabled = true;

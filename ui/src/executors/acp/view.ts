@@ -2576,7 +2576,7 @@ export class AcpChatView {
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "acp-image-chip";
-      chip.title = "Click to preview";
+      attachTooltip(chip, "Click to preview");
       chip.innerHTML =
         `<img class="acp-image-chip-thumb" src="${dataUrl}" alt="" />` +
         `<span>image ${i + 1} · ${escapeHtml(img.mimeType.replace("image/", ""))}</span>` +

@@ -16,6 +16,7 @@ import {
   type OperatorPhaseSnapshot,
 } from "../api";
 import { Icons } from "../icons";
+import { attachTooltip } from "../tooltip/tooltip";
 import { formatChord } from "../platform";
 
 const POLL_MS = 5_000;
@@ -213,6 +214,15 @@ export class AomBanner {
     this.timeEl = this.root.querySelector(".aom-banner-time");
     this.countEl = this.root.querySelector(".aom-banner-count");
     this.costEl = this.root.querySelector(".aom-banner-cost");
+    // Thunk: the cell outlives every refresh, so the tip reads the
+    // CURRENT status at hover instead of the one at mount.
+    if (this.costEl) {
+      attachTooltip(
+        this.costEl,
+        () =>
+          `$${this.status.accumulated_cost_usd.toFixed(3)} / $${this.status.budget_usd.toFixed(2)} budget`,
+      );
+    }
     this.root
       .querySelector<HTMLButtonElement>(".aom-banner-stop")!
       .addEventListener("click", () => {
@@ -243,7 +253,6 @@ export class AomBanner {
       const spent = this.status.accumulated_cost_usd;
       const cap = this.status.budget_usd;
       this.costEl.textContent = `$${spent.toFixed(3)}`;
-      this.costEl.title = `$${spent.toFixed(3)} / $${cap.toFixed(2)} budget`;
       // Color the cost cell when getting close to budget — gives the
       // user a visual cue without an extra alert. Threshold 80%.
       const ratio = cap > 0 ? spent / cap : 0;

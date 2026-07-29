@@ -677,7 +677,7 @@ export class StructureTree {
     const newFile = document.createElement("button");
     newFile.type = "button";
     newFile.className = "structure-action";
-    newFile.title = "New file";
+    attachTooltip(newFile, "New file");
     newFile.innerHTML = Icons.filePen({ size: 12 });
     newFile.addEventListener("click", () => {
       this.startCreateAtRoot("file");
@@ -687,7 +687,7 @@ export class StructureTree {
     const newFolder = document.createElement("button");
     newFolder.type = "button";
     newFolder.className = "structure-action";
-    newFolder.title = "New folder";
+    attachTooltip(newFolder, "New folder");
     newFolder.innerHTML = Icons.folder({ size: 12 });
     newFolder.addEventListener("click", () => {
       this.startCreateAtRoot("dir");
@@ -697,9 +697,12 @@ export class StructureTree {
     const showIgnored = document.createElement("button");
     showIgnored.type = "button";
     showIgnored.className = "structure-action structure-toggle-ignored";
-    showIgnored.title = this.showIgnored
-      ? "Hide gitignored files (.env, build artifacts, …)"
-      : "Show gitignored files (.env, build artifacts, …)";
+    attachTooltip(
+      showIgnored,
+      this.showIgnored
+        ? "Hide gitignored files (.env, build artifacts, …)"
+        : "Show gitignored files (.env, build artifacts, …)",
+    );
     if (this.showIgnored) showIgnored.classList.add("structure-action-active");
     showIgnored.innerHTML = Icons.eye({ size: 12 });
     showIgnored.addEventListener("click", () => {
@@ -725,7 +728,7 @@ export class StructureTree {
     const refresh = document.createElement("button");
     refresh.type = "button";
     refresh.className = "structure-action";
-    refresh.title = "Refresh";
+    attachTooltip(refresh, "Refresh");
     refresh.innerHTML = Icons.refresh({ size: 12 });
     refresh.addEventListener("click", () => {
       void this.refresh();
@@ -767,7 +770,7 @@ export class StructureTree {
         if (!branch) return; // not a repo → stay hidden
         const chip = document.createElement("span");
         chip.className = "structure-branch-chip";
-        chip.title = branch;
+        attachTooltip(chip, branch);
         chip.innerHTML =
           Icons.gitBranch({ size: 11 }) +
           `<span class="structure-branch-name"></span>`;
@@ -1123,7 +1126,7 @@ export class StructureTree {
     if (entry.is_symlink) {
       const badge = document.createElement("span");
       badge.className = "structure-symlink-badge";
-      badge.title = "Symlink (not traversed)";
+      attachTooltip(badge, "Symlink (not traversed)");
       badge.textContent = "↪";
       name.appendChild(badge);
     }

@@ -1028,7 +1028,7 @@ export class TeammatePanel {
         <span class="teammate-panel-subtitle__dot" aria-hidden="true"></span>
         <span class="teammate-panel-subtitle__task">${escapeHtml(task.title)}</span>
       `;
-      sub.title = task.title;
+      attachTooltip(sub, task.title);
     } else {
       this.headerEl.classList.remove("is-working");
       sub.classList.remove("teammate-panel-subtitle--working");
@@ -2335,7 +2335,7 @@ function renderDecision(d: OperatorDecisionRow): HTMLElement {
   detail.className = "decision__detail";
   const text = decisionDetailText(d);
   detail.textContent = text;
-  detail.title = text;
+  attachTooltip(detail, text);
   row.append(detail);
 
   return row;

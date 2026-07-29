@@ -2405,7 +2405,7 @@ export class TabManager {
     if (idleAgent) {
       const badge = document.createElement("span");
       badge.className = "tab-idle-badge";
-      badge.title = idleAgent.promptText ?? `${idleAgent.agent} waiting`;
+      attachTooltip(badge, idleAgent.promptText ?? `${idleAgent.agent} waiting`);
       // Insert before the close button so the pulse sits next to the
       // label, not past the X.
       const close = pill.querySelector(".tab-close");
@@ -2454,7 +2454,7 @@ export class TabManager {
       if (existing instanceof HTMLElement) return;
       const dot = document.createElement("span");
       dot.className = "tab-live-dot";
-      dot.title = "The running app was built from this worktree";
+      attachTooltip(dot, "The running app was built from this worktree");
       pill.insertBefore(dot, pill.firstChild);
     } else if (existing) {
       existing.remove();
@@ -2466,7 +2466,7 @@ export class TabManager {
     if (blocked && !existing) {
       const dot = document.createElement("span");
       dot.className = "tab-chip__escalation-dot";
-      dot.title = "Operator escalated — needs your input";
+      attachTooltip(dot, "Operator escalated — needs your input");
       pill.appendChild(dot);
     } else if (!blocked && existing) {
       existing.remove();
@@ -3637,7 +3637,7 @@ export class TabManager {
     const editorSplitter = document.createElement("div");
     editorSplitter.className = "editor-splitter";
     editorSplitter.hidden = true;
-    editorSplitter.title = "Drag to resize";
+    attachTooltip(editorSplitter, "Drag to resize");
     pane.appendChild(editorSplitter);
 
     const editorHost = document.createElement("div");
@@ -8423,7 +8423,7 @@ export class TabManager {
     const close = document.createElement("span");
     close.className = "tab-close";
     close.textContent = "×";
-    close.title = `Close tab (${formatChord(["mod", "W"])})`;
+    attachTooltip(close, `Close tab (${formatChord(["mod", "W"])})`);
     close.addEventListener("click", (e) => {
       e.stopPropagation();
       this.closeTab(tab.id);
@@ -8470,7 +8470,7 @@ export class TabManager {
     if (this.isLiveWorktree(tab)) {
       const liveDot = document.createElement("span");
       liveDot.className = "tab-live-dot";
-      liveDot.title = "The running app was built from this worktree";
+      attachTooltip(liveDot, "The running app was built from this worktree");
       pill.insertBefore(liveDot, pill.firstChild);
     }
 
@@ -8490,7 +8490,10 @@ export class TabManager {
     if (pillPaneLate.idleAgent) {
       const badge = document.createElement("span");
       badge.className = "tab-idle-badge";
-      badge.title = pillPaneLate.idleAgent.promptText ?? `${pillPaneLate.idleAgent.agent} waiting`;
+      attachTooltip(
+        badge,
+        pillPaneLate.idleAgent.promptText ?? `${pillPaneLate.idleAgent.agent} waiting`,
+      );
       pill.insertBefore(badge, close);
     }
 

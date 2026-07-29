@@ -313,6 +313,10 @@ export class StructureEditor {
 
     this.pathLabelEl = document.createElement("span");
     this.pathLabelEl.className = "structure-editor-path";
+    // Thunk on all three of these: the elements are built once and their
+    // text is rewritten on every file open / mode flip, so the tip has to
+    // be read at hover, not at construction.
+    attachTooltip(this.pathLabelEl, () => this.currentPath ?? "No file open");
     this.headerEl.appendChild(this.pathLabelEl);
 
     this.extEl = document.createElement("span");
@@ -324,6 +328,12 @@ export class StructureEditor {
 
     this.statusEl = document.createElement("span");
     this.statusEl.className = "structure-editor-status";
+    // Clean = empty span = zero-width = unhoverable, so this only ever
+    // shows while the dot is there.
+    attachTooltip(
+      this.statusEl,
+      () => `Unsaved changes — ${formatChord(["mod", "S"])} to save`,
+    );
     this.headerEl.appendChild(this.statusEl);
 
     // LSP status chip — shows download/starting/ready/error state for
@@ -362,7 +372,7 @@ export class StructureEditor {
     this.pngBtn.type = "button";
     this.pngBtn.className = "structure-editor-png-btn";
     this.pngBtn.textContent = "PNG";
-    this.pngBtn.title = "Export as PNG next to source";
+    attachTooltip(this.pngBtn, "Export as PNG next to source");
     this.pngBtn.hidden = true;
     this.pngBtn.addEventListener("click", () => {
       void this.handleExportPng();
@@ -375,6 +385,11 @@ export class StructureEditor {
     this.previewBtn = document.createElement("button");
     this.previewBtn.type = "button";
     this.previewBtn.className = "structure-editor-preview-btn";
+    attachTooltip(this.previewBtn, () =>
+      this.viewMode === "preview"
+        ? `Show source (${formatChord(["mod", "shift", "P"])})`
+        : `Show preview (${formatChord(["mod", "shift", "P"])})`,
+    );
     this.previewBtn.hidden = true;
     this.previewBtn.addEventListener("click", () => this.toggleViewMode());
     this.headerEl.appendChild(this.previewBtn);
@@ -383,7 +398,7 @@ export class StructureEditor {
     this.applySpecBtn.type = "button";
     this.applySpecBtn.className = "structure-editor-apply-spec-btn";
     this.applySpecBtn.textContent = "Apply spec";
-    this.applySpecBtn.title = "Attach this spec to the active tab's mission";
+    attachTooltip(this.applySpecBtn, "Attach this spec to the active tab's mission");
     this.applySpecBtn.hidden = true;
     this.applySpecBtn.addEventListener("click", () => {
       if (!this.currentPath) return;
@@ -414,7 +429,7 @@ export class StructureEditor {
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "structure-editor-close";
-    closeBtn.title = "Close editor";
+    attachTooltip(closeBtn, "Close editor");
     closeBtn.innerHTML = Icons.x({ size: 12 });
     closeBtn.addEventListener("click", () => this.close());
     this.headerEl.appendChild(closeBtn);
@@ -461,7 +476,7 @@ export class StructureEditor {
       b.type = "button";
       b.className = "structure-editor-find-btn";
       b.textContent = label;
-      b.title = title;
+      attachTooltip(b, title);
       b.tabIndex = -1;
       b.addEventListener("click", (e) => {
         e.preventDefault();
@@ -1013,7 +1028,6 @@ export class StructureEditor {
     this.currentPath = path;
     this.syncShareGistBtn();
     this.pathLabelEl.textContent = shortenPath(path);
-    this.pathLabelEl.title = path;
     this.setExt(path);
     this.statusEl.textContent = "loading…";
     this.statusEl.classList.remove("dirty");
@@ -1506,10 +1520,8 @@ export class StructureEditor {
       this.previewBtn.hidden = false;
       const inPreview = this.viewMode === "preview";
       this.previewBtn.textContent = inPreview ? "source" : "preview";
-      const previewChord = formatChord(["mod", "shift", "P"]);
-      this.previewBtn.title = inPreview
-        ? `Show source (${previewChord})`
-        : `Show preview (${previewChord})`;
+      // The tooltip is attached once (constructor) and reads viewMode at
+      // hover — the button is persistent, its label is not.
     }
 
     // PNG controls — visible only for SVG files, regardless of
@@ -1694,11 +1706,9 @@ export class StructureEditor {
   private renderStatus(): void {
     if (this.dirty) {
       this.statusEl.textContent = "●";
-      this.statusEl.title = `Unsaved changes — ${formatChord(["mod", "S"])} to save`;
       this.statusEl.classList.add("dirty");
     } else {
       this.statusEl.textContent = "";
-      this.statusEl.title = "";
       this.statusEl.classList.remove("dirty");
     }
   }

@@ -1,3 +1,5 @@
+import { attachTooltip } from "../tooltip/tooltip";
+
 export interface SelectOption {
   value: string;
   label: string;
@@ -80,7 +82,7 @@ export class CustomSelect {
       .join(" ");
     this.button.setAttribute("aria-haspopup", "listbox");
     this.button.setAttribute("aria-expanded", "false");
-    if (config.title) this.button.title = config.title;
+    if (config.title) attachTooltip(this.button, config.title);
 
     this.iconEl = document.createElement("span");
     this.iconEl.className = "ui-select__button-icon";

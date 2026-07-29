@@ -1,4 +1,5 @@
 import { modPrefix } from "../platform";
+import { attachTooltip } from "../tooltip/tooltip";
 import {
   OPERATOR_PERSONA_TEMPLATES,
   type PersonaTemplate,
@@ -104,7 +105,7 @@ export class PersonaComposerModal {
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "persona-composer__cancel modal-cancel-btn";
-    cancel.title = "Cancel (Esc)";
+    attachTooltip(cancel, "Cancel (Esc)");
     cancel.innerHTML = `<span>Cancel</span><kbd class="modal-kbd">Esc</kbd>`;
     cancel.addEventListener("click", () => this.close());
 
