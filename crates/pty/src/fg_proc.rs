@@ -170,18 +170,7 @@ fn read_proc_argv(pid: i32) -> Option<Vec<String>> {
     Some(argv)
 }
 
-/// A dev server found under a session's process tree. The port is what
-/// makes it identifiable — three tabs running `node` are three identical
-/// strings, but `:1420` is the one you were looking for.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct BusyServer {
-    /// Logical name — argv-derived when possible (`node …/vite.js` → "vite").
-    pub name: String,
-    /// Lowest port it holds in LISTEN. `None` when the socket closed
-    /// between the walk and the read.
-    pub port: Option<u16>,
-    pub pid: u32,
-}
+pub use crate::BusyServer;
 
 /// A live dev server somewhere under `root_pid`'s process tree: BFS the
 /// descendants and report the first process whose (logical) name passes
