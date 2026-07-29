@@ -28,6 +28,9 @@ const makePane = (id: string, cwd = "/repo"): Pane => ({
   spawn_id: null,
   idleAgent: null,
   busyProc: null,
+      busyPort: null,
+      busyPid: null,
+      busySince: null,
   replayKey: "",
 });
 

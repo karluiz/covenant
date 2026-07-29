@@ -25,6 +25,9 @@ const pane = (id: string, cwd = "/"): Pane => ({
   spawn_id: null,
   idleAgent: null,
   busyProc: null,
+      busyPort: null,
+      busyPid: null,
+      busySince: null,
   replayKey: "",
   el: null,
 });

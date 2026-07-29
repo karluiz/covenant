@@ -115,6 +115,7 @@ import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
 import { attachTooltip } from "../tooltip/tooltip";
+import { busyTooltip, busyUrl } from "./busy-tooltip";
 import { groupFindings } from "../convergence/findings";
 import { supervisionTooltip } from "./supervision-tooltip";
 import {
@@ -628,12 +629,33 @@ type DragSource =
 /// Badge for "a dev server is serving under this tab": a small pulsing
 /// terminal glyph on the left of the pill. `data-proc` lets the render
 /// path skip rebuilding when the server name hasn't changed.
-function makeBusyBadge(proc: string): HTMLElement {
+function makeBusyBadge(pane: Pane, onOpen: (url: string) => void): HTMLElement {
   const el = document.createElement("span");
   el.className = "tab-busy-dot";
-  el.dataset.proc = proc;
+  el.dataset.proc = pane.busyProc ?? "";
   el.innerHTML = Icons.terminal({ size: 11, strokeWidth: 2.4 });
-  attachTooltip(el, `${proc} running`);
+  // Thunk: uptime keeps moving and the port can arrive a scan after the
+  // name, but the badge is only rebuilt when the process name changes.
+  attachTooltip(el, () =>
+    busyTooltip({
+      proc: pane.busyProc ?? "",
+      port: pane.busyPort,
+      pid: pane.busyPid,
+      since: pane.busySince,
+      cwd: pane.cwd || null,
+      nowMs: Date.now(),
+    }),
+  );
+  if (pane.busyPort !== null) {
+    el.classList.add("tab-busy-dot-openable");
+    el.addEventListener("click", (e) => {
+      // A click anywhere in the pill activates the tab; this one means
+      // "open the thing that is serving", so it stops there.
+      e.stopPropagation();
+      const port = pane.busyPort;
+      if (port !== null) onOpen(busyUrl(port));
+    });
+  }
   return el;
 }
 
@@ -1502,6 +1524,9 @@ export class TabManager {
       spawn_id: persistedPane.spawn_id ?? null,
       idleAgent: null,
       busyProc: null,
+      busyPort: null,
+      busyPid: null,
+      busySince: null,
       replayKey,
       el: null,
     };
@@ -2428,10 +2453,15 @@ export class TabManager {
     // dot too — it means "an app is serving under here", not "agent busy".
     const paneB = activePane(tab);
     if (paneB.busyProc) {
-      if (existing instanceof HTMLElement && existing.dataset.proc === paneB.busyProc) return;
+      // Keyed on name + "is it openable": the port can land a scan after
+      // the name, and that transition adds the click handler.
+      const key = `${paneB.busyProc}:${paneB.busyPort ?? ""}`;
+      if (existing instanceof HTMLElement && existing.dataset.key === key) return;
       existing?.remove();
       // Prepend so it sits before the label (left side of the tab).
-      pill.insertBefore(makeBusyBadge(paneB.busyProc), pill.firstChild);
+      const badge = makeBusyBadge(paneB, (url) => void this.openBrowserTab(url));
+      badge.dataset.key = key;
+      pill.insertBefore(badge, pill.firstChild);
     } else if (existing) {
       existing.remove();
     }
@@ -4003,7 +4033,17 @@ export class TabManager {
                 // listen-checked dev server under this tab's shell, agent
                 // CLIs excluded. So the dot shows on ANY tab kind — an
                 // agent that started `tauri dev` underneath counts.
+                // busySince marks the transition into serving, so a scan
+                // that merely re-reports the same server doesn't reset the
+                // clock; stopping clears it.
+                if (event.busy_proc && pFg.busyProc !== event.busy_proc) {
+                  pFg.busySince = Date.now();
+                } else if (!event.busy_proc) {
+                  pFg.busySince = null;
+                }
                 pFg.busyProc = event.busy_proc;
+                pFg.busyPort = event.busy_port;
+                pFg.busyPid = event.busy_pid;
                 this.renderTabBusyDot(tabRef.current);
               }
             } else if (event.kind === "title_suggested") {
@@ -4823,6 +4863,9 @@ export class TabManager {
       spawn_id: null,
       idleAgent: null,
       busyProc: null,
+      busyPort: null,
+      busyPid: null,
+      busySince: null,
       replayKey,
       el: paneHost0,
     };
@@ -5125,6 +5168,9 @@ export class TabManager {
       spawn_id: null,
       idleAgent: null,
       busyProc: null,
+      busyPort: null,
+      busyPid: null,
+      busySince: null,
       replayKey,
       el: piPaneHost0,
     };
@@ -5297,6 +5343,9 @@ export class TabManager {
       spawn_id: null,
       idleAgent: null,
       busyProc: null,
+      busyPort: null,
+      busyPid: null,
+      busySince: null,
       replayKey,
       el: acpPaneHost0,
     };
@@ -5569,6 +5618,9 @@ export class TabManager {
       spawn_id: null,
       idleAgent: null,
       busyProc: null,
+      busyPort: null,
+      busyPid: null,
+      busySince: null,
       replayKey,
       el: null,
     };
@@ -8462,7 +8514,9 @@ export class TabManager {
     // strip) doesn't drop it until the next foreground_changed event.
     // Pill isn't in the DOM yet here — attach directly.
     if (pillPaneLate.busyProc) {
-      pill.insertBefore(makeBusyBadge(pillPaneLate.busyProc), pill.firstChild);
+      const badge = makeBusyBadge(pillPaneLate, (url) => void this.openBrowserTab(url));
+      badge.dataset.key = `${pillPaneLate.busyProc}:${pillPaneLate.busyPort ?? ""}`;
+      pill.insertBefore(badge, pill.firstChild);
     }
 
     // Live-worktree dot: this worktree is what the running dev app was

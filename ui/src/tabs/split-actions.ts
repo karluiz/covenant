@@ -61,6 +61,9 @@ export async function splitPaneAction(
     spawn_id: null,
     idleAgent: null,
     busyProc: null,
+      busyPort: null,
+      busyPid: null,
+      busySince: null,
     replayKey: `rk-${sessionId}`,
   };
 

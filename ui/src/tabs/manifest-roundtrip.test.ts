@@ -21,6 +21,9 @@ const pane = (id: string, cwd: string): Pane => ({
   spawn_id: null,
   idleAgent: null,
   busyProc: null,
+      busyPort: null,
+      busyPid: null,
+      busySince: null,
   replayKey: `rk-${id}`,
 });
 

@@ -170,6 +170,19 @@ fn read_proc_argv(pid: i32) -> Option<Vec<String>> {
     Some(argv)
 }
 
+/// A dev server found under a session's process tree. The port is what
+/// makes it identifiable — three tabs running `node` are three identical
+/// strings, but `:1420` is the one you were looking for.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BusyServer {
+    /// Logical name — argv-derived when possible (`node …/vite.js` → "vite").
+    pub name: String,
+    /// Lowest port it holds in LISTEN. `None` when the socket closed
+    /// between the walk and the read.
+    pub port: Option<u16>,
+    pub pid: u32,
+}
+
 /// A live dev server somewhere under `root_pid`'s process tree: BFS the
 /// descendants and report the first process whose (logical) name passes
 /// `is_busy` AND that holds a TCP socket in LISTEN state. The listen
@@ -178,7 +191,7 @@ fn read_proc_argv(pid: i32) -> Option<Vec<String>> {
 /// (claude, codex, …) are walked *through* but never reported — a dev
 /// server they started counts, they don't.
 #[cfg(target_os = "macos")]
-pub fn busy_server_descendant(root_pid: u32, is_busy: &dyn Fn(&str) -> bool) -> Option<String> {
+pub fn busy_server_descendant(root_pid: u32, is_busy: &dyn Fn(&str) -> bool) -> Option<BusyServer> {
     use libproc::processes::{pids_by_type, ProcFilter};
     let mut queue = vec![root_pid];
     // ponytail: 64-process cap bounds the walk; a session subtree past
@@ -208,8 +221,16 @@ pub fn busy_server_descendant(root_pid: u32, is_busy: &dyn Fn(&str) -> bool) -> 
             let display =
                 busy_name_from_argv(cpid, is_busy).or_else(|| is_busy(&comm).then(|| comm.clone()));
             if let Some(name) = display {
-                if has_listening_tcp(cpid) {
-                    return Some(name);
+                // The LISTEN walk is the gate AND the source of the port —
+                // one pass, not a detection followed by a lookup.
+                if let Some(ports) = listening_ports(cpid) {
+                    return Some(BusyServer {
+                        name,
+                        // Lowest wins: vite's HMR socket is a real second
+                        // listener, and :1420 is the one a human types.
+                        port: ports.iter().copied().min(),
+                        pid: child,
+                    });
                 }
             }
         }
@@ -218,7 +239,10 @@ pub fn busy_server_descendant(root_pid: u32, is_busy: &dyn Fn(&str) -> bool) -> 
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn busy_server_descendant(_root_pid: u32, _is_busy: &dyn Fn(&str) -> bool) -> Option<String> {
+pub fn busy_server_descendant(
+    _root_pid: u32,
+    _is_busy: &dyn Fn(&str) -> bool,
+) -> Option<BusyServer> {
     None
 }
 
@@ -243,17 +267,14 @@ fn busy_name_from_argv(pid: i32, is_busy: &dyn Fn(&str) -> bool) -> Option<Strin
 
 /// True when `pid` holds at least one TCP socket in LISTEN state.
 #[cfg(target_os = "macos")]
-fn has_listening_tcp(pid: i32) -> bool {
+fn listening_ports(pid: i32) -> Option<Vec<u16>> {
     use libproc::bsd_info::BSDInfo;
     use libproc::file_info::{pidfdinfo, ListFDs, ProcFDType};
     use libproc::net_info::{SocketFDInfo, SocketInfoKind, TcpSIState};
     use libproc::proc_pid::{listpidinfo, pidinfo};
-    let Ok(info) = pidinfo::<BSDInfo>(pid, 0) else {
-        return false;
-    };
-    let Ok(fds) = listpidinfo::<ListFDs>(pid, info.pbi_nfiles as usize) else {
-        return false;
-    };
+    let info = pidinfo::<BSDInfo>(pid, 0).ok()?;
+    let fds = listpidinfo::<ListFDs>(pid, info.pbi_nfiles as usize).ok()?;
+    let mut ports = Vec::new();
     for fd in fds {
         if !matches!(ProcFDType::from(fd.proc_fdtype), ProcFDType::Socket) {
             continue;
@@ -263,13 +284,22 @@ fn has_listening_tcp(pid: i32) -> bool {
         };
         if matches!(SocketInfoKind::from(sock.psi.soi_kind), SocketInfoKind::Tcp) {
             // SAFETY: soi_kind == Tcp guarantees the union holds pri_tcp.
-            let state = unsafe { sock.psi.soi_proto.pri_tcp.tcpsi_state };
-            if matches!(TcpSIState::from(state), TcpSIState::Listen) {
-                return true;
+            let tcp = unsafe { sock.psi.soi_proto.pri_tcp };
+            if matches!(TcpSIState::from(tcp.tcpsi_state), TcpSIState::Listen) {
+                ports.push(port_from_network_order(tcp.tcpsi_ini.insi_lport));
             }
         }
     }
-    false
+    // Some(vec![]) is impossible by construction: an empty vec means no
+    // LISTEN socket, which is None — "this process is not serving".
+    (!ports.is_empty()).then_some(ports)
+}
+
+/// `insi_lport` is a `c_int` holding a port in NETWORK byte order. Read it
+/// raw on a little-endian machine and every server on :1420 reports 35850.
+#[cfg(target_os = "macos")]
+fn port_from_network_order(lport: libc::c_int) -> u16 {
+    u16::from_be(lport as u32 as u16)
 }
 
 /// Send a signal to the foreground process group of the PTY whose master
@@ -344,7 +374,37 @@ mod tests {
         let _ = server.wait();
         let _ = idle.kill();
         let _ = idle.wait();
-        assert!(found.is_some(), "listening python server not detected");
+        let found = found.expect("listening python server not detected");
+        assert!(is_py(&found.name), "unexpected name {:?}", found.name);
+        // The port is the whole point of the walk now — a listener with no
+        // port reported means the socket read regressed to a bare bool.
+        assert!(found.port.is_some(), "listener reported without a port");
+        assert!(found.pid > 0);
+    }
+
+    /// The byte-order guard. `insi_lport` is network order; read raw on a
+    /// little-endian machine a server on :1420 reports 35850. Binding a
+    /// listener whose port we already know is the only way to catch it.
+    #[test]
+    fn listening_ports_reports_the_real_port_not_the_byte_swapped_one() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let expected = listener.local_addr().expect("addr").port();
+
+        let ports =
+            listening_ports(std::process::id() as i32).expect("this process holds a LISTEN socket");
+
+        assert!(
+            ports.contains(&expected),
+            "expected {expected} among {ports:?} — byte order?"
+        );
+    }
+
+    #[test]
+    fn network_order_port_round_trips() {
+        // 1420 = 0x058C. Stored network-order in an int on a LE machine it
+        // reads back raw as 0x8C05 = 35845.
+        assert_eq!(port_from_network_order(0x8C05), 1420);
+        assert_eq!(port_from_network_order(0x901F), 8080); // 0x1F90
     }
 
     #[test]

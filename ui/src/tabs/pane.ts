@@ -64,6 +64,11 @@ export interface Pane {
   spawn_id: string | null;
   idleAgent: IdleAgentState | null;
   busyProc: string | null;
+  /// Port the busy server listens on, and when we first saw it running —
+  /// the tooltip turns these into "vite is serving on :1420 · up 4m".
+  busyPort: number | null;
+  busyPid: number | null;
+  busySince: number | null;
   replayKey: string;
   /// DOM container for this pane (the .pane-host div).
   /// Null only briefly during construction before mounting.

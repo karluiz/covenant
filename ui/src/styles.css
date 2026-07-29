@@ -14213,6 +14213,15 @@ button.status-segment.status-tg:focus-visible {
   flex-shrink: 0;
 }
 .tab-busy-dot svg { display: block; }
+/* Only when a port was resolved — the glyph is inert otherwise, and a
+   pointer cursor over a dead affordance is a lie. */
+.tab-busy-dot-openable {
+  cursor: pointer;
+  pointer-events: auto;
+}
+.tab-busy-dot-openable:hover {
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--ok) 85%, transparent));
+}
 @keyframes busy-pulse {
   0%, 100% { opacity: 0.4; }
   50%      { opacity: 1;   }

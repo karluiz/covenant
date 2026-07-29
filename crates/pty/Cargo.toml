@@ -17,6 +17,8 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+# BusyServer crosses into karl-session's event bus, which serialises.
+serde = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libproc = "0.14"

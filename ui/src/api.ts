@@ -57,6 +57,11 @@ export type SessionUiEvent =
       /** Dev server alive under the session's shell (listen-checked
        *  descendant scan) — drives the pulse dot, any tab kind. */
       busy_proc: string | null;
+      /** Lowest port it holds in LISTEN. Read by the same socket walk
+       *  that gates the dot, so it costs nothing extra. `null` when the
+       *  socket closed between the walk and the read. */
+      busy_port: number | null;
+      busy_pid: number | null;
     }
   | { kind: "title_suggested"; session: SessionId; title: string };
 

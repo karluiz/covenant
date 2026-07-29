@@ -191,12 +191,12 @@ pub enum SessionEvent {
     /// at the shell prompt (or no foreground could be determined).
     /// `busy_proc` carries the periodic descendant-scan result — a dev
     /// server alive anywhere under the session's shell (see
-    /// [`karl_pty::busy_server_descendant`]). Emitted on transitions of
-    /// either field, not every tick.
+    /// [`karl_pty::busy_server_descendant`]), with the port it listens on
+    /// and its pid. Emitted on transitions of either field, not every tick.
     ForegroundChanged {
         session: SessionId,
         name: Option<String>,
-        busy_proc: Option<String>,
+        busy_proc: Option<karl_pty::BusyServer>,
     },
     /// A fresh AI-generated tab title for the session, produced by the
     /// summarizer. Emitted only when the title changed from the last one.
@@ -291,11 +291,15 @@ pub enum SessionUiEvent {
     },
     /// Foreground process changed. `busy_proc` names a dev server alive
     /// under the session's shell (listen-checked descendant scan) —
-    /// drives the palpitating dot in the tab list.
+    /// drives the palpitating dot in the tab list. `busy_port` is the
+    /// lowest port it holds in LISTEN; the same walk that gates the dot
+    /// reads it, so it costs nothing extra.
     ForegroundChanged {
         session: SessionId,
         name: Option<String>,
         busy_proc: Option<String>,
+        busy_port: Option<u16>,
+        busy_pid: Option<u32>,
     },
     TitleSuggested {
         session: SessionId,
@@ -389,7 +393,9 @@ impl SessionEvent {
             } => Some(SessionUiEvent::ForegroundChanged {
                 session: *session,
                 name: name.clone(),
-                busy_proc: busy_proc.clone(),
+                busy_proc: busy_proc.as_ref().map(|b| b.name.clone()),
+                busy_port: busy_proc.as_ref().and_then(|b| b.port),
+                busy_pid: busy_proc.as_ref().map(|b| b.pid),
             }),
         }
     }
@@ -591,7 +597,7 @@ async fn pump(
     // Descendant-scan state: last known dev server under the shell, and a
     // tick countdown so the (syscall-heavy) walk runs every 5s, not 1s.
     #[cfg(unix)]
-    let mut last_busy: Option<String> = None;
+    let mut last_busy: Option<karl_pty::BusyServer> = None;
     #[cfg(unix)]
     let mut busy_scan_in: u8 = 0;
     // Rendered-screen turn tracking for alt-screen executors (opencode/…):
