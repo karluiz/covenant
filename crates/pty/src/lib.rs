@@ -27,8 +27,24 @@ mod fg_proc;
 #[cfg(unix)]
 pub use fg_proc::{
     busy_server_descendant, foreground_process_name, kill_foreground_pgrp, pgrp_alive, process_cwd,
-    BusyServer,
 };
+
+/// A dev server found under a session's process tree. The port is what
+/// makes it identifiable — three tabs running `node` are three identical
+/// strings, but `:1420` is the one you were looking for.
+///
+/// Only *produced* on unix (see [`fg_proc::busy_server_descendant`]), but
+/// the type itself is platform-independent so `SessionEvent` compiles
+/// everywhere.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BusyServer {
+    /// Logical name — argv-derived when possible (`node …/vite.js` → "vite").
+    pub name: String,
+    /// Lowest port it holds in LISTEN. `None` when the socket closed
+    /// between the walk and the read.
+    pub port: Option<u16>,
+    pub pid: u32,
+}
 
 use bytes::Bytes;
 pub use portable_pty::PtySize;
