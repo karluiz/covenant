@@ -912,6 +912,9 @@ export function pickPaintedPaneId(
 /// we still want to show "zsh 2" or "anvil-light-toggle" instead of
 /// `…3BDWPP`. The cache is populated on every tab create / rename so
 /// the entry is up to date even if the tab is closed seconds later.
+/// How long the perception chip lingers after the last auto-answer.
+const PERCEPTION_CHIP_TTL_MS = 5 * 60 * 1000;
+
 const SESSION_NAME_CACHE_KEY = "covenant.session-name-history";
 const SESSION_NAME_CACHE_MAX = 200;
 
@@ -1148,6 +1151,9 @@ export class TabManager {
   /// Updated on every name-affecting mutation; consulted by panels
   /// that need to label closed tabs.
   private sessionNameCache: Map<string, CachedSessionName> = loadSessionNameCache();
+
+  /// Decay timers for the perception chip, keyed by session id.
+  private perceptionDecayTimers: Map<string, number> = new Map();
 
   /// Held so the per-tab Operator badge knows whether AOM is on (toggle
   /// is active only during AOM). Wired by main.ts after both classes
@@ -3722,14 +3728,25 @@ export class TabManager {
     );
     if (!tab) return null;
     const pane = tab.panes.find((p) => p.sessionId === sessionId);
-    if (
-      pane &&
-      operatorId &&
-      !pane.operator &&
-      pane.perceptionOperator !== operatorId
-    ) {
-      pane.perceptionOperator = operatorId;
-      this.renderTabbar();
+    if (pane && operatorId && !pane.operator) {
+      if (pane.perceptionOperator !== operatorId) {
+        pane.perceptionOperator = operatorId;
+        this.renderTabbar();
+      }
+      // Presence decays: the chip marks a recent act, not a mandate.
+      // Each new auto-answer restarts the clock.
+      const prev = this.perceptionDecayTimers.get(sessionId);
+      if (prev) clearTimeout(prev);
+      this.perceptionDecayTimers.set(
+        sessionId,
+        window.setTimeout(() => {
+          this.perceptionDecayTimers.delete(sessionId);
+          if (pane.perceptionOperator) {
+            pane.perceptionOperator = null;
+            this.renderTabbar();
+          }
+        }, PERCEPTION_CHIP_TTL_MS),
+      );
     }
     return tab.id;
   }
