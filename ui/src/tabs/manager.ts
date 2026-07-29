@@ -152,6 +152,75 @@ const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 const DEFAULT_FONT_SIZE = 13;
 
+/// Small writes are normal for a PTY — especially while an agent is
+/// streaming. Sending every one directly to an xterm in a hidden pane makes
+/// its parser and DOM renderer compete with the visible terminal on the UI
+/// thread. Coalesce only hidden-pane output for one frame: no bytes are
+/// dropped, active panes retain immediate echo, and background work is much
+/// less fragmented.
+export const HIDDEN_OUTPUT_BATCH_DELAY_MS = 16;
+
+export class HiddenOutputBatch {
+  private chunks: Uint8Array[] = [];
+  private timer: number | null = null;
+
+  constructor(private readonly write: (data: Uint8Array) => void) {}
+
+  enqueue(chunk: Uint8Array): void {
+    this.chunks.push(chunk);
+    if (this.timer !== null) return;
+    this.timer = window.setTimeout(() => this.flush(), HIDDEN_OUTPUT_BATCH_DELAY_MS);
+  }
+
+  flush(): void {
+    if (this.timer !== null) {
+      window.clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.chunks.length === 0) return;
+    const chunks = this.chunks;
+    this.chunks = [];
+    if (chunks.length === 1) {
+      this.write(chunks[0]);
+      return;
+    }
+    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+    const merged = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    this.write(merged);
+  }
+
+  dispose(): void {
+    if (this.timer !== null) window.clearTimeout(this.timer);
+    this.timer = null;
+    this.chunks = [];
+  }
+}
+
+interface TabActivationMetric {
+  tabId: string;
+  elapsedMs: number;
+  hiddenOutputBytes: number;
+  hiddenOutputChunks: number;
+  usedNudge: boolean;
+  fitChangedDimensions: boolean;
+}
+
+const SLOW_TAB_ACTIVATION_MS = 120;
+
+function reportTabActivation(metric: TabActivationMetric): void {
+  // Keep normal switches silent. A slow-switch breadcrumb is intentionally
+  // structured so it survives WKWebView's console bridge and can be matched
+  // with the hidden-output counters without adding a user-facing debug panel.
+  if (metric.elapsedMs < SLOW_TAB_ACTIVATION_MS) return;
+  // eslint-disable-next-line no-console
+  console.warn("slow tab activation", metric);
+}
+
 /// Split panes (D12 v0) build their own xterm + FitAddon locally in
 /// mountSecondPaneDom rather than going through spawnTab. We keep their
 /// fit addons here, keyed by the terminal, so applyTerminalSettings can
@@ -356,6 +425,14 @@ interface Tab {
   /// it. Cleared after the nudge runs. Shell tabs are born true (replay
   /// scrollback + early shell output land before first activation).
   wroteWhileHidden?: boolean;
+  /// Coalesces PTY chunks received while this pane is display:none. The
+  /// terminal still receives every byte, just in one write per short batch
+  /// instead of one write per IPC event.
+  hiddenOutputBatch?: HiddenOutputBatch;
+  /// Diagnostic counters reset after each activation. They distinguish a
+  /// geometry problem from a terminal that was busy in the background.
+  hiddenOutputBytes: number;
+  hiddenOutputChunks: number;
   /// True while a resize nudge (shrink one row + grow back, purely to
   /// force xterm's internal viewport resync) is in flight. The nudge
   /// starts and ends at the same dims, but each term.resize fires
@@ -4042,27 +4119,41 @@ export class TabManager {
     // on first keystroke.
     if (!opts?.initialCommand && replayedBytes === 0)
       mountWelcomeHint(paneHost0, term);
+    const writeTerminalOutput = (chunk: Uint8Array): void => {
+      term.write(chunk, () => {
+        // Belt-and-suspenders: if a TUI exits without disabling mouse
+        // tracking OR focus reporting we may not get a prompt_start (no
+        // shell integration, or the event arrives later). Detect the stuck
+        // state right after xterm processes the chunk — either mode still on
+        // while back on the normal buffer means the app forgot to clean up.
+        // The check runs inside the write callback so term.modes reflects
+        // the state AFTER xterm parsed this chunk (write() is async in v5).
+        if (
+          (term.modes.mouseTrackingMode !== "none" ||
+            term.modes.sendFocusMode) &&
+          term.buffer.active.type === "normal"
+        ) {
+          term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l");
+        }
+      });
+    };
+    const hiddenOutputBatch = new HiddenOutputBatch(writeTerminalOutput);
     try {
       sessionId = await spawnSession(
         {
           onOutput: (chunk) => {
-            term.write(chunk, () => {
-              // Belt-and-suspenders: if a TUI exits without disabling mouse
-              // tracking OR focus reporting we may not get a prompt_start (no
-              // shell integration, or the event arrives later). Detect the stuck
-              // state right after xterm processes the chunk — either mode still on
-              // while back on the normal buffer means the app forgot to clean up.
-              // The check runs inside the write callback so term.modes reflects
-              // the state AFTER xterm parsed this chunk (write() is async in v5).
-              if (
-                (term.modes.mouseTrackingMode !== "none" ||
-                  term.modes.sendFocusMode) &&
-                term.buffer.active.type === "normal"
-              ) {
-                term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l");
-              }
-            });
-            if (tabRef.current?.pane.hidden) tabRef.current.wroteWhileHidden = true;
+            const currentTab = tabRef.current;
+            if (currentTab?.pane.hidden) {
+              currentTab.wroteWhileHidden = true;
+              currentTab.hiddenOutputBytes += chunk.byteLength;
+              currentTab.hiddenOutputChunks += 1;
+              currentTab.hiddenOutputBatch?.enqueue(chunk);
+              return;
+            }
+            // A switch may reveal the tab between a delayed hidden write and
+            // this live chunk. Preserve stream ordering before writing live.
+            currentTab?.hiddenOutputBatch?.flush();
+            writeTerminalOutput(chunk);
           },
           onSessionEvent: (event) => {
             blocks?.handleEvent(event);
@@ -4163,6 +4254,7 @@ export class TabManager {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("spawn_session failed", err);
+      hiddenOutputBatch.dispose();
       term.dispose();
       this.workspace.removeChild(pane);
       if (!opts?.skipActivate && this.activeId)
@@ -4906,8 +4998,20 @@ export class TabManager {
       openEditor,
       setSidebarView: switchSidebar,
       wroteWhileHidden: true,
+      hiddenOutputBatch,
+      hiddenOutputBytes: 0,
+      hiddenOutputChunks: 0,
       sidebarView: "blocks",
-      disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose, promptHint, cdPicker],
+      disposers: [
+        dataDispose,
+        resizeDispose,
+        roDispose,
+        dprDispose,
+        wheelDispose,
+        promptHint,
+        cdPicker,
+        { dispose: () => hiddenOutputBatch.dispose() },
+      ],
       specBadge: null,
       panes: [] as unknown as [Pane],
       layout: { kind: "single", activePaneIdx: 0 },
@@ -5211,6 +5315,8 @@ export class TabManager {
       groupId: opts?.groupId ?? null,
       pane,
       piView: view,
+      hiddenOutputBytes: 0,
+      hiddenOutputChunks: 0,
       sidebarView: "blocks",
       disposers: [],
       specBadge: null,
@@ -5389,6 +5495,8 @@ export class TabManager {
       groupId: opts?.groupId ?? null,
       pane,
       acpView: undefined, // mounted async once the ACP handshake resolves
+      hiddenOutputBytes: 0,
+      hiddenOutputChunks: 0,
       sidebarView: "blocks",
       disposers: [],
       specBadge: null,
@@ -5709,6 +5817,8 @@ export class TabManager {
       groupId: hostGroupId,
       pane,
       browser: browserPane,
+      hiddenOutputBytes: 0,
+      hiddenOutputChunks: 0,
       sidebarView: "blocks",
       disposers: [{ dispose: () => favRail.destroy() }],
       specBadge: null,
@@ -6974,6 +7084,7 @@ export class TabManager {
     id: string,
     opts: { skipIfSame?: boolean } = { skipIfSame: true },
   ): void {
+    const activationStartedAt = performance.now();
     const tab = this.tabs.find((t) => t.id === id);
     if (!tab) return;
 
@@ -7081,6 +7192,16 @@ export class TabManager {
     const term = tab.term;
     const fit = tab.fit;
     if (!term || !fit) return;
+
+    // A hidden batch normally flushes every 16ms. Flush any final batch now
+    // so the activation does not leave a timer-delayed tail behind. xterm
+    // still parses asynchronously, but this preserves stream order and makes
+    // the slow-switch metric include all work caused by the hidden period.
+    const hiddenOutputBytes = tab.hiddenOutputBytes;
+    const hiddenOutputChunks = tab.hiddenOutputChunks;
+    tab.hiddenOutputBytes = 0;
+    tab.hiddenOutputChunks = 0;
+    tab.hiddenOutputBatch?.flush();
 
     // Capture scroll pinning BEFORE any resize moves the viewport.
     const buf = term.buffer.active;
@@ -7230,6 +7351,14 @@ export class TabManager {
         }
       }
       term.focus();
+      reportTabActivation({
+        tabId: tab.id,
+        elapsedMs: performance.now() - activationStartedAt,
+        hiddenOutputBytes,
+        hiddenOutputChunks,
+        usedNudge: plan.nudge,
+        fitChangedDimensions: dimsChangedByFit,
+      });
     });
   }
 

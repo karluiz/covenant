@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   computeActivationRefit,
+  HiddenOutputBatch,
+  HIDDEN_OUTPUT_BATCH_DELAY_MS,
   pickPaintedPaneId,
   shouldRoNudge,
 } from "../manager";
@@ -37,6 +39,37 @@ describe("computeActivationRefit", () => {
   it("preserves the user's scroll position when scrolled up", () => {
     const plan = computeActivationRefit({ wroteWhileHidden: false, rows: 40, viewportY: 3, baseY: 10 });
     expect(plan.scrollToBottom).toBe(false);
+  });
+});
+
+describe("HiddenOutputBatch", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("coalesces hidden PTY chunks into one ordered terminal write", () => {
+    vi.useFakeTimers();
+    const writes: Uint8Array[] = [];
+    const batch = new HiddenOutputBatch((data) => writes.push(data));
+
+    batch.enqueue(new Uint8Array([1, 2]));
+    batch.enqueue(new Uint8Array([3]));
+    expect(writes).toEqual([]);
+
+    vi.advanceTimersByTime(HIDDEN_OUTPUT_BATCH_DELAY_MS);
+    expect(writes).toHaveLength(1);
+    expect([...writes[0]]).toEqual([1, 2, 3]);
+  });
+
+  it("flushes a pending hidden batch before a tab becomes active", () => {
+    vi.useFakeTimers();
+    const writes: Uint8Array[] = [];
+    const batch = new HiddenOutputBatch((data) => writes.push(data));
+
+    batch.enqueue(new Uint8Array([7]));
+    batch.flush();
+    vi.advanceTimersByTime(HIDDEN_OUTPUT_BATCH_DELAY_MS);
+
+    expect(writes).toHaveLength(1);
+    expect([...writes[0]]).toEqual([7]);
   });
 });
 
