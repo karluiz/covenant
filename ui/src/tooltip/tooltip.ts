@@ -36,6 +36,10 @@ export interface TooltipOptions {
 const OPEN_DELAY_MS = 350;
 const CLOSE_DELAY_MS = 60;
 const EDGE_PAD = 8;
+/// Floor for the top edge: the titlebar (and the traffic lights in it) is
+/// off limits to floating UI — DESIGN.md hard rule 11. A tall tip anchored
+/// high in the left rail centres itself into the titlebar otherwise.
+const TOP_PAD = 38;
 /// How far a side-placed tip's near edge overhangs the anchor row when it's
 /// too tall to centre on it. Small enough that the tip's first line still
 /// reads as belonging to that row.
@@ -134,7 +138,7 @@ export function computeTooltipPos(
       // middle from 60px away. Align the NEAR EDGE to the anchor row
       // instead, so the title lands at the height you hovered — then clamp
       // that, for the case where even the aligned edge doesn't fit.
-      if (top < EDGE_PAD) top = Math.max(EDGE_PAD, rTop - EDGE_ALIGN);
+      if (top < TOP_PAD) top = Math.max(TOP_PAD, rTop - EDGE_ALIGN);
       else if (top + th > vh - EDGE_PAD) {
         top = Math.min(vh - EDGE_PAD - th, rBottom - th + EDGE_ALIGN);
       }
@@ -143,7 +147,7 @@ export function computeTooltipPos(
   }
 
   // Prefer above; flip below if not enough room
-  const below = rTop < th + EDGE_PAD + 8;
+  const below = rTop < th + TOP_PAD + 8;
   let top = below ? rBottom + 8 : rTop - th - 8;
   let left = rLeft + rWidth / 2 - tw / 2;
   // Right clamp first so a right-rail anchor (Files footer) doesn't push
@@ -151,7 +155,7 @@ export function computeTooltipPos(
   // goes negative.
   if (left + tw > vw - EDGE_PAD) left = vw - EDGE_PAD - tw;
   if (left < EDGE_PAD) left = EDGE_PAD;
-  if (top < EDGE_PAD) top = EDGE_PAD;
+  if (top < TOP_PAD) top = TOP_PAD;
   if (top + th > vh - EDGE_PAD) top = vh - EDGE_PAD - th;
   return { top, left, below };
 }
