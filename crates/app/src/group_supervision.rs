@@ -2,13 +2,22 @@
 //!
 //! `crates/app/src/cross_session.rs`'s architecture, scoped to a single tab
 //! group instead of every open session. Subscribes to every session's
-//! broadcast bus. After a failure in a session that belongs to a
-//! *supervised* group (debounced 1.5s), assembles a snapshot of that
-//! group's open sessions — each one's summary plus its most recent blocks
-//! — and asks the group's attached supervisor operator whether any
-//! group-scoped pattern is worth flagging to the user. Findings are
-//! emitted as a global Tauri event the frontend renders as a toast,
-//! attributed to the supervisor by name.
+//! broadcast bus and wakes on two triggers in a *supervised* group
+//! (debounced 1.5s):
+//!
+//! - **a failure** (`BlockFinished` exit≠0) — asks whether any
+//!   cross-session pattern explains it. Needs ≥2 tabs in the group;
+//!   a lone failure is the M4 fix-proposer's job.
+//! - **an executor turn ending** (`AgentIdleWaiting`) — asks whether what
+//!   the agent just reported needs the user. Fires for a group of one,
+//!   and carries the tab's RENDERED SCREEN, because an executor tab's
+//!   world model is empty: its block never finishes, so the screen is the
+//!   only place its report exists.
+//!
+//! Findings are emitted as a global Tauri event the frontend renders as a
+//! toast, attributed to the supervisor by name, de-duplicated against the
+//! group's previous finding (an executor idles once per turn, and
+//! consecutive turns often read the same).
 //!
 //! Rate-limited 6 checks/minute globally (mirrors cross_session). Notify
 //! only: never writes to any PTY, never awards XP. Deliberate duplication
@@ -31,6 +40,9 @@ use crate::settings::Settings;
 use crate::world::SessionWorldModel;
 
 const DEBOUNCE: Duration = Duration::from_millis(1500);
+/// Enough to hold an executor's closing report without pasting a whole
+/// scrollback into the prompt.
+const SCREEN_TAIL_LINES: usize = 40;
 const MAX_CHECKS_PER_MINUTE: usize = 6;
 const FINDING_EVENT_NAME: &str = "group-supervision-finding";
 
@@ -53,6 +65,42 @@ Rules:
 - Be conservative. False-positives destroy trust. If sessions look \
   independent, output (none).
 - Reference tabs by their session number when useful (\"tab 2\").
+- No preamble, no markdown, no extra lines.";
+
+/// Why a check ran. The two triggers ask DIFFERENT questions, so they
+/// carry different prompts and different session-count floors: a failure
+/// is only interesting next to another tab, an executor finishing its
+/// turn is interesting on its own.
+#[derive(Debug, Clone)]
+pub(crate) enum TriggerKind {
+    /// A command exited non-zero.
+    Failure,
+    /// A known executor (claude/codex/pi/…) went quiet waiting on the human.
+    Idle { agent: String },
+}
+
+const IDLE_SYSTEM_PROMPT: &str = "\
+An AI executor running inside one of the terminal tabs you supervise just \
+finished its turn and is waiting on the user. You are given each tab's \
+recent state, including the rendered screen of the tab that went idle — \
+that screen is where the executor's report lives.
+
+Output EXACTLY ONE of:
+  FINDING: <one short sentence the user reads as a notification, ≤140 chars>
+or
+  FINDING: (none)
+
+Flag ONLY things the user has to act on or would regret missing:
+- work finished that now needs a decision (review, merge, next wave)
+- the executor is BLOCKED or asking a question
+- it reported a failure, a skipped step, or something it could not verify
+- it contradicts or duplicates what another supervised tab is doing
+
+Rules:
+- Say WHAT happened, not that something happened. \"canon wave 3 committed, \
+  wave 4 (03/08/11/14) still open\" — not \"the agent finished a task\".
+- Be conservative. A routine turn with nothing to decide is (none). \
+  False-positives destroy trust.
 - No preamble, no markdown, no extra lines.";
 
 /// Payload emitted to the frontend when a finding lands. Plain JSON.
@@ -80,6 +128,10 @@ struct Inner {
     /// when building context. Removed when the corresponding session's
     /// bus closes.
     worlds: HashMap<SessionId, Arc<Mutex<SessionWorldModel>>>,
+    /// Last finding emitted per group. An executor idles once per turn,
+    /// and consecutive turns often look identical to the model — without
+    /// this the same sentence toasts over and over.
+    last_finding: HashMap<String, String>,
 }
 
 impl GroupSupervisionWatcher {
@@ -91,6 +143,7 @@ impl GroupSupervisionWatcher {
     ) -> Self {
         let inner = Arc::new(Mutex::new(Inner {
             worlds: HashMap::new(),
+            last_finding: HashMap::new(),
         }));
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
 
@@ -159,6 +212,22 @@ pub(crate) fn supervised_group_for(
     registry.supervised_pair(session_id)
 }
 
+/// Which events wake the supervisor. A zero exit is not news, and an
+/// executor going idle IS a turn boundary — `idle::Detector` fires one
+/// edge per turn, so this never degrades into polling.
+pub(crate) fn trigger_kind(event: &SessionEvent) -> Option<TriggerKind> {
+    match event {
+        SessionEvent::BlockFinished {
+            exit_code: Some(code),
+            ..
+        } if *code != 0 => Some(TriggerKind::Failure),
+        SessionEvent::AgentIdleWaiting { agent, .. } => Some(TriggerKind::Idle {
+            agent: agent.clone(),
+        }),
+        _ => None,
+    }
+}
+
 async fn watch_loop(
     inner: Arc<Mutex<Inner>>,
     settings: Arc<Mutex<Settings>>,
@@ -174,7 +243,7 @@ async fn watch_loop(
     // `supervised_group_for`, so a session that moves to a *different*
     // supervised group mid-debounce can never have its old group_id paired
     // with its new supervisor (or vice versa).
-    let mut last_failure_at: Option<(Instant, SessionId)> = None;
+    let mut pending: Option<(Instant, SessionId, TriggerKind)> = None;
     let mut rate = SimpleRate::new(MAX_CHECKS_PER_MINUTE, Duration::from_secs(60));
 
     loop {
@@ -183,26 +252,22 @@ async fn watch_loop(
 
             event = incoming_rx.recv() => {
                 let Some((session_id, event)) = event else { return };
-                if let SessionEvent::BlockFinished {
-                    exit_code: Some(code),
-                    ..
-                } = event
-                {
-                    if code != 0 && supervised_group_for(&registry, session_id).is_some() {
-                        last_failure_at = Some((Instant::now(), session_id));
+                if let Some(kind) = trigger_kind(&event) {
+                    if supervised_group_for(&registry, session_id).is_some() {
+                        pending = Some((Instant::now(), session_id, kind));
                     }
                 }
             }
 
-            _ = wait_until_debounce(last_failure_at.map(|(t, _)| t)) => {
-                let trigger = last_failure_at.take();
+            _ = wait_until_debounce(pending.as_ref().map(|(t, _, _)| *t)) => {
+                let trigger = pending.take();
                 if !rate.try_acquire() {
                     tracing::debug!("group-supervision rate-limited");
                     continue;
                 }
-                if let Some((_, trigger_id)) = trigger {
+                if let Some((_, trigger_id, kind)) = trigger {
                     if let Err(e) =
-                        check_for_pattern(&inner, &settings, &app, &registry, trigger_id, &vitals).await
+                        check_for_pattern(&inner, &settings, &app, &registry, trigger_id, kind, &vitals).await
                     {
                         tracing::warn!(error = %e, "group-supervision check failed");
                     }
@@ -230,6 +295,7 @@ async fn check_for_pattern(
     app: &AppHandle,
     registry: &Arc<OperatorRegistry>,
     trigger_id: SessionId,
+    kind: TriggerKind,
     vitals: &crate::vitals::VitalsHandle,
 ) -> Result<(), String> {
     // Re-derive (group_id, supervisor) TOGETHER at check time, not at
@@ -252,9 +318,14 @@ async fn check_for_pattern(
         }
     };
 
-    // Need at least 2 sessions IN THIS GROUP to find a pattern. Single-
-    // session findings are the M4 fix-proposer's job — same rule as
-    // cross_session, but scoped to the group instead of every open tab.
+    // A failure needs at least 2 sessions IN THIS GROUP to be a *pattern*
+    // — single-session failures are the M4 fix-proposer's job (same rule
+    // as cross_session). An executor finishing its turn is worth a word on
+    // its own, so idle triggers accept a group of one.
+    let min_sessions = match kind {
+        TriggerKind::Failure => 2,
+        TriggerKind::Idle { .. } => 1,
+    };
     let members = registry.group_sessions(group_id);
 
     let snapshots = {
@@ -263,7 +334,7 @@ async fn check_for_pattern(
             .iter()
             .filter_map(|sid| i.worlds.get(sid).map(|w| (*sid, w.clone())))
             .collect();
-        if entries.len() < 2 {
+        if entries.len() < min_sessions {
             tracing::debug!(
                 group = %group_id,
                 sessions = entries.len(),
@@ -276,8 +347,24 @@ async fn check_for_pattern(
         entries
     };
 
-    let user_msg = build_snapshot_message(&snapshots, trigger_id).await;
+    let mut user_msg = build_snapshot_message(&snapshots, trigger_id).await;
+    // The whole point of the idle trigger: an executor tab's world model is
+    // empty (its block never finishes), so the rendered screen is the only
+    // place its report exists.
+    // ponytail: only the trigger tab's screen. Add the siblings' if a
+    // finding ever needs to compare two executors' output verbatim.
+    if let TriggerKind::Idle { agent } = &kind {
+        if let Some(screen) = screen_tail(app, trigger_id, SCREEN_TAIL_LINES).await {
+            user_msg.push_str(&format!(
+                "\n# Rendered screen of the tab that went idle (`{agent}`, last {SCREEN_TAIL_LINES} lines)\n\n{screen}\n"
+            ));
+        }
+    }
 
+    let base = match kind {
+        TriggerKind::Failure => SYSTEM_PROMPT,
+        TriggerKind::Idle { .. } => IDLE_SYSTEM_PROMPT,
+    };
     let system_prompt = format!(
         "You are \"{name}\", the supervisor attached to ONE tab group.\n\
          {persona}\n\
@@ -286,7 +373,6 @@ async fn check_for_pattern(
          {voice}",
         name = op.name,
         persona = op.persona,
-        base = SYSTEM_PROMPT,
         voice = voice_directive(op.voice),
     );
 
@@ -323,6 +409,17 @@ async fn check_for_pattern(
         return Ok(());
     };
 
+    // An executor idles once per turn; two consecutive turns often produce
+    // the same sentence. Toast it once.
+    {
+        let mut i = inner.lock().await;
+        if i.last_finding.get(group_id) == Some(&message) {
+            tracing::debug!(group = %group_id, "group-supervision: duplicate finding suppressed");
+            return Ok(());
+        }
+        i.last_finding.insert(group_id.to_string(), message.clone());
+    }
+
     let finding = GroupSupervisionFinding {
         group_id: group_id.to_string(),
         operator_id: op.id.to_string(),
@@ -341,6 +438,29 @@ async fn check_for_pattern(
     }
 
     Ok(())
+}
+
+/// Last `max_lines` non-empty lines of a session's rendered screen,
+/// secret-masked (CLAUDE.md rule #7). The vt100 grid is already plain
+/// text, so no ANSI stripping is needed. `None` when the session is gone.
+async fn screen_tail(app: &AppHandle, session_id: SessionId, max_lines: usize) -> Option<String> {
+    use tauri::Manager;
+    let handle = {
+        let state = app.try_state::<crate::AppState>()?;
+        // Drop the sessions guard before touching the screen: it holds
+        // non-Sync PTY types and must never live across an await.
+        let sessions = state.sessions.lock().await;
+        sessions
+            .get(&session_id)
+            .map(|m| m.session.screen_handle())?
+    };
+    let text = handle.lock().ok()?.clone();
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let tail = lines[lines.len().saturating_sub(max_lines)..].join("\n");
+    if tail.trim().is_empty() {
+        return None;
+    }
+    Some(crate::safety::mask_secrets(&tail))
 }
 
 fn parse_finding(text: &str) -> Option<String> {
@@ -392,6 +512,42 @@ mod tests {
     #[test]
     fn missing_finding_returns_none() {
         assert!(parse_finding("nothing here").is_none());
+    }
+
+    fn block_finished(session: SessionId, exit_code: i32) -> SessionEvent {
+        SessionEvent::BlockFinished {
+            session,
+            block: karl_blocks::BlockId::new(),
+            command: "cargo test".into(),
+            cwd: std::path::PathBuf::from("/tmp"),
+            exit_code: Some(exit_code),
+            duration_ms: 10,
+            output_text: String::new(),
+        }
+    }
+
+    #[test]
+    fn triggers_on_failure_and_executor_idle_only() {
+        let sid = karl_session::SessionId::new();
+
+        assert!(matches!(
+            trigger_kind(&block_finished(sid, 1)),
+            Some(TriggerKind::Failure)
+        ));
+
+        // A clean exit is not news.
+        assert!(trigger_kind(&block_finished(sid, 0)).is_none());
+
+        // The executor finished its turn — this is the proactive trigger.
+        let idle = trigger_kind(&SessionEvent::AgentIdleWaiting {
+            session: sid,
+            agent: "claude".into(),
+            prompt_text: None,
+            quiet_ms: 3000,
+        });
+        assert!(matches!(idle, Some(TriggerKind::Idle { ref agent }) if agent == "claude"));
+
+        assert!(trigger_kind(&SessionEvent::AgentResumed { session: sid }).is_none());
     }
 
     #[test]
