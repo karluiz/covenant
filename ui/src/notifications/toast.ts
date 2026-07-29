@@ -149,6 +149,54 @@ export class ToastHost {
     }
   }
 
+  /// Wire the shared auto-dismiss lifecycle onto a card: the 12s timer,
+  /// hover pause (mouseleave rearms a fresh 12s), the ✕ close button,
+  /// and a liveness bar along the bottom edge that drains in sync with
+  /// the timer. Returns `dismiss` for the caller's click handler.
+  private wireLifetime(card: HTMLElement): () => void {
+    const life = document.createElement("span");
+    life.className = "toast-life";
+    card.appendChild(life);
+
+    let dismissTimer: number | undefined;
+    const dismiss = (): void => {
+      if (dismissTimer !== undefined) {
+        window.clearTimeout(dismissTimer);
+        dismissTimer = undefined;
+      }
+      card.classList.add("toast-leaving");
+      window.setTimeout(() => card.remove(), 180);
+    };
+    const armDismiss = (): void => {
+      dismissTimer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
+      // The timer rearms to a fresh 12s — restart the drain from full.
+      // The `animation` shorthand reset also wipes the inline duration,
+      // so it is re-applied after every restart (the stylesheet carries
+      // no duration; AUTO_DISMISS_MS is the single source of truth).
+      life.style.animation = "none";
+      void life.offsetWidth;
+      life.style.animation = "";
+      life.style.animationDuration = `${AUTO_DISMISS_MS}ms`;
+    };
+    card.addEventListener("mouseenter", () => {
+      if (dismissTimer !== undefined) {
+        window.clearTimeout(dismissTimer);
+        dismissTimer = undefined;
+      }
+      life.style.animationPlayState = "paused";
+    });
+    card.addEventListener("mouseleave", armDismiss);
+    card.querySelector<HTMLElement>(".toast-close")?.addEventListener(
+      "click",
+      (e) => {
+        e.stopPropagation();
+        dismiss();
+      },
+    );
+    armDismiss();
+    return dismiss;
+  }
+
   /// Render an arbitrary informational toast (not driven by a backend
   /// event). Used for one-shot setup hints like "zsh-autosuggestions
   /// not detected — `brew install zsh-autosuggestions`".
@@ -173,40 +221,13 @@ export class ToastHost {
     `;
     card.querySelector<HTMLElement>(".toast-msg")!.textContent = toast.message;
 
-    let dismissTimer: number | undefined;
-    const dismiss = (): void => {
-      if (dismissTimer !== undefined) {
-        window.clearTimeout(dismissTimer);
-        dismissTimer = undefined;
-      }
-      card.classList.add("toast-leaving");
-      window.setTimeout(() => card.remove(), 180);
-    };
-    const armDismiss = (): void => {
-      dismissTimer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
-    };
-
-    card.addEventListener("mouseenter", () => {
-      if (dismissTimer !== undefined) {
-        window.clearTimeout(dismissTimer);
-        dismissTimer = undefined;
-      }
-    });
-    card.addEventListener("mouseleave", armDismiss);
-    card.querySelector<HTMLElement>(".toast-close")!.addEventListener(
-      "click",
-      (e) => {
-        e.stopPropagation();
-        dismiss();
-      },
-    );
+    const dismiss = this.wireLifetime(card);
     card.addEventListener("click", () => {
       const result = toast.onClick?.();
       if (result !== false) dismiss();
     });
 
     this.container.appendChild(card);
-    armDismiss();
   }
 
   /// Render a Perception signature toast: WHO answered, what, and on
@@ -226,40 +247,13 @@ export class ToastHost {
     card.querySelector<HTMLElement>(".toast-perception-what")!.textContent =
       formatPerceptionToast(toast);
 
-    let dismissTimer: number | undefined;
-    const dismiss = (): void => {
-      if (dismissTimer !== undefined) {
-        window.clearTimeout(dismissTimer);
-        dismissTimer = undefined;
-      }
-      card.classList.add("toast-leaving");
-      window.setTimeout(() => card.remove(), 180);
-    };
-    const armDismiss = (): void => {
-      dismissTimer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
-    };
-
-    card.addEventListener("mouseenter", () => {
-      if (dismissTimer !== undefined) {
-        window.clearTimeout(dismissTimer);
-        dismissTimer = undefined;
-      }
-    });
-    card.addEventListener("mouseleave", armDismiss);
-    card.querySelector<HTMLElement>(".toast-close")!.addEventListener(
-      "click",
-      (e) => {
-        e.stopPropagation();
-        dismiss();
-      },
-    );
+    const dismiss = this.wireLifetime(card);
     card.addEventListener("click", () => {
       const result = toast.onClick?.();
       if (result !== false) dismiss();
     });
 
     this.container.appendChild(card);
-    armDismiss();
   }
 
   /// Render a confirmation toast: message + Cancel/Confirm buttons, no
@@ -326,43 +320,13 @@ export class ToastHost {
     `;
     card.querySelector<HTMLElement>(".toast-msg")!.textContent = finding.message;
 
-    let dismissTimer: number | undefined;
-    const dismiss = (): void => {
-      if (dismissTimer !== undefined) {
-        window.clearTimeout(dismissTimer);
-        dismissTimer = undefined;
-      }
-      card.classList.add("toast-leaving");
-      window.setTimeout(() => card.remove(), 180);
-    };
-
-    const armDismiss = (): void => {
-      dismissTimer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
-    };
-
-    card.addEventListener("mouseenter", () => {
-      if (dismissTimer !== undefined) {
-        window.clearTimeout(dismissTimer);
-        dismissTimer = undefined;
-      }
-    });
-    card.addEventListener("mouseleave", armDismiss);
-
-    card.querySelector<HTMLElement>(".toast-close")!.addEventListener(
-      "click",
-      (e) => {
-        e.stopPropagation();
-        dismiss();
-      },
-    );
-
+    const dismiss = this.wireLifetime(card);
     card.addEventListener("click", () => {
       this.opts.onClick(finding);
       dismiss();
     });
 
     this.container.appendChild(card);
-    armDismiss();
   }
 
   /// Render a group-supervision finding: same chrome as the cross-session
@@ -381,42 +345,12 @@ export class ToastHost {
     card.querySelector<HTMLElement>(".toast-msg")!.textContent =
       `${finding.operator_name}: ${finding.message}`;
 
-    let dismissTimer: number | undefined;
-    const dismiss = (): void => {
-      if (dismissTimer !== undefined) {
-        window.clearTimeout(dismissTimer);
-        dismissTimer = undefined;
-      }
-      card.classList.add("toast-leaving");
-      window.setTimeout(() => card.remove(), 180);
-    };
-
-    const armDismiss = (): void => {
-      dismissTimer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
-    };
-
-    card.addEventListener("mouseenter", () => {
-      if (dismissTimer !== undefined) {
-        window.clearTimeout(dismissTimer);
-        dismissTimer = undefined;
-      }
-    });
-    card.addEventListener("mouseleave", armDismiss);
-
-    card.querySelector<HTMLElement>(".toast-close")!.addEventListener(
-      "click",
-      (e) => {
-        e.stopPropagation();
-        dismiss();
-      },
-    );
-
+    const dismiss = this.wireLifetime(card);
     card.addEventListener("click", () => {
       this.opts.onGroupSupervisionClick?.(finding);
       dismiss();
     });
 
     this.container.appendChild(card);
-    armDismiss();
   }
 }

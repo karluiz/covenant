@@ -391,8 +391,28 @@ body.sidebar-view-somnus #somnus-panel .rail-panel {
   font-size: var(--fs-micro);
   color: var(--text-secondary);
 }
+/* Liveness bar (DESIGN.md → Toasts): drains over the 4s remove() timer
+   in panel.ts notify(). Keyframes come from the global toast-life. */
+.somnus-toast {
+  overflow: hidden;
+}
+.somnus-toast::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.55;
+  transform-origin: left;
+  animation: toast-life 4s linear forwards;
+}
 .somnus-toast.is-error {
   border-color: var(--fail);
+}
+.somnus-toast.is-error::after {
+  background: var(--fail);
 }
 .somnus-close {
   display: none;

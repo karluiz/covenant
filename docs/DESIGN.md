@@ -187,6 +187,14 @@ Rules:
 - **Buttons:** primary = `--accent` fill with dark text; everything else is ghost (transparent, ink-alpha hover). One primary per view.
 - **Focus/keyboard:** every surface is keyboard-reachable; shortcuts render in monospace micro-size (`--fs-micro`) kbd chips.
 
+### Toasts
+
+All transient notifications go through the shared `ToastHost` (`ui/src/notifications/toast.ts`) — never a bespoke floating card. The stack lives top-right on `--bg-overlay` with a semantic left spine (accent = findings, `--running` amber = Perception signatures, neutral ink = info hints).
+
+- **Liveness bar.** Every auto-dismissing toast carries a 2px `.toast-life` bar along its bottom edge that drains left→right in sync with the dismiss timer (`toast-life` keyframes, duration set from `AUTO_DISMISS_MS` in `wireLifetime()`). Hover pauses the drain; mouse-leave rearms a fresh one, matching the timer. The bar's color follows the toast's semantic spine. Toasts with no auto-dismiss (confirm toasts) carry **no** bar — a static bar lies about lifetime. Panel-local notices (e.g. Somnus's `notify()`) reuse the same keyframes with their own duration.
+- **Dedupe.** An info toast whose message is already visible refreshes the existing card's lifetime instead of stacking a twin — repeated triggers (per-refresh errors, event storms) must never pile identical cards.
+- **No auto-dismiss for decisions.** Anything requiring a choice (confirm/cancel) stays until acted on, and only one confirm card lives at a time.
+
 ---
 
 ## Hard rules (review blockers)

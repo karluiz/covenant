@@ -2513,6 +2513,8 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
 
 .toast {
     pointer-events: auto;
+    position: relative;
+    overflow: hidden;
     display: flex;
     align-items: flex-start;
     gap: 10px;
@@ -2572,6 +2574,41 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
+}
+
+/* Liveness bar: a 2px strip along the bottom edge that drains left→right
+   in sync with the auto-dismiss timer (duration set inline from
+   AUTO_DISMISS_MS in toast.ts). Hover pauses it; leaving rearms a fresh
+   drain — both driven by wireLifetime(). Confirm toasts (no auto-dismiss)
+   carry no bar. Color follows the toast's semantic spine. */
+.toast-life {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--accent);
+    opacity: 0.55;
+    transform-origin: left;
+    animation: toast-life linear forwards;
+    pointer-events: none;
+}
+
+.toast.toast-info .toast-life {
+    background: rgb(var(--ink-rgb) / 0.35);
+}
+
+.toast.toast-perception .toast-life {
+    background: var(--running, #e0af68);
+}
+
+@keyframes toast-life {
+    from {
+        transform: scaleX(1);
+    }
+    to {
+        transform: scaleX(0);
+    }
 }
 
 @keyframes toast-in {
