@@ -44,6 +44,11 @@ pub struct ToolEnv {
     /// Live rendered screen of the active tab, if one is known. Read by
     /// `read_terminal_screen`. `None` when there's no active tab.
     pub active_screen: Option<std::sync::Arc<std::sync::Mutex<String>>>,
+    /// Every open tab's rendered screen, keyed by the same short id the
+    /// world context prints. Lets a supervisor read a tab in its group
+    /// that isn't the active one — an executor tab is invisible without
+    /// this (it never finishes a block).
+    pub screens: Vec<(String, std::sync::Arc<std::sync::Mutex<String>>)>,
     /// GitHub API context, present only when the operator's
     /// `github_access != Off` AND a token exists in the Keychain.
     /// Absence means the `gh_*` tools were never registered.
@@ -91,6 +96,7 @@ impl ToolEnv {
             root,
             max_bytes_per_file,
             active_screen: None,
+            screens: Vec::new(),
             github: None,
             available_skills: Vec::new(),
             acp_enabled: false,
@@ -102,6 +108,17 @@ impl ToolEnv {
     /// Attach the active tab's rendered-screen handle (builder style).
     pub fn with_screen(mut self, screen: Option<std::sync::Arc<std::sync::Mutex<String>>>) -> Self {
         self.active_screen = screen;
+        self
+    }
+
+    /// Attach every open tab's screen handle, keyed by short id (builder
+    /// style). Ids are matched by suffix, so the caller can pass full or
+    /// short ulids.
+    pub fn with_screens(
+        mut self,
+        screens: Vec<(String, std::sync::Arc<std::sync::Mutex<String>>)>,
+    ) -> Self {
+        self.screens = screens;
         self
     }
 
@@ -834,12 +851,22 @@ pub fn read_terminal_screen_tool_def() -> Value {
                         right now — these never finish as 'blocks', so their \
                         state is invisible unless you read the screen. Call \
                         this when the user asks what's happening on their tab \
-                        and the foreground command is interactive. Returns \
-                        plain text (no path argument; always the active tab).",
+                        and the foreground command is interactive. Pass \
+                        `session_id` (the machine id printed for each session \
+                        in the terminal context) to read ANY open tab — use it \
+                        for tabs in a group you supervise. Omit it for the \
+                        active tab. Returns plain text.",
         "input_schema": {
             "type": "object",
             "additionalProperties": false,
-            "properties": {}
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Machine id of the tab to read, as printed \
+                                    in the terminal context. Omit for the \
+                                    active tab."
+                }
+            }
         }
     })
 }
@@ -847,9 +874,27 @@ pub fn read_terminal_screen_tool_def() -> Value {
 /// Return the active tab's current rendered screen, with common secret
 /// shapes masked before it reaches the LLM (CLAUDE.md rule #7). The vt100
 /// grid is already plain text (no escape sequences), so no ANSI stripping
-/// is needed — only secret redaction. No args.
-pub fn read_terminal_screen(env: &ToolEnv, _args: &Value) -> Result<String, ToolError> {
-    match &env.active_screen {
+/// is needed — only secret redaction. Optional `session_id` picks a tab
+/// other than the active one (matched by id suffix, so short ids work).
+pub fn read_terminal_screen(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
+    let requested = args
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let cell = match requested {
+        Some(id) => {
+            let hit = env.screens.iter().find(|(sid, _)| {
+                sid.eq_ignore_ascii_case(id) || sid.to_lowercase().ends_with(&id.to_lowercase())
+            });
+            match hit {
+                Some((_, cell)) => Some(cell.clone()),
+                None => return Ok(format!("(no open tab with id `{id}`)")),
+            }
+        }
+        None => env.active_screen.clone(),
+    };
+    match &cell {
         None => Ok("(no active terminal tab to read)".to_string()),
         Some(cell) => {
             let text = cell
@@ -857,7 +902,7 @@ pub fn read_terminal_screen(env: &ToolEnv, _args: &Value) -> Result<String, Tool
                 .map(|g| g.clone())
                 .map_err(|_| ToolError::Io("screen lock poisoned".into()))?;
             if text.trim().is_empty() {
-                Ok("(no screen captured for the active tab yet)".to_string())
+                Ok("(no screen captured for that tab yet)".to_string())
             } else {
                 Ok(crate::safety::mask_secrets(&text))
             }
@@ -1150,6 +1195,33 @@ mod tests {
         let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
         assert!(!out.contains("ghp_abcdefghijklmnopqrstuvwxyz1234"));
         assert!(out.contains("[REDACTED:github]"));
+    }
+
+    #[test]
+    fn read_terminal_screen_reads_a_non_active_tab_by_short_id() {
+        use std::sync::{Arc, Mutex};
+        let active = Arc::new(Mutex::new("active tab".to_string()));
+        let other = Arc::new(Mutex::new("wave 3 done, wave 4 pending".to_string()));
+        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024)
+            .with_screen(Some(active.clone()))
+            .with_screens(vec![
+                ("01JBXAAAAAAAAAAAAAAAACTIVE".into(), active),
+                ("01JBXBBBBBBBBBBBBBBBBMWA8BF".into(), other),
+            ]);
+
+        // Short id (as printed in the world context) resolves by suffix.
+        let out =
+            read_terminal_screen(&env, &serde_json::json!({ "session_id": "MWA8BF" })).expect("ok");
+        assert!(out.contains("wave 4 pending"), "got: {out}");
+
+        // No arg still means the active tab.
+        let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
+        assert_eq!(out, "active tab");
+
+        // Unknown id says so instead of silently falling back to active.
+        let out =
+            read_terminal_screen(&env, &serde_json::json!({ "session_id": "ZZZZZZ" })).expect("ok");
+        assert!(out.contains("no open tab"), "got: {out}");
     }
 
     #[test]

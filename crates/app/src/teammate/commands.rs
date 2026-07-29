@@ -271,10 +271,24 @@ pub async fn teammate_send_text_message(
             let group_list: Vec<String> = supervised_groups
                 .iter()
                 .map(|(gid, sup)| {
-                    if sup.intervene {
-                        format!("- group `{gid}` (observe + intervene)")
+                    let mode = if sup.intervene {
+                        "observe + intervene"
                     } else {
-                        format!("- group `{gid}` (observe only)")
+                        "observe only"
+                    };
+                    // The member ids let the operator call
+                    // read_terminal_screen on a supervised tab that isn't
+                    // active — without them the group is a name with no
+                    // handles.
+                    let members = registry_bg.group_sessions(&gid);
+                    if members.is_empty() {
+                        format!("- group `{gid}` ({mode}) — no open tabs")
+                    } else {
+                        let ids: Vec<String> = members
+                            .iter()
+                            .map(|s| format!("`{}`", short_session_id(s)))
+                            .collect();
+                        format!("- group `{gid}` ({mode}) — tabs: {}", ids.join(", "))
                     }
                 })
                 .collect();
@@ -284,7 +298,10 @@ pub async fn teammate_send_text_message(
             world_context_str.push_str(&format!(
                 "# Active supervision\n\nYou are currently supervising the following tab group(s):\n{}\n\
                  You watch all sessions in these groups for cross-session patterns and surface findings \
-                 as notifications. In intervene mode you may also act on unpinned tabs.",
+                 as notifications. In intervene mode you may also act on unpinned tabs.\n\
+                 When the user asks what a supervised tab is doing, call `read_terminal_screen` with that \
+                 tab's `session_id` — an executor tab (claude/codex/pi) never finishes a block, so its \
+                 screen is the ONLY place its state is visible.",
                 group_list.join("\n")
             ));
         }
@@ -350,8 +367,16 @@ pub async fn teammate_send_text_message(
                         .find(|(id, _, _)| *id == aid)
                         .map(|(_, _, screen)| screen.clone())
                 });
+            // Every open tab's screen, keyed by the id the world context
+            // prints — a supervisor asked "what's cockpit doing?" needs the
+            // screen of a tab that isn't active.
+            let all_screens: Vec<(String, std::sync::Arc<std::sync::Mutex<String>>)> = session_data
+                .iter()
+                .map(|(id, _, screen)| (id.to_string(), screen.clone()))
+                .collect();
             let tool_env = crate::teammate::tools::ToolEnv::new(root, 200 * 1024)
                 .with_screen(active_screen)
+                .with_screens(all_screens)
                 .with_skills(crate::teammate::handoff::skill_union(&registry_bg.list()))
                 .with_acp(operator.acp_enabled)
                 .with_mcp_servers(crate::mcp_server::acp_entry(&app_bg).into_iter().collect());
@@ -627,6 +652,15 @@ use crate::teammate::runtime::TeammateRuntime;
 use crate::teammate::types::{
     ProposeTask, Task, TaskArchetype, TaskId, TaskScope, TaskStatus, UpdateKind,
 };
+
+/// Last 6 chars of a session ulid — the same handle `world_snapshot`
+/// prints, so an id the operator sees in one section resolves in the other.
+fn short_session_id(id: &karl_session::SessionId) -> String {
+    let s = id.to_string();
+    s.chars()
+        .skip(s.chars().count().saturating_sub(6))
+        .collect()
+}
 
 fn now_unix_ms() -> u64 {
     std::time::SystemTime::now()
