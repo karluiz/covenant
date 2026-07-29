@@ -155,3 +155,37 @@ describe("computeTooltipPos", () => {
     expect(p.left).toBe(700 + 30 - 100); // centered on the badge
   });
 });
+
+describe("computeTooltipPos — right placement", () => {
+  // A sidebar anchor: 11px eye glyph near the left edge, viewport 1400×900.
+  const eye = { top: 300, bottom: 311, left: 120, width: 11 };
+
+  test("sits beside the anchor, vertically centred on it", () => {
+    const p = computeTooltipPos(eye, 300, 120, 1400, 900, "right");
+    expect(p.left).toBe(139); // 120 + 11 + 8
+    expect(p.top).toBe(245.5); // centre 305.5 − 120/2
+    expect(p.below).toBe(false);
+  });
+
+  test("flips to the left side when the right edge is too close", () => {
+    const nearRight = { top: 300, bottom: 311, left: 1300, width: 11 };
+    const p = computeTooltipPos(nearRight, 300, 120, 1400, 900, "right");
+    expect(p.left).toBe(992); // 1300 − 8 − 300
+  });
+
+  test("falls back to above/below when neither side fits", () => {
+    const p = computeTooltipPos(eye, 1300, 120, 1400, 900, "right");
+    expect(p.left).toBe(8); // clamped by the auto path, not placed beside
+  });
+
+  test("clamps to the viewport instead of running off the bottom", () => {
+    const low = { top: 880, bottom: 891, left: 120, width: 11 };
+    const p = computeTooltipPos(low, 300, 120, 1400, 900, "right");
+    expect(p.top).toBe(772); // 900 − 8 − 120
+  });
+
+  test("leaves auto placement untouched", () => {
+    const p = computeTooltipPos(eye, 300, 120, 1400, 900);
+    expect(p.top).toBe(172); // above: 300 − 120 − 8
+  });
+});

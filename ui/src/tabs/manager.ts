@@ -115,6 +115,8 @@ import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
 import { attachTooltip } from "../tooltip/tooltip";
+import { groupFindings } from "../convergence/findings";
+import { supervisionTooltip } from "./supervision-tooltip";
 import {
   TERM_SHARE_EVENT,
   ensureTermSharesLoaded,
@@ -8154,9 +8156,22 @@ export class TabManager {
         const supervised = document.createElement("span");
         supervised.className = "group-chip-supervised";
         supervised.innerHTML = Icons.eye({ size: 11 });
+        // Thunk, not a value: findings land minutes after the chip was
+        // built and the chip does not re-render for them. Placed to the
+        // right so the tip doesn't cover the rows it's describing.
+        const groupId = group.id;
+        const intervene = group.supervisorIntervene ?? false;
         attachTooltip(
           supervised,
-          "Supervised" + (supervisorName ? ` by ${supervisorName}` : ""),
+          () =>
+            supervisionTooltip({
+              operatorName: supervisorName,
+              intervene,
+              tabCount: memberCount,
+              findings: groupFindings(groupId),
+              nowMs: Date.now(),
+            }),
+          { placement: "right" },
         );
         chip.appendChild(supervised);
       }

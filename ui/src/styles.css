@@ -15560,6 +15560,11 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
     color: var(--text-muted, #9aa3b0);
     font-size: 11px;
 }
+/* Attention amber for state the reader weighs before acting — today: a
+   supervisor that may WRITE to your tabs, not just watch them. */
+.ck-tooltip__meta--warn {
+    color: var(--running, #e0af68);
+}
 .ck-tooltip__preview {
     margin-top: 6px;
     color: var(--text-muted, #8a93a0);

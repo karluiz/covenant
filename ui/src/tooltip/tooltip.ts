@@ -10,10 +10,28 @@ export type TooltipContent =
       title?: string;
       subtitle?: string;
       meta?: string;
+      /// Paints the meta line in the app's attention amber. For state the
+      /// reader should weigh before acting on it — not for emphasis.
+      metaTone?: "warn";
       preview?: string;
       hint?: string;
       kbd?: string;
     };
+
+/// What a caller may hand `attachTooltip`. A thunk is resolved at HOVER
+/// time, not attach time — for content that changes after its element was
+/// built (a supervisor's finding lands minutes after the chip rendered,
+/// and the chip does not re-render for it).
+export type TooltipSource = TooltipContent | (() => TooltipContent);
+
+/// `"auto"` is the historical behavior: above the anchor, flipping below.
+/// `"right"` puts the tip beside the anchor instead — for the sidebar rail,
+/// where a tip above or below lands on top of the rows it's describing.
+export type TooltipPlacement = "auto" | "right";
+
+export interface TooltipOptions {
+  placement?: TooltipPlacement;
+}
 
 const OPEN_DELAY_MS = 350;
 const CLOSE_DELAY_MS = 60;
@@ -65,7 +83,8 @@ function renderContent(content: TooltipContent): string {
     parts.push(`<div class="ck-tooltip__subtitle">${escapeHtml(content.subtitle)}</div>`);
   }
   if (content.meta) {
-    parts.push(`<div class="ck-tooltip__meta">${escapeHtml(content.meta)}</div>`);
+    const tone = content.metaTone === "warn" ? " ck-tooltip__meta--warn" : "";
+    parts.push(`<div class="ck-tooltip__meta${tone}">${escapeHtml(content.meta)}</div>`);
   }
   if (content.preview) {
     parts.push(`<div class="ck-tooltip__preview">${escapeHtml(content.preview)}</div>`);
@@ -90,11 +109,28 @@ export function computeTooltipPos(
   th: number,
   vw: number,
   vh: number,
+  placement: TooltipPlacement = "auto",
 ): { top: number; left: number; below: boolean } {
   const rTop = rect.top;
   const rBottom = rect.bottom;
   const rLeft = rect.left;
   const rWidth = rect.width;
+
+  // Side placement: for anchors in a narrow left rail, where an above/below
+  // tip covers the very rows it describes. Flips to the left side when it
+  // doesn't fit, and only falls through to auto when NEITHER side does.
+  if (placement === "right") {
+    const fitsRight = rLeft + rWidth + 8 + tw <= vw - EDGE_PAD;
+    const fitsLeft = rLeft - 8 - tw >= EDGE_PAD;
+    if (fitsRight || fitsLeft) {
+      const left = fitsRight ? rLeft + rWidth + 8 : rLeft - 8 - tw;
+      let top = rTop + (rBottom - rTop) / 2 - th / 2;
+      if (top < EDGE_PAD) top = EDGE_PAD;
+      if (top + th > vh - EDGE_PAD) top = vh - EDGE_PAD - th;
+      return { top, left, below: false };
+    }
+  }
+
   // Prefer above; flip below if not enough room
   const below = rTop < th + EDGE_PAD + 8;
   let top = below ? rBottom + 8 : rTop - th - 8;
@@ -109,7 +145,7 @@ export function computeTooltipPos(
   return { top, left, below };
 }
 
-function position(target: HTMLElement): void {
+function position(target: HTMLElement, placement: TooltipPlacement): void {
   const el = ensureHost();
   const rect = target.getBoundingClientRect();
   // Cap to the live viewport before measuring so a 340px CSS max-width
@@ -121,7 +157,7 @@ function position(target: HTMLElement): void {
   el.style.display = "block";
   const tw = el.offsetWidth;
   const th = el.offsetHeight;
-  const pos = computeTooltipPos(rect, tw, th, window.innerWidth, window.innerHeight);
+  const pos = computeTooltipPos(rect, tw, th, window.innerWidth, window.innerHeight, placement);
   el.style.top = `${Math.round(pos.top)}px`;
   el.style.left = `${Math.round(pos.left)}px`;
   el.classList.toggle("ck-tooltip--below", pos.below);
@@ -138,15 +174,15 @@ function pointerOutside(r: DOMRect): boolean {
   );
 }
 
-function show(target: HTMLElement, content: TooltipContent): void {
+function show(target: HTMLElement, source: TooltipSource, placement: TooltipPlacement): void {
   const el = ensureHost();
-  el.innerHTML = renderContent(content);
+  el.innerHTML = renderContent(typeof source === "function" ? source() : source);
   activeTarget = target;
   // Trust the rect-watch only if the pointer is really over the target now.
   // Stale-outside coords (titlebar drag region) leave it disarmed until a
   // fresh mousemove proves where the cursor is.
   watchArmed = lastMouseX != null && !pointerOutside(target.getBoundingClientRect());
-  position(target);
+  position(target, placement);
   el.classList.add("is-visible");
   el.setAttribute("aria-hidden", "false");
   startWatch();
@@ -216,7 +252,12 @@ function clearTimers(): void {
  *
  * Returns a detach fn for elements that get re-rendered.
  */
-export function attachTooltip(el: HTMLElement, content: TooltipContent): () => void {
+export function attachTooltip(
+  el: HTMLElement,
+  content: TooltipSource,
+  opts: TooltipOptions = {},
+): () => void {
+  const placement = opts.placement ?? "auto";
   // Suppress native tooltip; preserve any prior aria-label.
   if (el.hasAttribute("title")) el.removeAttribute("title");
 
@@ -224,7 +265,7 @@ export function attachTooltip(el: HTMLElement, content: TooltipContent): () => v
     clearTimers();
     openTimer = window.setTimeout(() => {
       openTimer = null;
-      show(el, content);
+      show(el, content, placement);
     }, OPEN_DELAY_MS);
   };
   const onLeave = () => {
