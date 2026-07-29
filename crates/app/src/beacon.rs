@@ -295,6 +295,165 @@ fn short_sha(sha: &str) -> String {
     sha.chars().take(7).collect()
 }
 
+// ── Remediation: hand a failed run to an executor ───────────────────
+//
+// Builds TEXT — the first message of an executor chat. It never runs
+// anything, so it sits outside the execution-policy framework entirely.
+
+/// How much of a failed job's log an executor gets.
+/// ponytail: fixed tail; add a summarization pre-pass if a log stops fitting.
+const LOG_TAIL_LINES: usize = 200;
+const LOG_TAIL_BYTES: usize = 8_000;
+
+/// GitHub prefixes every log line with an ISO-8601 timestamp
+/// ("2026-07-28T18:00:00.1234567Z ") — ~30 bytes a line of pure noise.
+fn strip_timestamp(line: &str) -> &str {
+    let Some((head, rest)) = line.split_once(' ') else {
+        return line;
+    };
+    let b = head.as_bytes();
+    if head.len() >= 20 && head.ends_with('Z') && b[4] == b'-' && b[10] == b'T' {
+        rest
+    } else {
+        line
+    }
+}
+
+/// Tail of a raw job log, safe to send to a model: ANSI stripped,
+/// timestamps dropped, capped, and secrets masked LAST (CI logs carry
+/// signing credentials).
+pub fn log_tail(raw: &str) -> String {
+    let clean = strip_ansi_escapes::strip_str(raw);
+    let lines: Vec<&str> = clean.lines().map(strip_timestamp).collect();
+    let start = lines.len().saturating_sub(LOG_TAIL_LINES);
+    let mut out = lines[start..].join("\n");
+    if out.len() > LOG_TAIL_BYTES {
+        // Keep the END — the error is at the bottom.
+        let want = out.len() - LOG_TAIL_BYTES;
+        let cut = (want..out.len())
+            .find(|i| out.is_char_boundary(*i))
+            .unwrap_or(out.len());
+        out = out[cut..].to_string();
+    }
+    crate::safety::mask_secrets(&out)
+}
+
+/// The job that actually failed, and the step inside it. First match wins:
+/// a run with 19 green jobs and one red one must land on the red one.
+/// ponytail: first failure only; add a picker when runs really fail twice.
+pub fn first_failure(jobs: &[Job]) -> Option<(&Job, Option<&Step>)> {
+    let bad = |s: &str| matches!(s, "failure" | "timed_out" | "startup_failure");
+    let job = jobs.iter().find(|j| bad(&j.state))?;
+    Some((job, job.steps.iter().find(|s| bad(&s.state))))
+}
+
+/// The prompt itself. Pure so the shape is testable without GitHub.
+pub fn build_failure_prompt(
+    repo: &str,
+    run: &serde_json::Value,
+    job: &Job,
+    step: Option<&Step>,
+    log: &str,
+) -> String {
+    let s = |k: &str| run.get(k).and_then(|v| v.as_str()).unwrap_or("");
+    let workflow = s("name");
+    let number = run.get("run_number").and_then(|v| v.as_u64()).unwrap_or(0);
+    let branch = s("head_branch");
+    let sha = short_sha(s("head_sha"));
+    let title = s("display_title");
+    let url = s("html_url");
+    let step_line = step
+        .map(|st| format!("step      {} ({})\n", st.name, st.state))
+        .unwrap_or_default();
+    format!(
+        "A GitHub Actions run failed. Find the cause and propose a fix.\n\n\
+         repo      {repo}\n\
+         workflow  {workflow} · run #{number}\n\
+         job       {job_name} ({job_state})\n\
+         {step_line}\
+         ref       {branch} @ {sha} — {title}\n\
+         url       {url}\n\n\
+         ── failed job log (tail, ANSI-stripped, secrets masked) ──\n\
+         {log}\n\n\
+         Work in this checkout. Name the root cause first, then propose the \
+         smallest fix. Do not push and do not re-run the workflow — I will.\n",
+        job_name = job.name,
+        job_state = job.state,
+    )
+}
+
+/// Plain-text GET — job logs 302 to a signed blob URL and return text,
+/// not JSON.
+async fn gh_get_text(client: &reqwest::Client, token: &str, url: &str) -> Result<String, String> {
+    let resp = client
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "covenant-client")
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| format!("github request failed: {e}"))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.unwrap_or_default();
+    if !(200..300).contains(&status) {
+        tracing::warn!(url, status, "github log fetch failed");
+        return Err(match status {
+            401 => "github: token invalid or expired — reconnect GitHub in Settings".into(),
+            403 => "github: forbidden — rate-limited or missing actions:read".into(),
+            404 | 410 => "github: log expired or unavailable".into(),
+            s => format!("github: HTTP {s}"),
+        });
+    }
+    Ok(text)
+}
+
+/// Package a failed run as the first message of an executor chat.
+pub async fn failure_prompt(cwd: String, run_id: u64) -> Result<String, String> {
+    let (owner, repo, token) = owner_repo_token(&cwd).await?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("http client init failed: {e}"))?;
+    let api = "https://api.github.com";
+
+    let run = gh_get(
+        &client,
+        &token,
+        &format!("{api}/repos/{owner}/{repo}/actions/runs/{run_id}"),
+    )
+    .await?;
+    let jobs_body = gh_get(
+        &client,
+        &token,
+        &format!("{api}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?per_page=50"),
+    )
+    .await?;
+    let jobs = parse_jobs(&jobs_body);
+    let (job, step) = first_failure(&jobs)
+        .ok_or_else(|| "beacon: this run has no failed job to remediate".to_string())?;
+
+    // A missing log is a thinner prompt, not a dead button — the run
+    // metadata alone is already more than the user had before.
+    let log = match gh_get_text(
+        &client,
+        &token,
+        &format!("{api}/repos/{owner}/{repo}/actions/jobs/{}/logs", job.id),
+    )
+    .await
+    {
+        Ok(raw) => log_tail(&raw),
+        Err(e) => format!("(log unavailable: {e})"),
+    };
+
+    Ok(build_failure_prompt(
+        &format!("{owner}/{repo}"),
+        &run,
+        job,
+        step,
+        &log,
+    ))
+}
+
 /// owner/repo from a directory's `origin` remote, or None (no/non-GitHub remote).
 async fn resolve_owner_repo(dir: &str) -> Option<(String, String)> {
     let out = tokio::process::Command::new("git")
@@ -682,6 +841,98 @@ mod tests {
         assert_eq!(jobs[0].steps[1].completed_at, None);
         assert_eq!(jobs[1].state, "queued");
         assert!(jobs[1].steps.is_empty());
+    }
+
+    /// The whole safety story of the remediate action lives here: nothing
+    /// reaches the model with ANSI, timestamps, or a credential in it.
+    #[test]
+    fn log_tail_is_clean_capped_and_masked() {
+        let raw = concat!(
+            "2026-07-28T18:00:00.1234567Z \u{1b}[31mError\u{1b}[0m LGHT0103\n",
+            "2026-07-28T18:00:01.1234567Z token=ghp_abcdefghijklmnopqrstuvwxyz123456\n",
+            "not-a-timestamp stays whole\n",
+        );
+        let out = log_tail(raw);
+        assert!(!out.contains('\u{1b}'), "ANSI survived: {out:?}");
+        assert!(!out.contains("2026-07-28T"), "timestamp survived: {out:?}");
+        assert!(!out.contains("ghp_abcdef"), "token survived: {out:?}");
+        assert!(out.contains("Error LGHT0103"));
+        assert!(out.contains("not-a-timestamp stays whole"));
+
+        // Long logs keep the END — the error is at the bottom.
+        let long = format!("{}\nTHE ACTUAL ERROR", "x".repeat(LOG_TAIL_BYTES * 2));
+        let tail = log_tail(&long);
+        assert!(tail.len() <= LOG_TAIL_BYTES);
+        assert!(tail.ends_with("THE ACTUAL ERROR"));
+
+        // And only the last N lines, however short they are.
+        let many: String = (0..LOG_TAIL_LINES + 50)
+            .map(|i| format!("line{i}\n"))
+            .collect();
+        let tail = log_tail(&many);
+        assert!(!tail.contains("line0\n"));
+        assert!(tail.ends_with(&format!("line{}", LOG_TAIL_LINES + 49)));
+    }
+
+    #[test]
+    fn first_failure_lands_on_the_red_job_and_step() {
+        let jobs = parse_jobs(&serde_json::json!({ "jobs": [
+            { "id": 1, "name": "macOS", "status": "completed", "conclusion": "success", "steps": [] },
+            { "id": 2, "name": "build", "status": "completed", "conclusion": "failure", "steps": [
+                { "name": "Install Rust", "status": "completed", "conclusion": "success" },
+                { "name": "Build Tauri MSI", "status": "completed", "conclusion": "failure" },
+                { "name": "Upload MSI", "status": "completed", "conclusion": "skipped" }
+            ]},
+            { "id": 3, "name": "linux", "status": "completed", "conclusion": "failure", "steps": [] }
+        ]}));
+        let (job, step) = first_failure(&jobs).expect("a failed job");
+        assert_eq!(job.name, "build");
+        assert_eq!(step.map(|s| s.name.as_str()), Some("Build Tauri MSI"));
+
+        // An all-green run has nothing to remediate.
+        let green = parse_jobs(&serde_json::json!({ "jobs": [
+            { "id": 1, "name": "ok", "status": "completed", "conclusion": "success", "steps": [] }
+        ]}));
+        assert!(first_failure(&green).is_none());
+
+        // A failed job whose steps are all green (startup failure) still counts.
+        let odd = parse_jobs(&serde_json::json!({ "jobs": [
+            { "id": 1, "name": "boot", "status": "completed", "conclusion": "startup_failure", "steps": [] }
+        ]}));
+        let (job, step) = first_failure(&odd).expect("a failed job");
+        assert_eq!(job.name, "boot");
+        assert!(step.is_none());
+    }
+
+    #[test]
+    fn failure_prompt_carries_what_the_executor_needs() {
+        let run = serde_json::json!({
+            "name": "Release Windows",
+            "run_number": 421,
+            "head_branch": "main",
+            "head_sha": "0d6b9003abcdef",
+            "display_title": "chore(release): v0.9.82",
+            "html_url": "https://github.com/karluiz/covenant/actions/runs/421"
+        });
+        let jobs = parse_jobs(&serde_json::json!({ "jobs": [
+            { "id": 9, "name": "build", "status": "completed", "conclusion": "failure", "steps": [
+                { "name": "Build Tauri MSI", "status": "completed", "conclusion": "failure" }
+            ]}
+        ]}));
+        let (job, step) = first_failure(&jobs).unwrap();
+        let p = build_failure_prompt("karluiz/covenant", &run, job, step, "error LGHT0103");
+        for needle in [
+            "karluiz/covenant",
+            "Release Windows · run #421",
+            "build (failure)",
+            "Build Tauri MSI (failure)",
+            "main @ 0d6b900",
+            "actions/runs/421",
+            "error LGHT0103",
+            "Do not push",
+        ] {
+            assert!(p.contains(needle), "prompt missing {needle:?}:\n{p}");
+        }
     }
 
     #[test]

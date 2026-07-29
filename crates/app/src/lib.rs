@@ -2895,6 +2895,13 @@ async fn beacon_run_jobs(cwd: String, run_id: u64) -> Result<Vec<beacon::Job>, S
     beacon::run_jobs(cwd, run_id).await
 }
 
+/// Failed run → the first message of a remediation chat. Read-only: it
+/// fetches and sanitizes text, it never executes anything.
+#[tauri::command]
+async fn beacon_failure_prompt(cwd: String, run_id: u64) -> Result<String, String> {
+    beacon::failure_prompt(cwd, run_id).await
+}
+
 #[tauri::command]
 async fn canon_local_status(cwd: String) -> Result<karl_canon::CanonStatus, String> {
     let repo = std::path::PathBuf::from(cwd);
@@ -5898,6 +5905,7 @@ pub fn run() {
             beacon_rerun_workflow,
             beacon_cancel_workflow,
             beacon_run_jobs,
+            beacon_failure_prompt,
             somnus::somnus_send,
             somnus::somnus_history,
             somnus::somnus_history_delete,

@@ -435,7 +435,12 @@ export function renderBeacon(
   state: BeaconState,
   onPick?: (path: string) => void,
   errorActions?: { onRetry?: () => void; onReconnect?: () => void },
-  runActions?: { onRerun?: (runId: number) => void; onCancel?: (runId: number) => void },
+  runActions?: {
+    onRerun?: (runId: number) => void;
+    onCancel?: (runId: number) => void;
+    /// Failed runs only — hands the failure to an executor chat.
+    onRemediate?: (runId: number) => void;
+  },
   detail?: RunDetail,
 ): void {
   root.replaceChildren();
@@ -614,6 +619,26 @@ export function renderBeacon(
             }
             actions.append(action);
           }
+          // Remediate: failed runs ONLY. A button that is always there stops
+          // meaning anything, and there is nothing to remediate on a green run.
+          if (runActions?.onRemediate && run.id && dotColor === "bad") {
+            const fix = document.createElement("button");
+            fix.type = "button";
+            fix.className = "rail-row-action is-neutral";
+            fix.setAttribute("aria-label", "Remediate with agent");
+            fix.innerHTML = Icons.bot({ size: 13 });
+            // Title stays one word so the tip doesn't wrap at this width;
+            // the subtitle carries what actually happens.
+            attachTooltip(fix, {
+              title: "Remediate",
+              subtitle: "Opens an agent chat with this failure's log",
+            });
+            fix.addEventListener("click", (e) => {
+              e.stopPropagation();
+              runActions.onRemediate?.(run.id);
+            });
+            actions.append(fix);
+          }
           if (actions.childElementCount) row.appendChild(actions);
 
           root.appendChild(row);
@@ -659,6 +684,10 @@ export class BeaconPanel {
       onReconnect?: () => void;
       /// Fired after every successful poll — feeds the titlebar indicator.
       onState?: (state: BeaconState) => void;
+      /// "Remediate with agent" on a failed run. The panel only knows which
+      /// run and where; fetching the prompt and opening the chat is the
+      /// app's job (it owns the tabs and the toasts).
+      onRemediate?: (runId: number, cwd: string) => void;
     },
   ) {
     this.root = document.createElement("div");
@@ -794,6 +823,10 @@ export class BeaconPanel {
           if (!cwd) return;
           if (!confirm("Cancel this workflow run?")) return;
           void this.runAction(() => beaconCancelWorkflow(cwd, runId));
+        },
+        onRemediate: (runId) => {
+          if (!cwd) return;
+          this.opts.onRemediate?.(runId, cwd);
         },
       },
       {

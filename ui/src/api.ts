@@ -1584,6 +1584,12 @@ export async function beaconRunJobs(cwd: string, runId: number): Promise<BeaconJ
   return invoke<BeaconJob[]>("beacon_run_jobs", { cwd, runId });
 }
 
+/// A failed run packaged as the first message of a remediation chat:
+/// what broke, where, and the sanitized tail of the job log.
+export async function beaconFailurePrompt(cwd: string, runId: number): Promise<string> {
+  return invoke<string>("beacon_failure_prompt", { cwd, runId });
+}
+
 // Somnus — REST client sidebar -----------------------------------------
 
 export type SomnusRequest = {

@@ -5251,6 +5251,10 @@ export class TabManager {
     /// human opens a fresh chat through; NOT by restore or by the Spawns
     /// path (which hands over an isolated cwd already).
     isolate?: boolean;
+    /// First message, submitted once the handshake resolves — the tab opens
+    /// already working. Set by doors that carry their own context (Beacon's
+    /// "Remediate with agent"), never by a plain new-chat shortcut.
+    initialPrompt?: string;
   }): Promise<Tab | null> {
     const id = crypto.randomUUID();
     const replayKey = id.replace(/-/g, "").slice(0, 26);
@@ -5551,7 +5555,8 @@ export class TabManager {
         pushInfoToast({ message: "Couldn't resume the previous Copilot conversation — started fresh" });
       }
       this.rememberSessionName(spawned.sessionId, tabDisplayName(tab));
-      if (this.activeId === id) view.focusComposer();
+      if (opts?.initialPrompt) view.submitText(opts.initialPrompt);
+      else if (this.activeId === id) view.focusComposer();
     })();
 
     return tab;
