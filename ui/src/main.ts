@@ -104,7 +104,7 @@ import { ProjectNotesPanel, type PanelTab } from "./project-notes/panel";
 import { CanonPanel } from "./canon/panel";
 import "./canon/miner/miner.css";
 import { ContextMinerView } from "./canon/miner/view";
-import { CanonCockpitView } from "./canon/cockpit/view";
+import { CanonCockpitView, type SectionKey } from "./canon/cockpit/view";
 import { canonMyOrgs } from "./api";
 import type { Org } from "./api";
 import { SpawnsChip, spawnBrandGlyph } from "./spawns/chip";
@@ -1825,6 +1825,7 @@ async function boot(): Promise<void> {
   });
 
   // Canon panel — per-group sidebar, same lifecycle pattern as Project Notes.
+  let activeCanonCockpit: CanonCockpitView | null = null;
   let activeCanonPanel: CanonPanel | null = null;
   let pendingCanonArgs: { groupId: string; groupLabel: string; groupColor: string | null } | null = null;
 
@@ -1845,6 +1846,51 @@ async function boot(): Promise<void> {
     }
     new ContextMinerView({ repoRoot: root, groupName: groupLabel });
   }
+
+  /** The one way the cockpit gets built. `section` lands it somewhere other
+   *  than Organization — see the `covenant:open-canon` listener below. */
+  function openCanonCockpit(groupId: string, groupLabel: string, section?: SectionKey): void {
+    // `.catch(() => null)` (not `[]`) so the cockpit can tell "fetch failed,
+    // offline" from "fetched, caller belongs to no org" — the operators
+    // section needs that distinction to avoid mis-flagging org-assigned
+    // operators as stale while offline.
+    void canonMyOrgs().then((o) => o as Org[] | null).catch(() => null).then((orgsOrNull) => {
+      const cockpit = new CanonCockpitView({
+        groupId,
+        groupLabel,
+        groupRootDir: manager.groupRootDirFor(groupId),
+        orgs: orgsOrNull ?? [],
+        orgsFetched: orgsOrNull !== null,
+        section,
+        getActiveOrg: () => manager.groupCanonOrg(groupId),
+        setActiveOrg: (slug) => { manager.setGroupCanonOrg(groupId, slug); void pullOrgOperators(slug); },
+        onNewContext: () => launchContextMiner(groupId, groupLabel),
+        onOpenFile: (path) => manager.openFileAtLine(path),
+        onNewSpec: (repoRoot) => window.dispatchEvent(new CustomEvent("spec-chat:open", {
+          detail: { canonContext: true, cwd: repoRoot },
+        })),
+        // Esc closes Canon entirely (cockpit + rail) → terminal, the
+        // app-wide convention (Tasker / Settings / Changes / Release log).
+        onClose: () => { activeCanonCockpit = null; activeCanonPanel?.close(); },
+      });
+      activeCanonCockpit = cockpit;
+      cockpit.open();
+    });
+  }
+
+  /** Any surface can ask for Canon at a given section — an empty state, a
+   *  toast, an operator. Re-targets an already-open cockpit instead of
+   *  stacking a second one. */
+  window.addEventListener("covenant:open-canon", (e) => {
+    const section = (e as CustomEvent<{ section?: SectionKey }>).detail?.section;
+    if (activeCanonCockpit) {
+      if (section) activeCanonCockpit.showSection(section);
+      return;
+    }
+    const g = manager.activeGroup();
+    if (!g) { pushInfoToast({ message: `Canon — ${GROUP_REQ_HINT}` }); return; }
+    openCanonCockpit(g.id, g.name, section);
+  });
 
   function mountCanon(): void {
     let args = pendingCanonArgs;
@@ -1882,29 +1928,7 @@ async function boot(): Promise<void> {
       },
       onExpand: () => {
         const a = args;
-        // `.catch(() => null)` (not `[]`) so the cockpit can tell "fetch
-        // failed, offline" from "fetched, caller belongs to no org" — the
-        // operators section needs that distinction to avoid mis-flagging
-        // org-assigned operators as stale while offline.
-        void canonMyOrgs().then((o) => o as Org[] | null).catch(() => null).then((orgsOrNull) => {
-          new CanonCockpitView({
-            groupId: a.groupId,
-            groupLabel: a.groupLabel,
-            groupRootDir: manager.groupRootDirFor(a.groupId),
-            orgs: orgsOrNull ?? [],
-            orgsFetched: orgsOrNull !== null,
-            getActiveOrg: () => manager.groupCanonOrg(a.groupId),
-            setActiveOrg: (slug) => { manager.setGroupCanonOrg(a.groupId, slug); void pullOrgOperators(slug); },
-            onNewContext: () => launchContextMiner(a.groupId, a.groupLabel),
-            onOpenFile: (path) => manager.openFileAtLine(path),
-            onNewSpec: (repoRoot) => window.dispatchEvent(new CustomEvent("spec-chat:open", {
-              detail: { canonContext: true, cwd: repoRoot },
-            })),
-            // Esc closes Canon entirely (cockpit + rail) → terminal, the
-            // app-wide convention (Tasker / Settings / Changes / Release log).
-            onClose: () => activeCanonPanel?.close(),
-          }).open();
-        });
+        openCanonCockpit(a.groupId, a.groupLabel);
       },
     }).mount(document.body);
   }
@@ -1921,23 +1945,7 @@ async function boot(): Promise<void> {
     }
     const g = manager.activeGroup();
     if (!g) { pushInfoToast({ message: `Canon — ${GROUP_REQ_HINT}` }); return; }
-    void canonMyOrgs().then((o) => o as Org[] | null).catch(() => null).then((orgsOrNull) => {
-      new CanonCockpitView({
-        groupId: g.id,
-        groupLabel: g.name,
-        groupRootDir: manager.groupRootDirFor(g.id),
-        orgs: orgsOrNull ?? [],
-        orgsFetched: orgsOrNull !== null,
-        getActiveOrg: () => manager.groupCanonOrg(g.id),
-        setActiveOrg: (slug) => { manager.setGroupCanonOrg(g.id, slug); void pullOrgOperators(slug); },
-        onNewContext: () => launchContextMiner(g.id, g.name),
-        onOpenFile: (path) => manager.openFileAtLine(path),
-        onNewSpec: (repoRoot) => window.dispatchEvent(new CustomEvent("spec-chat:open", {
-          detail: { canonContext: true, cwd: repoRoot },
-        })),
-        onClose: () => activeCanonPanel?.close(),
-      }).open();
-    });
+    openCanonCockpit(g.id, g.name);
   }
 
   void listen<{ repoRoot: string; slug: string; title: string }>("draft:saved", (e) => {

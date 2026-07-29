@@ -15,8 +15,9 @@ pub mod types;
 pub use detect::scan_detected;
 pub use eval::{pass_rate, read_evals, read_results, write_result, Eval, EvalResult};
 pub use install::{
-    adopt, adopt_new_skills, content_version, install_from_dir, install_local, install_unit,
-    read_skill_package, read_source, status, uninstall_skill, CanonStatus,
+    adopt, adopt_new_skills, content_version, delete_unit, install_from_dir, install_local,
+    install_unit, read_skill_package, read_source, source_path, status, uninstall_skill,
+    CanonStatus,
 };
 pub use inventory::{detected_rows, resolve_state, UnitState};
 pub use kind::{list_context, ContextKind, ContextUnit};

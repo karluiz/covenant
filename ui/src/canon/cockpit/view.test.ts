@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { CanonCockpitView } from "./view";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { CanonCockpitView, unusedUnits, inventoryRows, skillCurrency } from "./view";
 
 // Mock the api module so tests don't invoke Tauri IPC.
 vi.mock("../../api", () => ({
@@ -19,6 +19,12 @@ vi.mock("../../api", () => ({
   canonNewUnit: vi.fn(async () => "/x/.covenant/canon/agents/reviewer.md"),
   canonImportSkill: vi.fn(async () => [] as string[]),
   canonAdopt: vi.fn(async () => undefined),
+  canonProjectionStatus: vi.fn(async () => ({ executors: [], source_edited_unix: null })),
+  canonExport: vi.fn(async () => undefined),
+  canonRunEvals: vi.fn(async () => undefined),
+  onCanonEvalProgress: vi.fn(async () => () => {}),
+  canonUnitPath: vi.fn(async () => "/x/.covenant/canon/agents/reviewer.md"),
+  canonDeleteUnit: vi.fn(async () => undefined),
   canonReadSource: vi.fn(async () => ""),
   canonSearch: vi.fn().mockResolvedValue([]),
   canonPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
@@ -41,7 +47,8 @@ import {
   canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
   operatorList, canonPublish, canonUninstallSkill,
   canonOrgDefaults, canonOrgDefaultSet, canonUnitInstalled,
-  canonNewUnit, canonImportSkill,
+  canonNewUnit, canonImportSkill, canonUnitPath, canonDeleteUnit, scoreSkillUsage,
+  canonProjectionStatus, canonExport, canonRunEvals,
   type Operator,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
@@ -55,6 +62,12 @@ const OPERATOR_FIXTURE: Operator = {
 };
 
 
+// Tests open cockpits without closing them; a leftover root keeps answering
+// document-level keys (⌘K), so tear the DOM down between them.
+afterEach(() => {
+  document.body.replaceChildren();
+});
+
 const opts = {
   groupId: "g1", groupLabel: "G1", groupRootDir: "/x",
   orgs: [{ id: 1, slug: "karluiz", name: "karluiz", role: "owner", personal: true }],
@@ -63,11 +76,11 @@ const opts = {
 };
 
 describe("CanonCockpitView shell", () => {
-  it("opens with the org section active and switches sections", () => {
+  it("opens on Overview — the state of the repo, not the org settings screen", () => {
     const v = new CanonCockpitView(opts);
     v.open();
     expect(v.element.querySelector(".canon-cockpit-nav")).toBeTruthy();
-    expect(v.element.querySelector('[data-section="org"].is-active')).toBeTruthy();
+    expect(v.element.querySelector('[data-section="overview"].is-active')).toBeTruthy();
     v.showSection("members");
     expect(v.element.querySelector('[data-section="members"].is-active')).toBeTruthy();
     v.close();
@@ -106,7 +119,7 @@ describe("CanonCockpitView create-org flow", () => {
       setActiveOrg: (slug: string | null) => { active = slug; setActiveOrg(slug); },
     };
     const v = new CanonCockpitView(createOpts);
-    v.open();
+    v.open(); v.showSection("org");
 
     const wrap = v.element.querySelector(".canon-cockpit-org-create") as HTMLElement;
     (wrap.querySelector("button") as HTMLButtonElement).click();
@@ -130,12 +143,12 @@ describe("CanonCockpitView create-org flow", () => {
     const memberV = new CanonCockpitView({ ...opts,
       orgs: [{ id: 1, slug: "cleverit", name: "Cleverit", role: "member", personal: false }],
       getActiveOrg: () => "cleverit" });
-    memberV.open();
+    memberV.open(); memberV.showSection("org");
     expect(memberV.element.querySelector(".canon-cockpit-idcard-edit")).toBeNull();
     memberV.close();
 
     const v = new CanonCockpitView(opts); // active org role: owner
-    v.open();
+    v.open(); v.showSection("org");
     const edit = v.element.querySelector(".canon-cockpit-idcard-edit") as HTMLElement;
     expect(edit).toBeTruthy();
     edit.click();
@@ -414,13 +427,15 @@ describe("CanonCockpitView Skills section trash button", () => {
       installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
       agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("skills");
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeTruthy();
     });
     v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Uninstall skill']")!.click();
+    // The in-app confirm card, not window.confirm — Tauri's capability set
+    // doesn't allow native dialogs (see workspaces/confirm-prompt.ts).
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
     await vi.waitFor(() => {
       expect(canonUninstallSkill).toHaveBeenCalledWith(expect.any(String), "kyc");
     });
@@ -428,7 +443,6 @@ describe("CanonCockpitView Skills section trash button", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeNull();
     });
-    confirmSpy.mockRestore();
   });
 
   it("does not uninstall when confirm is declined", async () => {
@@ -437,16 +451,371 @@ describe("CanonCockpitView Skills section trash button", () => {
       agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     vi.mocked(canonUninstallSkill).mockClear();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("skills");
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeTruthy();
     });
     v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Uninstall skill']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-cancel")!.click();
     await Promise.resolve();
     expect(canonUninstallSkill).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
+    expect(document.querySelector(".workspace-confirm-overlay")).toBeNull();
+  });
+});
+
+describe("CanonCockpitView shared repo status", () => {
+  it("walks the repo once per open, and again only after a write", async () => {
+    const withSkill = {
+      installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    };
+    vi.mocked(canonLocalStatus).mockClear();
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(withSkill).mockResolvedValueOnce(withSkill);
+
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")).toBeTruthy();
+    });
+    // A second section reads the same snapshot instead of re-walking the repo.
+    v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-cockpit-empty")).toBeTruthy();
+    });
+    v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")).toBeTruthy();
+    });
+    expect(canonLocalStatus).toHaveBeenCalledTimes(1);
+
+    // A write invalidates it — the redraw must not come from the stale snapshot.
+    v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Uninstall skill']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
+    await vi.waitFor(() => {
+      expect(canonLocalStatus).toHaveBeenCalledTimes(2);
+    });
+  });
+});
+
+describe("CanonCockpitView unit row verbs", () => {
+  const withAgent = (detectedIn: string | null) => ({
+    installed: [], agents: [{ name: "reviewer", detectedIn }], contexts: [], memory: [],
+    commands: [], mcp: [], specs: [], detectedSkills: [],
+  });
+  const labels = (v: CanonCockpitView): (string | null)[] =>
+    [...v.element.querySelectorAll(".canon-skill-row button")].map((b) => b.getAttribute("aria-label"));
+
+  it("adopted rows carry Open · Publish · Delete", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(withAgent(null));
+    const opened: string[] = [];
+    const v = new CanonCockpitView({ ...opts, onOpenFile: (p) => opened.push(p) });
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")).toBeTruthy();
+    });
+    expect(labels(v)).toEqual(expect.arrayContaining(["Open in editor", "Publish to registry", "Delete"]));
+
+    v.element.querySelector<HTMLButtonElement>("[aria-label='Open in editor']")!.click();
+    await vi.waitFor(() => {
+      expect(canonUnitPath).toHaveBeenCalledWith("/x", "agent", "reviewer");
+      expect(opened).toEqual(["/x/.covenant/canon/agents/reviewer.md"]);
+    });
+  });
+
+  it("deletes through the confirm card, with the kind the section owns", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(withAgent(null));
+    vi.mocked(canonDeleteUnit).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector("[aria-label='Delete']")).toBeTruthy();
+    });
+    v.element.querySelector<HTMLButtonElement>("[aria-label='Delete']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
+    await vi.waitFor(() => {
+      expect(canonDeleteUnit).toHaveBeenCalledWith("/x", "agent", "reviewer");
+    });
+  });
+
+  it("detected rows offer Adopt and never Delete — a foreign file isn't Canon's to remove", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(withAgent(".claude/agents"));
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row.is-detected")).toBeTruthy();
+    });
+    expect(labels(v)).toContain("Adopt into Canon");
+    expect(labels(v)).not.toContain("Delete");
+    expect(labels(v)).not.toContain("Publish to registry");
+  });
+});
+
+describe("CanonCockpitView finder", () => {
+  it("searches every kind at once and lands on the owning section, pre-filtered", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValue({
+      installed: [], agents: [{ name: "reviewer" }],
+      commands: [{ name: "deploy", description: null }, { name: "review-diff", description: null }],
+      contexts: [], memory: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    const v = new CanonCockpitView(opts);
+    v.open();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    const finder = document.querySelector<HTMLElement>(".canon-finder")!;
+    expect(finder).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(finder.querySelectorAll(".command-palette-item").length).toBe(3); // across two kinds
+    });
+
+    const input = finder.querySelector<HTMLInputElement>(".command-palette-input")!;
+    input.value = "review";
+    input.dispatchEvent(new Event("input"));
+    const shown = [...finder.querySelectorAll(".cp-title")].map((e) => e.textContent);
+    expect(shown).toEqual(["reviewer", "review-diff"]);
+
+    // Picking a command jumps to Commands with its name already in the filter.
+    finder.querySelectorAll<HTMLElement>(".command-palette-item")[1].click();
+    expect(document.querySelector(".canon-finder")).toBeNull();
+    expect(v.element.querySelector('[data-section="commands"].is-active')).toBeTruthy();
+    await vi.waitFor(() => {
+      const rows = [...v.element.querySelectorAll<HTMLElement>(".canon-skill-row")];
+      expect(rows.length).toBe(2);
+      expect(rows.filter((r) => !r.hidden).map((r) => r.textContent)).toEqual([
+        expect.stringContaining("review-diff"),
+      ]);
+    });
+    vi.mocked(canonLocalStatus).mockResolvedValue({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+  });
+});
+
+describe("CanonCockpitView doors", () => {
+  it("opens at the section it was asked for", () => {
+    const v = new CanonCockpitView({ ...opts, section: "registry" });
+    v.open();
+    expect(v.element.querySelector('[data-section="registry"].is-active')).toBeTruthy();
+  });
+
+  it("empty states offer the crawler as a second CTA", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    let crawled = false;
+    const v = new CanonCockpitView({ ...opts, onNewContext: () => { crawled = true; } });
+    v.open(); v.showSection("agents");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-cockpit-empty")).toBeTruthy();
+    });
+    const btns = [...v.element.querySelectorAll<HTMLButtonElement>(".rail-empty-btn")];
+    expect(btns.map((b) => b.textContent)).toEqual(["New subagent", "Crawl repo"]);
+    btns[1].click();
+    expect(crawled).toBe(true);
+  });
+});
+
+describe("CanonCockpitView Overview", () => {
+  const populated = {
+    installed: [{ name: "kyc", version: "1.0.0", source: "registry:karluiz", sha: "a", signer: null, installedAt: "t" }],
+    agents: [{ name: "reviewer" }], contexts: [], memory: [],
+    commands: [{ name: "deploy", description: null }], mcp: [], specs: [], detectedSkills: [],
+  };
+
+  it("counts every kind and routes to its section", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(populated);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.querySelectorAll(".canon-cockpit-inventory .canon-cockpit-listitem").length).toBe(7);
+    });
+    const rows = [...v.element.querySelectorAll(".canon-cockpit-inventory .canon-cockpit-listitem")]
+      .map((r) => r.textContent);
+    expect(rows[0]).toContain("Subagents");
+    expect(rows[0]).toContain("1");
+    v.element.querySelectorAll<HTMLButtonElement>(".canon-cockpit-inventory .canon-cockpit-listitem")[1].click();
+    expect(v.element.querySelector('[data-section="commands"].is-active')).toBeTruthy();
+  });
+
+  it("names the org defaults this repo is missing, and installs them", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValue(populated);
+    vi.mocked(canonOrgDefaults).mockResolvedValue([
+      { kind: "skill", name: "kyc" }, { kind: "agent", name: "reviewer" }, { kind: "command", name: "lint" },
+    ]);
+    vi.mocked(canonUnitInstalled).mockImplementation(async (_c, _k, name) => name === "kyc");
+    vi.mocked(canonInstallRegistryUnit).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("2 of 3 org defaults missing here");
+    });
+    v.element.querySelector<HTMLButtonElement>(".canon-cockpit-listitem-action")!.click();
+    await vi.waitFor(() => {
+      expect(canonInstallRegistryUnit).toHaveBeenCalledWith("/x", "karluiz", "reviewer", "latest", "agent");
+      expect(canonInstallRegistryUnit).toHaveBeenCalledWith("/x", "karluiz", "lint", "latest", "command");
+    });
+    vi.mocked(canonOrgDefaults).mockResolvedValue([]);
+    vi.mocked(canonUnitInstalled).mockImplementation(async () => false);
+    vi.mocked(canonLocalStatus).mockResolvedValue({
+      installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+  });
+
+  it("says nothing when nothing needs attention", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce(populated);
+    vi.mocked(scoreSkillUsage).mockResolvedValueOnce([{ skill: "kyc", uses: 4 }]);
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("Inventory");
+    });
+    expect(v.element.textContent).not.toContain("Needs attention");
+  });
+});
+
+describe("Canon dead weight", () => {
+  it("unusedUnits keeps only what nothing has used", () => {
+    const installed = [{ name: "kyc" }, { name: "dead" }, { name: "never-recorded" }];
+    const usage = [{ skill: "kyc", uses: 3 }, { skill: "dead", uses: 0 }];
+    expect(unusedUnits(installed, usage)).toEqual(["dead", "never-recorded"]);
+    expect(unusedUnits([], usage)).toEqual([]);
+  });
+
+  it("inventoryRows counts detected skills alongside installed ones", () => {
+    const rows = inventoryRows({
+      installed: [{ name: "kyc" }] as never, detectedSkills: [{ name: "foreign" }] as never,
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [],
+    } as never);
+    expect(rows.find((r) => r.section === "skills")?.count).toBe(2);
+  });
+
+  it("Loop lists unused skills with the uninstall that removes them", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "dead", version: "1.0.0", source: "registry:karluiz", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    vi.mocked(canonUninstallSkill).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("loop");
+    await vi.waitFor(() => {
+      expect(v.element.textContent).toContain("Unused");
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Uninstall skill']")).toBeTruthy();
+    });
+    v.element.querySelector<HTMLButtonElement>("[aria-label='Uninstall skill']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
+    await vi.waitFor(() => {
+      expect(canonUninstallSkill).toHaveBeenCalledWith("/x", "dead");
+    });
+  });
+});
+
+describe("Canon staleness", () => {
+  it("skillCurrency prefers local edits, then version drift, then silence", () => {
+    const kyc = { name: "kyc", version: "1.0.0" };
+    expect(skillCurrency(kyc, "1.0.0", [])).toBeNull();
+    expect(skillCurrency(kyc, undefined, [])).toBeNull();
+    expect(skillCurrency(kyc, "2.1.0", [])).toBe("update available · v2.1.0");
+    // A local edit is the more actionable fact — it outranks the version gap.
+    expect(skillCurrency(kyc, "2.1.0", ["kyc"])).toBe("modified locally");
+  });
+
+  it("marks an installed skill the registry has moved past", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "kyc", version: "1.0.0", source: "registry:karluiz", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+      modifiedSkills: [],
+    });
+    vi.mocked(canonSearch).mockResolvedValueOnce([
+      { id: 1, name: "kyc", version: "2.1.0", description: "", publisher_login: "karluiz", installs: 9, sha: "zzz", kind: "skill" },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")?.textContent).toContain("update available · v2.1.0");
+    });
+  });
+});
+
+describe("CanonCockpitView projection strip", () => {
+  it("names every executor and offers a re-project when one drifted", async () => {
+    vi.mocked(canonProjectionStatus).mockResolvedValue({
+      executors: [{ tool: "claude", state: "synced" }, { tool: "codex", state: "stale" }],
+      source_edited_unix: Math.floor(Date.now() / 1000) - 120,
+    });
+    vi.mocked(canonExport).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.querySelectorAll(".canon-projection-chip").length).toBe(2);
+    });
+    const strip = v.element.querySelector(".canon-projection")!;
+    expect(strip.textContent).toContain("claude");
+    expect(strip.textContent).toContain("sources edited 2m ago");
+    expect(strip.querySelector(".canon-projection-chip.is-stale")).toBeTruthy();
+
+    strip.querySelector<HTMLButtonElement>(".canon-cockpit-listitem-action")!.click();
+    await vi.waitFor(() => {
+      expect(canonExport).toHaveBeenCalledWith("/x");
+    });
+    vi.mocked(canonProjectionStatus).mockResolvedValue({ executors: [], source_edited_unix: null });
+  });
+
+  it("stays out of the way when everything is in sync", async () => {
+    vi.mocked(canonProjectionStatus).mockResolvedValueOnce({
+      executors: [{ tool: "claude", state: "synced" }], source_edited_unix: null,
+    });
+    const v = new CanonCockpitView(opts);
+    v.open();
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-projection-chip")).toBeTruthy();
+    });
+    expect(v.element.querySelector(".canon-projection .canon-cockpit-listitem-action")).toBeNull();
+  });
+});
+
+describe("CanonCockpitView nav", () => {
+  it("groups sections by what they are for, and Loop is Impact", () => {
+    const v = new CanonCockpitView(opts);
+    v.open();
+    const groups = [...v.element.querySelectorAll(".canon-cockpit-nav-group")].map((g) => g.textContent);
+    expect(groups).toEqual(["Authoring", "Sharing", "Impact"]);
+    expect(v.element.querySelector('[data-section="loop"]')?.textContent).toBe("Impact");
+    // Every section still reachable — grouping is presentation, not pruning.
+    expect(v.element.querySelectorAll(".canon-cockpit-nav-btn").length).toBe(13);
+  });
+});
+
+describe("CanonCockpitView eval from the row", () => {
+  it("runs a skill's evals behind the confirm card", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    vi.mocked(canonRunEvals).mockClear();
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row [aria-label='Run evals']")).toBeTruthy();
+    });
+    v.element.querySelector<HTMLButtonElement>("[aria-label='Run evals']")!.click();
+    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
+    await vi.waitFor(() => {
+      expect(canonRunEvals).toHaveBeenCalledWith("/x", "kyc");
+    });
+  });
+
+  it("shows the lift verdict on the row it judges", async () => {
+    vi.mocked(canonLocalStatus).mockResolvedValueOnce({
+      installed: [{ name: "kyc", version: "1.0.0", source: "local:x", sha: "a", signer: null, installedAt: "t" }],
+      agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    vi.mocked(canonEvalSummary).mockResolvedValueOnce([
+      { skill: "kyc", passed: 4, total: 5, baseline_passed: 2, baseline_total: 5 },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("skills");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-skill-row")?.textContent).toContain("lift");
+    });
   });
 });
 
@@ -580,7 +949,11 @@ describe("CanonCockpitView homologated empty states", () => {
   it("renders the shared empty block with a CTA that routes to the registry when no skills are installed", async () => {
     const v = new CanonCockpitView(opts); // canonLocalStatus mock: all lists empty
     v.open(); v.showSection("skills");
-    await Promise.resolve(); await Promise.resolve();
+    // The section joins status + registry catalogue + eval summary, so wait on
+    // the render rather than counting microtasks.
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-cockpit-empty")).toBeTruthy();
+    });
     const empty = v.element.querySelector(".canon-cockpit-empty") as HTMLElement;
     expect(empty.textContent).toContain("No skills installed");
     (empty.querySelector(".rail-empty-btn") as HTMLButtonElement).click();

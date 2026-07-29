@@ -3047,6 +3047,31 @@ async fn canon_read_source(cwd: String, kind: String, name: String) -> Result<St
         .map_err(|e| e.to_string())
 }
 
+/// Absolute path of the file backing a unit — its Canon source once adopted,
+/// else where it was detected. Lets the cockpit open the row in the editor.
+#[tauri::command]
+async fn canon_unit_path(cwd: String, kind: String, name: String) -> Result<String, String> {
+    let repo = std::path::PathBuf::from(cwd);
+    let k = parse_unit_kind(&kind)?;
+    let path = tokio::task::spawn_blocking(move || karl_canon::source_path(&repo, k, &name))
+        .await
+        .map_err(|e| format!("canon_unit_path join: {e}"))?
+        .map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Delete a Canon-managed unit's source and re-project. Skills go through
+/// `canon_uninstall_skill` (manifest + lockfile); specs are not Canon's files.
+#[tauri::command]
+async fn canon_delete_unit(cwd: String, kind: String, name: String) -> Result<(), String> {
+    let repo = std::path::PathBuf::from(cwd);
+    let k = parse_unit_kind(&kind)?;
+    tokio::task::spawn_blocking(move || karl_canon::delete_unit(&repo, k, &name))
+        .await
+        .map_err(|e| format!("canon_delete_unit join: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
 /// Adopt a detected (but not-yet-canonized) context unit into `.covenant/canon/`.
 #[tauri::command]
 async fn canon_adopt(cwd: String, kind: String, name: String) -> Result<(), String> {
@@ -5907,6 +5932,8 @@ pub fn run() {
             canon_preview,
             canon_read_local,
             canon_read_source,
+            canon_unit_path,
+            canon_delete_unit,
             canon_adopt,
             canon_new_unit,
             canon_import_skill,

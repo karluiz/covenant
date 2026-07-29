@@ -80,6 +80,19 @@ body.tabbar-left .canon-cockpit {
   font-weight: 600;
 }
 
+/* Group heads (Authoring / Sharing / Impact) — the nav's own subheads, sized
+   below the panel title so the hierarchy reads title > group > item. */
+.canon-cockpit-nav-group {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  opacity: 0.7;
+  padding: 14px 10px 5px;
+}
+.canon-cockpit-nav-group:first-of-type { padding-top: 8px; }
+
 /* ── Content ────────────────────────────────────────────────────────── */
 
 .canon-cockpit-content {
@@ -258,6 +271,13 @@ body.tabbar-left .canon-cockpit {
   flex-direction: column;
   border: 1px solid var(--border);
 }
+/* A transient note (Loading… / empty / offline) stands in for the rows, so it
+   takes their padding — otherwise the text sits flush against the box border
+   and the whole block reads as broken chrome. */
+.canon-cockpit-list > .canon-cockpit-note {
+  padding: 10px 12px;
+  margin: 0;
+}
 .canon-cockpit-section .canon-cockpit-listitem {
   --mono-size: 26px;
   display: flex;
@@ -304,6 +324,82 @@ body.tabbar-left .canon-cockpit {
 .canon-cockpit-listitem.is-active .canon-cockpit-listitem-meta {
   color: var(--canon-accent, var(--accent, #7aa2f7));
 }
+
+/* ── Overview section ───────────────────────────────────────────────── */
+
+/* Projection strip — where this repo's Canon actually lands. One line, chips
+   per executor, states carried by the semantic tokens (never ad-hoc red/green). */
+.canon-projection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  background: var(--canon-lift-1, transparent);
+}
+.canon-projection-label,
+.canon-projection-edited {
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.canon-projection-edited { margin-left: auto; }
+.canon-projection-chip {
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+}
+.canon-projection-chip.is-synced {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+.canon-projection-chip.is-stale {
+  color: var(--running, var(--fg));
+  border-color: color-mix(in srgb, var(--running, var(--fg)) 45%, transparent);
+}
+.canon-projection-chip.is-not_projected { opacity: 0.6; }
+
+/* An attention row states a fact and offers the one action that resolves it,
+   so its meta is prose (the names behind the count), not a status chip —
+   lowercase and free to wrap out of the uppercase treatment above. */
+.canon-cockpit-listitem.is-attention {
+  cursor: default;
+  align-items: baseline;
+}
+.canon-cockpit-listitem.is-attention .canon-cockpit-listitem-name {
+  flex: 0 1 auto;
+}
+.canon-cockpit-listitem.is-attention .canon-cockpit-listitem-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.canon-cockpit-listitem-action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--canon-lift-1, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  cursor: pointer;
+}
+.canon-cockpit-listitem-action:hover:not(:disabled) {
+  background: var(--canon-lift-2, transparent);
+  border-color: var(--canon-accent, var(--accent, #7aa2f7));
+}
+.canon-cockpit-listitem-action:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Org section ────────────────────────────────────────────────────── */
 
