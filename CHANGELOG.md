@@ -6,6 +6,94 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.9.82 — The tab pill's glyphs say what they mean
+
+### Added
+
+- **The busy glyph names the server, its port, and opens it**: “node running”
+  named the runtime and withheld the one thing you'd act on — three tabs
+  serving something all said the same four characters. The port was already
+  in hand: the badge only lights when a socket in `LISTEN` was found in the
+  tab's process tree, and the port sits one field from the state that gate
+  tests. `has_listening_tcp` became `listening_ports`, and
+  `busy_server_descendant` now returns `BusyServer { name, port, pid }` with
+  the lowest port winning the title (vite's HMR socket is a real second
+  listener; `:1420` is the one a human types). `insi_lport` is network byte
+  order, so a raw read reported `:1420` as 35850 — `port_from_network_order`
+  swaps it and a test binds a listener on a known port to prove it. Clicking
+  the glyph opens `http://localhost:<port>` in a browser tab, but only when a
+  port resolved — no pointer cursor over a door that opens onto nothing
+  (`crates/pty/src/fg_proc.rs`, `crates/session/src/lib.rs`,
+  `ui/src/tabs/busy-tooltip.ts`).
+
+- **The supervision eye says what the supervisor may do**: hovering it
+  answered *who* and nothing else — not whether that operator may WRITE to
+  your tabs, not whether it has ever spoken. It now carries the mode
+  (`Observes only` / `Observes + intervenes`, the latter in the app's
+  attention amber), the tab count, the finding count, and the last finding
+  verbatim with its age. Findings previously existed only as a toast, so one
+  that landed while you were in another app never happened for you. The
+  content is a thunk, read at hover: findings arrive minutes after the chip
+  was built and it never re-renders (`ui/src/tabs/supervision-tooltip.ts`).
+
+### Changed
+
+- **Every chrome tooltip goes through `attachTooltip`**: 20 sites still set
+  `element.title` against the design rules, including all four dots on the
+  tab pill — which is why the green ring on a dev tab was unexplainable, its
+  hover producing the OS tooltip after ~1.5s or nothing at all. Five
+  persistent elements take a thunk instead of a string, since the element
+  outlives the value: the AOM cost cell, the spec badge's count, and the
+  editor's path label, preview button and dirty marker. `iframe.title` in
+  `preview.ts` stays — an accessible name for a frame is not a tooltip.
+
+- **Side-placed tooltips align to their row**: a tip above or below a sidebar
+  anchor lands on top of the rows it describes, so `placement: "right"` puts
+  it beside the rail. Centring a 146px tip on a row 58px from the top is
+  impossible, and the viewport clamp left the anchor pointing at the tip's
+  middle from 18px away; the near edge now aligns to the row instead
+  (`ui/src/tooltip/tooltip.ts`).
+
+- **The spec badge stops being a button**: 28×22 with a gradient, a border
+  and a drop-shadow, in a pill where the tab name was already truncating —
+  it read as the pill's primary control when it is a hint that a spec is
+  waiting. Now 20×11, the same height as the other indicators, still
+  focusable and still opening the popover. In the CRT theme a pill that
+  already carries a busy glyph drops its `├─`/`└─` connector too: the group
+  shell already draws membership, and two glyphs before the name is the name
+  losing characters.
+
+### Fixed
+
+- **A browser tab joins the group you are working in**: opening one while
+  inside a group left it loose, so the page you opened *for* that group sat
+  outside everything membership carries — supervision, group move, group
+  close, the Convergence roll-up. It now inherits the active tab's group, and
+  a `keepGroupContiguous` helper replaces the fourth copy of a splice the
+  other creators each carried inline; without it a member pushed after a
+  foreign tab makes the group render as two chips sharing one id, where
+  deleting either removes both (`ui/src/tabs/manager.ts`).
+
+- **Shell-less agent tabs no longer freeze at their spawn cwd**: `pane.cwd`
+  was fed exclusively by the shell's OSC 7, and a spawn running an agent
+  binary directly has no shell — so when the agent merged its worktree and
+  deleted it, Covenant kept pointing at the dead path (no repo/branch chip,
+  “Search failed: not a directory” in the files palette). The session pid's
+  cwd is now read from the kernel on the existing slow cadence
+  (`PROC_PIDVNODEPATHINFO` on macOS, `/proc/<pid>/cwd` on Linux).
+
+- **The split pane reacts to its own session events**: `pane[1]` spawned with
+  an empty event handler at both sites, so a `cd` there never reached
+  `pane.cwd`, an agent in it never lit the idle badge, and a dev server under
+  it never lit the busy dot. The pane-scoped half of pane 0's handler is now
+  shared, and every status-bar push is gated on the active pane index instead
+  of a hardcoded 0.
+
+- **The busy allowlist ignores case**: macOS reports the Xcode framework
+  python's comm as `Python`, so `python3 -m http.server` under a tab never lit
+  the badge at all. Folding the case does not widen the allowlist — `Claude`
+  is still excluded, same as `claude`.
+
 ## v0.9.81 — Canon cockpit rebuilt around state + supervisors that speak up
 
 ### Added
