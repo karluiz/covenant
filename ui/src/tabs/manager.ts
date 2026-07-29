@@ -2230,6 +2230,13 @@ export class TabManager {
     return this.groups.get(groupId)?.supervisorId ?? null;
   }
 
+  /// Display name for a group id, or null when the group is gone. The
+  /// backend only knows group ids (the manifest is the frontend's), so
+  /// anything rendering a group to the user resolves the name here.
+  groupName(groupId: string): string | null {
+    return this.groups.get(groupId)?.name ?? null;
+  }
+
   /// Lookup the Phase 3 intervene gate for a group's supervisor.
   /// Returns false if the group doesn't exist.
   groupSupervisorIntervene(groupId: string): boolean {
