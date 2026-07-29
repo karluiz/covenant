@@ -406,8 +406,12 @@ impl SessionEvent {
 /// like `claude`, `copilot`, `opencode`, editors, pagers, git, etc. are
 /// intentionally excluded so the pulse dot only fires on actual work.
 pub fn is_busy_proc(name: &str) -> bool {
+    // Case-folded: macOS reports the Xcode framework python as `Python`,
+    // so a `python3 -m http.server` under a tab never lit the badge at all.
+    // A comm is an executable's basename — case is the packager's choice,
+    // not information.
     matches!(
-        name,
+        name.to_ascii_lowercase().as_str(),
         // Node / JS
         "node" | "npm" | "pnpm" | "yarn" | "bun" | "deno"
         | "vite" | "next" | "nuxt" | "webpack" | "rollup" | "esbuild" | "tsc"
@@ -813,6 +817,18 @@ fn tidy_screen(raw: &str) -> String {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn busy_allowlist_ignores_case() {
+        // The comm macOS reports for the Xcode framework python.
+        assert!(is_busy_proc("Python"));
+        assert!(is_busy_proc("python3"));
+        assert!(is_busy_proc("NODE"));
+        // Case folding must not widen the allowlist itself.
+        assert!(!is_busy_proc("claude"));
+        assert!(!is_busy_proc("Claude"));
+        assert!(!is_busy_proc("vim"));
+    }
 
     fn snippet_path() -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
