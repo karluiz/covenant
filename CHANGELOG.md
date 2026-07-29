@@ -6,6 +6,66 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.10.0 — Supervision you can read at a glance
+
+### Added
+
+- **The supervision ring replaces the eye**: a group's supervisor used to be
+  an 11px eye at `--text-tertiary` that said "attached" and nothing else —
+  same weight as the tab count, never changing, with every real fact hidden
+  in a tooltip nobody had a reason to open. The supervisor is now drawn as a
+  ring around the group's own identity dot: hairline accent while observing,
+  solid when Intervene is armed, breathing `--fail` plus an unread count when
+  findings land. `ui/src/tabs/manager.ts`, `ui/src/convergence/findings.ts`
+  (unread tracking), `ui/src/styles.css`.
+
+- **A real default agent for chat tabs**: `"copilot"` was a hardcoded fallback
+  inside `createAcpTab`, so every door that didn't name an agent — ⌘⌥⇧C,
+  Beacon's Remediate — silently meant Copilot with no way to say otherwise.
+  `Settings.default_acp_executor` now holds that choice, picked from the
+  Default control on each card in Harnesses → ACP agents, and validated
+  against the known ids on read. `crates/app/src/settings.rs`,
+  `ui/src/settings/acp_agents.ts`.
+
+- **Remediate a failed run with an agent**: a failed Beacon run already knows
+  what an executor needs to start — workflow, job, the step that died, its
+  log. A third row action (failed runs only) packages that and opens an ACP
+  chat in a worktree already holding it. The log is ANSI-stripped, tailed to
+  200 lines / 8 KB, and run through `safety::mask_secrets` last, because CI
+  logs carry signing credentials. Nothing executes: the command builds text
+  and the tab is a chat. `crates/app/src/beacon.rs`, `ui/src/beacon/panel.ts`.
+
+### Fixed
+
+- **An idle executor is not a failed one**: `group_supervision` reused
+  `cross_session`'s snapshot builder, written for the failure trigger only, so
+  an Idle wake rendered the tab as "(JUST FAILED)" and the model dutifully
+  reported a failure that never happened. The snapshot now takes the trigger
+  verb, inherited blocks are marked `[prior session]` instead of reading as
+  live, and `128+n` exits (⌃C on a dev server, a kill) stop waking the
+  supervisor at all.
+
+- **Floating tips stop at the titlebar**: a side-placed tooltip centres on its
+  anchor, and the supervision ring's anchor is a 6px dot high in the rail — a
+  tall tip centred there landed over the titlebar and the traffic lights
+  (DESIGN.md rule 11). The top floor is now 38px everywhere, and the existing
+  near-edge alignment puts the tip's title level with the row you hovered.
+  `ui/src/tooltip/tooltip.ts`.
+
+- **A supervision task says which group by name**: the virtual watch task is
+  titled by the backend, which only knows the group id, so the Tasks tab read
+  "Supervising group e4e348f6-0695-…". Group names live in the frontend
+  manifest, so the panel resolves the id at render time via the new
+  `TabManager.groupName`, falling back to a short id when the group is gone.
+  `ui/src/teammate/panel.ts`.
+
+- **`BusyServer` exists on Windows too**: the type crossed into
+  `SessionEvent::ForegroundChanged` unconditionally but lived behind
+  `fg_proc`'s `#![cfg(unix)]`, so `karl-session` failed to compile on Windows
+  and the v0.9.82 Windows release job died. It is plain serde data with no
+  unix deps — moved to `crates/pty/src/lib.rs`, leaving only its producer
+  gated.
+
 ## v0.9.82 — The tab pill's glyphs say what they mean
 
 ### Added
