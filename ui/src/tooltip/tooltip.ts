@@ -36,6 +36,10 @@ export interface TooltipOptions {
 const OPEN_DELAY_MS = 350;
 const CLOSE_DELAY_MS = 60;
 const EDGE_PAD = 8;
+/// How far a side-placed tip's near edge overhangs the anchor row when it's
+/// too tall to centre on it. Small enough that the tip's first line still
+/// reads as belonging to that row.
+const EDGE_ALIGN = 6;
 const POINTER_SLOP = 6;
 
 let host: HTMLElement | null = null;
@@ -125,8 +129,15 @@ export function computeTooltipPos(
     if (fitsRight || fitsLeft) {
       const left = fitsRight ? rLeft + rWidth + 8 : rLeft - 8 - tw;
       let top = rTop + (rBottom - rTop) / 2 - th / 2;
-      if (top < EDGE_PAD) top = EDGE_PAD;
-      if (top + th > vh - EDGE_PAD) top = vh - EDGE_PAD - th;
+      // Centering a tall tip on a row near an edge would clamp it flat
+      // against the viewport, leaving the anchor pointing at the tip's
+      // middle from 60px away. Align the NEAR EDGE to the anchor row
+      // instead, so the title lands at the height you hovered — then clamp
+      // that, for the case where even the aligned edge doesn't fit.
+      if (top < EDGE_PAD) top = Math.max(EDGE_PAD, rTop - EDGE_ALIGN);
+      else if (top + th > vh - EDGE_PAD) {
+        top = Math.min(vh - EDGE_PAD - th, rBottom - th + EDGE_ALIGN);
+      }
       return { top, left, below: false };
     }
   }

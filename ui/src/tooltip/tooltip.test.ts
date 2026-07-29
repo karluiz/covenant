@@ -178,6 +178,28 @@ describe("computeTooltipPos — right placement", () => {
     expect(p.left).toBe(8); // clamped by the auto path, not placed beside
   });
 
+  test("a tall tip on the FIRST group aligns its top to the row, not to the viewport", () => {
+    // The real geometry the dev build reported: eye 58px from the top,
+    // 146px-tall tip. Centring puts it at −10, so it used to slam to 8 and
+    // the title sat 18px above the row it described.
+    const firstGroup = { top: 58, bottom: 69, left: 120, width: 11 };
+    const p = computeTooltipPos(firstGroup, 340, 146, 1400, 900, "right");
+    expect(p.top).toBe(52); // 58 − 6, title level with the eye
+    expect(p.top).toBeGreaterThan(8);
+  });
+
+  test("still clamps when even the aligned edge won't fit", () => {
+    const veryTop = { top: 10, bottom: 21, left: 120, width: 11 };
+    const p = computeTooltipPos(veryTop, 340, 146, 1400, 900, "right");
+    expect(p.top).toBe(8);
+  });
+
+  test("a tall tip on the LAST row aligns its bottom to the row", () => {
+    const lastRow = { top: 840, bottom: 851, left: 120, width: 11 };
+    const p = computeTooltipPos(lastRow, 340, 146, 1400, 900, "right");
+    expect(p.top).toBe(711); // 851 + 6 − 146, bottom level with the eye
+  });
+
   test("clamps to the viewport instead of running off the bottom", () => {
     const low = { top: 880, bottom: 891, left: 120, width: 11 };
     const p = computeTooltipPos(low, 300, 120, 1400, 900, "right");
