@@ -22,7 +22,7 @@ export function mountSpecBadge(
   badge.type = "button";
   badge.className = "spec-badge hidden";
   badge.setAttribute("aria-label", "New spec detected");
-  badge.innerHTML = `<span class="spec-badge-icon">${Icons.target({ size: 13, strokeWidth: 2 })}</span><span class="spec-badge-count"></span>`;
+  badge.innerHTML = `<span class="spec-badge-icon">${Icons.target({ size: 11, strokeWidth: 2 })}</span><span class="spec-badge-count"></span>`;
   let tipText = "New spec detected";
   attachTooltip(badge, () => tipText);
   parent.appendChild(badge);

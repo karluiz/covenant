@@ -13669,40 +13669,29 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
 
 /* Spec-pending badge (Task 4) — a mission target, not a paperclip. */
 .spec-badge {
+  /* Scale of the other pill indicators (7–11px glyphs), not of a button:
+     a 28×22 slab in a sidebar pill eats the characters the tab name needs.
+     Still a real button — just without the chrome around it. */
   position: relative;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 22px;
-  margin-left: 6px;
+  gap: 2px;
+  margin-left: 5px;
   padding: 0;
-  color: color-mix(in srgb, var(--accent, #7aa2f7) 88%, white 12%);
-  background:
-    radial-gradient(circle at 50% 25%, rgb(255 255 255 / 0.18), transparent 45%),
-    color-mix(in srgb, var(--accent, #7aa2f7) 17%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent, #7aa2f7) 72%, transparent);
-  border-radius: 0;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.16),
-    0 0 0 1px rgb(255 255 255 / 0.03),
-    0 6px 18px color-mix(in srgb, var(--accent, #7aa2f7) 18%, transparent);
+  background: none;
+  border: 0;
+  color: var(--accent, #7aa2f7);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent, #7aa2f7) 55%, transparent));
   cursor: pointer;
-  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  flex-shrink: 0;
+  transition: color 120ms ease, filter 120ms ease;
 }
 .spec-badge:hover {
-  transform: translateY(-1px);
-  background:
-    radial-gradient(circle at 50% 20%, rgb(255 255 255 / 0.24), transparent 48%),
-    color-mix(in srgb, var(--accent, #7aa2f7) 24%, transparent);
-  border-color: color-mix(in srgb, var(--accent, #7aa2f7) 90%, white 10%);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.2),
-    0 0 0 1px rgb(255 255 255 / 0.04),
-    0 8px 22px color-mix(in srgb, var(--accent, #7aa2f7) 28%, transparent);
+  color: color-mix(in srgb, var(--accent, #7aa2f7) 80%, white 20%);
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent, #7aa2f7) 75%, transparent));
 }
 .spec-badge:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent, #7aa2f7) 70%, white 30%);
+  outline: 1px solid color-mix(in srgb, var(--accent, #7aa2f7) 70%, white 30%);
   outline-offset: 2px;
 }
 .spec-badge.hidden { display: none; }
@@ -13710,28 +13699,16 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
   display: inline-flex;
   line-height: 1;
 }
-.spec-badge-icon svg {
-  display: block;
-  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
-}
+.spec-badge-icon svg { display: block; }
 .spec-badge-count {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 4px;
-  border-radius: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  /* In flow beside the glyph. As an absolutely-positioned bubble it was
+     wider than the icon it was meant to annotate. */
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
-  color: #07111f;
-  background: color-mix(in srgb, var(--accent, #7aa2f7) 78%, white 22%);
-  border: 1px solid rgb(255 255 255 / 0.42);
-  box-shadow: 0 4px 10px rgb(0 0 0 / 0.35);
+  letter-spacing: -0.02em;
+  color: color-mix(in srgb, var(--accent, #7aa2f7) 85%, white 15%);
+  font-variant-numeric: tabular-nums;
 }
 .spec-badge-count:empty { display: none; }
 .spec-badge-popover {
