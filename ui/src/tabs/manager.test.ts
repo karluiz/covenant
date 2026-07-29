@@ -1038,3 +1038,76 @@ describe("operator:deleted detaches a group's supervisor attach", () => {
     expect(claimed.operatorLive).toBe(false);
   });
 });
+
+describe("a browser tab joins the group you are working in", () => {
+  // openBrowserTab constructs a BrowserPane (webview-backed), so drive the
+  // two pure decisions it makes — inherit the active tab's group, then keep
+  // the group contiguous — through the same private seam the four creators
+  // share.
+  function seed(m: ReturnType<typeof makeManager>) {
+    const priv = m as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      activeId: string | null;
+      groups: Map<string, Record<string, unknown>>;
+      keepGroupContiguous: (tab: Record<string, unknown>) => void;
+    };
+    return priv;
+  }
+
+  it("inherits the active tab's group and its colour instead of landing loose", () => {
+    const m = makeManager();
+    const priv = seed(m) as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      activeId: string | null;
+      groups: Map<string, Record<string, unknown>>;
+      groupForNewTab: () => { groupId: string | null; color: string | null };
+    };
+    const groupId = m.createEmptyGroup();
+    priv.groups.get(groupId)!.color = "#7aa2f7";
+    priv.tabs.push({ id: "t1", groupId, kind: "shell", panes: [fakePane({})] });
+    priv.activeId = "t1";
+
+    expect(priv.groupForNewTab()).toEqual({ groupId, color: "#7aa2f7" });
+  });
+
+  it("stays loose when the active tab is loose", () => {
+    const m = makeManager();
+    const priv = seed(m) as unknown as {
+      tabs: Array<Record<string, unknown>>;
+      activeId: string | null;
+      groupForNewTab: () => { groupId: string | null; color: string | null };
+    };
+    priv.tabs.push({ id: "t1", groupId: null, kind: "shell", panes: [fakePane({})] });
+    priv.activeId = "t1";
+
+    expect(priv.groupForNewTab()).toEqual({ groupId: null, color: null });
+  });
+
+  it("keeps the group contiguous so it never renders as two chips", () => {
+    const m = makeManager();
+    const priv = seed(m);
+    const groupId = m.createEmptyGroup();
+    // A foreign tab sits between the group's member and the new browser —
+    // exactly the arrangement that made renderTabbar open a second shell.
+    priv.tabs.push({ id: "member", groupId, kind: "shell", panes: [fakePane({})] });
+    priv.tabs.push({ id: "loose", groupId: null, kind: "shell", panes: [fakePane({})] });
+    const browser = { id: "browser", groupId, kind: "browser", panes: [fakePane({})] };
+    priv.tabs.push(browser);
+
+    priv.keepGroupContiguous(browser);
+
+    expect(priv.tabs.map((t) => t.id)).toEqual(["member", "browser", "loose"]);
+  });
+
+  it("leaves an ungrouped browser where it was pushed", () => {
+    const m = makeManager();
+    const priv = seed(m);
+    priv.tabs.push({ id: "a", groupId: null, kind: "shell", panes: [fakePane({})] });
+    const browser = { id: "browser", groupId: null, kind: "browser", panes: [fakePane({})] };
+    priv.tabs.push(browser);
+
+    priv.keepGroupContiguous(browser);
+
+    expect(priv.tabs.map((t) => t.id)).toEqual(["a", "browser"]);
+  });
+});

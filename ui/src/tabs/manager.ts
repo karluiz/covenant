@@ -5018,22 +5018,7 @@ export class TabManager {
         if (h) tab.ligatures = h;
       });
     }
-    // If spawned into an existing group, splice the tab next to the
-    // group's last member so grouped tabs stay contiguous in `tabs[]`.
-    // Without this, renderTabbar opens a second shell for the new tab
-    // and the group renders as two chips sharing one id — deleting
-    // either removes both.
-    if (tab.groupId) {
-      const myIdx = this.tabs.length - 1;
-      let lastGroupIdx = -1;
-      for (let i = 0; i < myIdx; i++) {
-        if (this.tabs[i].groupId === tab.groupId) lastGroupIdx = i;
-      }
-      if (lastGroupIdx >= 0 && lastGroupIdx + 1 !== myIdx) {
-        const [moved] = this.tabs.splice(myIdx, 1);
-        this.tabs.splice(lastGroupIdx + 1, 0, moved);
-      }
-    }
+    this.keepGroupContiguous(tab);
     this.rememberSessionName(sessionId, tabDisplayName(tab));
     // Route through activate() so the StatusBar callbacks
     // (onActiveContextChange, emitActiveMission, …) fire on the new
@@ -5169,17 +5154,7 @@ export class TabManager {
     tab.disposers.push(this.installPaneContextMenu(piPaneHost0, tab, 0));
 
     this.tabs.push(tab);
-    if (tab.groupId) {
-      const myIdx = this.tabs.length - 1;
-      let lastGroupIdx = -1;
-      for (let i = 0; i < myIdx; i++) {
-        if (this.tabs[i].groupId === tab.groupId) lastGroupIdx = i;
-      }
-      if (lastGroupIdx >= 0 && lastGroupIdx + 1 !== myIdx) {
-        const [moved] = this.tabs.splice(myIdx, 1);
-        this.tabs.splice(lastGroupIdx + 1, 0, moved);
-      }
-    }
+    this.keepGroupContiguous(tab);
     this.rememberSessionName(sessionId, tabDisplayName(tab));
     if (!opts?.skipActivate) this.activate(id, { skipIfSame: false });
     this.scheduleSave();
@@ -5410,17 +5385,7 @@ export class TabManager {
     tab.disposers.push(this.installPaneContextMenu(acpPaneHost0, tab, 0));
 
     this.tabs.push(tab);
-    if (tab.groupId) {
-      const myIdx = this.tabs.length - 1;
-      let lastGroupIdx = -1;
-      for (let i = 0; i < myIdx; i++) {
-        if (this.tabs[i].groupId === tab.groupId) lastGroupIdx = i;
-      }
-      if (lastGroupIdx >= 0 && lastGroupIdx + 1 !== myIdx) {
-        const [moved] = this.tabs.splice(myIdx, 1);
-        this.tabs.splice(lastGroupIdx + 1, 0, moved);
-      }
-    }
+    this.keepGroupContiguous(tab);
     if (!opts?.skipActivate) this.activate(id, { skipIfSame: false });
     this.scheduleSave();
 
@@ -5526,10 +5491,45 @@ export class TabManager {
   /// "pi" tab shape: every xterm field is left undefined and a single
   /// inert stub pane satisfies the `panes`/`activePane` invariants so the
   /// generic iterate-all-tabs methods stay safe.
+  /// Group a tab created with no explicit target should join: the one the
+  /// active tab belongs to. A browser opened while you're working inside a
+  /// group belongs to that group — same as an agent spawned there. It used
+  /// to land loose, which left the page you opened *for* the group sitting
+  /// outside it, and outside that group's supervision, move and close.
+  private groupForNewTab(): { groupId: string | null; color: string | null } {
+    const host = this.tabs.find((t) => t.id === this.activeId) ?? null;
+    const groupId = host?.groupId ?? null;
+    return {
+      groupId,
+      color: groupId ? (this.groups.get(groupId)?.color ?? null) : null,
+    };
+  }
+
+  /// Move a just-pushed tab beside its group's last member so grouped
+  /// tabs stay contiguous in `tabs[]`. `renderTabbar` opens a new shell
+  /// whenever `groupId` changes as it walks the array, so a member sitting
+  /// after a foreign tab makes its group render as TWO chips sharing one
+  /// id — and deleting either removes both. Every creator that can be
+  /// handed a `groupId` must call this right after `tabs.push`.
+  private keepGroupContiguous(tab: Tab): void {
+    if (!tab.groupId) return;
+    const myIdx = this.tabs.length - 1;
+    if (this.tabs[myIdx] !== tab) return;
+    let lastGroupIdx = -1;
+    for (let i = 0; i < myIdx; i++) {
+      if (this.tabs[i].groupId === tab.groupId) lastGroupIdx = i;
+    }
+    if (lastGroupIdx >= 0 && lastGroupIdx + 1 !== myIdx) {
+      const [moved] = this.tabs.splice(myIdx, 1);
+      this.tabs.splice(lastGroupIdx + 1, 0, moved);
+    }
+  }
+
   async openBrowserTab(url = "", focusAddress = false): Promise<void> {
     const id = crypto.randomUUID();
     const replayKey = id.replace(/-/g, "").slice(0, 26);
     const seq = this.nextSeq++;
+    const { groupId: hostGroupId, color: hostGroupColor } = this.groupForNewTab();
 
     const pane = document.createElement("div");
     pane.className = "tab-pane tab-pane-browser";
@@ -5578,8 +5578,8 @@ export class TabManager {
       kind: "browser",
       defaultTitle: `browser ${seq}`,
       customName: null,
-      color: null,
-      groupId: null,
+      color: hostGroupColor,
+      groupId: hostGroupId,
       pane,
       browser: browserPane,
       sidebarView: "blocks",
@@ -5592,6 +5592,7 @@ export class TabManager {
     assertLayoutValid(tab);
 
     this.tabs.push(tab);
+    this.keepGroupContiguous(tab);
     this.renderTabbar();
     this.activate(id, { skipIfSame: false });
     browserPane.mounted();
