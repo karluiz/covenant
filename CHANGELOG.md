@@ -6,6 +6,71 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.0 — A supervisor that decides instead of forwarding
+
+### Added
+
+- **Attach a supervisor and it decides for you**: handing a tab group to an
+  operator now hands it the decisions in that group — `setGroupSupervisor`
+  arms the group and claims its unpinned panes for autonomous mode, where
+  before it could only watch. Until now `GroupSupervision.intervene` was
+  written by the UI and read by no decision path at all; `decides()` and
+  `watcher_owns()` in `crates/app/src/group_supervision.rs` are the first
+  code to consult it. Observe-only survives as a deliberate downgrade, and
+  groups already saved that way are left untouched.
+
+- **Worktree ⇄ main scope chip in the ⌘⇧F palette**: search from inside a
+  worktree can now target the main checkout instead, with the chip showing
+  which one you are searching (`ui/src/search/palette.ts`).
+
+- **The operator sees the active tab's screen**: an executor's rendered
+  screen goes into the operator's context, so it stops answering blind on
+  tabs whose blocks never close, plus a directive against restating the
+  obvious (`crates/app/src/teammate/world_snapshot.rs`, `llm.rs`).
+
+### Changed
+
+- **A pending question is no longer a supervision finding**: the idle
+  prompt used to order the supervisor to flag "the executor is BLOCKED or
+  asking a question", so every turn ending in a question burned a model
+  call to toast back what was already on screen. A deciding supervisor now
+  owns the idle turn outright — no call, no toast — and only AOM's
+  `EscalationRequested` reaches you. Finding de-duplication also went from
+  a single slot to an 8-entry ring per group, which is what let A-B-A-B
+  pairs repeat forever.
+
+- **Convergence sees other workspaces**: hibernated workspaces keep their
+  PTYs alive and the backend enumerates them regardless, but only the
+  active workspace's tabs were hinted — so another workspace's agents
+  arrived titleless and ungrouped, sorted above the tabs in front of you.
+  They now carry their real title, colour and group, bucket under a
+  workspace band below your own (unless blocked, which still outranks
+  everything), and clicking one switches workspace and lands on it
+  (`ui/src/tabs/manager.ts`, `ui/src/convergence/`).
+
+- **The detail pane's tail is readable**: executor chrome is normalized
+  *before* the last-15-lines cut. The composer frame and its status footer
+  sit at the bottom of a Claude Code screen, so trimming afterwards spent
+  the whole pane on box-drawing, `ctx:N%` and `bypass permissions on`
+  (`crates/app/src/convergence.rs`).
+
+- **Releases retry through GitHub 5xx storms**: `gh release` calls in the
+  macOS workflow are wrapped in a retry, and the docs record that macOS
+  ships Intel alongside ARM.
+
+### Fixed
+
+- **Right-click no longer selects the group-chip label**: `.group-chip`
+  had `user-select: none` without the `-webkit-` prefix WKWebView requires,
+  so right-clicking a group name highlighted it behind the context menu —
+  the same bug already fixed for `.tab-btn` (`ui/src/styles.css`).
+
+- **Tasker subtask rows stay inside the sheet**: they bled past its left
+  edge (`ui/src/tasker/styles.css`).
+
+- **The ⌘⇧F scope chip no longer flashes as an empty box** while
+  `mainRoot` resolves (`ui/src/search/palette.ts`).
+
 ## v0.10.0 — Supervision you can read at a glance
 
 ### Added
