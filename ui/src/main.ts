@@ -1484,6 +1484,28 @@ async function boot(): Promise<void> {
         if (spec) runSpawn(spec.id, sid);
       })();
     };
+    // Pane context menu → "Start agent here": same default spawn, but the
+    // pane's cwd is already a linked worktree (checked before the item is
+    // shown) — skip resolveLaunch entirely and reuse it, same as
+    // onResumeWorktreeAgent's git-popover "Agent" row.
+    manager.runAgentHere = (sid: SessionId, cwd: string): void => {
+      void (async () => {
+        const specs = await listSpawns();
+        const spec = specs.find((s) => s.default) ?? specs[0];
+        if (!spec || !spec.command) return;
+        const acpExec = spec.acp || quickCallAcp() ? acpExecutorFor(spec) : null;
+        if (acpExec) {
+          await manager.createAcpTab({ cwd, executor: acpExec });
+          return;
+        }
+        manager.armLaunchScrub(sid);
+        const cmdline = buildSpawnCmdline(spec, claudeTheme()) + "\n";
+        await writeToSession(sid, new TextEncoder().encode(cmdline));
+        manager.setActiveSpawnId(spec.id);
+        await chip.refresh();
+        requestAnimationFrame(() => manager.focusActive());
+      })();
+    };
     // Group context menu → "Start new agent": same default spawn, in a new
     // tab inside the group (placement lives in runSpawn).
     manager.runDefaultAgentInGroup = (groupId: string): void => {
