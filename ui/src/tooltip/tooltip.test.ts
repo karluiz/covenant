@@ -191,7 +191,17 @@ describe("computeTooltipPos — right placement", () => {
   test("still clamps when even the aligned edge won't fit", () => {
     const veryTop = { top: 10, bottom: 21, left: 120, width: 11 };
     const p = computeTooltipPos(veryTop, 340, 146, 1400, 900, "right");
-    expect(p.top).toBe(8);
+    expect(p.top).toBe(38); // titlebar floor, never over the traffic lights
+  });
+
+  test("a tall tip centred on a high anchor stops at the titlebar", () => {
+    // The supervision ring's anchor is the 6px group dot, so a 200px tip
+    // centres itself at y≈21 — into the titlebar and over the traffic
+    // lights (DESIGN.md rule 11). Falls back to near-edge alignment.
+    const groupDot = { top: 118, bottom: 124, left: 24, width: 6 };
+    const p = computeTooltipPos(groupDot, 340, 200, 1400, 900, "right");
+    expect(p.top).toBe(112); // 118 − 6, title level with the dot
+    expect(p.top).toBeGreaterThanOrEqual(38);
   });
 
   test("a tall tip on the LAST row aligns its bottom to the row", () => {

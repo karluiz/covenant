@@ -1470,6 +1470,65 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     border-radius: 50%;
     background: var(--group-color, var(--muted));
     flex-shrink: 0;
+    position: relative;
+}
+
+/* ── Supervision ring ──
+   A supervisor attached to the group draws a ring AROUND the group's own
+   identity dot — the supervisor encloses the group, it doesn't sit beside
+   it. Replaces the old static eye glyph, which said "attached" and nothing
+   else. `data-supervision` is set in manager.ts:renderGroupChip.
+   The dot is the tooltip's hover target. */
+.group-chip[data-supervision] .group-chip-dot::after {
+    content: "";
+    position: absolute;
+    inset: -3.5px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    pointer-events: none;
+}
+/* Observing only (SuggestOnly) — present, quiet. */
+.group-chip[data-supervision="observe"] .group-chip-dot::after {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* Intervene armed — the supervisor may claim panes and write. */
+.group-chip[data-supervision="intervene"] .group-chip-dot::after {
+    border-color: var(--accent);
+    border-width: 1.5px;
+    inset: -4px;
+}
+/* Unread findings — pairs with .group-chip-findings. */
+.group-chip[data-supervision="finding"] .group-chip-dot::after {
+    border-color: var(--fail);
+    animation: group-chip-breathe 1.8s ease-in-out infinite;
+}
+@keyframes group-chip-breathe {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.35;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .group-chip[data-supervision="finding"] .group-chip-dot::after {
+        animation: none;
+    }
+}
+
+/* Unread finding count — the one fact a shape can't carry. */
+.group-chip-findings {
+    margin-left: auto;
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    color: var(--fail);
+    flex-shrink: 0;
 }
 
 .group-chip-label {
@@ -1495,18 +1554,6 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
 .group-chip:not(.group-chip-collapsed) .group-chip-count {
     display: none;
 }
-
-.group-chip-supervised {
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-    color: var(--text-tertiary);
-}
-
-.group-chip-supervised svg {
-    display: block;
-}
-
 
 .group-chip-input {
     background: var(--bg);

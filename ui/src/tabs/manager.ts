@@ -117,7 +117,12 @@ import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
 import { attachTooltip } from "../tooltip/tooltip";
 import { busyTooltip, busyUrl } from "./busy-tooltip";
-import { groupFindings } from "../convergence/findings";
+import {
+  GROUP_FINDINGS_EVENT,
+  groupFindings,
+  markGroupFindingsRead,
+  unreadGroupFindings,
+} from "../convergence/findings";
 import { supervisionTooltip } from "./supervision-tooltip";
 import {
   TERM_SHARE_EVENT,
@@ -2302,6 +2307,9 @@ export class TabManager {
     // same GIST_SHARES_EVENT pattern).
     ensureTermSharesLoaded();
     window.addEventListener(TERM_SHARE_EVENT, () => this.renderTabbar());
+    // A supervision finding landed — repaint so the supervised group's
+    // ring goes red and grows its unread count.
+    window.addEventListener(GROUP_FINDINGS_EVENT, () => this.renderTabbar());
     // Right-click on empty tabbar area → "New group" menu. We only
     // catch the event when it isn't on a tab pill or a group chip;
     // those have their own contextmenu handlers that stop here.
@@ -8179,9 +8187,57 @@ export class TabManager {
     chip.appendChild(chevron);
 
     // Group identity dot — the ONLY color the chip carries at rest.
+    // Under supervision it also carries the ring (see `data-supervision`
+    // below): the supervisor is drawn *around* the group, not beside it.
     const dot = document.createElement("span");
     dot.className = "group-chip-dot";
     chip.appendChild(dot);
+
+    // Unread-findings badge, built with the ring below but appended after
+    // the label/input branch so it trails the chip.
+    let badge: HTMLSpanElement | null = null;
+
+    // Supervisor indicator — a ring around the identity dot when a
+    // supervisor operator is attached (see setGroupSupervisor /
+    // openGroupContextMenu). The dot is the hover target; the ring's
+    // color says which mandate it holds and whether findings are unread.
+    // ponytail: no `working` state — that needs a live "supervisor is
+    // deciding" signal from the backend loop, which nothing emits yet.
+    if (group.supervisorId) {
+      const groupId = group.id;
+      const supervisorName = this.operatorCache.get(group.supervisorId)?.name ?? null;
+      const intervene = group.supervisorIntervene ?? false;
+      const unread = unreadGroupFindings(groupId);
+      const settled = intervene ? "intervene" : "observe";
+      chip.dataset.supervision = unread > 0 ? "finding" : settled;
+      if (unread > 0) {
+        badge = document.createElement("span");
+        badge.className = "group-chip-findings";
+        badge.textContent = String(unread);
+        // Appended after the label/input branch below — it trails the chip.
+      }
+      // Thunk, not a value: findings land minutes after the chip was
+      // built. Opening the tip is what marks them read — cleared in
+      // place, because re-rendering the tabbar here would tear out the
+      // element this tooltip is anchored to.
+      attachTooltip(
+        dot,
+        () => {
+          markGroupFindingsRead(groupId);
+          chip.dataset.supervision = settled;
+          badge?.remove();
+          badge = null;
+          return supervisionTooltip({
+            operatorName: supervisorName,
+            intervene,
+            tabCount: memberCount,
+            findings: groupFindings(groupId),
+            nowMs: Date.now(),
+          });
+        },
+        { placement: "right" },
+      );
+    }
 
     if (this.isRenamingGroup(group.id)) {
       const input = document.createElement("input");
@@ -8222,34 +8278,9 @@ export class TabManager {
       count.className = "group-chip-count";
       count.textContent = String(memberCount);
       chip.appendChild(count);
-
-      // Supervisor indicator — a small eye glyph when a supervisor
-      // operator is attached (see setGroupSupervisor / openGroupContextMenu).
-      if (group.supervisorId) {
-        const supervisorName = this.operatorCache.get(group.supervisorId)?.name ?? null;
-        const supervised = document.createElement("span");
-        supervised.className = "group-chip-supervised";
-        supervised.innerHTML = Icons.eye({ size: 11 });
-        // Thunk, not a value: findings land minutes after the chip was
-        // built and the chip does not re-render for them. Placed to the
-        // right so the tip doesn't cover the rows it's describing.
-        const groupId = group.id;
-        const intervene = group.supervisorIntervene ?? false;
-        attachTooltip(
-          supervised,
-          () =>
-            supervisionTooltip({
-              operatorName: supervisorName,
-              intervene,
-              tabCount: memberCount,
-              findings: groupFindings(groupId),
-              nowMs: Date.now(),
-            }),
-          { placement: "right" },
-        );
-        chip.appendChild(supervised);
-      }
     }
+
+    if (badge) chip.appendChild(badge);
 
     chip.addEventListener("dblclick", (e) => {
       if ((e.target as HTMLElement).closest(".group-chip-chev")) return;
