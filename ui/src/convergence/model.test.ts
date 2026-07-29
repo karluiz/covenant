@@ -91,3 +91,24 @@ describe("groupAgents", () => {
     expect(groups[0].key).toBe("alpha");
   });
 });
+
+describe("groupAgents — foreign workspaces", () => {
+  const groupOf = (sid: string): string | null =>
+    sid.startsWith("f") ? "ws:other" : "mine";
+  const isForeign = (key: string | null): boolean => key === "ws:other";
+
+  it("sinks another workspace's bucket below your own", () => {
+    // The foreign agents come FIRST in the flat list (they're older), so
+    // first-appearance order alone would have put them on top — which is
+    // exactly how another workspace's untitled rows ended up above yours.
+    const list = [agent("f1", "working"), agent("m1", "idle")];
+    const groups = groupAgents(list, groupOf, isForeign);
+    expect(groups.map((g) => g.key)).toEqual(["mine", "ws:other"]);
+  });
+
+  it("but blocked still outranks foreign — that's why you opened it", () => {
+    const list = [agent("f1", "blocked"), agent("m1", "working")];
+    const groups = groupAgents(list, groupOf, isForeign);
+    expect(groups.map((g) => g.key)).toEqual(["ws:other", "mine"]);
+  });
+});

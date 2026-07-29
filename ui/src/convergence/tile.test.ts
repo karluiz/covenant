@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from "vitest";
-import { renderAgentRow, renderDetailPane, type RowCallbacks, type DetailCallbacks } from "./tile";
+import { displayTitle, renderAgentRow, renderDetailPane, type RowCallbacks, type DetailCallbacks } from "./tile";
 import type { AgentCard, AttentionItem, TileStatus } from "../api";
 
 const agent = (over: Partial<AgentCard>): AgentCard => ({
@@ -137,5 +137,22 @@ describe("renderDetailPane", () => {
     const el = renderDetailPane(agent({ status: "blocked" }), at, detailCbs());
     expect(el.querySelector(".mc-detail__question")?.textContent).toBe("Ship?");
     expect(el.querySelector(".mc-reply")).not.toBeNull();
+  });
+});
+
+describe("displayTitle", () => {
+  it("falls back to the cwd leaf when the tab was never named", () => {
+    // The rail-of-UNTITLED case: hibernated tabs used to arrive with the
+    // backend's literal "untitled" placeholder and no way to tell apart.
+    expect(
+      displayTitle(agent({ tab_title: "untitled", cwd: "/Users/k/Sources/groowcity/.covenant/worktrees/agent-claude-0729-ytb" })),
+    ).toBe("agent-claude-0729-ytb");
+    // Trailing slash must not swallow the leaf.
+    expect(displayTitle(agent({ tab_title: "UNTITLED", cwd: "/Users/k/src/covenant/" }))).toBe("covenant");
+  });
+
+  it("a real title always wins, and a nameless tab with no cwd stays untitled", () => {
+    expect(displayTitle(agent({ tab_title: "release notes", cwd: "/tmp/x" }))).toBe("release notes");
+    expect(displayTitle(agent({ tab_title: "untitled", cwd: null }))).toBe("untitled");
   });
 });

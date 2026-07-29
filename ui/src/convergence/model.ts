@@ -26,11 +26,16 @@ export interface GroupedAgents {
 }
 
 /// Bucket an already-sorted rail list by workspace group. Buckets with a
-/// blocked session bubble first; ties keep the first-appearance order of
-/// the flat list, and cards keep their in-list order inside each bucket.
+/// blocked session bubble first; then your own workspace's buckets before
+/// any foreign one; ties keep the first-appearance order of the flat
+/// list, and cards keep their in-list order inside each bucket.
+///
+/// Blocked outranks foreign deliberately: an agent waiting on you in
+/// another workspace is exactly the thing you opened Convergence to find.
 export function groupAgents(
   list: AgentCard[],
   groupOf: (sessionId: string) => string | null,
+  isForeign: (bucketKey: string | null) => boolean = () => false,
 ): GroupedAgents[] {
   const buckets = new Map<string | null, AgentCard[]>();
   for (const card of list) {
@@ -45,6 +50,9 @@ export function groupAgents(
       const ab = a.cards.some((c) => c.status === "blocked");
       const bb = b.cards.some((c) => c.status === "blocked");
       if (ab !== bb) return ab ? -1 : 1;
+      const af = isForeign(a.key);
+      const bf = isForeign(b.key);
+      if (af !== bf) return af ? 1 : -1;
       return list.indexOf(a.cards[0]) - list.indexOf(b.cards[0]);
     });
 }

@@ -44,6 +44,8 @@ const DEBOUNCE: Duration = Duration::from_millis(1500);
 /// scrollback into the prompt.
 const SCREEN_TAIL_LINES: usize = 40;
 const MAX_CHECKS_PER_MINUTE: usize = 6;
+/// How many past findings a group remembers for de-duplication.
+const RECENT_FINDINGS: usize = 8;
 const FINDING_EVENT_NAME: &str = "group-supervision-finding";
 
 const SYSTEM_PROMPT: &str = "\
@@ -92,11 +94,17 @@ or
 
 Flag ONLY things the user has to act on or would regret missing:
 - work finished that now needs a decision (review, merge, next wave)
-- the executor is BLOCKED or asking a question
 - it reported a failure, a skipped step, or something it could not verify
 - it contradicts or duplicates what another supervised tab is doing
 
 Rules:
+- A PENDING QUESTION IS NOT A FINDING. That the executor is blocked, is \
+  waiting, or is asking the user to choose already reaches the user \
+  through its own channels (the needs-you chip, the tab dot, \
+  Convergence). Repeating it back is noise — output (none). Say \
+  something only when you know something the question itself does not \
+  say: it contradicts another tab, it rests on a wrong premise, the \
+  answer was already decided elsewhere.
 - Say WHAT happened, not that something happened. \"canon wave 3 committed, \
   wave 4 (03/08/11/14) still open\" — not \"the agent finished a task\".
 - Be conservative. A routine turn with nothing to decide is (none). \
@@ -128,10 +136,15 @@ struct Inner {
     /// when building context. Removed when the corresponding session's
     /// bus closes.
     worlds: HashMap<SessionId, Arc<Mutex<SessionWorldModel>>>,
-    /// Last finding emitted per group. An executor idles once per turn,
-    /// and consecutive turns often look identical to the model — without
-    /// this the same sentence toasts over and over.
-    last_finding: HashMap<String, String>,
+    /// Recent findings per group, newest last, capped at `RECENT_FINDINGS`.
+    /// An executor idles once per turn and consecutive turns often read the
+    /// same; a one-slot memory only caught *back-to-back* repeats, so an
+    /// A-B-A-B pair toasted forever. Compared verbatim — near-duplicate
+    /// detection would need embeddings, and the ring already kills the
+    /// repeats seen in practice.
+    // ponytail: exact match over a small ring. Fuzzy-match if paraphrases
+    // start slipping through.
+    recent_findings: HashMap<String, Vec<String>>,
 }
 
 impl GroupSupervisionWatcher {
@@ -143,7 +156,7 @@ impl GroupSupervisionWatcher {
     ) -> Self {
         let inner = Arc::new(Mutex::new(Inner {
             worlds: HashMap::new(),
-            last_finding: HashMap::new(),
+            recent_findings: HashMap::new(),
         }));
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
 
@@ -210,6 +223,27 @@ pub(crate) fn supervised_group_for(
     session_id: SessionId,
 ) -> Option<(String, Operator)> {
     registry.supervised_pair(session_id)
+}
+
+/// Whether this trigger is the WATCHER's to report, given whether the
+/// group's supervisor can act. A deciding supervisor owns idle turns —
+/// answering is its job and AOM escalates what it won't take, so a toast
+/// on top is a forwarded question. Failures stay with the watcher either
+/// way: a cross-tab pattern is the one thing only it can see.
+pub(crate) fn watcher_owns(kind: &TriggerKind, supervisor_decides: bool) -> bool {
+    match kind {
+        TriggerKind::Failure => true,
+        TriggerKind::Idle { .. } => !supervisor_decides,
+    }
+}
+
+/// True when this group's supervisor may ACT, not just watch. Until now
+/// `GroupSupervision.intervene` was written by the UI and read by nobody
+/// but a label — this is the first decision path that consults it.
+pub(crate) fn decides(registry: &OperatorRegistry, group_id: &str) -> bool {
+    registry
+        .group_supervision(group_id)
+        .is_some_and(|s| s.intervene)
 }
 
 /// Which events wake the supervisor. A zero exit is not news, and an
@@ -312,6 +346,20 @@ async fn check_for_pattern(
         return Ok(());
     };
     let group_id = group_id.as_str();
+
+    // Attach = decide. A supervisor that can act OWNS the idle turn: the
+    // executor's question is its to answer, and AOM already escalates
+    // (`SessionEvent::EscalationRequested`) the ones it won't take. Toasting
+    // here too made the supervisor a forwarder — it burned a model call to
+    // echo a question already on screen, once per turn. Failures still get
+    // checked: a cross-tab pattern is the one thing only the watcher sees.
+    if !watcher_owns(&kind, decides(registry, group_id)) {
+        tracing::debug!(
+            group = %group_id,
+            "group-supervision: idle turn belongs to the deciding supervisor, skipping"
+        );
+        return Ok(());
+    }
 
     // Snapshot state without holding any lock across the http call.
     let resolved = {
@@ -417,15 +465,19 @@ async fn check_for_pattern(
         return Ok(());
     };
 
-    // An executor idles once per turn; two consecutive turns often produce
-    // the same sentence. Toast it once.
+    // An executor idles once per turn; turns often produce the same
+    // sentence. Toast each one once per ring window.
     {
         let mut i = inner.lock().await;
-        if i.last_finding.get(group_id) == Some(&message) {
+        let ring = i.recent_findings.entry(group_id.to_string()).or_default();
+        if ring.contains(&message) {
             tracing::debug!(group = %group_id, "group-supervision: duplicate finding suppressed");
             return Ok(());
         }
-        i.last_finding.insert(group_id.to_string(), message.clone());
+        ring.push(message.clone());
+        if ring.len() > RECENT_FINDINGS {
+            ring.remove(0);
+        }
     }
 
     let finding = GroupSupervisionFinding {
@@ -591,5 +643,32 @@ mod tests {
             }),
         );
         assert!(supervised_group_for(&reg, sid).is_some());
+        // …and `intervene` is now a decision path, not a label.
+        assert!(!decides(&reg, "g1"), "observe-only must not claim the turn");
+        reg.set_group_supervisor(
+            "g1".into(),
+            Some(GroupSupervision {
+                operator: sup_id,
+                intervene: true,
+            }),
+        );
+        assert!(decides(&reg, "g1"));
+        assert!(!decides(&reg, "no-such-group"));
+    }
+
+    #[test]
+    fn a_deciding_supervisor_owns_the_idle_turn_but_never_the_failure() {
+        let idle = TriggerKind::Idle {
+            agent: "claude".into(),
+        };
+        // The regression this exists for: the executor asks a question, the
+        // supervisor can answer it, and the user gets toasted anyway.
+        assert!(!watcher_owns(&idle, true));
+        // Observe-only has nobody to answer, so the turn still gets looked at
+        // (the prompt is what stops it echoing the question back).
+        assert!(watcher_owns(&idle, false));
+        // A cross-tab failure pattern is the watcher's alone, either way.
+        assert!(watcher_owns(&TriggerKind::Failure, true));
+        assert!(watcher_owns(&TriggerKind::Failure, false));
     }
 }

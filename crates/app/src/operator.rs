@@ -4738,14 +4738,20 @@ fn strip_spinner_churn(s: &str) -> String {
 /// Strip Claude Code / agent TUI chrome from an already-ANSI-stripped excerpt
 /// before it reaches the operator LLM. Removes whole lines that are spinner
 /// gerunds, elapsed/token status, interrupt/expand hints, "Tip:" lines, and
-/// ghost `Try "..."` input placeholders — none of which are executor state.
-/// Real output, tool results, prompts, and errors are kept. Complements
-/// `strip_spinner_churn` (which only removes inline glyph/timer churn for
-/// hashing); this operates line-wise for the model excerpt.
-fn normalize_executor_chrome(s: &str) -> String {
+/// ghost `Try "..."` input placeholders, the composer's box-drawing frame
+/// and its status footer (cwd/model/ctx, "bypass permissions on") — none of
+/// which are executor state. Real output, tool results, prompts, and errors
+/// are kept, including the `❯` line: a pending question lives there.
+/// Complements `strip_spinner_churn` (which only removes inline glyph/timer
+/// churn for hashing); this operates line-wise for the model excerpt, and
+/// for Convergence's detail-pane tail.
+pub(crate) fn normalize_executor_chrome(s: &str) -> String {
     use std::sync::OnceLock;
     static GERUND: OnceLock<Regex> = OnceLock::new();
     static GHOST_TRY: OnceLock<Regex> = OnceLock::new();
+    static FOOTER: OnceLock<Regex> = OnceLock::new();
+    // The composer's status footer: "~/some/path [branch] Opus 5 … ctx:5%".
+    let footer = FOOTER.get_or_init(|| Regex::new(r"\bctx:\s*\d+%\s*$").unwrap());
     // A spinner status line: optional leading glyph, a capitalized gerund with
     // ellipsis, optionally followed by a parenthesized timer/token recap.
     let gerund = GERUND.get_or_init(|| {
@@ -4758,13 +4764,40 @@ fn normalize_executor_chrome(s: &str) -> String {
             if t.is_empty() {
                 return true; // keep blank lines (cheap, preserves shape)
             }
-            if gerund.is_match(t) || ghost_try.is_match(t) {
+            if gerund.is_match(t) || ghost_try.is_match(t) || footer.is_match(t) {
+                return false;
+            }
+            // The composer frame: a line of nothing but box-drawing/rule
+            // glyphs. Short runs stay — "---" can be real output.
+            if t.chars().count() >= 8
+                && t.chars().all(|c| {
+                    matches!(
+                        c,
+                        '─' | '━'
+                            | '│'
+                            | '╭'
+                            | '╮'
+                            | '╰'
+                            | '╯'
+                            | '┌'
+                            | '┐'
+                            | '└'
+                            | '┘'
+                            | '═'
+                            | '-'
+                            | '_'
+                            | ' '
+                    )
+                })
+            {
                 return false;
             }
             let lower = t.to_lowercase();
             if lower.contains("esc to interrupt")
                 || lower.contains("ctrl+o to expand")
                 || lower.contains("ctrl+b to run in background")
+                || lower.contains("bypass permissions on")
+                || lower.contains("shift+tab to cycle")
                 || lower.starts_with("tip:")
             {
                 return false;
