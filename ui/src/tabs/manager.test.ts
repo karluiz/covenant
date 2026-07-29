@@ -8,6 +8,7 @@ import {
   type TabManifestV1,
 } from "./manager";
 import type { Pane } from "./pane";
+import { clearGroupFindings, recordGroupFinding } from "../convergence/findings";
 
 // activate() reports the new active tab to the backend; jsdom has no Tauri
 // IPC bridge, so stub it out. Kept as a vi.fn() (via vi.hoisted, since
@@ -782,6 +783,37 @@ describe("group chip chassis hooks", () => {
       children.findIndex((c) => c.includes("group-chip-chev")),
     );
     expect(chip!.classList.contains("group-chip-empty")).toBe(true);
+  });
+
+  // The supervision ring replaced a static eye glyph that said "attached"
+  // and nothing else. These three states are the whole point of the swap.
+  it("marks the chip with the supervision state the ring is drawn from", () => {
+    clearGroupFindings();
+    const m = makeManager();
+    const groupId = m.createEmptyGroup();
+    // Scoped to THIS manager's host — earlier tests leave their own chips
+    // in document.body, and a bare querySelector picks the oldest one.
+    const host = (m as unknown as { tabbarHost: HTMLElement }).tabbarHost;
+    const chip = () => host.querySelector<HTMLElement>(".group-chip")!;
+
+    expect(chip().dataset.supervision).toBeUndefined();
+
+    m.setGroupSupervisor(groupId, "op-1");
+    expect(chip().dataset.supervision).toBe("observe");
+
+    m.setGroupIntervene(groupId, true);
+    expect(chip().dataset.supervision).toBe("intervene");
+
+    // A finding landing repaints the tabbar (GROUP_FINDINGS_EVENT) and
+    // outranks the mandate — unread is the thing you must see.
+    recordGroupFinding({
+      groupId,
+      operatorName: "Warden",
+      message: "tests failing in tab 2",
+      atUnixMs: 1,
+    });
+    expect(chip().dataset.supervision).toBe("finding");
+    expect(chip().querySelector(".group-chip-findings")?.textContent).toBe("1");
   });
 });
 
