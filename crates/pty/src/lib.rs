@@ -26,7 +26,7 @@ use std::time::Duration;
 mod fg_proc;
 #[cfg(unix)]
 pub use fg_proc::{
-    busy_server_descendant, foreground_process_name, kill_foreground_pgrp, pgrp_alive,
+    busy_server_descendant, foreground_process_name, kill_foreground_pgrp, pgrp_alive, process_cwd,
 };
 
 use bytes::Bytes;

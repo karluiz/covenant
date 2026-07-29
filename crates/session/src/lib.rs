@@ -701,6 +701,18 @@ async fn pump(
                             last_busy = busy;
                             busy_changed = true;
                         }
+                        // Agent spawns (`claude`, `codex`, …) run the binary
+                        // with no shell, so OSC 7 never fires and the cwd
+                        // would stay stuck at spawn time. Ask the kernel.
+                        if let Some(cwd) = shell_pid.and_then(karl_pty::process_cwd) {
+                            if cwd != current_cwd {
+                                current_cwd = cwd.clone();
+                                let _ = events_tx.send(SessionEvent::CwdChanged {
+                                    session: id,
+                                    cwd,
+                                });
+                            }
+                        }
                     }
                     busy_scan_in -= 1;
                     if fg != last_fg || busy_changed {
