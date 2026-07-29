@@ -2220,6 +2220,17 @@ async function boot(): Promise<void> {
   const searchPalette = new GlobalSearchPalette(document.body, {
     cwd: () => manager.activeCwd(),
     open: (path, line) => manager.openFileAtLine(path, line),
+    // Non-null only when the cwd sits in a LINKED worktree: enables the
+    // palette's worktree ⇄ main scope chip (⇧Tab).
+    mainRoot: async (cwd) => {
+      try {
+        const s = await gitRepoSummary(cwd);
+        const main = s.worktrees.find((w) => w.is_main)?.path;
+        return main && main !== s.repo_root ? main : null;
+      } catch {
+        return null; // not a git repo — no scope to offer
+      }
+    },
   });
 
   // Cmd+/- changes the zoom level — re-run the full apply pipeline so

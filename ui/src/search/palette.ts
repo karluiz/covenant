@@ -15,6 +15,7 @@ import {
   type FileHit,
   type SearchHit,
 } from "../api";
+import { attachTooltip } from "../tooltip/tooltip";
 
 type Mode = "content" | "files";
 
@@ -39,7 +40,13 @@ export interface PaletteCallbacks {
   /// Open a file at a 1-based line number. The palette doesn't know
   /// about TabManager / StructureEditor; main.ts wires this up.
   open: (path: string, line: number) => void;
+  /// Resolve the repo's MAIN worktree root for `cwd`, or null when cwd
+  /// already IS the main root (or isn't a git repo). Non-null enables the
+  /// worktree ⇄ main scope chip (⇧Tab). Async — resolved after open().
+  mainRoot?: (cwd: string) => Promise<string | null>;
 }
+
+type Scope = "worktree" | "main";
 
 export class GlobalSearchPalette {
   private overlay: HTMLElement | null = null;
@@ -52,6 +59,13 @@ export class GlobalSearchPalette {
   /// 'files'   = fuzzy filename finder. Tab toggles.
   private mode: Mode = "content";
   private modeEl: HTMLElement | null = null;
+  /// 'worktree' = search the tab's own cwd (default). 'main' = search the
+  /// repo's main worktree instead. Only meaningful when the cwd is a
+  /// linked worktree — `mainRootPath` stays null otherwise and the scope
+  /// chip never shows. Resets to 'worktree' on every open.
+  private scope: Scope = "worktree";
+  private mainRootPath: string | null = null;
+  private scopeEl: HTMLElement | null = null;
   /// Currently-selected result index, used by ↑/↓ + Enter.
   private cursor = 0;
   /// Bumped on every search request; late-arriving responses with a
@@ -80,8 +94,17 @@ export class GlobalSearchPalette {
     const cwd = this.callbacks.cwd();
     if (!cwd) return; // no active tab — silently bail
     this.currentCwd = cwd;
+    this.scope = "worktree";
+    this.mainRootPath = null;
     this.render();
     requestAnimationFrame(() => this.inputEl?.focus());
+    // Resolve whether this cwd is a linked worktree in the background;
+    // the scope chip appears once (if) the main root comes back.
+    void this.callbacks.mainRoot?.(cwd).then((root) => {
+      if (!root || !this.overlay || this.currentCwd !== cwd) return;
+      this.mainRootPath = root;
+      this.updateScopeChip();
+    }).catch(() => undefined);
   }
 
   close(): void {
@@ -96,9 +119,18 @@ export class GlobalSearchPalette {
     this.resultsEl = null;
     this.statusEl = null;
     this.modeEl = null;
+    this.scopeEl = null;
     this.hits = [];
     this.fileHits = [];
     this.cursor = 0;
+  }
+
+  /// The directory searches actually run in — the tab's cwd, or the
+  /// repo's main worktree root when the scope chip says MAIN.
+  private searchCwd(): string | null {
+    return this.scope === "main" && this.mainRootPath
+      ? this.mainRootPath
+      : this.currentCwd;
   }
 
   private resultCount(): number {
@@ -124,7 +156,8 @@ export class GlobalSearchPalette {
           autocomplete="off"
           spellcheck="false"
         />
-        <span class="global-search-mode" title="Tab to toggle" data-mode="${this.mode}">${this.modeBadgeHtml()}</span>
+        <span class="global-search-scope" data-scope="${this.scope}" hidden></span>
+        <span class="global-search-mode" data-mode="${this.mode}">${this.modeBadgeHtml()}</span>
         <span class="global-search-status" aria-live="polite"></span>
       </header>
       <div class="global-search-results" role="listbox"></div>
@@ -137,6 +170,12 @@ export class GlobalSearchPalette {
     this.resultsEl = card.querySelector<HTMLElement>(".global-search-results");
     this.statusEl = card.querySelector<HTMLElement>(".global-search-status");
     this.modeEl = card.querySelector<HTMLElement>(".global-search-mode");
+    if (this.modeEl) attachTooltip(this.modeEl, "Tab — switch between content and file search");
+    this.scopeEl = card.querySelector<HTMLElement>(".global-search-scope");
+    if (this.scopeEl) {
+      this.scopeEl.addEventListener("click", () => this.toggleScope());
+      attachTooltip(this.scopeEl, "⇧Tab — switch between this worktree and the main checkout");
+    }
 
     if (this.inputEl) {
       this.inputEl.addEventListener("input", () => this.scheduleSearch());
@@ -154,10 +193,37 @@ export class GlobalSearchPalette {
   }
 
   private placeholderText(): string {
-    const where = shortenCwd(this.currentCwd ?? "");
+    const where = shortenCwd(this.searchCwd() ?? "");
     return this.mode === "content"
       ? `Search in ${escapeHtml(where)}…`
       : `Find file in ${escapeHtml(where)}…`;
+  }
+
+  /// Show/refresh the scope chip. Hidden until `mainRootPath` resolves —
+  /// a cwd that IS the main root (or isn't a repo) never shows it.
+  private updateScopeChip(): void {
+    if (!this.scopeEl) return;
+    const on = this.mainRootPath !== null;
+    this.scopeEl.hidden = !on;
+    if (!on) return;
+    this.scopeEl.dataset.scope = this.scope;
+    this.scopeEl.textContent = this.scope === "main" ? "main" : "worktree";
+  }
+
+  private toggleScope(): void {
+    if (!this.mainRootPath) return;
+    this.scope = this.scope === "worktree" ? "main" : "worktree";
+    this.updateScopeChip();
+    if (this.inputEl) this.inputEl.placeholder = this.placeholderText();
+    this.cursor = 0;
+    this.hits = [];
+    this.fileHits = [];
+    if (this.inputEl && this.inputEl.value.trim() !== "") {
+      void this.runSearch();
+    } else {
+      this.renderEmpty(this.emptyHint());
+      if (this.statusEl) this.statusEl.textContent = "";
+    }
   }
 
   private emptyHint(): string {
@@ -202,7 +268,7 @@ export class GlobalSearchPalette {
   private async runSearch(): Promise<void> {
     if (!this.inputEl || !this.statusEl) return;
     const query = this.inputEl.value;
-    const cwd = this.currentCwd;
+    const cwd = this.searchCwd();
     if (!cwd) return;
     if (query.trim() === "") {
       this.hits = [];
@@ -361,7 +427,8 @@ export class GlobalSearchPalette {
         return;
       case "Tab":
         e.preventDefault();
-        this.toggleMode();
+        if (e.shiftKey) this.toggleScope();
+        else this.toggleMode();
         return;
     }
   }

@@ -2231,6 +2231,29 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
+/* Scope chip — only rendered when the cwd is a linked worktree. Same
+ * chassis as the mode chip; MAIN gets the accent treatment so searching
+ * outside the worktree you're standing in is visibly non-default. */
+.global-search-scope[hidden] { display: none; } /* class display beats the [hidden] UA rule */
+.global-search-scope {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 0;
+  padding: 2px 7px;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+}
+.global-search-scope[data-scope="main"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
 .global-search-file-hit {
   padding-left: 14px;
 }
