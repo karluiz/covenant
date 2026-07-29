@@ -271,6 +271,13 @@ body.tabbar-left .canon-cockpit {
   flex-direction: column;
   border: 1px solid var(--border);
 }
+/* A transient note (Loading… / empty / offline) stands in for the rows, so it
+   takes their padding — otherwise the text sits flush against the box border
+   and the whole block reads as broken chrome. */
+.canon-cockpit-list > .canon-cockpit-note {
+  padding: 10px 12px;
+  margin: 0;
+}
 .canon-cockpit-section .canon-cockpit-listitem {
   --mono-size: 26px;
   display: flex;
