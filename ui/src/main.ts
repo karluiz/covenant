@@ -112,6 +112,7 @@ import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor, quickCallAcp } from "./spawns/shortcuts";
 import { resolveLaunch, isolateCwd, isSilentWorktreeFailure } from "./spawns/worktree-launch";
 import { worktreeCreate, worktreeRetire } from "./api";
+import { beaconFailurePrompt } from "./api";
 import {
   TeammatePanel,
   buildTaskInjection,
@@ -994,6 +995,20 @@ async function boot(): Promise<void> {
     onClose: () => rail.toggle("beacon"),
     onReconnect: () => void settingsRef.panel?.open("covenant"),
     onState: (s) => beaconIndicator?.feed(s),
+    // "Remediate with agent": fetch the failure as text, then open an ACP
+    // chat in a worktree already holding it. Nothing runs unattended —
+    // this is a chat that starts informed, not an autonomous fix.
+    onRemediate: (runId, cwd) => {
+      void (async () => {
+        pushInfoToast({ message: "Packaging the failure for an agent…" });
+        try {
+          const prompt = await beaconFailurePrompt(cwd, runId);
+          await manager.createAcpTab({ cwd, isolate: true, initialPrompt: prompt });
+        } catch (e) {
+          pushInfoToast({ message: `Couldn't read the failure: ${e}` });
+        }
+      })();
+    },
   });
   const closeBeaconPanel = (): void => {
     if (!document.body.classList.contains("sidebar-view-beacon")) return;

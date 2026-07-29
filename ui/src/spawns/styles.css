@@ -492,6 +492,33 @@
   display: inline-flex;
   color: var(--muted, #5a6873);
 }
+/* Default picker — sits at the far end of the card head, off until chosen
+   so exactly one card reads as lit. Sharp corners like every other
+   Harnesses control. */
+.acp-agent-default {
+  appearance: none;
+  margin-left: auto;
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.08);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted, #5a6873);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.acp-agent-default:hover {
+  color: var(--text, #d5d9de);
+}
+.acp-agent-default[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+  cursor: default;
+}
+
 .acp-trust-seg {
   display: inline-flex;
   border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.08);

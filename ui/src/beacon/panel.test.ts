@@ -206,6 +206,29 @@ describe("renderBeacon", () => {
     root = document.createElement("div");
   });
 
+  it("offers Remediate with agent on failed runs only", () => {
+    const fired: number[] = [];
+    renderBeacon(
+      root,
+      {
+        kind: "ok",
+        repo: "o/r",
+        runs: [
+          run({ id: 1, name: "Release macOS", state: "success" }),
+          run({ id: 2, name: "Release Windows", state: "failure" }),
+          run({ id: 3, name: "Release Linux", state: "in_progress" }),
+        ],
+      },
+      undefined,
+      undefined,
+      { onRemediate: (id) => fired.push(id) },
+    );
+    const btns = root.querySelectorAll('[aria-label="Remediate with agent"]');
+    expect(btns.length).toBe(1);
+    (btns[0] as HTMLElement).click();
+    expect(fired).toEqual([2]);
+  });
+
   it("renders sign-in prompt when not authed", () => {
     renderBeacon(root, { kind: "not_authed" });
     expect(root.textContent).toContain("Sign in with GitHub");

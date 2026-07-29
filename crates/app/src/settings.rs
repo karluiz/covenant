@@ -395,6 +395,12 @@ pub struct Settings {
     #[serde(default)]
     pub acp_executors: HashMap<String, AcpExecutorConfig>,
 
+    /// Which agent a chat tab opens with when the door doesn't name one
+    /// (⌘⌥⇧C, Beacon's "Remediate"). None = the built-in fallback.
+    /// Spawn-driven tabs ignore this: their spec already names an agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_acp_executor: Option<String>,
+
     /// MCP servers operators may call (3.26). Deny-biased: defining a
     /// server here grants nothing — each operator must additionally
     /// allowlist it by name in the registry.
@@ -804,6 +810,7 @@ impl Default for Settings {
             onboarding_version: 0,
             code_intelligence: CodeIntelligenceConfig::default(),
             acp_executors: HashMap::new(),
+            default_acp_executor: None,
             mcp_servers: Vec::new(),
         }
     }

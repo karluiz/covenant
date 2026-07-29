@@ -5,6 +5,7 @@
 import {
   getSettings,
   setSettings,
+  type AcpExecutor,
   type AcpExecutorConfig,
   type AcpTrust,
 } from "../api";
@@ -43,7 +44,7 @@ export async function renderAcpAgentsSection(host: HTMLElement): Promise<void> {
   section.className = "acp-agents";
   section.innerHTML = `
     <div class="acp-agents-title">ACP agents</div>
-    <div class="acp-agents-sub">Launch configuration for chat-tab agents. Trust maps to each adapter's native permission mechanism.</div>
+    <div class="acp-agents-sub">Launch configuration for chat-tab agents. Trust maps to each adapter's native permission mechanism. The default one opens when a door doesn't name an agent — ⌘⌥⇧C, or Beacon's Remediate.</div>
     <div class="acp-agents-cards"></div>
   `;
   host.appendChild(section);
@@ -55,6 +56,16 @@ export async function renderAcpAgentsSection(host: HTMLElement): Promise<void> {
   for (const ex of EXECUTORS) {
     configs[ex.id] = { ...defaultCfg(ex.id), ...(settings.acp_executors?.[ex.id] ?? {}) };
   }
+
+  // Unset means "the built-in floor" — show that as Copilot rather than as
+  // no default at all, since that is what the doors actually launch.
+  let defaultId: AcpExecutor = settings.default_acp_executor ?? "copilot";
+
+  const persistDefault = async (id: AcpExecutor): Promise<void> => {
+    const fresh = await getSettings();
+    fresh.default_acp_executor = id;
+    await setSettings(fresh);
+  };
 
   const persist = async (id: string): Promise<void> => {
     // Read-modify-write on fresh settings, touching only the edited
@@ -79,7 +90,23 @@ export async function renderAcpAgentsSection(host: HTMLElement): Promise<void> {
     const name = document.createElement("span");
     name.className = "acp-agent-name";
     name.textContent = ex.label;
-    head.append(badge, name);
+
+    // Exclusive across cards: picking one here is picking it everywhere.
+    const star = document.createElement("button");
+    star.type = "button";
+    star.className = "acp-agent-default";
+    star.textContent = "Default";
+    star.setAttribute("aria-pressed", String(defaultId === ex.id));
+    attachTooltip(star, "Open chat tabs with this agent when no door names one");
+    star.addEventListener("click", () => {
+      defaultId = ex.id as AcpExecutor;
+      for (const other of cardsHost.querySelectorAll<HTMLElement>(".acp-agent-default")) {
+        other.setAttribute("aria-pressed", String(other === star));
+      }
+      void persistDefault(defaultId);
+    });
+
+    head.append(badge, name, star);
     card.appendChild(head);
 
     // Trust segmented control.

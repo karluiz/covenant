@@ -37,6 +37,30 @@ describe("renderAcpAgentsSection", () => {
     expect(claude?.querySelector('.acp-trust-seg [data-trust="balanced"][aria-pressed="true"]')).toBeTruthy();
   });
 
+  it("marks exactly one card default — copilot when unset — and moves it on click", async () => {
+    const host = await mount();
+    const lit = () =>
+      [...host.querySelectorAll<HTMLElement>('.acp-agent-default[aria-pressed="true"]')].map(
+        (b) => b.closest<HTMLElement>(".acp-agent-card")?.dataset["executor"],
+      );
+    expect(lit()).toEqual(["copilot"]);
+
+    host.querySelector<HTMLButtonElement>('[data-executor="claude"] .acp-agent-default')?.click();
+    await flush();
+    expect(lit()).toEqual(["claude"]);
+    const saved = vi.mocked(setSettings).mock.calls[0][0] as { default_acp_executor: string };
+    expect(saved.default_acp_executor).toBe("claude");
+  });
+
+  it("lights the stored default instead of copilot", async () => {
+    vi.mocked(getSettings).mockResolvedValue(settings({ default_acp_executor: "pi" }));
+    const host = await mount();
+    expect(
+      host.querySelector('[data-executor="pi"] .acp-agent-default[aria-pressed="true"]'),
+    ).toBeTruthy();
+    expect(host.querySelectorAll('.acp-agent-default[aria-pressed="true"]').length).toBe(1);
+  });
+
   it("persists a trust change via setSettings", async () => {
     const host = await mount();
     const yolo = host.querySelector<HTMLButtonElement>(
