@@ -55,6 +55,12 @@ body.tab-style-crt .tab-btn.active .tab-lead {
 }
 body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn .tab-lead::before { content: "├─"; }
 body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn:last-child .tab-lead::before { content: "└─"; }
+/* A pill already carrying a leading glyph doesn't get the connector too:
+   in the left rail the group shell (indent + header chip + spine) already
+   says "this belongs to a group", and two glyphs before the name is the
+   name losing characters. The busy glyph wins — it reports something
+   running, the connector repeats what the shell drew. */
+body.tab-style-crt .tab-btn:has(.tab-busy-dot) .tab-lead { display: none; }
 
 /* Blinking block caret trailing the active label. */
 body.tab-style-crt .tab-btn.active .tab-caret {
