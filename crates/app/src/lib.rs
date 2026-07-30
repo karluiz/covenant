@@ -2804,6 +2804,17 @@ async fn worktree_relocate(cwd: String, path: String) -> Result<String, String> 
 }
 
 #[tauri::command]
+async fn worktree_merge_end(
+    cwd: String,
+    path: String,
+) -> Result<git_tools::ReclaimOutcome, String> {
+    let root = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::merge_and_end(&root, &path))
+        .await
+        .map_err(|e| format!("worktree_merge_end join: {e}"))?
+}
+
+#[tauri::command]
 async fn worktree_create(
     cwd: String,
     slug: String,
@@ -5894,6 +5905,7 @@ pub fn run() {
             worktree_sizes,
             worktree_reclaim,
             worktree_relocate,
+            worktree_merge_end,
             worktree_create,
             worktree_retire,
             worktree_retitle,

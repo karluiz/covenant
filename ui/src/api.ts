@@ -1441,6 +1441,10 @@ export async function worktreeRelocate(cwd: string, path: string): Promise<strin
   return invoke<string>("worktree_relocate", { cwd, path });
 }
 
+export async function worktreeMergeEnd(cwd: string, path: string): Promise<ReclaimOutcome> {
+  return invoke<ReclaimOutcome>("worktree_merge_end", { cwd, path });
+}
+
 export async function worktreeCreate(
   cwd: string,
   slug: string,

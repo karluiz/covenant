@@ -144,6 +144,20 @@ export const Icons = {
       o,
     ),
 
+  /** Git merge — branch joining back into its base. Lucide `git-merge`. */
+  gitMerge: (o?: IconOptions): string =>
+    svg(
+      `<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/>`,
+      o,
+    ),
+
+  /** Git commit — a commit dot on its line. Lucide `git-commit-horizontal`. */
+  gitCommit: (o?: IconOptions): string =>
+    svg(
+      `<circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/>`,
+      o,
+    ),
+
   /** Git branch — a commit forking to a side branch. */
   gitBranch: (o?: IconOptions): string =>
     svg(
