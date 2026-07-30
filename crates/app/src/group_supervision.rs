@@ -25,12 +25,14 @@
 //! diverge (`cross_session` is global-scope, this one is group-scope and
 //! carries a supervisor identity into the prompt).
 
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use karl_session::{SessionEvent, SessionId};
+use karl_session::{
+    EscalationKind, OperatorAction as SessionOperatorAction, SessionEvent, SessionId,
+};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, mpsc, Mutex};
@@ -48,6 +50,7 @@ const MAX_CHECKS_PER_MINUTE: usize = 6;
 /// How many past findings a group remembers for de-duplication.
 const RECENT_FINDINGS: usize = 8;
 const FINDING_EVENT_NAME: &str = "group-supervision-finding";
+const BRAKE_EVENT_NAME: &str = "group-supervision-braked";
 
 const SYSTEM_PROMPT: &str = "\
 You watch multiple terminal sessions for an AI super-agent. You will be \
@@ -146,6 +149,10 @@ struct Inner {
     // ponytail: exact match over a small ring. Fuzzy-match if paraphrases
     // start slipping through.
     recent_findings: HashMap<String, Vec<String>>,
+    /// Groups whose supervisor we suspended for terrain collision. Keeps
+    /// the brake edge-triggered (it would otherwise re-fire on every
+    /// wake) and marks exactly which groups this path may re-arm.
+    braked: HashSet<String>,
 }
 
 impl GroupSupervisionWatcher {
@@ -158,6 +165,7 @@ impl GroupSupervisionWatcher {
         let inner = Arc::new(Mutex::new(Inner {
             worlds: HashMap::new(),
             recent_findings: HashMap::new(),
+            braked: HashSet::new(),
         }));
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
 
@@ -249,7 +257,6 @@ pub(crate) fn decides(registry: &OperatorRegistry, group_id: &str) -> bool {
 
 /// Two or more supervised sessions standing on one git working tree.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub(crate) struct Collision {
     pub root: PathBuf,
     pub sessions: Vec<SessionId>,
@@ -265,7 +272,6 @@ pub(crate) struct Collision {
 /// enough to brake the whole group, so finding all of them buys nothing.
 // ponytail: one rule (shared root). Protected branch and dirty-tree
 // signals were considered and dropped as noise — see the design doc.
-#[allow(dead_code)]
 pub(crate) fn terrain_collision(roots: &[(SessionId, PathBuf)]) -> Option<Collision> {
     let mut by_root: HashMap<&PathBuf, Vec<SessionId>> = HashMap::new();
     for (sid, root) in roots {
@@ -292,7 +298,6 @@ pub(crate) fn terrain_collision(roots: &[(SessionId, PathBuf)]) -> Option<Collis
 /// A group the user downgraded by hand is never in the braked set, so it
 /// is never re-armed by this path — we only restore autonomy we ourselves
 /// suspended.
-#[allow(dead_code)]
 pub(crate) fn brake_transition(colliding: bool, already_braked: bool) -> Option<bool> {
     match (colliding, already_braked) {
         (true, false) => Some(true),
@@ -401,6 +406,47 @@ async fn check_for_pattern(
         return Ok(());
     };
     let group_id = group_id.as_str();
+
+    // Awareness: a supervisor may not decide for executors that share one
+    // working tree — four agents editing one checkout clobber each other
+    // regardless of branch. Runs before the ownership gate because the
+    // brake changes who owns this turn.
+    {
+        let roots = resolve_roots(inner, registry, group_id).await;
+        let hit = terrain_collision(&roots);
+        let already = inner.lock().await.braked.contains(group_id);
+        if let Some(brake) = brake_transition(hit.is_some(), already) {
+            // Only brake a supervisor that actually holds authority; a
+            // group already in observe-only has nothing to take away.
+            if !brake || decides(registry, group_id) {
+                let trigger_cwd = {
+                    let i = inner.lock().await;
+                    match i.worlds.get(&trigger_id) {
+                        Some(w) => w.lock().await.cwd.clone(),
+                        None => PathBuf::from("."),
+                    }
+                };
+                announce_brake(app, &op, group_id, trigger_id, trigger_cwd, hit.as_ref()).await;
+                let mut i = inner.lock().await;
+                if brake {
+                    i.braked.insert(group_id.to_string());
+                } else {
+                    i.braked.remove(group_id);
+                }
+                // The brake IS this tick's report. Running the normal
+                // check on top would burn a model call to say something
+                // less important than what we just said. `decides()` will
+                // not read `false` until the frontend round-trips
+                // `setGroupIntervene` back through `groupSetSupervisor`,
+                // so falling through here would run the normal check
+                // against a supervisor we just stripped of authority —
+                // one stale tick of authority is cheaper than that.
+                if brake {
+                    return Ok(());
+                }
+            }
+        }
+    }
 
     // Attach = decide. A supervisor that can act OWNS the idle turn: the
     // executor's question is its to answer, and AOM already escalates
@@ -553,6 +599,151 @@ async fn check_for_pattern(
     }
 
     Ok(())
+}
+
+/// Resolve each supervised session's git toplevel. Shells out once per
+/// session, so it runs on a blocking task — the watcher's own task must
+/// never block. Sessions outside a repo are dropped: nothing to collide
+/// with, nothing to protect.
+async fn resolve_roots(
+    inner: &Arc<Mutex<Inner>>,
+    registry: &Arc<OperatorRegistry>,
+    group_id: &str,
+) -> Vec<(SessionId, PathBuf)> {
+    let cwds: Vec<(SessionId, PathBuf)> = {
+        let i = inner.lock().await;
+        let mut out = Vec::new();
+        for sid in registry.group_sessions(group_id) {
+            if let Some(world) = i.worlds.get(&sid) {
+                out.push((sid, world.lock().await.cwd.clone()));
+            }
+        }
+        out
+    };
+    tokio::task::spawn_blocking(move || {
+        cwds.into_iter()
+            .filter_map(|(sid, cwd)| toplevel_of(&cwd).map(|root| (sid, root)))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// `git rev-parse --show-toplevel`, or None when `cwd` is not in a repo.
+// ponytail: one process per session per wake, capped by the watcher's
+// 6 checks/minute. Cache by cwd string if that ever shows up in a profile.
+fn toplevel_of(cwd: &Path) -> Option<PathBuf> {
+    let out = std::process::Command::new("git")
+        .current_dir(cwd)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(trimmed))
+    }
+}
+
+/// Payload the frontend consumes to downgrade (or restore) the group and
+/// to toast the reason. `braked: false` means the terrain came back clean.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerrainBrake {
+    pub group_id: String,
+    pub operator_id: String,
+    pub operator_name: String,
+    pub braked: bool,
+    pub root: String,
+    pub session_count: usize,
+    pub message: String,
+}
+
+/// Announce a brake / re-arm on both lanes: the Tauri event the frontend
+/// acts on, and the escalation bus so it reaches the user the way any
+/// "needs you" does (Telegram today, any future subscriber for free).
+/// The re-arm only takes the Tauri lane — restoring what the user already
+/// asked for is not a "needs you".
+async fn announce_brake(
+    app: &AppHandle,
+    op: &Operator,
+    group_id: &str,
+    trigger_id: SessionId,
+    trigger_cwd: PathBuf,
+    hit: Option<&Collision>,
+) {
+    let payload = match hit {
+        Some(c) => TerrainBrake {
+            group_id: group_id.to_string(),
+            operator_id: op.id.to_string(),
+            operator_name: op.name.clone(),
+            braked: true,
+            root: c.root.display().to_string(),
+            session_count: c.sessions.len(),
+            message: format!(
+                "{} stepped back — {} sessions share the {} working tree. Supervision is now observe-only.",
+                op.name,
+                c.sessions.len(),
+                c.root
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| c.root.display().to_string()),
+            ),
+        },
+        None => TerrainBrake {
+            group_id: group_id.to_string(),
+            operator_id: op.id.to_string(),
+            operator_name: op.name.clone(),
+            braked: false,
+            root: String::new(),
+            session_count: 0,
+            message: format!("{} is deciding again — the sessions no longer share a working tree.", op.name),
+        },
+    };
+
+    if let Err(e) = app.emit(BRAKE_EVENT_NAME, &payload) {
+        tracing::warn!(error = ?e, group = %group_id, "failed to emit terrain brake");
+    } else {
+        tracing::info!(
+            group = %group_id,
+            braked = payload.braked,
+            sessions = payload.session_count,
+            "group-supervision terrain brake"
+        );
+    }
+
+    if !payload.braked {
+        return;
+    }
+
+    use tauri::Manager;
+    let Some(state) = app.try_state::<crate::AppState>() else {
+        return;
+    };
+    let project =
+        tokio::task::spawn_blocking(move || crate::project_ref::project_ref_from_cwd(&trigger_cwd))
+            .await
+            .ok();
+    let Some(project) = project else { return };
+
+    let _ = state
+        .escalation_bus_tx
+        .send(SessionEvent::EscalationRequested {
+            session: trigger_id,
+            escalation_id: ulid::Ulid::new().to_string(),
+            kind: EscalationKind::Blocked,
+            summary: payload.message.clone(),
+            actions: vec![
+                SessionOperatorAction::Reply,
+                SessionOperatorAction::Snooze { minutes: 10 },
+            ],
+            operator: op.to_session_ref(),
+            project,
+        });
 }
 
 /// Last `max_lines` non-empty lines of a session's rendered screen,

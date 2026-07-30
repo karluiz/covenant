@@ -285,8 +285,7 @@ pub(crate) struct AppState {
     /// modal) publish escalation/mission events on. Subscribed by the
     /// telegram fan-out task spawned at app setup. Held on AppState so
     /// other surfaces (e.g. the resolution path) can publish too.
-    #[allow(dead_code)]
-    escalation_bus_tx: tokio::sync::broadcast::Sender<karl_session::SessionEvent>,
+    pub(crate) escalation_bus_tx: tokio::sync::broadcast::Sender<karl_session::SessionEvent>,
     /// Aggregator channel feeding the `TaskSupervisor` bus loop. Each
     /// session's per-session bus is fanned-in here by `spawn_session`
     /// so the supervisor sees every `BlockFinished` across all tabs.
