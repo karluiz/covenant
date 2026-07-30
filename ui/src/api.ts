@@ -775,6 +775,17 @@ export async function teammateListDecisionsForSession(
   });
 }
 
+/// Decisions across every tab in a supervised group — the feed for a watch
+/// task, which has no session of its own to ask about.
+export async function teammateListDecisionsForGroup(
+  groupId: string,
+  limit = 200,
+): Promise<OperatorDecisionRow[]> {
+  return invoke<OperatorDecisionRow[]>("teammate_list_decisions_for_group", {
+    groupId, limit,
+  });
+}
+
 export async function onTeammateTask(
   handler: (task: Task) => void,
 ): Promise<() => void> {

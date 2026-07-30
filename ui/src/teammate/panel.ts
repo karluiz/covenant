@@ -9,7 +9,8 @@ import {
   teammateAttachSessionToTask, teammateArchiveThread, teammateCancelActiveTask, teammateCancelTaskProposal,
   teammateConfirmTask, teammateCreateThread, teammateEditTaskProposal,
   teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask,
-  teammateListDecisionsForSession, teammateListMessages, teammateListTasks, teammateListThreads,
+  teammateListDecisionsForGroup, teammateListDecisionsForSession,
+  teammateListMessages, teammateListTasks, teammateListThreads,
   teammateRenameThread, teammateSendText,
   type BlockExcerpt, type SessionExcerpt,
 } from "../api";
@@ -999,6 +1000,11 @@ export class TeammatePanel {
       console.error("listTasks failed", e);
       this.tasksCache = [];
     }
+    // A watch task is live — its group keeps deciding while the card is
+    // open, so re-pull instead of serving the first snapshot forever.
+    for (const t of this.tasksCache) {
+      if (t.supervision_group && this.expandedTaskIds.has(t.id)) this.fetchDecisions(t, true);
+    }
     this.paintTasks();
     this.updateTasksCount();
     this.updateHeaderWorkingState();
@@ -1208,22 +1214,41 @@ export class TeammatePanel {
       this.expandedTaskIds.delete(task.id);
     } else {
       this.expandedTaskIds.add(task.id);
-      // Kick off a decisions fetch (cached after the first hit).
-      if (task.spawned_session && !this.decisionsByTask.has(task.id)) {
-        void teammateListDecisionsForSession(task.spawned_session, 20)
-          .then((rows) => {
-            this.decisionsByTask.set(task.id, rows);
-            if (this.expandedTaskIds.has(task.id)) this.paintTasks();
-          })
-          .catch((e) => console.error("listDecisionsForSession failed", e));
-      }
+      this.fetchDecisions(task);
     }
     this.paintTasks();
+  }
+
+  /// Load the decisions feed for an expanded task. A spawned task asks about
+  /// its own session; a watch task asks about its whole group — its decisions
+  /// are recorded against the tabs it watches, since it has no session itself.
+  private fetchDecisions(task: Task, force = false): void {
+    if (!force && this.decisionsByTask.has(task.id)) return;
+    const pending = task.supervision_group
+      ? teammateListDecisionsForGroup(task.supervision_group)
+      : task.spawned_session
+        ? teammateListDecisionsForSession(task.spawned_session, 20)
+        : null;
+    if (!pending) return;
+    void pending
+      .then((rows) => {
+        this.decisionsByTask.set(task.id, rows);
+        if (this.expandedTaskIds.has(task.id)) this.paintTasks();
+      })
+      .catch((e) => console.error("listDecisions failed", e));
   }
 
   private renderTaskBody(task: Task): HTMLElement {
     const body = document.createElement("div");
     body.className = "task-item__body";
+
+    // A watch task has no executor, no lifecycle and nothing to open: it
+    // never gets proposed, spawned or finished, it is simply on until the
+    // group hands back. Its whole content is what the operator decided.
+    if (task.supervision_group) {
+      body.append(this.renderTaskStats(task), this.renderTaskDecisions(task));
+      return body;
+    }
 
     // --- Executor strip (looks up the executor from the propose msg) ---
     const exec = this.executorForTask(task);
@@ -1269,13 +1294,16 @@ export class TeammatePanel {
     const decisions = this.decisionsByTask.get(task.id);
     const decisionsCount = decisions?.length ?? null;
     const cost = (task.cost_usd_cents / 100).toFixed(2);
-    const age = formatAge(task.updated_at_unix_ms);
     stats.append(
       statTile("Decisions", decisionsCount === null ? "…" : String(decisionsCount),
         decisionsCount === null ? "loading" : decisionsBreakdown(decisions ?? [])),
       statTile("Cost", `$${cost}`, "USD spent"),
-      statTile("Age", age, statusLabel(task.status)),
     );
+    // A watch says its age in the header already ("active · 6m"), and it has
+    // no other status to report — two tiles, not a padded third.
+    if (!task.supervision_group) {
+      stats.append(statTile("Age", formatAge(task.updated_at_unix_ms), statusLabel(task.status)));
+    }
     return stats;
   }
 
@@ -1329,7 +1357,7 @@ export class TeammatePanel {
     }
     section.append(title);
 
-    if (!task.spawned_session) {
+    if (!task.spawned_session && !task.supervision_group) {
       section.append(emptyLine("No attached session yet."));
       return section;
     }
@@ -1344,7 +1372,18 @@ export class TeammatePanel {
 
     const list = document.createElement("div");
     list.className = "decisions";
-    for (const d of decisions.slice(0, 8)) list.append(renderDecision(d));
+    for (const d of decisions.slice(0, 8)) {
+      // A group feed unions several tabs, so each row has to say which one.
+      // Only live tabs get the chip — a closed tab's name is not clickable
+      // and reads as noise.
+      const tab = task.supervision_group
+        ? this.deps.resolveSessionTab?.(d.session_id_short) ?? null
+        : null;
+      list.append(renderDecision(d, tab?.open ? {
+        name: tab.name,
+        onOpen: () => this.deps.focusTabBySessionShort?.(d.session_id_short),
+      } : null));
+    }
     section.append(list);
     return section;
   }
@@ -1352,17 +1391,6 @@ export class TeammatePanel {
   private renderTaskActions(task: Task): HTMLElement {
     const actions = document.createElement("div");
     actions.className = "task-actions";
-
-    // Virtual supervision tasks have no spawned executor session — the operator
-    // is watching a group, not running code. Show a context chip instead of
-    // the normal Open/Continue/Stop controls.
-    if (task.supervision_group) {
-      const chip = document.createElement("span");
-      chip.className = "task-item__supervision-chip";
-      chip.textContent = "Watching group";
-      actions.append(chip);
-      return actions;
-    }
 
     const recordedSid = task.spawned_session ?? this.taskSpawnedSessions.get(task.id)?.sessionId ?? null;
     const sessionLive = !!recordedSid && (this.deps.isSessionAlive?.(recordedSid) ?? true);
@@ -2328,7 +2356,10 @@ function executorGlyph(name: string): { html: string; color: string } {
   };
 }
 
-function renderDecision(d: OperatorDecisionRow): HTMLElement {
+function renderDecision(
+  d: OperatorDecisionRow,
+  tab?: { name: string; onOpen: () => void } | null,
+): HTMLElement {
   const row = document.createElement("div");
   row.className = "decision";
 
@@ -2340,11 +2371,23 @@ function renderDecision(d: OperatorDecisionRow): HTMLElement {
   const kind = document.createElement("span");
   const k = d.action.toLowerCase();
   kind.className = `decision__kind decision__kind--${k}`;
-  kind.textContent = shortAction(d.action);
+  kind.textContent = shortAction(d.action, d.executed);
+  r1.append(time, kind);
+  if (tab) {
+    // Same origin chip the Activity tab uses — one material for "which tab".
+    const chip = document.createElement("span");
+    chip.className = "tp-act-tab";
+    chip.textContent = tab.name;
+    chip.setAttribute("role", "button");
+    chip.tabIndex = 0;
+    chip.addEventListener("click", (e) => { e.stopPropagation(); tab.onOpen(); });
+    attachTooltip(chip, `Open ${tab.name}`);
+    r1.append(chip);
+  }
   const cost = document.createElement("span");
   cost.className = "decision__cost";
   cost.textContent = `$${d.cost_usd.toFixed(3)}`;
-  r1.append(time, kind, cost);
+  r1.append(cost);
   row.append(r1);
 
   const detail = document.createElement("div");
@@ -2357,10 +2400,16 @@ function renderDecision(d: OperatorDecisionRow): HTMLElement {
   return row;
 }
 
-function shortAction(action: string): string {
-  const a = action.toUpperCase();
-  if (a === "ESCALATE") return "ESCAL";
-  return a;
+/// Same vocabulary the Activity tab uses (`labelFor`), so a decision reads
+/// the same wherever you meet it. Uppercasing is the badge's CSS job.
+function shortAction(action: string, executed: boolean): string {
+  switch (action.toLowerCase()) {
+    case "reply":    return executed ? "typed" : "dry-run";
+    case "wait":     return "waited";
+    case "escalate": return "escalated";
+    case "error":    return "api error";
+    default:         return action.toLowerCase();
+  }
 }
 
 function decisionDetailText(d: OperatorDecisionRow): string {

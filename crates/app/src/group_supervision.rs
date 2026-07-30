@@ -640,6 +640,7 @@ mod tests {
             Some(GroupSupervision {
                 operator: sup_id,
                 intervene: false,
+                started_at_unix_ms: 0,
             }),
         );
         assert!(supervised_group_for(&reg, sid).is_some());
@@ -650,6 +651,7 @@ mod tests {
             Some(GroupSupervision {
                 operator: sup_id,
                 intervene: true,
+                started_at_unix_ms: 0,
             }),
         );
         assert!(decides(&reg, "g1"));

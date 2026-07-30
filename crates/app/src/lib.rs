@@ -6047,6 +6047,7 @@ pub fn run() {
             teammate::commands::teammate_rename_thread,
             teammate::commands::teammate_archive_thread,
             teammate::commands::teammate_list_decisions_for_session,
+            teammate::commands::teammate_list_decisions_for_group,
             spec_detector::start_spec_detector,
             spec_detector::mark_spec_seen,
             spec_author_step,
