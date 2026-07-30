@@ -28,6 +28,7 @@ import { InputLatencyProbe, isPrintableKey } from "../vitals/input-probe";
 import type { VitalsCollector } from "../vitals/collector";
 import { probePostRevealStarvation } from "../vitals/starvation";
 import { startGapWatch } from "../vitals/gap-watch";
+import { WritePressure } from "../vitals/write-pressure";
 import { buildSwitchVitals, type SwitchFitBreadcrumb } from "../vitals/switch-vital";
 import { mountWelcomeHint, dismissWelcomeHint } from "../terminal/welcome-hint";
 import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
@@ -326,6 +327,11 @@ function reportTabActivation(metric: TabActivationMetric): void {
 /// refit a secondary pane after a live font change. WeakMap so entries
 /// are reclaimed automatically when a pane's terminal is disposed.
 const paneFitAddons = new WeakMap<Terminal, FitAddon>();
+
+/// Global terminal write pressure. Every output path feeds it so the switch
+/// vitals can record how much output ALL sessions were producing, not just the
+/// tab being entered — see vitals/write-pressure.ts for why that matters.
+const writePressure = new WritePressure();
 
 /// xterm palettes. background stays fully transparent so the workspace
 /// surface tint (--surface-alpha) reads through. Light palette is
@@ -1446,7 +1452,10 @@ export class TabManager {
     let xtermRef: { write: (data: Uint8Array) => void } | null = null;
     const sessionId = await spawnSession(
       {
-        onOutput: (chunk) => { xtermRef?.write(chunk); },
+        onOutput: (chunk) => {
+          writePressure.add(String(sessionId), chunk.byteLength);
+          xtermRef?.write(chunk);
+        },
         // Pane-scoped state only — the sidebar chrome (blocks, recall,
         // cd picker) belongs to pane 0. Resolved by session id at event
         // time because the Pane object doesn't exist yet at spawn.
@@ -1699,7 +1708,10 @@ export class TabManager {
     try {
       sessionId = await spawnSession(
         {
-          onOutput: (chunk) => { secondPaneXterm?.write(chunk); },
+          onOutput: (chunk) => {
+            writePressure.add(String(sessionId), chunk.byteLength);
+            secondPaneXterm?.write(chunk);
+          },
           onSessionEvent: (event) => {
             const hit = this.paneOfSession(event.session);
             if (hit) this.handlePaneSessionEvent(hit.tab, hit.idx, event);
@@ -4389,6 +4401,7 @@ export class TabManager {
       sessionId = await spawnSession(
         {
           onOutput: (chunk) => {
+            writePressure.add(String(sessionId), chunk.byteLength);
             const currentTab = tabRef.current;
             if (currentTab?.pane.hidden) {
               currentTab.wroteWhileHidden = true;
@@ -7411,6 +7424,10 @@ export class TabManager {
             fitChangedDimensions: fit?.fitChangedDimensions ?? false,
           });
           const grid = tab.term ? { cols: tab.term.cols, rows: tab.term.rows } : null;
+          const pressure = {
+            bytesLast5s: writePressure.bytesInLast(5000),
+            writersLast5s: writePressure.writersInLast(5000),
+          };
           for (const v of buildSwitchVitals({
             kind: tab.kind,
             elapsedMs: syncMs,
@@ -7425,6 +7442,7 @@ export class TabManager {
             frame1Ms,
             gapStarvedMs,
             grid,
+            pressure,
           })) {
             this.vitals?.record(v.metric, v.value, v.aux, v.detail);
           }

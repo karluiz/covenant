@@ -21,6 +21,7 @@ const base = {
   frame1Ms: 42.2,
   gapStarvedMs: 3,
   grid: { cols: 210, rows: 58 },
+  pressure: { bytesLast5s: 1_500_000, writersLast5s: 4 },
 };
 
 describe("buildSwitchVitals", () => {
@@ -88,8 +89,21 @@ describe("buildSwitchVitals", () => {
     }
   });
 
+  it("carries global write pressure — the concurrent-agent trigger the user reports", () => {
+    const out = buildSwitchVitals(base);
+    for (const e of out) {
+      expect(e.detail).toMatchObject({ writeBytesLast5s: 1_500_000, busyTabs: 4 });
+    }
+  });
+
+  it("omits pressure when it was not measured", () => {
+    const out = buildSwitchVitals({ ...base, pressure: null });
+    expect(out[0].detail).not.toHaveProperty("writeBytesLast5s");
+    expect(out[0].detail).not.toHaveProperty("busyTabs");
+  });
+
   it("omits gap fields that were not measured rather than reporting zero", () => {
-    const out = buildSwitchVitals({ ...base, frame1Ms: null, gapStarvedMs: null, grid: null });
+    const out = buildSwitchVitals({ ...base, frame1Ms: null, gapStarvedMs: null, grid: null, pressure: null });
     expect(out[0].detail).not.toHaveProperty("frame1Ms");
     expect(out[0].detail).not.toHaveProperty("gapStarvedMs");
     expect(out[0].detail).not.toHaveProperty("cols");

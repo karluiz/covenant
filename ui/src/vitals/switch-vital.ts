@@ -53,6 +53,11 @@ export interface SwitchVitalInput {
   /// Revealed terminal's grid. Tests the standing prediction that the reveal
   /// cost scales with viewport size rather than with buffered output.
   grid: { cols: number; rows: number } | null;
+  /// GLOBAL terminal write pressure in the seconds before the switch, across
+  /// every session — not just the tab being entered. The user reports the
+  /// freeze under several concurrent agents, and per-tab hidden output was 0 B
+  /// on the slowest samples, so this is where that trigger would show up.
+  pressure: { bytesLast5s: number; writersLast5s: number } | null;
   /// True when the window was not continuously visible between activation and
   /// the repaint frame. WebKit suspends rAF while occluded, so `repaintMs`
   /// then measures how long the user looked away — not a slow repaint.
@@ -81,6 +86,10 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
     shared.cols = input.grid.cols;
     shared.rows = input.grid.rows;
     shared.cells = input.grid.cols * input.grid.rows;
+  }
+  if (input.pressure) {
+    shared.writeBytesLast5s = input.pressure.bytesLast5s;
+    shared.busyTabs = input.pressure.writersLast5s;
   }
   // The geometry breadcrumb goes on BOTH events: the Vitals page investigates
   // the slowest *repaints*, so dropping it from that event would render the
