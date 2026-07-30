@@ -1961,9 +1961,18 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
     display: none !important;
 }
 
+/* The 8px inset lives on .xterm, NOT here. FitAddon sizes the terminal
+   from `getComputedStyle(term.element.parentElement).height`, and WebKit
+   resolves that to the BORDER box — so any padding on this element is
+   invisible to the fit and it asks for one row more than fits. Measured:
+   parent 707.57px → rows = floor(707/19) = 37 → canvas 703px inside a
+   691.6px box, i.e. the bottom row rendered ~11px under the status bar
+   (visible only once output reached the last line — e.g. right after an
+   agent exits). FitAddon DOES subtract the xterm element's own padding,
+   so moving the inset there keeps the look and makes the math close. */
 .tab-terminal {
     height: 100%;
-    padding: 8px;
+    padding: 0;
     box-sizing: border-box;
     /* No border-right: .tab-terminal used to be the grid child that
        separated the terminal from the Blocks sidebar, but it now lives
@@ -1982,6 +1991,14 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
 .xterm-screen {
     height: 100%;
     width: 100%;
+}
+
+/* The terminal's visual inset (see .tab-terminal above). box-sizing is
+   border-box, so the content box is exactly parentHeight - 16 — the same
+   number FitAddon computes. */
+.tab-terminal > .xterm {
+    padding: 8px;
+    box-sizing: border-box;
 }
 
 .xterm-viewport {
