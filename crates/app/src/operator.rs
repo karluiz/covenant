@@ -3636,6 +3636,14 @@ async fn run_tick(
                             SessionOperatorAction::Reply,
                             SessionOperatorAction::Snooze { minutes: 10 },
                         ],
+                        // `TerrainCollision` is unreachable here (only
+                        // group_supervision emits it) but is listed
+                        // explicitly so the arm never silently inherits
+                        // `Reply` — a free-text reply is typed into the
+                        // session's PTY, and a brake is not a question.
+                        EscalationKind::TerrainCollision => {
+                            vec![SessionOperatorAction::Snooze { minutes: 10 }]
+                        }
                         EscalationKind::Loop
                         | EscalationKind::Blocked
                         | EscalationKind::BudgetExhausted => vec![

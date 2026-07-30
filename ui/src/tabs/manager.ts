@@ -879,11 +879,18 @@ export function stripObserverOnPromote(
 
 /// Panes the group supervisor may claim under Intervene: no own pin
 /// (driver wins — a pinned pane is never claimed), not AOM-excluded, live
-/// session, member of `groupId`. Kept pure and exported so it's unit-
-/// testable without a TabManager instance; the param shape is decoupled
-/// from the full (unexported) Tab interface — same pattern as
-/// resolveOperatorPlacement's `rows` above — so tests build lightweight
-/// fixtures instead of the entire tab object graph.
+/// session, member of `groupId`, and NOT already armed by the user
+/// himself. Kept pure and exported so it's unit-testable without a
+/// TabManager instance; the param shape is decoupled from the full
+/// (unexported) Tab interface — same pattern as resolveOperatorPlacement's
+/// `rows` above — so tests build lightweight fixtures instead of the
+/// entire tab object graph.
+///
+/// The user-armed exclusion (`operatorEnabled` without `supervisorAom`) is
+/// load-bearing: claiming such a pane flags it `supervisorAom`, and the
+/// next unapply then turns the user's own AOM off. The automatic terrain
+/// re-arm reaches this with no user action at all, so it must never take
+/// a decision the principal made himself.
 export function panesForIntervene(
   tabs: Array<{ groupId: string | null; panes: Pane[] }>,
   groupId: string,
@@ -891,7 +898,13 @@ export function panesForIntervene(
   return tabs
     .filter((t) => t.groupId === groupId)
     .flatMap((t) => t.panes)
-    .filter((p) => !p.operator && !p.aomExcluded && !!p.sessionId);
+    .filter(
+      (p) =>
+        !p.operator &&
+        !p.aomExcluded &&
+        !!p.sessionId &&
+        (!p.operatorEnabled || p.supervisorAom),
+    );
 }
 
 /// Terrain brake → intervene gate. Exported free of TabManager so the

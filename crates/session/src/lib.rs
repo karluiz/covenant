@@ -222,6 +222,15 @@ pub enum EscalationKind {
     Blocklist,
     BudgetExhausted,
     Loop,
+    /// A group supervisor stepped back because two or more supervised
+    /// sessions stand on one git working tree. An ANNOUNCEMENT, not a
+    /// question: it carries no `Reply` action, because a free-text
+    /// Telegram reply to an open escalation is typed straight into that
+    /// session's PTY. Its own variant so the Telegram coalescer's
+    /// `(session_id, kind_key)` key differs from `Blocked` — otherwise a
+    /// brake would edit a live executor escalation's message in place,
+    /// replacing the executor's real question with the brake text.
+    TerrainCollision,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

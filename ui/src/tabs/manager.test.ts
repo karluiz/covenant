@@ -879,6 +879,23 @@ describe("panesForIntervene", () => {
     ];
     expect(panesForIntervene(tabs, "g1").map((p) => p.sessionId)).toEqual(["s1"]);
   });
+
+  it("never claims a pane the USER armed AOM on", () => {
+    const tabs = [
+      // The user turned AOM on himself: enabled, no supervisorAom flag.
+      // Claiming it would flag it, and the next unapply (or the automatic
+      // terrain re-arm, which needs no user action at all) would then turn
+      // his own AOM off.
+      { groupId: "g1", panes: [ivPane({ sessionId: "s1", operatorEnabled: true })] },
+      // Already ours — still eligible, so apply stays idempotent.
+      {
+        groupId: "g1",
+        panes: [ivPane({ sessionId: "s2", operatorEnabled: true, supervisorAom: true })],
+      },
+      { groupId: "g1", panes: [ivPane({ sessionId: "s3" })] },
+    ];
+    expect(panesForIntervene(tabs, "g1").map((p) => p.sessionId)).toEqual(["s2", "s3"]);
+  });
 });
 
 // Task 3 — terrain brake → intervene gate. Pure mapping from the
