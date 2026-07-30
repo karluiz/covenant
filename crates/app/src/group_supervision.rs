@@ -419,12 +419,16 @@ async fn check_for_pattern(
             // Only brake a supervisor that actually holds authority; a
             // group already in observe-only has nothing to take away.
             if !brake || decides(registry, group_id) {
-                let trigger_cwd = {
+                // Clone the handle under `inner`'s guard, drop the guard,
+                // then lock the world model — same nesting rule as
+                // `resolve_roots`: never hold two mutexes at once.
+                let trigger_world = {
                     let i = inner.lock().await;
-                    match i.worlds.get(&trigger_id) {
-                        Some(w) => w.lock().await.cwd.clone(),
-                        None => PathBuf::from("."),
-                    }
+                    i.worlds.get(&trigger_id).cloned()
+                };
+                let trigger_cwd = match trigger_world {
+                    Some(w) => w.lock().await.cwd.clone(),
+                    None => PathBuf::from("."),
                 };
                 announce_brake(app, &op, group_id, trigger_id, trigger_cwd, hit.as_ref()).await;
                 let mut i = inner.lock().await;
@@ -610,16 +614,22 @@ async fn resolve_roots(
     registry: &Arc<OperatorRegistry>,
     group_id: &str,
 ) -> Vec<(SessionId, PathBuf)> {
-    let cwds: Vec<(SessionId, PathBuf)> = {
+    // Collect the Arc handles under `inner`'s guard, then drop it before
+    // locking any world model — two mutexes must never nest, one of them
+    // across an await, or `attach`/the detach-on-drop path block on
+    // `inner.lock()` for the whole walk.
+    let handles: Vec<(SessionId, Arc<Mutex<SessionWorldModel>>)> = {
         let i = inner.lock().await;
-        let mut out = Vec::new();
-        for sid in registry.group_sessions(group_id) {
-            if let Some(world) = i.worlds.get(&sid) {
-                out.push((sid, world.lock().await.cwd.clone()));
-            }
-        }
-        out
+        registry
+            .group_sessions(group_id)
+            .into_iter()
+            .filter_map(|sid| i.worlds.get(&sid).map(|w| (sid, w.clone())))
+            .collect()
     };
+    let mut cwds = Vec::with_capacity(handles.len());
+    for (sid, world) in handles {
+        cwds.push((sid, world.lock().await.cwd.clone()));
+    }
     tokio::task::spawn_blocking(move || {
         cwds.into_iter()
             .filter_map(|(sid, cwd)| toplevel_of(&cwd).map(|root| (sid, root)))
