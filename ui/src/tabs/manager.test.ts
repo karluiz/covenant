@@ -5,6 +5,7 @@ import {
   shouldRetire,
   shouldRefocusAfterScrub,
   panesForIntervene,
+  applyTerrainBrake,
   type TabManifestV1,
 } from "./manager";
 import type { Pane } from "./pane";
@@ -877,6 +878,29 @@ describe("panesForIntervene", () => {
       { groupId: "g2", panes: [ivPane({ sessionId: "s5" })] },              // other group → out
     ];
     expect(panesForIntervene(tabs, "g1").map((p) => p.sessionId)).toEqual(["s1"]);
+  });
+});
+
+// Task 3 — terrain brake → intervene gate. Pure mapping from the
+// group-supervision-braked payload onto setGroupIntervene; kept free of
+// TabManager so it's testable without a live tab tree.
+describe("applyTerrainBrake", () => {
+  it("downgrades the group to observe-only when braked", () => {
+    const setGroupIntervene = vi.fn();
+    applyTerrainBrake({ groupId: "g1", braked: true }, setGroupIntervene);
+    expect(setGroupIntervene).toHaveBeenCalledWith("g1", false);
+  });
+
+  it("re-arms the group when terrain is clean again", () => {
+    const setGroupIntervene = vi.fn();
+    applyTerrainBrake({ groupId: "g1", braked: false }, setGroupIntervene);
+    expect(setGroupIntervene).toHaveBeenCalledWith("g1", true);
+  });
+
+  it("ignores a payload with no group", () => {
+    const setGroupIntervene = vi.fn();
+    applyTerrainBrake({ groupId: "", braked: true }, setGroupIntervene);
+    expect(setGroupIntervene).not.toHaveBeenCalled();
   });
 });
 

@@ -894,6 +894,16 @@ export function panesForIntervene(
     .filter((p) => !p.operator && !p.aomExcluded && !!p.sessionId);
 }
 
+/// Terrain brake → intervene gate. Exported free of TabManager so the
+/// mapping is testable without a live tab tree.
+export function applyTerrainBrake(
+  detail: { groupId: string; braked: boolean },
+  setGroupIntervene: (groupId: string, intervene: boolean) => void,
+): void {
+  if (!detail.groupId) return;
+  setGroupIntervene(detail.groupId, !detail.braked);
+}
+
 /// Placement facts inherited by an auto-spawned tab: working dir, group, color.
 export interface TabPlacement {
   cwd: string;
@@ -2518,6 +2528,14 @@ export class TabManager {
       const id = (ev as CustomEvent<{ id: string }>).detail?.id;
       if (!id) return;
       this.detachSupervisorEverywhere(id);
+    });
+    // Awareness: the supervisor is standing on terrain it may not decide
+    // on (or that just came clean). Same intervene gate the UI uses.
+    window.addEventListener("group-supervision:braked", (ev: Event) => {
+      const detail = (ev as CustomEvent<{ groupId: string; braked: boolean }>)
+        .detail;
+      if (!detail) return;
+      applyTerrainBrake(detail, (g, i) => this.setGroupIntervene(g, i));
     });
     // Terminal Share: prime the local cache and re-render the strip
     // whenever a share/revoke happens (see structure/tree.ts for the
