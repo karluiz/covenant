@@ -6,6 +6,35 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.5 — Vitals separate real stalls from suspended frames
+
+### Fixed
+
+- **`Switch` now means the same thing for every tab kind**: it was measured
+  inside `finishActivationMetric`, which the terminal path calls from *inside*
+  its drift-pass animation frame — so terminal switches silently folded in a
+  frame wait that chat and browser switches did not. That is the entire reason
+  the first real v0.11.4 data reported a `Switch` p95 of 3721ms on an
+  activation whose actual work was ~15ms. The synchronous span is now captured
+  by the caller at the end of `activate()`'s body and passed in explicitly
+  (`ui/src/tabs/manager.ts`).
+
+- **`Repaint` no longer counts time the window was not on screen**: WebKit
+  suspends `requestAnimationFrame` entirely while a window is occluded, so a
+  tab switch followed by an alt-tab produced exactly the signature of a stall
+  — a multi-second repaint with healthy post-reveal starvation and nothing slow
+  in our own code. Visibility is now watched across the whole span (both
+  endpoints plus any `visibilitychange` in between); a repaint that crossed a
+  hidden stretch is dropped rather than recorded, and the paired `switch` event
+  carries `repaintDiscarded: "window-not-visible"` so discarded samples stay
+  countable instead of vanishing (`ui/src/vitals/switch-vital.ts`).
+
+  This does not decide whether a given freeze is real — it stops a real stall
+  and a suspended frame from being averaged into the same percentile, which the
+  v0.11.4 numbers could not distinguish. Same artifact class as the fabricated
+  starvation fixed in v0.11.4: an unguarded browser timing primitive read as
+  application behavior.
+
 ## v0.11.4 — Kimi Code harness + corrected tab-switch vitals
 
 ### Added
