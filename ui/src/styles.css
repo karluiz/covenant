@@ -6647,7 +6647,8 @@ body.theme-true-dark .cp-tile.current {
     height: 100%;
     min-width: 0;
 }
-.sb-left { padding-left: 6px; }
+/* padding-right keeps the last chip's hover fill off the framing divider */
+.sb-left { padding-left: 6px; padding-right: 6px; }
 .sb-right { padding: 0 6px 0 10px; justify-content: flex-end; }
 .sb-framing {
     padding: 0 4px;
@@ -6812,21 +6813,26 @@ body:not(.statusbar-single-row) .sb-row .sb-center {
     cursor: pointer;
     outline: none;
     box-shadow: none;
-    border: 0;
+    border: 1px solid transparent;
+    transition:
+        background-color 0.12s ease,
+        border-color 0.12s ease;
 }
 .status-segment.status-git .status-text {
     max-width: 160px;
     white-space: nowrap;
 }
+/* Same hover recipe as the Set spec / Set operator affordances so the
+   three left-bar chips read as one interactive family. */
 .status-segment.status-git:hover {
     color: var(--fg);
-    background: rgb(var(--ink-rgb) / 0.025);
+    background: color-mix(in srgb, var(--accent, #b794f4) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent, #b794f4) 35%, transparent);
 }
 .status-segment.status-git:focus,
 .status-segment.status-git:active,
 .status-segment.status-git:focus-visible {
     outline: none;
-    border: 0;
     box-shadow: none;
 }
 .status-segment.status-git:focus-visible {
