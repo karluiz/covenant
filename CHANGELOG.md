@@ -6,6 +6,37 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.6 — Vitals split the repaint gap into nameable causes
+
+### Added
+
+- **The repaint gap is now broken into parts that identify a cause**: v0.11.5
+  cornered the tab-switch lag but could not name it. Across 22 clean samples
+  (window visible throughout, none discarded) the gap between `activate()`'s
+  synchronous body and the painted frame never dropped below **228ms** — about
+  14 frames at the *best* — and was bimodal, with a second cluster at
+  925-1379ms. Meanwhile the synchronous work measured 11-16ms, the click queue
+  delay 8-22ms, post-reveal starvation ≤25ms, and on the four worst samples
+  every geometry field was zero with buffered hidden output at 0 B. The cost is
+  in frame production, which nothing measured. Three fields now separate causes
+  that are indistinguishable in the total:
+
+  - `frame1Ms` — activation start → the **first** animation frame. Large means
+    frames were not being produced at all; small with a large repaint means
+    painting the revealed content is the expense.
+  - `gapStarvedMs` — event-loop lateness accumulated **during** the gap, via a
+    new open-ended watch (`ui/src/vitals/gap-watch.ts`). Near-zero across a
+    long gap rules out main-thread work — something the existing post-reveal
+    probe structurally cannot do, since it only starts once the gap has ended.
+  - `cols` / `rows` / `cells` of the revealed terminal — tests whether reveal
+    cost scales with viewport size rather than with buffered output, the
+    reading that fits `hiddenOutputBytes` being 0 on the slowest samples.
+
+  Unmeasured fields are omitted rather than written as zero, so "unknown" stays
+  distinguishable from a real zero — the confusion that let v0.11.3 record
+  fabricated starvation as real (`ui/src/vitals/switch-vital.ts`,
+  `ui/src/tabs/manager.ts`).
+
 ## v0.11.5 — Vitals separate real stalls from suspended frames
 
 ### Fixed
