@@ -84,10 +84,19 @@ pub struct GitRepoSummary {
     pub default_branch: String,
 }
 
+/// Walk up from `cwd` to the nearest ancestor that still exists on disk.
+///
+/// A tab's shell can be stranded in a deleted directory — the canonical case
+/// is a worktree removed while a session sat inside it. The branch popover
+/// only uses `cwd` to LOCATE the repo, and `.covenant/worktrees/<slug>` sits
+/// inside the main checkout, so the nearest surviving ancestor lands there
+/// and the popover recovers instead of erroring "cwd is not a directory".
+fn nearest_existing_dir(cwd: &Path) -> Option<&Path> {
+    cwd.ancestors().find(|p| p.is_dir())
+}
+
 pub fn repo_summary(cwd: &Path) -> Result<GitRepoSummary, String> {
-    if !cwd.is_dir() {
-        return Err("cwd is not a directory".into());
-    }
+    let cwd = nearest_existing_dir(cwd).ok_or("cwd is not a directory")?;
 
     let repo_root = git(cwd, &["rev-parse", "--show-toplevel"])?;
     let repo_root = repo_root.trim().to_string();
@@ -988,6 +997,9 @@ pub fn retire_worktree(cwd: &Path, path: &str) -> Result<bool, String> {
 }
 
 pub fn switch_branch(cwd: &Path, branch: &str) -> Result<GitRepoSummary, String> {
+    // Same stranded-cwd recovery as repo_summary: the switch must act on the
+    // repo the popover just showed, not fail on a deleted directory.
+    let cwd = nearest_existing_dir(cwd).ok_or("cwd is not a directory")?;
     validate_branch_name(branch)?;
     let out = Command::new("git")
         .arg("-C")
@@ -1835,6 +1847,26 @@ mod tests {
         fs::write(dir.join("tracked.txt"), "one\ntwo\n").unwrap();
         git_run(dir, &["add", "."]);
         git_run(dir, &["commit", "-q", "-m", "init"]);
+    }
+
+    #[test]
+    fn repo_summary_recovers_from_deleted_cwd() {
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        // A tab stranded in a deleted subdirectory (e.g. a removed worktree)
+        // must fall back to the nearest surviving ancestor, not error out.
+        let gone = dir.join("worktrees").join("gone");
+        let summary = repo_summary(&gone).unwrap();
+        assert_eq!(summary.current_branch.as_deref(), Some("main"));
     }
 
     #[test]
