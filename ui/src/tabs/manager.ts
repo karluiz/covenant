@@ -7529,6 +7529,14 @@ export class TabManager {
       if (document.visibilityState !== "visible") spannedHidden = true;
     };
     document.addEventListener("visibilitychange", onVisibility);
+    // Focus is RECORDED, not used to discard: rAF keeps running for an
+    // unfocused window, so the sample stays valid. It is the open
+    // discriminator — 0.11.9 still waits 1.2-2.0s for the first frame on a
+    // third of switches with the loop nearly free, and macOS throttling the
+    // rendering of a background app is the remaining story that fits.
+    let focusedThroughout = document.hasFocus();
+    const onBlur = (): void => { focusedThroughout = false; };
+    window.addEventListener("blur", onBlur);
     // Watch the event loop across the gap. Real 0.11.5 data has this gap at
     // 228ms even at BEST (≈14 frames) with the synchronous work at ~15ms, so
     // the cause is in frame production — this says whether the main thread was
@@ -7544,7 +7552,9 @@ export class TabManager {
         const repaintMs = performance.now() - activationStartedAt;
         const gapStarvedMs = gap.stop().starvedMs;
         document.removeEventListener("visibilitychange", onVisibility);
+        window.removeEventListener("blur", onBlur);
         if (document.visibilityState !== "visible") spannedHidden = true;
+        if (!document.hasFocus()) focusedThroughout = false;
         probePostRevealStarvation((postRevealStarvedMs) => {
           reportTabActivation({
             tabId: tab.id,
@@ -7585,6 +7595,7 @@ export class TabManager {
             gapStarvedMs,
             grid,
             pressure,
+            focusedThroughout,
           })) {
             this.vitals?.record(v.metric, v.value, v.aux, v.detail);
           }

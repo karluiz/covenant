@@ -53,6 +53,14 @@ export interface SwitchVitalInput {
   /// Revealed terminal's grid. Tests the standing prediction that the reveal
   /// cost scales with viewport size rather than with buffered output.
   grid: { cols: number; rows: number } | null;
+  /// Whether the window stayed the key (focused) window for the whole span.
+  /// Unlike visibility this does NOT invalidate the sample — rAF keeps
+  /// running for an unfocused window — so it is recorded, never discarded.
+  /// It is the open discriminator: real 0.11.9 data still has a third of
+  /// switches waiting 1.2-2.0s for the first frame with the loop nearly free,
+  /// and "the app was in the background and macOS throttled its rendering" is
+  /// the remaining story that fits.
+  focusedThroughout: boolean | null;
   /// GLOBAL terminal write pressure in the seconds before the switch, across
   /// every session — not just the tab being entered. The user reports the
   /// freeze under several concurrent agents, and per-tab hidden output was 0 B
@@ -87,6 +95,7 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
     shared.rows = input.grid.rows;
     shared.cells = input.grid.cols * input.grid.rows;
   }
+  if (input.focusedThroughout !== null) shared.focusedThroughout = input.focusedThroughout;
   if (input.pressure) {
     shared.writeBytesLast5s = input.pressure.bytesLast5s;
     shared.busyTabs = input.pressure.writersLast5s;

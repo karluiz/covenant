@@ -22,6 +22,7 @@ const base = {
   gapStarvedMs: 3,
   grid: { cols: 210, rows: 58 },
   pressure: { bytesLast5s: 1_500_000, writersLast5s: 4 },
+  focusedThroughout: true,
 };
 
 describe("buildSwitchVitals", () => {
@@ -96,6 +97,17 @@ describe("buildSwitchVitals", () => {
     }
   });
 
+  it("records focus continuity — recorded, never used to discard the sample", () => {
+    const kept = buildSwitchVitals({ ...base, focusedThroughout: false });
+    expect(kept.map((e) => e.metric)).toEqual(["switch", "repaint"]);
+    for (const e of kept) expect(e.detail.focusedThroughout).toBe(false);
+  });
+
+  it("omits focus when it could not be determined", () => {
+    const out = buildSwitchVitals({ ...base, focusedThroughout: null });
+    expect(out[0].detail).not.toHaveProperty("focusedThroughout");
+  });
+
   it("omits pressure when it was not measured", () => {
     const out = buildSwitchVitals({ ...base, pressure: null });
     expect(out[0].detail).not.toHaveProperty("writeBytesLast5s");
@@ -103,7 +115,7 @@ describe("buildSwitchVitals", () => {
   });
 
   it("omits gap fields that were not measured rather than reporting zero", () => {
-    const out = buildSwitchVitals({ ...base, frame1Ms: null, gapStarvedMs: null, grid: null, pressure: null });
+    const out = buildSwitchVitals({ ...base, frame1Ms: null, gapStarvedMs: null, grid: null, pressure: null, focusedThroughout: null });
     expect(out[0].detail).not.toHaveProperty("frame1Ms");
     expect(out[0].detail).not.toHaveProperty("gapStarvedMs");
     expect(out[0].detail).not.toHaveProperty("cols");
