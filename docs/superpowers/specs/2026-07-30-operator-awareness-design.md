@@ -242,3 +242,33 @@ lets the watcher resume a model call per idle turn. Braking therefore costs
 reports pending questions as findings (the 2026-07-29 fix), but this is the
 first place to look if toast noise returns on a braked group. Carried in-code
 as a `ponytail:` comment at the brake site.
+
+Three more, recorded by the final re-review and deliberately left standing.
+None is load-bearing — nothing else in the design rests on them — but the
+first two fail in the harmful direction, so they are the places to look first
+if the brake ever seems not to fire.
+
+**An all-unresolvable group never brakes.** `Unresolvable` members are dropped
+from the root set, so they cannot collide with each other. If `git` is missing
+from the app's PATH — a real risk for a GUI-launched `.app`, whose PATH is
+minimal — every member resolves to `Unresolvable`, the survey is incomplete
+(so nothing re-arms, correctly) but nothing brakes either; the only trace is
+the per-member `tracing::warn!`. Braking on unknown was considered and not
+taken: it would brake every supervised group on a machine where git cannot be
+found, including groups whose sessions are not in a repo at all. Revisit by
+distinguishing "git itself is unavailable" (a process-wide fact, worth
+braking on) from "this one cwd could not be resolved".
+
+**Dropping `Reply` gates the affordance, not the path.** The brake's
+escalation offers only `Snooze`, so no reply button is rendered. But
+`send_escalation` registers every escalation in `session_map` regardless of
+its action list, and any Telegram reply to a still-open escalation is routed
+as `FreeText` and written into that session's PTY. A user who replies to a
+brake notice by other means still injects text into a live executor standing
+on the shared tree. Pre-existing for every escalation kind, not introduced
+here; closing it means gating on the kind at the inbound router.
+
+**The cwd→toplevel memo can mask a collision.** Only definite answers are
+cached and the memo is per-process, but a session's toplevel can change under
+a live app (a nested `git init`, a worktree conversion) and the stale entry
+would hide the resulting collision until restart.
