@@ -50,3 +50,24 @@ body.tab-style-glass .tab-btn.active::before {
 body.tab-style-glass.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before {
     display: none;
 }
+
+/* ── STATE · GLASS dialect ──────────────────────────────────────────
+   Glass is hairlines and soft capsules; a crisp 7px dot is the only
+   hard edge on the row. Blur it into the material instead, and let
+   hollow read as a translucent fill rather than an outline. */
+body.tab-style-glass .tab-state__atom {
+    box-shadow: 0 0 8px -1px currentColor;
+}
+body.tab-style-glass .tab-state[data-state="waiting"] .tab-state__atom,
+body.tab-style-glass .tab-state[data-state="live"] .tab-state__atom {
+    background: color-mix(in srgb, currentColor 40%, transparent);
+    border-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+/* The chassis breathe replaces box-shadow mid-cycle, which would strobe
+   the halo off. Breathe the glow itself. */
+body.tab-style-glass .tab-state[data-state="waiting"] .tab-state__atom {
+    animation: glass-state-breathe 2.4s ease-in-out infinite;
+}
+@keyframes glass-state-breathe {
+    50% { box-shadow: 0 0 13px 0 currentColor; }
+}

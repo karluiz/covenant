@@ -2859,9 +2859,12 @@ export class TabManager {
     }
     if (existing?.dataset.key === next.dataset.key) return;
     existing?.remove();
-    // Before the × so the state sits with the label, not past the close.
-    const close = pill.querySelector(".tab-close");
-    if (close) pill.insertBefore(next, close);
+    // STATE sits before the ACTION cluster (spec badge, split glyph, ×),
+    // never between its members: what the tab IS DOING and what you can DO
+    // to it are different questions and shouldn't interleave. The comma
+    // list resolves to whichever action comes first in document order.
+    const action = pill.querySelector(".spec-badge, .tab-chip-split-glyph, .tab-close");
+    if (action) pill.insertBefore(next, action);
     else pill.appendChild(next);
   }
 

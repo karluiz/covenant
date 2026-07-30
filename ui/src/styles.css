@@ -13807,23 +13807,41 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
 .spec-badge {
   /* Scale of the other pill indicators (7–11px glyphs), not of a button:
      a 28×22 slab in a sidebar pill eats the characters the tab name needs.
-     Still a real button — just without the chrome around it. */
+     Still a real button — just without the chrome around it.
+
+     It lives in the ACTION cluster beside the ×, so it follows the ×'s
+     manners: quiet until you're on the row. A glowing accent crosshair on
+     every tab with a pending spec was the loudest thing on a row whose
+     actual status is a 7px dot — and this is a control, not a status.
+     Still visible when idle (muted), so a pending spec stays discoverable
+     without hovering every tab. */
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  margin-left: 5px;
   padding: 0;
   background: none;
   border: 0;
-  color: var(--accent, #7aa2f7);
-  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent, #7aa2f7) 55%, transparent));
+  color: var(--muted);
+  opacity: 0.75;
+  transition:
+    color 0.12s ease-out,
+    opacity 0.12s ease-out,
+    filter 0.12s ease-out;
   cursor: pointer;
   flex-shrink: 0;
   transition: color 120ms ease, filter 120ms ease;
 }
+/* On the row you're pointing at (or the one you're in), it comes forward. */
+.tab-btn:hover .spec-badge,
+.tab-btn.active .spec-badge {
+  color: var(--accent, #7aa2f7);
+  opacity: 1;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent, #7aa2f7) 55%, transparent));
+}
 .spec-badge:hover {
   color: color-mix(in srgb, var(--accent, #7aa2f7) 80%, white 20%);
+  opacity: 1;
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent, #7aa2f7) 75%, transparent));
 }
 .spec-badge:focus-visible {
@@ -13843,7 +13861,8 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.02em;
-  color: color-mix(in srgb, var(--accent, #7aa2f7) 85%, white 15%);
+  /* Inherits the badge's quiet/loud state instead of pinning accent. */
+  color: currentColor;
   font-variant-numeric: tabular-nums;
 }
 .spec-badge-count:empty { display: none; }
@@ -19810,10 +19829,10 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
 }
 
 /* split tab glyph on tabbar chip (F3) */
+/* ACTION cluster member — the pill's `gap` owns the spacing. */
 .tab-chip-split-glyph {
   display: inline-flex;
   align-items: center;
-  margin-left: 4px;
   opacity: 0.6;
   vertical-align: middle;
   color: currentColor;

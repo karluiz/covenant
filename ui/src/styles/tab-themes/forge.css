@@ -39,3 +39,23 @@ body.tab-style-forge:not(.tabbar-left) .tab-btn.active {
         rgb(var(--ink-rgb) / 0.06) 60%
     );
 }
+
+/* ── STATE · FORGE dialect ──────────────────────────────────────────
+   A billet, not a dot. Forge's whole signature is the heated seam on the
+   active edge, so the state atom is a fragment of that seam: a sharp
+   vertical bar, square corners, no halo unless it's shouting. */
+body.tab-style-forge .tab-state__atom {
+    width: 5px;
+    height: 13px;
+    border-radius: 0;
+}
+/* Hollow still means "stopped, waiting on you" — at bar scale that is a
+   1px outline with the channel showing through. */
+body.tab-style-forge .tab-state[data-state="waiting"] .tab-state__atom,
+body.tab-style-forge .tab-state[data-state="live"] .tab-state__atom {
+    border-width: 1px;
+}
+/* Only attention gets the seam's heat. */
+body.tab-style-forge .tab-state[data-state="attention"] .tab-state__atom {
+    box-shadow: 0 0 9px -1px currentColor;
+}

@@ -1291,3 +1291,41 @@ describe("the tab LEAD slot holds exactly one glyph", () => {
     expect([...pill.children].map((c) => c.className)).toEqual(["tab-lead"]);
   });
 });
+
+describe("the STATE atom lands before the ACTION cluster", () => {
+  // What the tab IS DOING and what you can DO to it are different
+  // questions; interleaving them is how the pill got unreadable in the
+  // first place. Anchoring on .tab-close alone would drop the atom
+  // between the spec badge and the ×.
+  it("inserts before the first action, not between actions", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      mountTabState: (pill: HTMLElement, tab: Record<string, unknown>) => void;
+      blockedSessionIds: Set<string>;
+    };
+    priv.blockedSessionIds.add("s1");
+
+    const pill = document.createElement("div");
+    for (const cls of ["tab-label", "tab-caret", "spec-badge", "tab-close"]) {
+      const el = document.createElement("span");
+      el.className = cls;
+      pill.appendChild(el);
+    }
+
+    priv.mountTabState.call(m, pill, {
+      id: "t",
+      kind: "shell",
+      panes: [fakePane({ sessionId: "s1" })],
+      layout: { kind: "single", activePaneIdx: 0 },
+    });
+
+    expect([...pill.children].map((c) => c.className.split(" ")[0])).toEqual([
+      "tab-label",
+      "tab-caret",
+      "tab-state",
+      "spec-badge",
+      "tab-close",
+    ]);
+    expect(pill.querySelector(".tab-state")?.getAttribute("data-state")).toBe("attention");
+  });
+});
