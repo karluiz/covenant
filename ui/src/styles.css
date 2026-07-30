@@ -602,52 +602,90 @@ body.theme-special::after {
     border-radius: 0;
 }
 
-/* AOM "driving this tab" — a breathing accent dot near the right edge.
-   Chassis-owned: identical across all tab styles. Sits left of the
-   close-× slot so hover-reveal doesn't collide. */
-.tab-btn.tab-aom-active::after {
-    content: "";
-    position: absolute;
-    right: 24px;
-    top: 50%;
-    width: 6px;
-    height: 6px;
-    margin-top: -3px;
+/* ── The tab STATE slot ───────────────────────────────────────────────
+   ONE atom per pill, in flow before the ×, resolved by the ladder in
+   `tabs/tab-state.ts`. It replaced six independent indicators (idle
+   ellipsis, busy glyph, live ring, share dot, AOM dot, escalation dot) —
+   three of them different greens, two absolutely positioned into this
+   same 28px.
+
+   The two laws, so a 7px atom stays readable:
+     · COLOUR is severity — danger > running > accent > ok > muted, always
+       from tokens (hard rule 9). Never a fourth hue.
+     · SHAPE is kind — filled means the system is acting, hollow means it
+       is stopped and waiting on you. Survives light mode and colour
+       blindness, where hue alone does not.
+
+   Tab styles restyle `[data-state]` and nothing else. */
+.tab-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex: 0 0 auto;
+    line-height: 1;
+    /* Hoverable: the tooltip is the only place the states that lost the
+       slot are still named, and pointer-events:none would kill it (which
+       is exactly how the old idle-badge tooltip died). Clicks bubble to
+       the pill and activate the tab as before — only `serving` stops
+       them, to open its port. */
+    pointer-events: auto;
+    cursor: inherit;
+}
+.tab-state__atom {
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
-    animation: tab-aom-breathe 2.4s ease-in-out infinite;
-    pointer-events: none;
-    z-index: 2;
+    background: currentColor;
+    box-sizing: border-box;
 }
-@keyframes tab-aom-breathe {
-    50% {
-        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
-        opacity: 0.75;
-    }
+/* How many states lost the slot. The tooltip names them. */
+.tab-state__n {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.7;
 }
-@media (prefers-reduced-motion: reduce) {
-    .tab-btn.tab-aom-active::after { animation: none; }
+.tab-state--openable {
+    pointer-events: auto;
+    cursor: pointer;
 }
 
-/* AOM excluded — hollow dot, dimmed row. */
+.tab-state[data-state="attention"] { color: var(--danger); }
+.tab-state[data-state="waiting"]   { color: var(--running); }
+.tab-state[data-state="driving"]   { color: var(--accent); }
+.tab-state[data-state="serving"]   { color: var(--ok); }
+.tab-state[data-state="live"]      { color: var(--ok); }
+.tab-state[data-state="shared"]    { color: var(--muted); }
+
+/* Hollow: stopped, waiting on you (or on the app you built here). */
+.tab-state[data-state="waiting"] .tab-state__atom,
+.tab-state[data-state="live"] .tab-state__atom {
+    background: transparent;
+    border: 1.5px solid currentColor;
+}
+
+/* Motion is rationed to the two states that are about YOU. One atom per
+   row, so at most one thing on a row can ever move. */
+.tab-state[data-state="attention"] .tab-state__atom {
+    animation: tab-state-pulse 2s ease-in-out infinite;
+}
+.tab-state[data-state="waiting"] .tab-state__atom {
+    animation: tab-state-breathe 2.4s ease-in-out infinite;
+}
+@keyframes tab-state-pulse {
+    50% { opacity: 0.4; }
+}
+@keyframes tab-state-breathe {
+    50% { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .tab-state__atom { animation: none; }
+}
+
+/* AOM excluded — an absence, so no glyph: just a dimmed row. */
 .tab-btn.tab-aom-excluded {
     opacity: 0.78;
-}
-.tab-btn.tab-aom-excluded::after {
-    content: "";
-    position: absolute;
-    right: 24px;
-    top: 50%;
-    width: 6px;
-    height: 6px;
-    margin-top: -3px;
-    border-radius: 50%;
-    background: transparent;
-    border: 1px solid rgb(var(--ink-rgb) / 0.35);
-    box-sizing: border-box;
-    pointer-events: none;
-    z-index: 2;
 }
 .tab-btn.tab-aom-excluded .tab-label {
     color: color-mix(in srgb, var(--fg) 65%, transparent);
@@ -12958,23 +12996,8 @@ body.tabbar-left .tab-grouped.active
 }
 
 
-@keyframes tab-escalation-pulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
-}
-
-.tab-chip__escalation-dot {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--danger, var(--accent));
-  animation: tab-escalation-pulse 2s ease-in-out infinite;
-  pointer-events: none;
-  z-index: 2;
-}
+/* Escalation used to be its own dot pinned over the close ×. It is now
+   the `attention` rung of the state ladder — see .tab-state. */
 
 /* ── Persona composer modal ─────────────────────────── */
 
@@ -14290,88 +14313,9 @@ button.status-segment.status-tg:focus-visible {
 .status-tg.tg-ok .status-icon { color: #4ade80; }
 .status-tg.tg-error .status-icon { color: #f59e0b; }
 
-/* "Agent idle waiting" indicator: thin pulsing stripe on the tab's left
-   edge instead of a noisy dot. Much calmer when many tabs are in this
-   state at once. */
-/* Idle indicator: an inline amber ellipsis next to the tab label,
-   slowly fading. Reads semantically as "waiting…" without adding any
-   geometry to the pill or moving the eye like the old bottom-edge
-   sweep did. */
-.tab-idle-badge {
-  margin-left: 6px;
-  color: rgba(245, 165, 36, 0.85);
-  font-size: 13px;
-  line-height: 1;
-  letter-spacing: 1px;
-  pointer-events: none;
-  animation: idle-dots-fade 2.4s ease-in-out infinite;
-}
-.tab-idle-badge::before { content: "…"; }
-@keyframes idle-dots-fade {
-  0%, 100% { opacity: 0.25; }
-  50%      { opacity: 0.9;  }
-}
-
-/* Palpitating terminal glyph: a dev server is serving under this tab's
-   process tree (vite/node/cargo/…). Lives on the left of the tab pill. */
-.tab-busy-dot {
-  display: inline-flex;
-  align-items: center;
-  margin-right: 6px;
-  color: var(--ok);
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--ok) 70%, transparent));
-  animation: busy-pulse 1.4s ease-in-out infinite;
-  vertical-align: middle;
-  flex-shrink: 0;
-}
-.tab-busy-dot svg { display: block; }
-/* Only when a port was resolved — the glyph is inert otherwise, and a
-   pointer cursor over a dead affordance is a lie. */
-.tab-busy-dot-openable {
-  cursor: pointer;
-  pointer-events: auto;
-}
-.tab-busy-dot-openable:hover {
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--ok) 85%, transparent));
-}
-@keyframes busy-pulse {
-  0%, 100% { opacity: 0.4; }
-  50%      { opacity: 1;   }
-}
-.tab-live-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
-  border-radius: 50%;
-  background: transparent;
-  border: 1.5px solid #4ade80;
-  box-shadow: 0 0 5px rgba(74, 222, 128, 0.5);
-  animation: live-pulse 2.2s ease-in-out infinite;
-  vertical-align: middle;
-  flex-shrink: 0;
-}
-@keyframes live-pulse {
-  0%, 100% { opacity: 0.45; }
-  50%      { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tab-live-dot { animation: none; opacity: 0.8; }
-}
-
-/* Solid dot: this session's PTY output is being broadcast read-only via
-   Terminal Share. Filled = "broadcasting", vs the live dot's hollow ring. */
-.tab-share-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
-  border-radius: 50%;
-  background: #f97316;
-  box-shadow: 0 0 5px rgba(249, 115, 22, 0.5);
-  vertical-align: middle;
-  flex-shrink: 0;
-}
+/* The idle ellipsis, busy glyph, live ring and share dot that used to
+   live here are now the `waiting` / `serving` / `live` / `shared` rungs of
+   one state atom — see .tab-state near the top of the tab-pill block. */
 
 /* ── Capabilities panel — mirrors #settings-page layout exactly ────── */
 #capabilities-page {

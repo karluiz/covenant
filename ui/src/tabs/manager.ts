@@ -121,7 +121,10 @@ import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
 import { attachTooltip } from "../tooltip/tooltip";
+import type { TooltipContent } from "../tooltip/tooltip";
 import { busyTooltip, busyUrl } from "./busy-tooltip";
+import { resolveTabState, tabStateLabel } from "./tab-state";
+import type { TabStateInput, TabStateKind } from "./tab-state";
 import {
   GROUP_FINDINGS_EVENT,
   groupFindings,
@@ -804,39 +807,6 @@ type DragSource =
 
 /// Last path segment of a cwd, for the cold-start tab title. Empty/unknown
 /// cwd falls back to "shell".
-/// Badge for "a dev server is serving under this tab": a small pulsing
-/// terminal glyph on the left of the pill. `data-proc` lets the render
-/// path skip rebuilding when the server name hasn't changed.
-function makeBusyBadge(pane: Pane, onOpen: (url: string) => void): HTMLElement {
-  const el = document.createElement("span");
-  el.className = "tab-busy-dot";
-  el.dataset.proc = pane.busyProc ?? "";
-  el.innerHTML = Icons.terminal({ size: 11, strokeWidth: 2.4 });
-  // Thunk: uptime keeps moving and the port can arrive a scan after the
-  // name, but the badge is only rebuilt when the process name changes.
-  attachTooltip(el, () =>
-    busyTooltip({
-      proc: pane.busyProc ?? "",
-      port: pane.busyPort,
-      pid: pane.busyPid,
-      since: pane.busySince,
-      cwd: pane.cwd || null,
-      nowMs: Date.now(),
-    }),
-  );
-  if (pane.busyPort !== null) {
-    el.classList.add("tab-busy-dot-openable");
-    el.addEventListener("click", (e) => {
-      // A click anywhere in the pill activates the tab; this one means
-      // "open the thing that is serving", so it stops there.
-      e.stopPropagation();
-      const port = pane.busyPort;
-      if (port !== null) onOpen(busyUrl(port));
-    });
-  }
-  return el;
-}
-
 export function cwdBasename(cwd: string | null | undefined): string {
   const seg = (cwd ?? "").split("/").filter(Boolean).pop();
   return seg && seg.length > 0 ? seg : "shell";
@@ -2673,10 +2643,7 @@ export class TabManager {
     for (const tab of this.tabs) {
       const pane = activePane(tab);
       if (!pane.sessionId || !changed.has(pane.sessionId)) continue;
-      const pill = this.tabbarHost.querySelector<HTMLElement>(
-        `.tab-btn[data-tab-id="${tab.id}"]`,
-      );
-      if (pill) this.applyEscalationDot(pill, next.has(pane.sessionId));
+      this.renderTabState(tab);
     }
   }
 
@@ -2729,10 +2696,10 @@ export class TabManager {
         sinceMs: Date.now() - event.quiet_ms,
         promptText: event.prompt_text,
       };
-      this.renderTabBadge(tab);
+      this.renderTabState(tab);
     } else if (event.kind === "agent_resumed") {
       p.idleAgent = null;
-      this.renderTabBadge(tab);
+      this.renderTabState(tab);
     } else if (event.kind === "foreground_changed") {
       // OSC 133 command detection misses launchers that exec through
       // wrapper scripts (Cursor's `agent` → bundled node): fall back to
@@ -2765,11 +2732,11 @@ export class TabManager {
       p.busyProc = event.busy_proc;
       p.busyPort = event.busy_port;
       p.busyPid = event.busy_pid;
-      this.renderTabBusyDot(tab);
+      this.renderTabState(tab);
     } else if (event.kind === "cwd_changed") {
       p.cwd = event.cwd ?? "";
       this.onAnyTabContextChange?.(event.cwd);
-      this.renderTabLiveDot(tab);
+      this.renderTabState(tab);
       this.scheduleSave();
       if (isFront) {
         this.onActiveContextChange?.(event.cwd);
@@ -2778,91 +2745,133 @@ export class TabManager {
     }
   }
 
-  /// Mount/remove the pulsing "agent idle waiting" badge on a tab's
-  /// chip. Idempotent — always strips any prior badge before re-adding,
-  /// so repeated agent_idle_waiting events don't stack DOM nodes.
-  private renderTabBadge(tab: Tab): void {
-    const pill = this.tabbarHost.querySelector<HTMLElement>(
-      `.tab-btn[data-tab-id="${tab.id}"]`,
-    );
-    if (!pill) return;
-    const existing = pill.querySelector(".tab-idle-badge");
-    if (existing) existing.remove();
-    const idleAgent = activePane(tab).idleAgent;
-    if (idleAgent) {
-      const badge = document.createElement("span");
-      badge.className = "tab-idle-badge";
-      attachTooltip(badge, idleAgent.promptText ?? `${idleAgent.agent} waiting`);
-      // Insert before the close button so the pulse sits next to the
-      // label, not past the X.
-      const close = pill.querySelector(".tab-close");
-      if (close) pill.insertBefore(badge, close);
-      else pill.appendChild(badge);
-    }
-  }
-
-  /// Mount/remove the palpitating "app running" dot — green pulse
-  /// next to the tab label when a non-shell process occupies the PTY's
-  /// foreground pgrp (npm, node, python, cargo, vite, …). Idempotent.
-  private renderTabBusyDot(tab: Tab): void {
-    const pill = this.tabbarHost.querySelector<HTMLElement>(
-      `.tab-btn[data-tab-id="${tab.id}"]`,
-    );
-    if (!pill) return;
-    const existing = pill.querySelector(".tab-busy-dot");
-    // busyProc is backend-discriminated (listen-checked dev server in the
-    // tab's process tree, agent CLIs excluded), so executor tabs wear the
-    // dot too — it means "an app is serving under here", not "agent busy".
-    const paneB = activePane(tab);
-    if (paneB.busyProc) {
-      // Keyed on name + "is it openable": the port can land a scan after
-      // the name, and that transition adds the click handler.
-      const key = `${paneB.busyProc}:${paneB.busyPort ?? ""}`;
-      if (existing instanceof HTMLElement && existing.dataset.key === key) return;
-      existing?.remove();
-      // Prepend so it sits before the label (left side of the tab).
-      const badge = makeBusyBadge(paneB, (url) => void this.openBrowserTab(url));
-      badge.dataset.key = key;
-      pill.insertBefore(badge, pill.firstChild);
-    } else if (existing) {
-      existing.remove();
-    }
-  }
-
   private isLiveWorktree(tab: Tab): boolean {
     return cwdUnderRoot(activePane(tab).cwd, this.liveWorktreeRoot);
   }
 
-  /// Mount/remove the hollow-ring "this worktree built the running app"
-  /// dot. Idempotent — safe to call on rebuild and on cwd_changed. Dev
-  /// only (liveWorktreeRoot is null in release).
-  private renderTabLiveDot(tab: Tab): void {
+  /// True when an operator is autonomously typing into this pane — global
+  /// AOM with the pane not excluded, or single-tab autonomy (a
+  /// teammate-confirmed task lights up without flipping the global toggle).
+  private isDriving(p: Pane): boolean {
+    if (!p.operatorEnabled) return false;
+    const aomOn = this.aomBanner?.isOn() ?? false;
+    return (aomOn && !p.aomExcluded) || p.operatorLive || p.operatorSolo === true;
+  }
+
+  /// Every state flag for a tab, read in ONE place so the incremental and
+  /// full render paths cannot disagree about what the pill should say.
+  private tabStateInput(tab: Tab): TabStateInput {
+    const p = activePane(tab);
+    return {
+      blocked: p.sessionId !== null && this.blockedSessionIds.has(p.sessionId),
+      idleAgent: p.idleAgent !== null,
+      driving: this.isDriving(p),
+      // Backend-discriminated: busyProc is a listen-checked dev server in
+      // this tab's process tree, agent CLIs excluded. So executor tabs get
+      // it too — it means "an app is serving under here", not "agent busy".
+      serving: p.busyProc !== null,
+      liveWorktree: this.isLiveWorktree(tab),
+      shared: p.sessionId !== null && isTermShared(p.sessionId),
+    };
+  }
+
+  /// The state slot's contents, or null when the tab has nothing to say.
+  /// `data-state` is the whole contract with the stylesheets: tab themes
+  /// restyle the five states and never touch this function.
+  private makeTabStateAtom(tab: Tab): HTMLElement | null {
+    const pane = activePane(tab);
+    const st = resolveTabState(this.tabStateInput(tab));
+    if (!st.kind) return null;
+
+    const el = document.createElement("span");
+    el.className = "tab-state";
+    el.dataset.state = st.kind;
+    // Lets the incremental path skip rebuilding an unchanged atom. Port is
+    // in the key because it can land a scan after the process name, and
+    // that transition is what adds the click handler.
+    el.dataset.key = `${st.all.join(",")}:${pane.busyPort ?? ""}`;
+
+    const atom = document.createElement("span");
+    atom.className = "tab-state__atom";
+    el.appendChild(atom);
+    if (st.extra > 0) {
+      const n = document.createElement("span");
+      n.className = "tab-state__n";
+      n.textContent = `+${st.extra}`;
+      el.appendChild(n);
+    }
+    // Thunk: uptime keeps moving, and the tooltip is the only place the
+    // states that lost the slot are still named.
+    attachTooltip(el, () => this.tabStateTooltip(pane, st.all));
+
+    // ponytail: `serving` is the one state that is also a control — the old
+    // busy glyph opened the port on click. Kept on the atom so nothing
+    // regresses, which means the door hides while a louder state owns the
+    // slot. Move it to a real ACTION slot if that ever bites.
+    if (st.kind === "serving" && pane.busyPort !== null) {
+      el.classList.add("tab-state--openable");
+      el.addEventListener("click", (e) => {
+        // A click anywhere in the pill activates the tab; this one means
+        // "open the thing that is serving", so it stops there.
+        e.stopPropagation();
+        const port = pane.busyPort;
+        if (port !== null) void this.openBrowserTab(busyUrl(port));
+      });
+    }
+    return el;
+  }
+
+  /// Winning state as the title, the states it outranked as the meta line.
+  private tabStateTooltip(pane: Pane, all: TabStateKind[]): TooltipContent {
+    const top = all[0];
+    if (!top) return "";
+    const others = all.slice(1).map(tabStateLabel);
+    const meta = others.length > 0 ? others.join(" · ") : undefined;
+    if (top === "serving" && pane.busyProc) {
+      const tip = busyTooltip({
+        proc: pane.busyProc,
+        port: pane.busyPort,
+        pid: pane.busyPid,
+        since: pane.busySince,
+        cwd: pane.cwd || null,
+        nowMs: Date.now(),
+      });
+      if (typeof tip === "string") return tip;
+      return { ...tip, meta: [tip.meta, meta].filter(Boolean).join(" · ") || undefined };
+    }
+    const title =
+      top === "waiting"
+        ? (pane.idleAgent?.promptText ?? `${pane.idleAgent?.agent ?? "agent"} waiting`)
+        : tabStateLabel(top);
+    return { title, meta };
+  }
+
+  /// Mount/replace/remove the state atom on a pill. Idempotent, and cheap
+  /// when nothing changed — this is the single render path that replaced
+  /// the idle badge, busy dot, live dot, share dot, AOM dot and escalation
+  /// dot. `pill` need not be in the document yet.
+  private mountTabState(pill: HTMLElement, tab: Tab): void {
+    const existing = pill.querySelector<HTMLElement>(".tab-state");
+    const next = this.makeTabStateAtom(tab);
+    if (!next) {
+      existing?.remove();
+      return;
+    }
+    if (existing?.dataset.key === next.dataset.key) return;
+    existing?.remove();
+    // Before the × so the state sits with the label, not past the close.
+    const close = pill.querySelector(".tab-close");
+    if (close) pill.insertBefore(next, close);
+    else pill.appendChild(next);
+  }
+
+  /// Re-resolve a tab's state atom in place. No-op when the tab isn't in
+  /// the strip (folded groups still have pills; hibernated tabs don't).
+  private renderTabState(tab: Tab): void {
     const pill = this.tabbarHost.querySelector<HTMLElement>(
       `.tab-btn[data-tab-id="${tab.id}"]`,
     );
-    if (!pill) return;
-    const existing = pill.querySelector(".tab-live-dot");
-    if (this.isLiveWorktree(tab)) {
-      if (existing instanceof HTMLElement) return;
-      const dot = document.createElement("span");
-      dot.className = "tab-live-dot";
-      attachTooltip(dot, "The running app was built from this worktree");
-      pill.insertBefore(dot, pill.firstChild);
-    } else if (existing) {
-      existing.remove();
-    }
-  }
-
-  private applyEscalationDot(pill: HTMLElement, blocked: boolean): void {
-    const existing = pill.querySelector(".tab-chip__escalation-dot");
-    if (blocked && !existing) {
-      const dot = document.createElement("span");
-      dot.className = "tab-chip__escalation-dot";
-      attachTooltip(dot, "Operator escalated — needs your input");
-      pill.appendChild(dot);
-    } else if (!blocked && existing) {
-      existing.remove();
-    }
+    if (pill) this.mountTabState(pill, tab);
   }
 
   /// Refresh the in-memory operator cache from the backend. Should be
@@ -8893,28 +8902,18 @@ export class TabManager {
       }
     }
 
-    // Per-tab Operator badge. Reintroduced after the spec
-    // 2026-05-04-aom-exclusion-visibility — during AOM the user needs
-    // an at-a-glance view of which tabs are getting hijacked vs which
-    // are kept manual. The badge is interactive (toggles exclusion)
-    // only while AOM is running; otherwise it's decorative.
-    // Operator/AOM state is signalled entirely by the pill border now:
-    //   - operator on, AOM off  → colored tab border (per-tab color)
-    //   - operator on, AOM on, driving this tab → animated gradient ring
-    //   - operator on, AOM on, excluded → muted/dashed "disabled" ring
-    // Toggling exclusion happens via the context menu.
+    // "An operator is driving here" is a STATE — it lives in the state
+    // atom (see makeTabStateAtom), not in a class of its own. Exclusion is
+    // the opposite: an absence, carried by dimming the row, because a glyph
+    // for "nothing is happening here" is noise. Toggling it happens via the
+    // context menu.
     const pillPane = activePane(tab);
-    if (pillPane.operatorEnabled) {
-      const aomOn = this.aomBanner?.isOn() ?? false;
-      const excluded = pillPane.aomExcluded;
-      // Single-tab AOM: a tab where the operator is live counts as
-      // "AOM driving here" even when the global banner is off — that's
-      // how teammate-confirmed tasks light up without forcing the global
-      // toggle on every other tab.
-      const drivingHere =
-        (aomOn && !excluded) || pillPane.operatorLive || pillPane.operatorSolo === true;
-      if (drivingHere) pill.classList.add("tab-aom-active");
-      else if (aomOn && excluded) pill.classList.add("tab-aom-excluded");
+    if (
+      pillPane.operatorEnabled &&
+      pillPane.aomExcluded &&
+      (this.aomBanner?.isOn() ?? false)
+    ) {
+      pill.classList.add("tab-aom-excluded");
     }
 
     // Operator chip renders to the LEFT of the title so the avatar is the
@@ -9118,54 +9117,11 @@ export class TabManager {
     // ── Drag and drop ──
     this.installTabPointerDrag(pill, tab.id);
 
-    // 3.14 — re-apply escalation dot on (re)render so a strip rebuild
-    // doesn't drop it while the session is still blocked.
-    const pillPaneLate = activePane(tab);
-    if (pillPaneLate.sessionId && this.blockedSessionIds.has(pillPaneLate.sessionId)) {
-      this.applyEscalationDot(pill, true);
-    }
-
-    // Re-apply busy dot on rebuild so tab activation (which rebuilds the
-    // strip) doesn't drop it until the next foreground_changed event.
-    // Pill isn't in the DOM yet here — attach directly.
-    if (pillPaneLate.busyProc) {
-      const badge = makeBusyBadge(pillPaneLate, (url) => void this.openBrowserTab(url));
-      badge.dataset.key = `${pillPaneLate.busyProc}:${pillPaneLate.busyPort ?? ""}`;
-      pill.insertBefore(badge, pill.firstChild);
-    }
-
-    // Live-worktree dot: this worktree is what the running dev app was
-    // built from. Hollow ring so it reads distinct from the filled
-    // busy-proc dot. Pill isn't in the DOM yet — attach directly.
-    if (this.isLiveWorktree(tab)) {
-      const liveDot = document.createElement("span");
-      liveDot.className = "tab-live-dot";
-      attachTooltip(liveDot, "The running app was built from this worktree");
-      pill.insertBefore(liveDot, pill.firstChild);
-    }
-
-    // Share dot: session is broadcast read-only. Solid, distinct from the
-    // hollow live-worktree ring. Same insertBefore pattern — pill isn't
-    // in the DOM yet.
-    const shareSid = activePane(tab).sessionId;
-    if (shareSid && isTermShared(shareSid)) {
-      const dot = document.createElement("span");
-      dot.className = "tab-share-dot";
-      attachTooltip(dot, "Sharing read-only");
-      pill.insertBefore(dot, pill.firstChild);
-    }
-
-    // Same idea for the agent-idle badge: re-attach on rebuild, before
-    // the close button so it sits beside the label.
-    if (pillPaneLate.idleAgent) {
-      const badge = document.createElement("span");
-      badge.className = "tab-idle-badge";
-      attachTooltip(
-        badge,
-        pillPaneLate.idleAgent.promptText ?? `${pillPaneLate.idleAgent.agent} waiting`,
-      );
-      pill.insertBefore(badge, close);
-    }
+    // State atom. A strip rebuild (tab activation rebuilds it) must not
+    // drop what the tab is doing, so it re-resolves here instead of
+    // waiting for the next event. Pill isn't in the document yet — that's
+    // fine, mountTabState only needs the close button as an anchor.
+    this.mountTabState(pill, tab);
 
     return pill;
   }
