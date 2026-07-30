@@ -43,6 +43,7 @@ mod git_tools;
 mod group_supervision;
 mod history_import;
 mod lsp_commands;
+mod mac_render;
 mod mcp_server;
 mod memory;
 mod mission_pair;
@@ -5624,6 +5625,13 @@ pub fn run() {
                 if let Err(e) = win.hide_menu() {
                     tracing::warn!(?e, "could not hide the in-window menubar");
                 }
+            }
+
+            // Keep WebKit rendering when AppKit thinks the window is occluded.
+            // Measured: after a tab switch the first frame took 1.3-2.0s while
+            // the event loop stayed healthy — frames suspended, not work.
+            if let Some(main_win) = app.get_webview_window("main") {
+                mac_render::keep_rendering_while_occluded(&main_win);
             }
 
             // Fullscreen-aware notch: when the main Covenant window
