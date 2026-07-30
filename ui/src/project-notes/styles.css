@@ -171,7 +171,71 @@ body.tabbar-left .pn-panel {
   overflow: hidden;
 }
 .pn-note-source { font-size: var(--fs-meta); color: var(--fg-muted, #8a8aa8); margin-top: 2px; }
-.pn-note-editor { width: 100%; margin-top: 6px; font: inherit; }
+/* Inline note editor — same chrome as the composer above the list.
+   While it is open the row drops its hover actions and clamped body. */
+.pn-note-card.is-editing { cursor: default; padding-right: var(--rail-pad-x); }
+.pn-note-card.is-editing .rail-row-actions,
+.pn-note-card.is-editing .pn-note-body { display: none; }
+.pn-note-editor { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.pn-note-editor-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--pn-subtle-1);
+  color: var(--text-primary);
+  border: 1px solid var(--border, #2a2d35);
+  border-radius: 0;
+  padding: 8px 10px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  transition: border-color 0.12s ease-out;
+}
+.pn-note-editor-input:focus {
+  outline: none;
+  border-color: var(--pn-accent, var(--accent, #6aa9ff));
+}
+.pn-note-editor-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.pn-note-editor-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-meta);
+  color: var(--fg-muted, #8a8aa8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pn-note-editor-actions button {
+  padding: 5px 12px;
+  border-radius: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-meta);
+  line-height: 1;
+  transition: background 0.12s ease-out, border-color 0.12s ease-out, filter 0.12s ease-out;
+}
+.pn-note-cancel {
+  background: transparent;
+  color: var(--fg-dim);
+  border: 1px solid var(--border, #2a2d35);
+}
+.pn-note-cancel:hover {
+  color: var(--text-primary);
+  background: rgb(var(--ink-rgb) / 0.06);
+  border-color: rgb(var(--ink-rgb) / 0.2);
+}
+.pn-note-save {
+  background: var(--pn-accent, var(--accent));
+  color: var(--bg);
+  border: 1px solid transparent;
+  font-weight: 500;
+}
+.pn-note-save:hover { filter: brightness(1.08); }
 
 /* ── Docs tab ────────────────────────────────────────────────────── */
 .pn-docs-tab { display: flex; flex-direction: column; height: 100%; min-height: 0; }
