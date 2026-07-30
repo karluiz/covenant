@@ -26,6 +26,7 @@
 //! carries a supervisor identity into the prompt).
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -244,6 +245,60 @@ pub(crate) fn decides(registry: &OperatorRegistry, group_id: &str) -> bool {
     registry
         .group_supervision(group_id)
         .is_some_and(|s| s.intervene)
+}
+
+/// Two or more supervised sessions standing on one git working tree.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) struct Collision {
+    pub root: PathBuf,
+    pub sessions: Vec<SessionId>,
+}
+
+/// Awareness, the whole rule: two executors editing one working tree
+/// clobber each other regardless of branch, so no supervisor may hold
+/// decision authority over them. Pure — takes already-resolved toplevels
+/// so this is testable without git. Sessions whose cwd is not inside a
+/// repo are simply absent from `roots` and cannot collide.
+///
+/// Returns the FIRST colliding root by iteration order; one collision is
+/// enough to brake the whole group, so finding all of them buys nothing.
+// ponytail: one rule (shared root). Protected branch and dirty-tree
+// signals were considered and dropped as noise — see the design doc.
+#[allow(dead_code)]
+pub(crate) fn terrain_collision(roots: &[(SessionId, PathBuf)]) -> Option<Collision> {
+    let mut by_root: HashMap<&PathBuf, Vec<SessionId>> = HashMap::new();
+    for (sid, root) in roots {
+        by_root.entry(root).or_default().push(*sid);
+    }
+    // Sort for a stable answer: HashMap iteration order is not.
+    let mut hits: Vec<(&PathBuf, Vec<SessionId>)> = by_root
+        .into_iter()
+        .filter(|(_, sessions)| sessions.len() >= 2)
+        .collect();
+    hits.sort_by(|a, b| a.0.cmp(b.0));
+    let (root, mut sessions) = hits.into_iter().next()?;
+    sessions.sort_by_key(|s| s.0);
+    Some(Collision {
+        root: root.clone(),
+        sessions,
+    })
+}
+
+/// What to announce this tick, given the terrain and what we already
+/// announced. `Some(true)` = brake now, `Some(false)` = re-arm now,
+/// `None` = nothing changed, stay quiet.
+///
+/// A group the user downgraded by hand is never in the braked set, so it
+/// is never re-armed by this path — we only restore autonomy we ourselves
+/// suspended.
+#[allow(dead_code)]
+pub(crate) fn brake_transition(colliding: bool, already_braked: bool) -> Option<bool> {
+    match (colliding, already_braked) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        _ => None,
+    }
 }
 
 /// Which events wake the supervisor. A zero exit is not news, and an
@@ -672,5 +727,52 @@ mod tests {
         // A cross-tab failure pattern is the watcher's alone, either way.
         assert!(watcher_owns(&TriggerKind::Failure, true));
         assert!(watcher_owns(&TriggerKind::Failure, false));
+    }
+
+    #[test]
+    fn distinct_worktrees_do_not_collide() {
+        let a = SessionId::new();
+        let b = SessionId::new();
+        let roots = vec![
+            (a, PathBuf::from("/repo/.covenant/worktrees/one")),
+            (b, PathBuf::from("/repo/.covenant/worktrees/two")),
+        ];
+        assert!(terrain_collision(&roots).is_none());
+    }
+
+    #[test]
+    fn shared_worktree_collides_and_names_its_sessions() {
+        let a = SessionId::new();
+        let b = SessionId::new();
+        let c = SessionId::new();
+        let roots = vec![
+            (a, PathBuf::from("/repo")),
+            (b, PathBuf::from("/repo/.covenant/worktrees/one")),
+            (c, PathBuf::from("/repo")),
+        ];
+        let hit = terrain_collision(&roots).expect("two sessions share /repo");
+        assert_eq!(hit.root, PathBuf::from("/repo"));
+        assert_eq!(hit.sessions.len(), 2);
+        assert!(hit.sessions.contains(&a));
+        assert!(hit.sessions.contains(&c));
+    }
+
+    #[test]
+    fn a_lone_session_never_collides() {
+        let roots = vec![(SessionId::new(), PathBuf::from("/repo"))];
+        assert!(terrain_collision(&roots).is_none());
+    }
+
+    #[test]
+    fn brake_transition_fires_once_and_rearms_once() {
+        // Colliding, not yet braked → brake.
+        assert_eq!(brake_transition(true, false), Some(true));
+        // Still colliding, already braked → say nothing.
+        assert_eq!(brake_transition(true, true), None);
+        // Clean again, was braked → re-arm.
+        assert_eq!(brake_transition(false, true), Some(false));
+        // Clean, never braked → say nothing (never re-arms a group the
+        // user downgraded by hand).
+        assert_eq!(brake_transition(false, false), None);
     }
 }
