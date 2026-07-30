@@ -8,6 +8,8 @@
 //   Shift+Enter   → previous match
 //   Esc / blur ✕  → close (clears highlights)
 //   ⌥ buttons     → prev/next siblings of the input, mirrors macOS Terminal
+//   Exact         → whole-word + case-sensitive; off = partial (substring,
+//                   case-insensitive). Sticks for the life of the tab.
 
 import type { Terminal } from "@xterm/xterm";
 import type { SearchAddon, ISearchOptions } from "@xterm/addon-search";
@@ -61,6 +63,10 @@ export class TerminalFinder {
         <span class="term-finder__counter" aria-live="polite"></span>
         <button class="term-finder__clear" type="button" aria-label="Clear" tabindex="-1">×</button>
       </div>
+      <button class="term-finder__exact" data-act="exact" type="button"
+              aria-pressed="false" aria-label="Exact match (whole word, case sensitive)">Exact</button>
+      <button class="term-finder__exact" data-act="regex" type="button"
+              aria-pressed="false" aria-label="Regular expression">.*</button>
       <div class="term-finder__nav">
         <button class="term-finder__btn" data-act="prev" type="button" aria-label="Previous match" title="Previous (${formatChord(["shift", "enter"])})">‹</button>
         <button class="term-finder__btn" data-act="next" type="button" aria-label="Next match" title="Next (${formatChord(["enter"])})">›</button>
@@ -105,6 +111,15 @@ export class TerminalFinder {
       "click",
       () => this.next(+1),
     );
+    (this.root.querySelector('[data-act="exact"]') as HTMLElement).addEventListener(
+      "click",
+      () => this.setExact(!this.isExact()),
+    );
+    (this.root.querySelector('[data-act="regex"]') as HTMLElement).addEventListener(
+      "click",
+      () => this.setRegex(!this.opts.regex),
+    );
+    this.renderToggles();
     (this.root.querySelector(".term-finder__done") as HTMLElement).addEventListener(
       "click",
       () => this.close(),
@@ -153,6 +168,34 @@ export class TerminalFinder {
     this.root.remove();
   }
 
+  isExact(): boolean {
+    return !!this.opts.wholeWord && !!this.opts.caseSensitive;
+  }
+
+  setExact(on: boolean): void {
+    this.opts.wholeWord = on;
+    this.opts.caseSensitive = on;
+    this.renderToggles();
+    this.search("incremental");
+  }
+
+  setRegex(on: boolean): void {
+    this.opts.regex = on;
+    this.renderToggles();
+    this.search("incremental");
+  }
+
+  private renderToggles(): void {
+    for (const [act, on] of [
+      ["exact", this.isExact()],
+      ["regex", !!this.opts.regex],
+    ] as const) {
+      const btn = this.root.querySelector(`[data-act="${act}"]`) as HTMLElement;
+      btn.setAttribute("aria-pressed", String(on));
+      btn.classList.toggle("is-on", on);
+    }
+  }
+
   private onKeyDown(e: KeyboardEvent): void {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -186,14 +229,29 @@ export class TerminalFinder {
     }
     // Incremental: addon highlights everything; we don't need to
     // call findNext explicitly — onDidChangeResults fires regardless.
-    this.addon.findNext(q, { ...this.opts });
+    this.run(() => this.addon.findNext(q, { ...this.opts }));
   }
 
   private next(direction: 1 | -1): void {
     const q = this.input.value;
     if (!q) return;
-    if (direction > 0) this.addon.findNext(q, { ...this.opts });
-    else this.addon.findPrevious(q, { ...this.opts });
+    this.run(() =>
+      direction > 0
+        ? this.addon.findNext(q, { ...this.opts })
+        : this.addon.findPrevious(q, { ...this.opts }),
+    );
+  }
+
+  /** A half-typed regex ("foo(") throws inside the addon — show it as
+   * "no match" instead of letting it escape into the keydown handler. */
+  private run(fn: () => void): void {
+    try {
+      fn();
+    } catch {
+      this.resultDecorations = { resultIndex: -1, resultCount: 0 };
+      this.renderCounter();
+      this.root.classList.add("term-finder--nomatch");
+    }
   }
 
   private renderCounter(): void {
