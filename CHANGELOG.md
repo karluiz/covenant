@@ -6,6 +6,38 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.9 — Candidate fix for the tab-switch freeze
+
+### Fixed
+
+- **WebKit keeps rendering when macOS reports the window occluded**: the first
+  candidate fix for the tab-switch freeze, and the first change in this
+  investigation aimed at a *measured* cause rather than a guess. Thirty-seven
+  real switches recorded by Vitals established the shape: after the switch work
+  completes in 11-22ms, the **first animation frame takes 1.3-2.0s to arrive** —
+  `frame1Ms` accounts for essentially the whole `repaint` — while the event loop
+  stays healthy, with `gapStarvedMs` at 5-137ms against a two-second gap.
+  Punctual timers plus a dead `requestAnimationFrame` rules out process-level
+  throttling (App Nap would slow the timers too) and rules out our own work:
+  nothing was computing. It tracks idleness, not load — slow switches follow a
+  median 18s without activity versus 6s for fast ones (worst case 122s), and the
+  slowest sample of all had `busyTabs` 0 with `writeBytesLast5s` 0, total
+  silence. That is WKWebView suspending rendering updates when AppKit reports
+  the window occluded, which does not resume promptly.
+  `_setWindowOcclusionDetectionEnabled:` disables it; the call is private API, so
+  it is gated on `respondsToSelector:` and degrades to a logged no-op if Apple
+  renames it (`crates/app/src/mac_render.rs`).
+
+  **This is a candidate, not a confirmed fix.** The regression test is already in
+  the product: the Vitals `repaint` tail — samples over 900ms, roughly a third of
+  switches before this release — has to flatten. If it does not, the change comes
+  back out rather than staying as cargo cult.
+
+  Ruled out by data along the way, for the record: `activate()`'s own JS
+  (11-22ms), click queue delay (7-12ms), geometry drift (`colsDelta` 0), viewport
+  size (`cells` uncorrelated), main-thread starvation, occlusion as reported by
+  the page visibility API (zero discarded samples), and concurrent agent output.
+
 ## v0.11.8 — Tab pills speak one state; watch tasks report decisions
 
 ### Added
