@@ -427,6 +427,79 @@ pub fn reclaim_worktrees(cwd: &Path, paths: Vec<String>) -> Result<Vec<ReclaimOu
     Ok(outcomes)
 }
 
+/// Merges a worktree's branch into the default branch (`--no-ff`, run in the
+/// MAIN checkout) and then reclaims the worktree via `reclaim_worktrees`.
+///
+/// Every precondition is re-derived here from a fresh `repo_summary` — the
+/// UI's gating is advisory only. On merge conflict the merge is aborted and
+/// both trees are left exactly as they were.
+pub fn merge_and_end(cwd: &Path, worktree_path: &str) -> Result<ReclaimOutcome, String> {
+    let summary = repo_summary(cwd)?;
+    let target = canonical_or_self(Path::new(worktree_path));
+    let wt = summary
+        .worktrees
+        .iter()
+        .find(|w| canonical_or_self(Path::new(&w.path)) == target)
+        .ok_or_else(|| "unknown worktree".to_string())?;
+    let main = summary
+        .worktrees
+        .iter()
+        .find(|w| w.is_main)
+        .ok_or_else(|| "no main worktree reported by git".to_string())?;
+
+    if wt.is_main {
+        return Err("refusing to merge the main worktree into itself".into());
+    }
+    let branch = wt
+        .branch
+        .clone()
+        .ok_or_else(|| "worktree is on a detached HEAD".to_string())?;
+    if branch == summary.default_branch {
+        return Err(format!(
+            "worktree is already on \"{}\"",
+            summary.default_branch
+        ));
+    }
+    if wt.dirty_count > 0 {
+        return Err(format!(
+            "\"{branch}\" has {} uncommitted change(s) — commit them first",
+            wt.dirty_count
+        ));
+    }
+    if let Some(reason) = &wt.locked {
+        return Err(format!("worktree is locked: {reason}"));
+    }
+
+    let main_root = PathBuf::from(&main.path);
+    let main_branch = git(&main_root, &["branch", "--show-current"])?;
+    let main_branch = main_branch.trim();
+    if main_branch != summary.default_branch {
+        return Err(format!(
+            "main checkout is on \"{main_branch}\", not \"{}\"",
+            summary.default_branch
+        ));
+    }
+    if main.dirty_count > 0 {
+        return Err(format!(
+            "main checkout has {} uncommitted change(s)",
+            main.dirty_count
+        ));
+    }
+
+    if let Err(e) = git(&main_root, &["merge", "--no-ff", "--no-edit", &branch]) {
+        // Abort whether or not a merge is actually in progress; a failed
+        // pre-merge check leaves nothing to abort and the abort just errors.
+        let _ = git(&main_root, &["merge", "--abort"]);
+        return Err(format!("merge failed: {e}"));
+    }
+
+    let outcomes = reclaim_worktrees(cwd, vec![wt.path.clone()])?;
+    outcomes
+        .into_iter()
+        .next()
+        .ok_or_else(|| "reclaim returned no outcome".to_string())
+}
+
 /// Creates a worktree for `slug` under the canonical root and returns its path.
 ///
 /// `base` defaults to `origin/<default branch>` when that ref resolves,
@@ -2994,6 +3067,88 @@ index e69de29..0cfbf08 100644
             branches.lines().any(|l| l.trim() == "orphan-branch"),
             "branch must survive an orphan reclaim — it may be the only copy of unmerged work"
         );
+    }
+
+    /// Worktree with one committed change on a branch; returns (tmp, main_dir, wt_dir).
+    fn repo_with_feature_worktree() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let main = tmp.path().join("repo");
+        std::fs::create_dir_all(&main).unwrap();
+        init_repo(&main);
+        // Sibling of the repo, not nested inside it — a nested checkout shows
+        // up as an untracked dir in main and trips the clean-main precheck.
+        let wt = tmp.path().join("feat");
+        git_run(&main, &["worktree", "add", "-q", "-b", "feat", wt.to_str().unwrap()]);
+        std::fs::write(wt.join("feature.txt"), "new\n").unwrap();
+        git_run(&wt, &["add", "."]);
+        git_run(&wt, &["commit", "-q", "-m", "feat: work"]);
+        (tmp, main, wt)
+    }
+
+    #[test]
+    fn merge_and_end_merges_no_ff_and_reclaims() {
+        let (_tmp, main, wt) = repo_with_feature_worktree();
+
+        let out = merge_and_end(&main, wt.to_str().unwrap()).unwrap();
+        assert!(out.removed, "worktree should be reclaimed: {:?}", out.reason);
+
+        // Merge commit exists on main with the conventional message.
+        let subject = git(&main, &["log", "-1", "--format=%s"]).unwrap();
+        assert_eq!(subject.trim(), "Merge branch 'feat'");
+        // Merged content is present, checkout and branch are gone.
+        assert!(main.join("feature.txt").exists());
+        assert!(!wt.exists());
+        assert!(git(&main, &["rev-parse", "--verify", "refs/heads/feat"]).is_err());
+    }
+
+    #[test]
+    fn merge_and_end_refuses_dirty_worktree() {
+        let (_tmp, main, wt) = repo_with_feature_worktree();
+        std::fs::write(wt.join("wip.txt"), "uncommitted\n").unwrap();
+
+        let err = merge_and_end(&main, wt.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("uncommitted"), "got: {err}");
+        assert!(wt.exists());
+    }
+
+    #[test]
+    fn merge_and_end_refuses_dirty_main_checkout() {
+        let (_tmp, main, wt) = repo_with_feature_worktree();
+        std::fs::write(main.join("tracked.txt"), "local edit\n").unwrap();
+
+        let err = merge_and_end(&main, wt.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("main checkout"), "got: {err}");
+        assert!(wt.exists());
+    }
+
+    #[test]
+    fn merge_and_end_conflict_aborts_and_leaves_both_trees_intact() {
+        let (_tmp, main, wt) = repo_with_feature_worktree();
+        // Conflicting edits to the same file on both branches.
+        std::fs::write(wt.join("tracked.txt"), "feature version\n").unwrap();
+        git_run(&wt, &["commit", "-aqm", "feat: edit tracked"]);
+        std::fs::write(main.join("tracked.txt"), "main version\n").unwrap();
+        git_run(&main, &["commit", "-aqm", "main: edit tracked"]);
+
+        let err = merge_and_end(&main, wt.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("merge"), "got: {err}");
+        // Aborted: main is clean and back on the pre-merge commit, worktree intact.
+        let status = git(&main, &["status", "--porcelain"]).unwrap();
+        assert!(status.trim().is_empty(), "main left dirty: {status}");
+        let subject = git(&main, &["log", "-1", "--format=%s"]).unwrap();
+        assert_eq!(subject.trim(), "main: edit tracked");
+        assert!(wt.exists());
+        assert!(git(&main, &["rev-parse", "--verify", "refs/heads/feat"]).is_ok());
+    }
+
+    #[test]
+    fn merge_and_end_refuses_main_checkout_on_other_branch() {
+        let (_tmp, main, wt) = repo_with_feature_worktree();
+        git_run(&main, &["switch", "-qc", "elsewhere"]);
+
+        let err = merge_and_end(&main, wt.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("elsewhere"), "got: {err}");
+        assert!(wt.exists());
     }
 
     #[test]
