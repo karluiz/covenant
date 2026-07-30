@@ -77,17 +77,45 @@ export class NotesTab {
 
   private beginEdit(li: HTMLElement, n: Note): void {
     if (li.querySelector(".pn-note-editor")) return;
-    const editor = document.createElement("textarea");
-    editor.className = "pn-note-editor";
+    // `is-editing` swaps the row from read chrome (clamped body + the
+    // hover actions the Save button used to land on top of) to the editor.
+    li.classList.add("is-editing");
+    const box = document.createElement("div");
+    box.className = "pn-note-editor";
+    box.innerHTML = `
+      <textarea class="pn-note-editor-input" rows="3" spellcheck="false"></textarea>
+      <div class="pn-note-editor-actions">
+        <span class="pn-note-editor-hint">${formatChord(["mod", "enter"])} to save · Esc to cancel</span>
+        <button class="pn-note-save" type="button">Save</button>
+        <button class="pn-note-cancel" type="button">Cancel</button>
+      </div>
+    `;
+    const editor = box.querySelector<HTMLTextAreaElement>(".pn-note-editor-input")!;
     editor.value = n.body;
-    editor.rows = 3;
-    const save = document.createElement("button");
-    save.className = "rail-row-action pn-note-save";
-    save.textContent = "Save";
-    save.addEventListener("click", () => void this.saveEdit(n, editor.value));
-    li.appendChild(editor);
-    li.appendChild(save);
+
+    const cancel = () => {
+      li.classList.remove("is-editing");
+      box.remove();
+    };
+    editor.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        cancel();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        void this.saveEdit(n, editor.value);
+      }
+    });
+    box.querySelector(".pn-note-cancel")!.addEventListener("click", cancel);
+    box.querySelector(".pn-note-save")!.addEventListener(
+      "click",
+      () => void this.saveEdit(n, editor.value),
+    );
+
+    li.appendChild(box);
     editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
   }
 
   private async saveEdit(n: Note, body: string): Promise<void> {

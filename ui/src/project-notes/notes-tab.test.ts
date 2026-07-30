@@ -94,11 +94,29 @@ describe("NotesTab", () => {
     const tab = new NotesTab({ groupId: "g1" }).mount(host);
     await tab.refresh();
     (host.querySelector(".pn-note-edit") as HTMLButtonElement).click();
-    const ta = host.querySelector(".pn-note-editor") as HTMLTextAreaElement;
+    const ta = host.querySelector(".pn-note-editor-input") as HTMLTextAreaElement;
     ta.value = "edited";
     (host.querySelector(".pn-note-save") as HTMLButtonElement).click();
     await new Promise((r) => setTimeout(r, 0));
     expect(apiMod.projectNotesApi.updateNote).toHaveBeenCalledWith("n1", "edited");
     expect(host.querySelector(".pn-note-body")?.textContent).toBe("edited");
+  });
+
+  it("cancels an edit without touching the note", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "n1", group_id: "g1", body: "hello", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    (host.querySelector(".pn-note-edit") as HTMLButtonElement).click();
+    const card = host.querySelector(".pn-note-card") as HTMLElement;
+    expect(card.classList).toContain("is-editing");
+    (host.querySelector(".pn-note-editor-input") as HTMLTextAreaElement).value = "throwaway";
+    (host.querySelector(".pn-note-cancel") as HTMLButtonElement).click();
+    expect(host.querySelector(".pn-note-editor")).toBeNull();
+    expect(card.classList).not.toContain("is-editing");
+    expect(apiMod.projectNotesApi.updateNote).not.toHaveBeenCalled();
+    expect(host.querySelector(".pn-note-body")?.textContent).toBe("hello");
   });
 });
