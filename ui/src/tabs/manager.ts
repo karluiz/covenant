@@ -160,6 +160,27 @@ const DEFAULT_FONT_SIZE = 13;
 /// less fragmented.
 export const HIDDEN_OUTPUT_BATCH_DELAY_MS = 16;
 
+/// Cap for one term.write() handed to xterm. WriteBuffer parses each queued
+/// chunk atomically — its 12ms yield budget is only checked BETWEEN chunks —
+/// so a single multi-MB write (a 2 MiB scrollback replay, a starved hidden
+/// batch) becomes one unbreakable main-thread task that blocks clicks and
+/// the activation reveal. 64 KiB keeps each parse slice a few ms.
+export const TERM_WRITE_CHUNK_BYTES = 64 * 1024;
+
+/// Slice a buffer into ≤TERM_WRITE_CHUNK_BYTES subarray views (no copies).
+/// xterm's VT parser is streaming, so escape sequences may split across
+/// write boundaries; order is preserved by WriteBuffer's FIFO.
+export function chunkForTermWrite(data: Uint8Array): Uint8Array[] {
+  if (data.byteLength <= TERM_WRITE_CHUNK_BYTES) {
+    return data.byteLength === 0 ? [] : [data];
+  }
+  const chunks: Uint8Array[] = [];
+  for (let off = 0; off < data.byteLength; off += TERM_WRITE_CHUNK_BYTES) {
+    chunks.push(data.subarray(off, off + TERM_WRITE_CHUNK_BYTES));
+  }
+  return chunks;
+}
+
 export class HiddenOutputBatch {
   private chunks: Uint8Array[] = [];
   private timer: number | null = null;
@@ -181,7 +202,7 @@ export class HiddenOutputBatch {
     const chunks = this.chunks;
     this.chunks = [];
     if (chunks.length === 1) {
-      this.write(chunks[0]);
+      for (const c of chunkForTermWrite(chunks[0])) this.write(c);
       return;
     }
     const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
@@ -191,7 +212,7 @@ export class HiddenOutputBatch {
       merged.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    this.write(merged);
+    for (const c of chunkForTermWrite(merged)) this.write(c);
   }
 
   dispose(): void {
@@ -201,9 +222,58 @@ export class HiddenOutputBatch {
   }
 }
 
+/// Pure policy for the off-critical-path hidden-tab refit. Hidden panes can
+/// never fit themselves (FitAddon bails under display:none and their
+/// ResizeObserver sees a 0×0 box), so after any width-affecting change every
+/// hidden tab holds stale cols — and its NEXT activation pays a synchronous
+/// full-buffer reflow + renderer clear. Full-width single-pane shell tabs
+/// share the active tab's grid, so we can resize them in the background
+/// without measuring their DOM. Splits and editor drawers have their own
+/// widths — activation's fit stays their correction path.
+export interface HiddenRefitCandidate {
+  id: string;
+  kind: string;
+  hidden: boolean;
+  split: boolean;
+  editorVisible: boolean;
+  hasTerm: boolean;
+  cols: number;
+  rows: number;
+}
+
+export function planHiddenTabResizes(
+  tabs: ReadonlyArray<HiddenRefitCandidate>,
+  active: { cols: number; rows: number },
+): string[] {
+  if (active.cols <= 0 || active.rows <= 0) return [];
+  return tabs
+    .filter(
+      (t) =>
+        t.hidden &&
+        t.kind === "shell" &&
+        t.hasTerm &&
+        !t.split &&
+        !t.editorVisible &&
+        (t.cols !== active.cols || t.rows !== active.rows),
+    )
+    .map((t) => t.id);
+}
+
 interface TabActivationMetric {
   tabId: string;
   elapsedMs: number;
+  /// Synchronous first fit (geometry measure + possible cols-change reflow).
+  fitMs: number;
+  /// Synchronous rows-1/rows scroll-area nudge, when the plan took it.
+  nudgeMs: number;
+  /// Grid drift the first fit corrected — nonzero means this tab sat hidden
+  /// with stale dims and paid a buffer reflow + renderer clear right here.
+  colsDelta: number;
+  rowsDelta: number;
+  /// Event-loop lag summed over ~1s AFTER the reveal. Write backlogs and
+  /// cold-cache re-renders land after the metric frame — elapsedMs alone
+  /// reads "fast" while the user still sees a frozen terminal.
+  postRevealStarvedMs: number;
   hiddenOutputBytes: number;
   hiddenOutputChunks: number;
   usedNudge: boolean;
@@ -211,14 +281,44 @@ interface TabActivationMetric {
 }
 
 const SLOW_TAB_ACTIVATION_MS = 120;
+const POST_REVEAL_STARVED_WARN_MS = 250;
 
 function reportTabActivation(metric: TabActivationMetric): void {
   // Keep normal switches silent. A slow-switch breadcrumb is intentionally
   // structured so it survives WKWebView's console bridge and can be matched
   // with the hidden-output counters without adding a user-facing debug panel.
-  if (metric.elapsedMs < SLOW_TAB_ACTIVATION_MS) return;
+  if (
+    metric.elapsedMs < SLOW_TAB_ACTIVATION_MS &&
+    metric.postRevealStarvedMs < POST_REVEAL_STARVED_WARN_MS
+  )
+    return;
   // eslint-disable-next-line no-console
   console.warn("slow tab activation", metric);
+}
+
+/// Sample event-loop lag for ~1s after a reveal by measuring how late a
+/// chain of fixed-interval timers fires. Cheap (20 timers), portable
+/// (WKWebView has no `longtask` PerformanceObserver), and catches the work
+/// the activation metric can't see.
+export function probePostRevealStarvation(
+  onDone: (starvedMs: number) => void,
+  tickMs = 50,
+  ticks = 20,
+): void {
+  let starved = 0;
+  let last = performance.now();
+  let n = 0;
+  const tick = (): void => {
+    const now = performance.now();
+    starved += Math.max(0, now - last - tickMs);
+    last = now;
+    if (++n >= ticks) {
+      onDone(Math.round(starved));
+      return;
+    }
+    window.setTimeout(tick, tickMs);
+  };
+  window.setTimeout(tick, tickMs);
 }
 
 /// Split panes (D12 v0) build their own xterm + FitAddon locally in
@@ -1648,7 +1748,9 @@ export class TabManager {
       if (ref) {
         const tail = (this as unknown as Record<string, unknown>)[`_replayTail_${replayKey}`] as Uint8Array | undefined;
         if (tail && tail.byteLength > 0) {
-          ref.write(tail);
+          // Chunked for the same reason as the pane-0 replay: one large
+          // write is one unbreakable main-thread parse task.
+          for (const c of chunkForTermWrite(tail)) ref.write(c);
         }
         delete (this as unknown as Record<string, unknown>)[`_replayTail_${replayKey}`];
       }
@@ -2473,6 +2575,22 @@ export class TabManager {
         this.refitActive();
       }
     });
+
+    // Hidden tabs can never refit themselves (FitAddon bails under
+    // display:none, their ResizeObserver sees 0×0), so any change to the
+    // workspace box — window resize, sidebar toggle — strands every hidden
+    // tab on stale cols, and its NEXT activation pays a synchronous
+    // full-buffer reflow + renderer clear (the "the lag is back" switch).
+    // One observer on the shared workspace host catches all of those;
+    // the walk itself runs debounced and staggered off the critical path.
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => this.scheduleHiddenRefit()).observe(this.workspace);
+    }
+    // Boot-time font swap: tabs seeded before the real terminal font loaded
+    // measured against fallback metrics. The active tab re-fits via its own
+    // fonts.ready hook; hidden tabs need the walk. (Guarded: jsdom has no
+    // document.fonts.)
+    void document.fonts?.ready?.then(() => this.scheduleHiddenRefit());
 
     // Glass theme: reposition the sliding indicator on layout changes.
     window.addEventListener("resize", () => positionGlassIndicator(this.tabbarHost));
@@ -3324,10 +3442,10 @@ export class TabManager {
         } catch {
           tab.webgl = null;
         }
-      } else {
-        // DOM/canvas renderer: invalidate the glyph atlas by nudging
-        // fontSize. xterm has no public clearTextureAtlas for non-WebGL
-        // renderers, but option setters force a renderer re-measure.
+      } else if (tab.canvas) {
+        // Canvas renderer (ligatures): invalidate the glyph atlas by
+        // nudging fontSize. xterm has no public clearTextureAtlas for
+        // non-WebGL renderers, but option setters force a re-measure.
         try {
           const size = term.options.fontSize ?? DEFAULT_FONT_SIZE;
           term.options.fontSize = size + 0.0001;
@@ -3335,6 +3453,13 @@ export class TabManager {
         } catch {
           /* ignore */
         }
+      } else if (tab.pane.hidden) {
+        // Pure DOM renderer, hidden: xterm's own RenderService subscribes
+        // to DPR changes and re-measures per terminal — the manual nudge
+        // just cleared every tab's glyph-width cache at once, re-arming a
+        // full-viewport re-render thrash on each tab's next activation.
+        // Geometry is handled off-path by scheduleHiddenRefit below.
+        continue;
       }
       requestAnimationFrame(() => {
         try {
@@ -3347,6 +3472,62 @@ export class TabManager {
         if (sid) void resizeSession(sid as SessionId, term.cols, term.rows).catch(() => {});
       });
     }
+    this.scheduleHiddenRefit();
+  }
+
+  /// Debounced entry to the hidden-tab refit walk. Triggers: workspace-box
+  /// changes (window resize, sidebar toggles), document.fonts.ready, DPR
+  /// rebuilds, and the tail of a manifest restore.
+  private hiddenRefitTimer: number | null = null;
+  private scheduleHiddenRefit(delayMs = 250): void {
+    if (this.hiddenRefitTimer !== null) window.clearTimeout(this.hiddenRefitTimer);
+    this.hiddenRefitTimer = window.setTimeout(() => {
+      this.hiddenRefitTimer = null;
+      this.runHiddenRefit();
+    }, delayMs);
+  }
+
+  /// Resize stale hidden full-width shell tabs to the ACTIVE tab's grid —
+  /// they share the workspace box, so no DOM measurement of the hidden
+  /// pane is needed (which is impossible under display:none anyway). This
+  /// moves the cols-change buffer reflow + renderer clear + PTY reflow off
+  /// the next activation's synchronous path and into idle time, one tab
+  /// per macrotask. activate()'s fit remains the correction of last resort
+  /// for anything the planner skips (splits, editor drawers).
+  private runHiddenRefit(): void {
+    const active = this.tabs.find((t) => t.id === this.activeId);
+    const activeTerm = active?.term;
+    if (!active || active.kind !== "shell" || !activeTerm || active.pane.hidden) return;
+    const dims = { cols: activeTerm.cols, rows: activeTerm.rows };
+    const queue = planHiddenTabResizes(
+      this.tabs.map((t) => ({
+        id: t.id,
+        kind: t.kind,
+        hidden: t.pane.hidden,
+        split: t.layout.kind === "split",
+        editorVisible: t.editor?.isVisible() ?? false,
+        hasTerm: !!t.term,
+        cols: t.term?.cols ?? 0,
+        rows: t.term?.rows ?? 0,
+      })),
+      dims,
+    );
+    const step = (): void => {
+      const id = queue.shift();
+      if (!id) return;
+      const tab = this.tabs.find((t) => t.id === id);
+      // Re-check at execution time: the tab may have been activated,
+      // split, or closed while queued.
+      if (tab?.term && tab.pane.hidden && tab.id !== this.activeId && tab.layout.kind !== "split") {
+        try {
+          tab.term.resize(dims.cols, dims.rows);
+        } catch {
+          /* ignore — terminal may be mid-dispose */
+        }
+      }
+      if (queue.length > 0) window.setTimeout(step, 30);
+    };
+    if (queue.length > 0) window.setTimeout(step, 0);
   }
 
   /// Push terminal font/size into every open tab. Called from main.ts
@@ -4137,9 +4318,10 @@ export class TabManager {
     if (replayPromise) {
       const tail = await replayPromise;
       replayedBytes = tail.byteLength;
-      if (tail.byteLength > 0) {
-        term.write(tail);
-      }
+      // Chunked: one 2 MiB write is ONE unbreakable parse task in xterm's
+      // WriteBuffer — N restored tabs used to stack seconds of these right
+      // when the user makes their first tab switch (see chunkForTermWrite).
+      for (const c of chunkForTermWrite(tail)) term.write(c);
     }
     // One-time discoverability card — only on a genuinely fresh, empty viewport.
     // Skipped when a command is preloaded, when scrollback was replayed (a
@@ -6764,6 +6946,10 @@ export class TabManager {
       this.activate(active.id, { skipIfSame: true });
     }
     this.pushExcludedToStatusBar();
+    // Tabs spawned mid-restore may have seeded their grid from the active
+    // tab BEFORE its fonts.ready refit landed — sweep them now so their
+    // first activation doesn't pay the cols-change reflow.
+    this.scheduleHiddenRefit();
   }
 
   /// Import flow: tear down every existing tab + group without the
@@ -7257,7 +7443,12 @@ export class TabManager {
     // deferred, flicker-safe reveal below.
     const fitColsBefore = term.cols;
     const fitRowsBefore = term.rows;
+    const fitStartedAt = performance.now();
     doFit();
+    const fitMs = performance.now() - fitStartedAt;
+    const colsDelta = term.cols - fitColsBefore;
+    const rowsDelta = term.rows - fitRowsBefore;
+    const nudgeStartedAt = performance.now();
     if (plan.nudge) {
       // Re-sync xterm's viewport scroll area. Data written while the
       // pane was display:none updates the buffer, but xterm can't
@@ -7305,6 +7496,9 @@ export class TabManager {
       }
       if (pinned1) term1.scrollToBottom();
     }
+    // Covers the nudge, scroll restore, and the split-pane pass — the
+    // remaining synchronous cost between the first fit and the reveal.
+    const nudgeMs = performance.now() - nudgeStartedAt;
     // Only tell the PTY about a size it doesn't already have. On the
     // common switch fit() resolves to the same dims the PTY was last
     // synced to; sending it again is a wasted IPC (the kernel skips the
@@ -7379,13 +7573,23 @@ export class TabManager {
         }
       }
       term.focus();
-      reportTabActivation({
-        tabId: tab.id,
-        elapsedMs: performance.now() - activationStartedAt,
-        hiddenOutputBytes,
-        hiddenOutputChunks,
-        usedNudge: plan.nudge,
-        fitChangedDimensions: dimsChangedByFit,
+      const elapsedMs = performance.now() - activationStartedAt;
+      // The breadcrumb lands ~1s late so it can include what the user
+      // actually felt: main-thread starvation AFTER the reveal frame.
+      probePostRevealStarvation((postRevealStarvedMs) => {
+        reportTabActivation({
+          tabId: tab.id,
+          elapsedMs,
+          fitMs: Math.round(fitMs * 10) / 10,
+          nudgeMs: Math.round(nudgeMs * 10) / 10,
+          colsDelta,
+          rowsDelta,
+          postRevealStarvedMs,
+          hiddenOutputBytes,
+          hiddenOutputChunks,
+          usedNudge: plan.nudge,
+          fitChangedDimensions: dimsChangedByFit,
+        });
       });
     });
   }

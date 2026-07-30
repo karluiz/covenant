@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  chunkForTermWrite,
   computeActivationRefit,
   HiddenOutputBatch,
   HIDDEN_OUTPUT_BATCH_DELAY_MS,
   pickPaintedPaneId,
+  planHiddenTabResizes,
   shouldRoNudge,
+  TERM_WRITE_CHUNK_BYTES,
 } from "../manager";
 
 // Tab activation used to repaint visibly several frames AFTER the pane was
@@ -70,6 +73,119 @@ describe("HiddenOutputBatch", () => {
 
     expect(writes).toHaveLength(1);
     expect([...writes[0]]).toEqual([7]);
+  });
+
+  it("caps a large merged flush into parse-safe segments, order preserved", () => {
+    // xterm parses each write() chunk atomically — a starved batch timer can
+    // accumulate a multi-MB merge that would become one unbreakable
+    // main-thread parse task at activation-time flush.
+    vi.useFakeTimers();
+    const writes: Uint8Array[] = [];
+    const batch = new HiddenOutputBatch((data) => writes.push(data));
+
+    const half = new Uint8Array(TERM_WRITE_CHUNK_BYTES).fill(1);
+    const third = new Uint8Array(Math.ceil(TERM_WRITE_CHUNK_BYTES / 3)).fill(2);
+    batch.enqueue(half);
+    batch.enqueue(third);
+    batch.flush();
+
+    expect(writes.length).toBeGreaterThan(1);
+    for (const w of writes) expect(w.byteLength).toBeLessThanOrEqual(TERM_WRITE_CHUNK_BYTES);
+    const total = writes.reduce((n, w) => n + w.byteLength, 0);
+    expect(total).toBe(half.byteLength + third.byteLength);
+    const joined = new Uint8Array(total);
+    let off = 0;
+    for (const w of writes) {
+      joined.set(w, off);
+      off += w.byteLength;
+    }
+    expect(joined[0]).toBe(1);
+    expect(joined[half.byteLength]).toBe(2);
+    expect(joined[total - 1]).toBe(2);
+  });
+
+  it("splits even a single oversized chunk", () => {
+    vi.useFakeTimers();
+    const writes: Uint8Array[] = [];
+    const batch = new HiddenOutputBatch((data) => writes.push(data));
+
+    batch.enqueue(new Uint8Array(TERM_WRITE_CHUNK_BYTES * 2 + 5).fill(9));
+    batch.flush();
+
+    expect(writes.map((w) => w.byteLength)).toEqual([
+      TERM_WRITE_CHUNK_BYTES,
+      TERM_WRITE_CHUNK_BYTES,
+      5,
+    ]);
+  });
+});
+
+describe("chunkForTermWrite", () => {
+  it("returns the original view untouched when it fits the cap", () => {
+    const data = new Uint8Array([1, 2, 3]);
+    expect(chunkForTermWrite(data)).toEqual([data]);
+  });
+
+  it("slices an oversized buffer into cap-sized views, no bytes lost", () => {
+    const data = new Uint8Array(TERM_WRITE_CHUNK_BYTES * 2 + 7);
+    data[0] = 11;
+    data[TERM_WRITE_CHUNK_BYTES] = 22;
+    data[data.length - 1] = 33;
+    const chunks = chunkForTermWrite(data);
+    expect(chunks.map((c) => c.byteLength)).toEqual([
+      TERM_WRITE_CHUNK_BYTES,
+      TERM_WRITE_CHUNK_BYTES,
+      7,
+    ]);
+    expect(chunks[0][0]).toBe(11);
+    expect(chunks[1][0]).toBe(22);
+    expect(chunks[2][6]).toBe(33);
+  });
+
+  it("returns nothing for an empty buffer", () => {
+    expect(chunkForTermWrite(new Uint8Array(0))).toEqual([]);
+  });
+});
+
+describe("planHiddenTabResizes", () => {
+  const active = { cols: 220, rows: 60 };
+  const base = {
+    kind: "shell",
+    hidden: true,
+    split: false,
+    editorVisible: false,
+    hasTerm: true,
+    cols: 80,
+    rows: 24,
+  };
+
+  it("targets hidden single-pane shell tabs with stale dims", () => {
+    expect(planHiddenTabResizes([{ id: "a", ...base }], active)).toEqual(["a"]);
+  });
+
+  it("skips tabs already at the active grid", () => {
+    expect(
+      planHiddenTabResizes([{ id: "a", ...base, cols: 220, rows: 60 }], active),
+    ).toEqual([]);
+  });
+
+  it("skips visible tabs, splits, editor drawers, and non-shell tabs", () => {
+    expect(
+      planHiddenTabResizes(
+        [
+          { id: "visible", ...base, hidden: false },
+          { id: "split", ...base, split: true },
+          { id: "editor", ...base, editorVisible: true },
+          { id: "acp", ...base, kind: "acp" },
+          { id: "no-term", ...base, hasTerm: false },
+        ],
+        active,
+      ),
+    ).toEqual([]);
+  });
+
+  it("no-ops when the active grid is degenerate", () => {
+    expect(planHiddenTabResizes([{ id: "a", ...base }], { cols: 0, rows: 0 })).toEqual([]);
   });
 });
 
