@@ -196,6 +196,11 @@ i.wt-d-disk-target { background: var(--accent, #6b9fff); }
   border-color: rgb(var(--danger-rgb, 192 72 63) / 0.45);
 }
 
+/* Blocked action — kept clickable-looking off, tooltip explains why. Class +
+   click-guard instead of the disabled attribute so tooltips still get hover. */
+.wt-act.is-disabled { opacity: 0.45; cursor: default; }
+.wt-act.is-disabled:hover { background: none; border-color: rgb(var(--ink-rgb) / 0.14); }
+
 /* Hairline separating the workflow verbs from the lone lifecycle verb. */
 .wt-act-sep { width: 1px; align-self: stretch; margin: 3px 3px; background: rgb(var(--ink-rgb) / 0.12); }
 

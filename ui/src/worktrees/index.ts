@@ -1,6 +1,6 @@
 import {
   gitRepoSummary, worktreeSizes, worktreeDetail, gitChanges, devLiveWorktreeRoot,
-  worktreeCleanTarget, worktreeReclaim, worktreeRelocate, explainChanges,
+  worktreeCleanTarget, worktreeReclaim, worktreeRelocate, worktreeMergeEnd, explainChanges,
   type GitRepoSummary, type GitWorktreeSummary, type ReclaimOutcome, type CommitBrief,
 } from "../api";
 import { worktreeStateClass, worktreeStateLabel, worktreeDefaultAction, STATE_HELP, ACTION_HELP } from "../status/worktree-state";
@@ -604,6 +604,48 @@ export class WorktreesSurface {
     // Explain only makes sense with an uncommitted diff to read.
     if (wt.dirty_count > 0) {
       btn("Explain", Icons.sparkles({ size: 14 }), "", () => this.runExplain(wt));
+      // Commit routes to the existing Changes composer — same surface View
+      // diff opens, but named for the job when there is uncommitted work.
+      btn("Commit", Icons.gitCommit({ size: 14 }), "", () => {
+        window.dispatchEvent(new CustomEvent("covenant:open-changes", { detail: { cwd: wt.path, backTo: "worktrees" } }));
+        this.close();
+      });
+    }
+
+    // Merge & end — merge into the default branch, then reclaim. Only offered
+    // while the branch is unmerged; spent worktrees already have Reclaim.
+    if (!wt.is_main && !wt.current && !wt.merged && wt.branch) {
+      const base = this.summary?.default_branch ?? "main";
+      const mainWt = this.summary?.worktrees.find((w) => w.is_main) ?? null;
+      const blocked =
+        wt.dirty_count > 0 ? "Commit your changes first" :
+        wt.locked ? `Locked: ${wt.locked}` :
+        this.opts.getOccupiedCwds().has(wt.path) ? "A session is using this worktree" :
+        mainWt && mainWt.dirty_count > 0 ? "Main checkout has uncommitted changes" :
+        null;
+      divider();
+      const b = btn("Merge & end", Icons.gitMerge({ size: 14 }), "", () => {
+        if (b.classList.contains("is-disabled")) return;
+        pushConfirmToast({
+          message: `Merge ${wt.branch} into ${base} and remove the worktree?`,
+          confirmLabel: "Merge & end",
+          onConfirm: () => {
+            void worktreeMergeEnd(this.repoRoot, wt.path)
+              .then((out) => {
+                if (!out.removed) {
+                  pushInfoToast({ message: `Merged, but not removed: ${out.reason ?? "refused"}` });
+                } else {
+                  pushInfoToast({ message: `Merged ${wt.branch} into ${base} and reclaimed ${worktreeLabel(wt)}` });
+                  this.selected = null;
+                }
+                void this.refresh();
+              })
+              .catch((e) => pushInfoToast({ message: `Merge & end failed: ${String(e)}` }));
+          },
+        });
+      });
+      b.classList.toggle("is-disabled", blocked !== null);
+      attachTooltip(b, blocked ?? `Merge ${wt.branch} into ${base}, then remove the worktree and branch`);
     }
 
     // State action — reuse the popover's verdict. Only wt.path (a real
