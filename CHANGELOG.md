@@ -6,6 +6,54 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.4 — Kimi Code harness + corrected tab-switch vitals
+
+### Added
+
+- **Kimi Code as a first-class executor**: Moonshot AI's `kimi` CLI is now
+  recognized everywhere the other harnesses are — detection for `kimi`,
+  `kimi-code` and path forms (`ui/src/executor.ts`), a status-bar chip and
+  spawn-chip tint (Kimi / `#6ba4f8`) using the CC0 `siMoonshotai` brand mark
+  from the already-present simple-icons dependency, a "Kimi" spawn preset with
+  a `BACKFILL_IDS` entry so existing installs get the row
+  (`crates/app/src/spawns_store.rs`), plus `fg_proc` logical-CLI and idle
+  known-agent registration (`crates/pty/src/fg_proc.rs`,
+  `crates/session/src/idle.rs`) and the teammate executor enums and wire-format
+  docs. Phase detection and inline-agent handling are deliberately deferred
+  until a real `kimi` transcript exists — an inline agent with no prompt regex
+  never fires the idle gate anyway.
+
+### Fixed
+
+- **Vitals now measure the tab-switch lag users actually feel**: the metrics
+  shipped in v0.11.3 watched the wrong window. A recording of a real freeze
+  (screen static ~1.7s still showing the *previous* tab, then the new one
+  appearing fully rendered) plus 42 instrumented live switches established that
+  `activate()`'s own work is 10-15ms typical and 42ms at worst — so a healthy
+  `switch` number can sit next to a switch that feels stuck. This release adds
+  a **`repaint`** metric (activation start → the frame in which the revealed
+  pane actually painted; measured at 168ms idle versus 385ms when returning to
+  a tab that streamed for 10s while hidden) carrying the click→activation queue
+  delay as its aux value, and the Vitals page now leads with Repaint and
+  investigates its tail rather than `switch`'s
+  (`ui/src/vitals/switch-vital.ts`, `ui/src/vitals/page.ts`).
+
+- **Vitals no longer fabricate multi-second stalls**: the starvation probe
+  chained plain `setTimeout`s with no visibility check, and WebKit throttles
+  background timers to ~1s — so any tab switch followed by an alt-tab recorded
+  roughly 18 seconds of "starvation" that never happened. It showed up live as
+  spikes pegged at 1013/965/963ms, which is the throttle interval rather than
+  the main thread. The probe is now gated on document visibility and reports
+  `null` when the sample is unmeasurable instead of guessing
+  (`ui/src/vitals/starvation.ts`).
+
+- **Switches into chat and browser tabs are recorded at all**: the
+  `browser` / `pi` / `acp` early returns in `activate()` came before the
+  record call, so a laggy reveal of an ACP chat transcript produced no sample —
+  one of the two freezes in the recording was exactly that case. Every exit path
+  now measures through a shared `finishActivationMetric`, and each event carries
+  the tab kind (`ui/src/tabs/manager.ts`).
+
 ## v0.11.3 — UI Vitals dashboard + format-independent spec scoring
 
 ### Added
