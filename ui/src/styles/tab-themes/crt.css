@@ -41,9 +41,10 @@ body.tab-style-crt .tab-btn.active::before {
     display: none;
 }
 
+/* No margin: the pill's `gap` owns lead spacing, so the label starts at
+   the same x whether the prompt, a globe or an operator won the slot. */
 body.tab-style-crt .tab-lead {
     display: inline-block;
-    margin-right: 6px;
     font-weight: 700;
     color: color-mix(in srgb, var(--accent) 50%, var(--tab-fg-rest));
     opacity: 0.6;

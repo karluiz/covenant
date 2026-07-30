@@ -2865,6 +2865,136 @@ export class TabManager {
     else pill.appendChild(next);
   }
 
+  /// The LEAD slot: exactly ONE glyph before the label, answering "who or
+  /// what is this tab" — never what it is doing (that is the state atom).
+  ///
+  /// Declared priority, identity > kind > decoration, because these used
+  /// to render independently and stack: an operator pinned on a grouped
+  /// CRT tab put an avatar AND a tree connector in front of the name, and
+  /// a browser tab could carry both a globe and a prompt prefix. Two
+  /// glyphs before the title is the title losing characters.
+  private mountTabLead(pill: HTMLElement, tab: Tab): void {
+    const stack = this.buildOperatorStack(tab);
+    if (stack) {
+      pill.appendChild(stack);
+      return;
+    }
+    // Browser tabs read as web pages, not shell sessions. (The
+    // `tab-btn-browser` marker class that styles the whole pill is applied
+    // in renderTabPill — it holds whoever wins this slot.)
+    if (tab.kind === "browser") {
+      const glyph = document.createElement("span");
+      glyph.className = "tab-browser-glyph";
+      glyph.setAttribute("aria-hidden", "true");
+      glyph.innerHTML = Icons.globe({ size: 12 });
+      pill.appendChild(glyph);
+      return;
+    }
+    // Theme decoration, and the fallback. CRT lights it as a terminal
+    // prompt ("$" for loose tabs, ├─/└─ connectors for grouped members,
+    // via CSS); every other style leaves it `display: none`. It yields to
+    // the two above because the group shell already draws indent + spine,
+    // so the connector repeats what the rail said.
+    const lead = document.createElement("span");
+    lead.className = "tab-lead";
+    lead.setAttribute("aria-hidden", "true");
+    pill.appendChild(lead);
+  }
+
+  /// Stack of operator avatars, or null when nobody is on this tab. The
+  /// primary writer (driver) renders first at full size with its XP ring +
+  /// level badge; observers stack behind it, smaller and faded, overlapping
+  /// ~50%. Beyond MAX_VISIBLE we collapse to a "+N" pill so the tab name
+  /// never gets pushed out.
+  ///
+  /// TODO(task-17): consider swapping the inner avatar for
+  /// `renderOperatorChip(op, 'sm')` once we have a chip variant that omits
+  /// the name label — the tab pill cannot afford a second name beside the
+  /// title, and chip currently always includes name.
+  private buildOperatorStack(tab: Tab): HTMLElement | null {
+    const pane = activePane(tab);
+    // Perception "presence at first act": the Default (or whichever
+    // effective operator) materializes on the tab the first time it
+    // auto-answers here — attenuated + dashed, visually distinct from a
+    // pinned mandate. A pin supersedes it entirely.
+    const perceptionId =
+      !pane.operator &&
+      pane.perceptionOperator &&
+      !pane.observer_ids.includes(pane.perceptionOperator)
+        ? pane.perceptionOperator
+        : null;
+    const stackedIds: string[] = [
+      ...(pane.operator ? [pane.operator] : []),
+      ...pane.observer_ids,
+      ...(perceptionId ? [perceptionId] : []),
+    ];
+    if (stackedIds.length === 0) return null;
+
+    const MAX_VISIBLE = 3;
+    const visible = stackedIds.slice(0, MAX_VISIBLE);
+    const overflow = stackedIds.length - visible.length;
+    const stack = document.createElement("span");
+    stack.className = "tab-op-stack tab-op-chip-leading";
+
+    for (const id of visible) {
+      const op = this.operatorCache.get(id) ?? null;
+      if (!op) continue;
+      const isDriver = pane.operator === id;
+      const isPerception = perceptionId === id;
+      const chip = document.createElement("span");
+      chip.className =
+        "tab-op-chip " +
+        (isDriver
+          ? "tab-op-chip--driver"
+          : isPerception
+            ? "tab-op-chip--perception"
+            : "tab-op-chip--observer");
+      const xp = op.xp ?? 0;
+      const level = operatorLevelFromXp(xp);
+      const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
+      // Driver gets XP ring + level badge; observers are visually quieter
+      // so they don't compete with the writer in a stacked pill.
+      if (isDriver) {
+        chip.innerHTML =
+          `<span class="tab-op-avatar-wrap" data-operator-id="${op.id}" ` +
+                `style="--xp-progress:${xpProgress.toFixed(3)};">` +
+            `<svg class="tab-op-xp-ring" viewBox="0 0 24 24" aria-hidden="true">` +
+              `<circle class="track" cx="12" cy="12" r="11"/>` +
+              `<circle class="fill"  cx="12" cy="12" r="11"/>` +
+            `</svg>` +
+            `${renderAvatarHtml(op.emoji, 18)}` +
+            `<span class="tab-op-level" data-operator-id="${op.id}">${level}</span>` +
+          `</span>`;
+      } else {
+        chip.innerHTML =
+          `<span class="tab-op-avatar-wrap" data-operator-id="${op.id}">` +
+            `${renderAvatarHtml(op.emoji, 18)}` +
+          `</span>`;
+      }
+      attachTooltip(
+        chip,
+        isDriver
+          ? `${op.name} — driving · Lv ${level} · ${xp} XP`
+          : isPerception
+            ? `${op.name} — Perception answered a prompt here`
+            : `${op.name} — observing`,
+      );
+      stack.appendChild(chip);
+    }
+
+    // Every visible id missed the operator cache — an empty stack would
+    // still eat the slot and the theme lead would never render.
+    if (stack.childElementCount === 0 && overflow === 0) return null;
+
+    if (overflow > 0) {
+      const more = document.createElement("span");
+      more.className = "tab-op-stack__more";
+      more.textContent = `+${overflow}`;
+      stack.appendChild(more);
+    }
+    return stack;
+  }
+
   /// Re-resolve a tab's state atom in place. No-op when the tab isn't in
   /// the strip (folded groups still have pills; hibernated tabs don't).
   private renderTabState(tab: Tab): void {
@@ -8888,6 +9018,8 @@ export class TabManager {
     // No native HTML5 draggable — we use pointer events instead
     // (see installTabPointerDrag).
 
+    if (tab.kind === "browser") pill.classList.add("tab-btn-browser");
+
     if (tab.color) {
       pill.classList.add("tab-colored");
       pill.style.setProperty("--tab-color", tab.color);
@@ -8916,101 +9048,7 @@ export class TabManager {
       pill.classList.add("tab-aom-excluded");
     }
 
-    // Operator chip renders to the LEFT of the title so the avatar is the
-    // first thing the eye lands on when a tab has a pinned operator.
-    // TODO(task-17): consider swapping the inner avatar for
-    // `renderOperatorChip(op, 'sm')` once we have a chip variant that
-    // omits the name label — the tab pill cannot afford a second name
-    // beside the title, and chip currently always includes name.
-    // Stack of operator avatars on the LEFT of the tab title. The
-    // primary writer (driver) renders first at full size with its XP
-    // ring + level badge; observers stack behind it, smaller and faded,
-    // overlapping ~50%. Beyond MAX_VISIBLE we collapse to a "+N" pill so
-    // the tab name never gets pushed out.
-    // Perception "presence at first act": the Default (or whichever
-    // effective operator) materializes on the tab the first time it
-    // auto-answers here — attenuated + dashed, visually distinct from a
-    // pinned mandate. A pin supersedes it entirely.
-    const perceptionId =
-      !pillPane.operator &&
-      pillPane.perceptionOperator &&
-      !pillPane.observer_ids.includes(pillPane.perceptionOperator)
-        ? pillPane.perceptionOperator
-        : null;
-    const stackedIds: string[] = [
-      ...(pillPane.operator ? [pillPane.operator] : []),
-      ...pillPane.observer_ids,
-      ...(perceptionId ? [perceptionId] : []),
-    ];
-    if (stackedIds.length > 0) {
-      const MAX_VISIBLE = 3;
-      const visible = stackedIds.slice(0, MAX_VISIBLE);
-      const overflow = stackedIds.length - visible.length;
-      const stack = document.createElement("span");
-      stack.className = "tab-op-stack tab-op-chip-leading";
-
-      for (const id of visible) {
-        const op = this.operatorCache.get(id) ?? null;
-        if (!op) continue;
-        const isDriver = pillPane.operator === id;
-        const isPerception = perceptionId === id;
-        const chip = document.createElement("span");
-        chip.className =
-          "tab-op-chip " +
-          (isDriver
-            ? "tab-op-chip--driver"
-            : isPerception
-              ? "tab-op-chip--perception"
-              : "tab-op-chip--observer");
-        const xp = op.xp ?? 0;
-        const level = operatorLevelFromXp(xp);
-        const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
-        // Driver gets XP ring + level badge; observers are visually quieter
-        // so they don't compete with the writer in a stacked pill.
-        if (isDriver) {
-          chip.innerHTML =
-            `<span class="tab-op-avatar-wrap" data-operator-id="${op.id}" ` +
-                  `style="--xp-progress:${xpProgress.toFixed(3)};">` +
-              `<svg class="tab-op-xp-ring" viewBox="0 0 24 24" aria-hidden="true">` +
-                `<circle class="track" cx="12" cy="12" r="11"/>` +
-                `<circle class="fill"  cx="12" cy="12" r="11"/>` +
-              `</svg>` +
-              `${renderAvatarHtml(op.emoji, 18)}` +
-              `<span class="tab-op-level" data-operator-id="${op.id}">${level}</span>` +
-            `</span>`;
-        } else {
-          chip.innerHTML =
-            `<span class="tab-op-avatar-wrap" data-operator-id="${op.id}">` +
-              `${renderAvatarHtml(op.emoji, 18)}` +
-            `</span>`;
-        }
-        attachTooltip(
-          chip,
-          isDriver
-            ? `${op.name} — driving · Lv ${level} · ${xp} XP`
-            : isPerception
-              ? `${op.name} — Perception answered a prompt here`
-              : `${op.name} — observing`,
-        );
-        stack.appendChild(chip);
-      }
-
-      if (overflow > 0) {
-        const more = document.createElement("span");
-        more.className = "tab-op-stack__more";
-        more.textContent = `+${overflow}`;
-        stack.appendChild(more);
-      }
-
-      pill.appendChild(stack);
-    }
-
-    // Theme lead slot (hidden by default). CRT lights it as a terminal prompt:
-    // "$" for loose tabs, ├─/└─ tree connectors for grouped members (via CSS).
-    const lead = document.createElement("span");
-    lead.className = "tab-lead";
-    lead.setAttribute("aria-hidden", "true");
-    pill.appendChild(lead);
+    this.mountTabLead(pill, tab);
 
     if (this.isRenamingTab(tab.id)) {
       const input = document.createElement("input");
@@ -9047,16 +9085,6 @@ export class TabManager {
         input.setSelectionRange(input.value.length, input.value.length);
       });
     } else {
-      // Browser tabs get a leading globe glyph + a marker class so they
-      // read as web pages, not shell sessions, in the tab strip.
-      if (tab.kind === "browser") {
-        pill.classList.add("tab-btn-browser");
-        const glyph = document.createElement("span");
-        glyph.className = "tab-browser-glyph";
-        glyph.setAttribute("aria-hidden", "true");
-        glyph.innerHTML = Icons.globe({ size: 12 });
-        pill.appendChild(glyph);
-      }
       const label = document.createElement("span");
       label.className = "tab-label";
       label.textContent = tabDisplayName(tab);
