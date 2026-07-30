@@ -1,4 +1,5 @@
-/// Vitals — full-screen terminal-speed dashboard (switch / input / boot),
+/// Vitals — full-screen terminal-speed dashboard (repaint / switch / input
+/// / boot; read Repaint first — it is the one that tracks felt lag),
 /// comparing releases from locally persisted samples. Mirrors
 /// WorktreesSurface (ui/src/worktrees/index.ts): a fixed overlay the
 /// terminal keeps focus behind, Escape captured on the capture phase.
@@ -38,13 +39,26 @@ export interface VitalsDataSource {
   currentVersion(): Promise<string>;
 }
 
-const METRICS = ["switch", "input", "boot"] as const;
+// `repaint` leads: it is the metric that tracked perceived lag in
+// measurement, while `switch` covers only activate()'s own synchronous work.
+const METRICS = ["repaint", "switch", "input", "boot"] as const;
 type Metric = (typeof METRICS)[number];
 
-const METRIC_LABEL: Record<Metric, string> = { switch: "Switch", input: "Input", boot: "Boot" };
+const METRIC_LABEL: Record<Metric, string> = {
+  repaint: "Repaint",
+  switch: "Switch",
+  input: "Input",
+  boot: "Boot",
+};
+// Each string states exactly what the number covers. The previous wording
+// ("click → terminal revealed and painted") promised the click and the paint,
+// and the metric contained neither.
 const METRIC_HELP: Record<Metric, string> = {
-  switch: "Tab activation: click → terminal revealed and painted.",
-  input: "Keystroke round trip: key → PTY echo painted.",
+  repaint:
+    "Tab switch, felt: activation start → the revealed pane's first painted frame. Aux column = how long the click waited for the main thread.",
+  switch:
+    "Activation logic only: activate()'s own synchronous work — no click wait, no repaint. Typically 10-15ms even when a switch feels slow, so read Repaint first.",
+  input: "Keystroke round trip: key → PTY echo painted. Samples over 1s are discarded, not recorded.",
   boot: "Launch → first shell prompt of the active tab.",
 };
 
@@ -97,7 +111,10 @@ export class VitalsSurface {
       const [summary, version, worst, dailies] = await Promise.all([
         this.source.summary(SUMMARY_DAYS).catch(() => [] as VitalsSummaryRow[]),
         this.source.currentVersion().catch(() => ""),
-        this.source.worst("switch", WORST_LIMIT).catch(() => [] as VitalsWorstRow[]),
+        // Worst by REPAINT, not by switch: the switch metric's tail is
+        // dominated by cheap-but-noisy activations, while repaint is the
+        // number that corresponds to a switch the user felt.
+        this.source.worst("repaint", WORST_LIMIT).catch(() => [] as VitalsWorstRow[]),
         Promise.all(
           METRICS.map((m) => this.source.daily(m, DAILY_DAYS).catch(() => [] as VitalsDailyRow[])),
         ),
@@ -162,7 +179,7 @@ export class VitalsSurface {
     if (this.worstRows.length > 0) body.appendChild(this.renderWorst());
   }
 
-  /// Three metric cards — p50 / p95 / n for the running version, each with
+  /// Four metric cards — p50 / p95 / n for the running version, each with
   /// a 30-day daily-p95 sparkline.
   private renderCards(): HTMLElement {
     const cards = document.createElement("div");
@@ -263,13 +280,15 @@ export class VitalsSurface {
     hr.appendChild(th("Time"));
     hr.appendChild(th("Version"));
     hr.appendChild(th("ms", "vt-num"));
-    const aux = th("Starved ms", "vt-num");
-    attachTooltip(aux, "Post-reveal starvation measured during the switch.");
+    const aux = th("Queued ms", "vt-num");
+    attachTooltip(aux, "How long the click waited for the main thread before activation started.");
     hr.appendChild(aux);
-    hr.appendChild(th("Cols Δ", "vt-num"));
+    const kind = th("Tab");
+    attachTooltip(kind, "Tab kind — shell, acp, pi or browser. All kinds are recorded.");
+    hr.appendChild(kind);
     hr.appendChild(th("Hidden output", "vt-num"));
+    hr.appendChild(th("Cols Δ", "vt-num"));
     hr.appendChild(th("Fit ms", "vt-num"));
-    hr.appendChild(th("Nudge ms", "vt-num"));
     thead.appendChild(hr);
 
     const tbody = document.createElement("tbody");
@@ -280,10 +299,10 @@ export class VitalsSurface {
       tr.appendChild(td(row.app_version));
       tr.appendChild(td(String(Math.round(row.value_ms)), "vt-num"));
       tr.appendChild(td(row.aux_ms === null ? "—" : String(Math.round(row.aux_ms)), "vt-num"));
-      tr.appendChild(td(formatNumberField(detail["colsDelta"]), "vt-num"));
+      tr.appendChild(td(typeof detail["kind"] === "string" ? String(detail["kind"]) : "—"));
       tr.appendChild(td(formatBytesField(detail["hiddenOutputBytes"]), "vt-num"));
+      tr.appendChild(td(formatNumberField(detail["colsDelta"]), "vt-num"));
       tr.appendChild(td(formatNumberField(detail["fitMs"]), "vt-num"));
-      tr.appendChild(td(formatNumberField(detail["nudgeMs"]), "vt-num"));
       tbody.appendChild(tr);
     }
     table.append(thead, tbody);

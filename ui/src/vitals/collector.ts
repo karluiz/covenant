@@ -1,7 +1,10 @@
 /// Buffered, fire-and-forget sink for UI vitals. Never throws into the
 /// hot paths that call record(); a wedged backend loses vitals, never
 /// frames. No timer while the buffer is empty (idle cost zero).
-export type VitalMetric = "switch" | "input" | "boot";
+/// `repaint` is the one that tracks perceived tab-switch lag; `switch` only
+/// covers activate()'s own synchronous work (10-15ms typical), so a healthy
+/// `switch` says nothing about how the switch felt. See vitals/switch-vital.ts.
+export type VitalMetric = "switch" | "repaint" | "input" | "boot";
 
 export interface VitalEvent {
   metric: VitalMetric;

@@ -26,6 +26,8 @@ import { TerminalFinder } from "../terminal/finder";
 import { playCrossfade } from "./crossfade";
 import { InputLatencyProbe, isPrintableKey } from "../vitals/input-probe";
 import type { VitalsCollector } from "../vitals/collector";
+import { probePostRevealStarvation } from "../vitals/starvation";
+import { buildSwitchVitals, type SwitchFitBreadcrumb } from "../vitals/switch-vital";
 import { mountWelcomeHint, dismissWelcomeHint } from "../terminal/welcome-hint";
 import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
 import { mountCdPicker } from "../terminal/cd-picker";
@@ -263,7 +265,18 @@ export function planHiddenTabResizes(
 
 interface TabActivationMetric {
   tabId: string;
+  kind: string;
+  /// activate()'s own synchronous work, start → reveal frame. Measured at
+  /// 10-15ms typical / 42ms worst over 42 live switches — a healthy value
+  /// here does NOT mean the switch felt fast.
   elapsedMs: number;
+  /// Start → the frame after the reveal actually painted. This is the number
+  /// that tracked perceived lag in measurement (168ms idle → 385ms returning
+  /// to a tab that streamed for 10s while hidden).
+  repaintMs: number | null;
+  /// Delay between the originating user event and activate() starting. A
+  /// frozen screen with a fast elapsedMs means the click sat in the queue.
+  queuedMs: number | null;
   /// Synchronous first fit (geometry measure + possible cols-change reflow).
   fitMs: number;
   /// Synchronous rows-1/rows scroll-area nudge, when the plan took it.
@@ -272,10 +285,10 @@ interface TabActivationMetric {
   /// with stale dims and paid a buffer reflow + renderer clear right here.
   colsDelta: number;
   rowsDelta: number;
-  /// Event-loop lag summed over ~1s AFTER the reveal. Write backlogs and
-  /// cold-cache re-renders land after the metric frame — elapsedMs alone
-  /// reads "fast" while the user still sees a frozen terminal.
-  postRevealStarvedMs: number;
+  /// Event-loop lag summed over ~1s AFTER the reveal, or null when the
+  /// window stopped being visible (background timers are throttled to ~1s,
+  /// which fabricates multi-second "stalls" — see vitals/starvation.ts).
+  postRevealStarvedMs: number | null;
   hiddenOutputBytes: number;
   hiddenOutputChunks: number;
   usedNudge: boolean;
@@ -284,6 +297,7 @@ interface TabActivationMetric {
 
 const SLOW_TAB_ACTIVATION_MS = 120;
 const POST_REVEAL_STARVED_WARN_MS = 250;
+const SLOW_REPAINT_MS = 250;
 
 function reportTabActivation(metric: TabActivationMetric): void {
   // Keep normal switches silent. A slow-switch breadcrumb is intentionally
@@ -291,36 +305,12 @@ function reportTabActivation(metric: TabActivationMetric): void {
   // with the hidden-output counters without adding a user-facing debug panel.
   if (
     metric.elapsedMs < SLOW_TAB_ACTIVATION_MS &&
-    metric.postRevealStarvedMs < POST_REVEAL_STARVED_WARN_MS
+    (metric.postRevealStarvedMs ?? 0) < POST_REVEAL_STARVED_WARN_MS &&
+    (metric.repaintMs ?? 0) < SLOW_REPAINT_MS
   )
     return;
   // eslint-disable-next-line no-console
   console.warn("slow tab activation", metric);
-}
-
-/// Sample event-loop lag for ~1s after a reveal by measuring how late a
-/// chain of fixed-interval timers fires. Cheap (20 timers), portable
-/// (WKWebView has no `longtask` PerformanceObserver), and catches the work
-/// the activation metric can't see.
-export function probePostRevealStarvation(
-  onDone: (starvedMs: number) => void,
-  tickMs = 50,
-  ticks = 20,
-): void {
-  let starved = 0;
-  let last = performance.now();
-  let n = 0;
-  const tick = (): void => {
-    const now = performance.now();
-    starved += Math.max(0, now - last - tickMs);
-    last = now;
-    if (++n >= ticks) {
-      onDone(Math.round(starved));
-      return;
-    }
-    window.setTimeout(tick, tickMs);
-  };
-  window.setTimeout(tick, tickMs);
 }
 
 /// Split panes (D12 v0) build their own xterm + FitAddon locally in
@@ -2918,7 +2908,9 @@ export class TabManager {
       // for keyboard/synthetic clicks — activate() early-returns on the
       // already-active id. Drag-intent presses also activate first,
       // matching browser tab strips.
-      this.activate(tabId);
+      // `e.timeStamp` shares performance.now()'s timeline, so passing it lets
+      // activate() report how long the press waited for the main thread.
+      this.activate(tabId, { eventTs: e.timeStamp });
       this.beginPointerDrag(e, { kind: "tab", id: tabId });
     });
   }
@@ -7347,11 +7339,70 @@ export class TabManager {
     this.scheduleSave();
   }
 
+  /// Schedules the post-reveal measurement and records the switch/repaint
+  /// vitals. Called from EVERY activate() exit path — 0.11.3 only recorded
+  /// terminal tabs because the per-kind early returns preceded the record,
+  /// so a laggy switch into an ACP chat tab was invisible.
+  private finishActivationMetric(args: {
+    tab: Tab;
+    activationStartedAt: number;
+    queuedMs: number | null;
+    hiddenOutputBytes: number;
+    hiddenOutputChunks: number;
+    fit: SwitchFitBreadcrumb | null;
+  }): void {
+    const { tab, activationStartedAt, queuedMs, hiddenOutputBytes, hiddenOutputChunks, fit } = args;
+    const elapsedMs = performance.now() - activationStartedAt;
+    // Second frame: the first rAF runs BEFORE paint, so the frame after it is
+    // the earliest point the revealed pane is actually on screen.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const repaintMs = performance.now() - activationStartedAt;
+        probePostRevealStarvation((postRevealStarvedMs) => {
+          reportTabActivation({
+            tabId: tab.id,
+            kind: tab.kind,
+            elapsedMs,
+            repaintMs,
+            queuedMs,
+            fitMs: fit?.fitMs ?? 0,
+            nudgeMs: fit?.nudgeMs ?? 0,
+            colsDelta: fit?.colsDelta ?? 0,
+            rowsDelta: fit?.rowsDelta ?? 0,
+            postRevealStarvedMs,
+            hiddenOutputBytes,
+            hiddenOutputChunks,
+            usedNudge: fit?.usedNudge ?? false,
+            fitChangedDimensions: fit?.fitChangedDimensions ?? false,
+          });
+          for (const v of buildSwitchVitals({
+            kind: tab.kind,
+            elapsedMs,
+            repaintMs,
+            queuedMs,
+            starvedMs: postRevealStarvedMs,
+            hiddenOutputBytes,
+            hiddenOutputChunks,
+            tabCount: this.tabs.length,
+            fit,
+          })) {
+            this.vitals?.record(v.metric, v.value, v.aux, v.detail);
+          }
+        });
+      });
+    });
+  }
+
   activate(
     id: string,
-    opts: { skipIfSame?: boolean } = { skipIfSame: true },
+    opts: { skipIfSame?: boolean; eventTs?: number } = { skipIfSame: true },
   ): void {
     const activationStartedAt = performance.now();
+    // How long the originating user event waited before we got here. A frozen
+    // screen with a fast elapsedMs means the click sat in the queue behind
+    // other main-thread work — the shape observed in the user's recording.
+    const queuedMs =
+      typeof opts.eventTs === "number" ? Math.max(0, activationStartedAt - opts.eventTs) : null;
     const tab = this.tabs.find((t) => t.id === id);
     if (!tab) return;
 
@@ -7436,10 +7487,24 @@ export class TabManager {
     this.statusBar?.setExecutor(activatorExecutor);
     this.onActiveExecutorChange?.(activatorExecutor);
 
+    // Non-terminal tabs exit here. Each still measures the switch — a laggy
+    // reveal of an ACP chat transcript is exactly as user-visible as a slow
+    // terminal, and 0.11.3 recorded none of them.
+    const measureNonTerminal = (): void =>
+      this.finishActivationMetric({
+        tab,
+        activationStartedAt,
+        queuedMs,
+        hiddenOutputBytes: 0,
+        hiddenOutputChunks: 0,
+        fit: null,
+      });
+
     if (tab.kind === "browser") {
       // Browser tabs have no xterm. Reveal the native webview (which
       // floats above the DOM and was hidden above).
       tab.browser?.show();
+      measureNonTerminal();
       return;
     }
 
@@ -7448,6 +7513,7 @@ export class TabManager {
       // chat textarea so the next keystroke lands in the prompt.
       const ta = tab.pane.querySelector<HTMLTextAreaElement>(".pi-chat-textarea");
       ta?.focus();
+      measureNonTerminal();
       return;
     }
 
@@ -7455,6 +7521,7 @@ export class TabManager {
       // ACP tabs have no xterm to fit/resize; hand focus to the
       // composer so the next keystroke lands in the prompt.
       tab.acpView?.focusComposer();
+      measureNonTerminal();
       return;
     }
 
@@ -7628,34 +7695,22 @@ export class TabManager {
         }
       }
       term.focus();
-      const elapsedMs = performance.now() - activationStartedAt;
-      // The breadcrumb lands ~1s late so it can include what the user
-      // actually felt: main-thread starvation AFTER the reveal frame.
-      probePostRevealStarvation((postRevealStarvedMs) => {
-        reportTabActivation({
-          tabId: tab.id,
-          elapsedMs,
-          fitMs: Math.round(fitMs * 10) / 10,
-          nudgeMs: Math.round(nudgeMs * 10) / 10,
+      // Measurement continues past this frame: the repaint the user waits on
+      // happens AFTER the reveal, and starvation is sampled for ~1s beyond it.
+      this.finishActivationMetric({
+        tab,
+        activationStartedAt,
+        queuedMs,
+        hiddenOutputBytes,
+        hiddenOutputChunks,
+        fit: {
+          fitMs,
+          nudgeMs,
           colsDelta,
           rowsDelta,
-          postRevealStarvedMs,
-          hiddenOutputBytes,
-          hiddenOutputChunks,
           usedNudge: plan.nudge,
           fitChangedDimensions: dimsChangedByFit,
-        });
-        this.vitals?.record("switch", Math.round(elapsedMs * 10) / 10, postRevealStarvedMs, {
-          fitMs: Math.round(fitMs * 10) / 10,
-          nudgeMs: Math.round(nudgeMs * 10) / 10,
-          colsDelta,
-          rowsDelta,
-          hiddenOutputBytes,
-          hiddenOutputChunks,
-          usedNudge: plan.nudge,
-          fitChangedDimensions: dimsChangedByFit,
-          tabCount: this.tabs.length,
-        });
+        },
       });
     });
   }
