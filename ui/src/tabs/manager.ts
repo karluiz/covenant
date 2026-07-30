@@ -27,6 +27,7 @@ import { playCrossfade } from "./crossfade";
 import { InputLatencyProbe, isPrintableKey } from "../vitals/input-probe";
 import type { VitalsCollector } from "../vitals/collector";
 import { probePostRevealStarvation } from "../vitals/starvation";
+import { startGapWatch } from "../vitals/gap-watch";
 import { buildSwitchVitals, type SwitchFitBreadcrumb } from "../vitals/switch-vital";
 import { mountWelcomeHint, dismissWelcomeHint } from "../terminal/welcome-hint";
 import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
@@ -276,6 +277,10 @@ interface TabActivationMetric {
   /// True when the span crossed a non-visible period — the sample's repaint
   /// is unusable and was dropped rather than recorded as a stall.
   spannedHidden: boolean;
+  /// Start → first animation frame, and event-loop lateness during the gap.
+  /// Together they say whether frames stalled or the paint itself was costly.
+  frame1Ms: number | null;
+  gapStarvedMs: number | null;
   /// Delay between the originating user event and activate() starting. A
   /// frozen screen with a fast elapsedMs means the click sat in the queue.
   queuedMs: number | null;
@@ -7369,11 +7374,20 @@ export class TabManager {
       if (document.visibilityState !== "visible") spannedHidden = true;
     };
     document.addEventListener("visibilitychange", onVisibility);
+    // Watch the event loop across the gap. Real 0.11.5 data has this gap at
+    // 228ms even at BEST (≈14 frames) with the synchronous work at ~15ms, so
+    // the cause is in frame production — this says whether the main thread was
+    // busy during it or merely waiting.
+    const gap = startGapWatch();
     // Second frame: the first rAF runs BEFORE paint, so the frame after it is
-    // the earliest point the revealed pane is actually on screen.
+    // the earliest point the revealed pane is actually on screen. frame1 is
+    // recorded separately because "no frames at all" and "the paint itself is
+    // expensive" look identical in the total.
     requestAnimationFrame(() => {
+      const frame1Ms = performance.now() - activationStartedAt;
       requestAnimationFrame(() => {
         const repaintMs = performance.now() - activationStartedAt;
+        const gapStarvedMs = gap.stop().starvedMs;
         document.removeEventListener("visibilitychange", onVisibility);
         if (document.visibilityState !== "visible") spannedHidden = true;
         probePostRevealStarvation((postRevealStarvedMs) => {
@@ -7383,6 +7397,8 @@ export class TabManager {
             elapsedMs: syncMs,
             repaintMs: spannedHidden ? null : repaintMs,
             spannedHidden,
+            frame1Ms,
+            gapStarvedMs,
             queuedMs,
             fitMs: fit?.fitMs ?? 0,
             nudgeMs: fit?.nudgeMs ?? 0,
@@ -7394,6 +7410,7 @@ export class TabManager {
             usedNudge: fit?.usedNudge ?? false,
             fitChangedDimensions: fit?.fitChangedDimensions ?? false,
           });
+          const grid = tab.term ? { cols: tab.term.cols, rows: tab.term.rows } : null;
           for (const v of buildSwitchVitals({
             kind: tab.kind,
             elapsedMs: syncMs,
@@ -7405,6 +7422,9 @@ export class TabManager {
             tabCount: this.tabs.length,
             fit,
             spannedHidden,
+            frame1Ms,
+            gapStarvedMs,
+            grid,
           })) {
             this.vitals?.record(v.metric, v.value, v.aux, v.detail);
           }

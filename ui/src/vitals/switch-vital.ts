@@ -41,6 +41,18 @@ export interface SwitchVitalInput {
   tabCount: number;
   /// Geometry breadcrumb — terminal tabs only.
   fit: SwitchFitBreadcrumb | null;
+  /// Activation start → the FIRST animation frame after the synchronous body.
+  /// Splits the repaint gap in two: a large frame1 means frames were not being
+  /// produced at all, while frame1 small + repaint large means the revealed
+  /// content itself was expensive to paint.
+  frame1Ms: number | null;
+  /// Event-loop lateness accumulated DURING the gap. Near-zero across a long
+  /// gap means the loop stayed responsive while frames stalled — which rules
+  /// out main-thread work as the cause. See ./gap-watch.
+  gapStarvedMs: number | null;
+  /// Revealed terminal's grid. Tests the standing prediction that the reveal
+  /// cost scales with viewport size rather than with buffered output.
+  grid: { cols: number; rows: number } | null;
   /// True when the window was not continuously visible between activation and
   /// the repaint frame. WebKit suspends rAF while occluded, so `repaintMs`
   /// then measures how long the user looked away — not a slow repaint.
@@ -63,6 +75,13 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
     hiddenOutputChunks: input.hiddenOutputChunks,
     tabCount: input.tabCount,
   };
+  if (input.frame1Ms !== null) shared.frame1Ms = r1(input.frame1Ms);
+  if (input.gapStarvedMs !== null) shared.gapStarvedMs = Math.round(input.gapStarvedMs);
+  if (input.grid) {
+    shared.cols = input.grid.cols;
+    shared.rows = input.grid.rows;
+    shared.cells = input.grid.cols * input.grid.rows;
+  }
   // The geometry breadcrumb goes on BOTH events: the Vitals page investigates
   // the slowest *repaints*, so dropping it from that event would render the
   // "Cols Δ" / "Fit ms" columns permanently empty.

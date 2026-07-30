@@ -18,6 +18,9 @@ const base = {
   tabCount: 13,
   fit: null,
   spannedHidden: false,
+  frame1Ms: 42.2,
+  gapStarvedMs: 3,
+  grid: { cols: 210, rows: 58 },
 };
 
 describe("buildSwitchVitals", () => {
@@ -74,6 +77,22 @@ describe("buildSwitchVitals", () => {
     });
     const repaint = out.find((e) => e.metric === "repaint");
     expect(repaint?.detail).toMatchObject({ fitMs: 3.2, colsDelta: -4 });
+  });
+
+  it("carries the gap discriminators and the grid on both events", () => {
+    const out = buildSwitchVitals(base);
+    for (const e of out) {
+      expect(e.detail).toMatchObject({
+        frame1Ms: 42.2, gapStarvedMs: 3, cols: 210, rows: 58, cells: 210 * 58,
+      });
+    }
+  });
+
+  it("omits gap fields that were not measured rather than reporting zero", () => {
+    const out = buildSwitchVitals({ ...base, frame1Ms: null, gapStarvedMs: null, grid: null });
+    expect(out[0].detail).not.toHaveProperty("frame1Ms");
+    expect(out[0].detail).not.toHaveProperty("gapStarvedMs");
+    expect(out[0].detail).not.toHaveProperty("cols");
   });
 
   it("omits the repaint event when the repaint frame never arrived", () => {
