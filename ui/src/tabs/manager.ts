@@ -266,14 +266,16 @@ export function planHiddenTabResizes(
 interface TabActivationMetric {
   tabId: string;
   kind: string;
-  /// activate()'s own synchronous work, start → reveal frame. Measured at
-  /// 10-15ms typical / 42ms worst over 42 live switches — a healthy value
-  /// here does NOT mean the switch felt fast.
+  /// activate()'s synchronous body only — same span for every tab kind.
+  /// 10-15ms typical; a healthy value here does NOT mean the switch felt fast.
   elapsedMs: number;
-  /// Start → the frame after the reveal actually painted. This is the number
-  /// that tracked perceived lag in measurement (168ms idle → 385ms returning
-  /// to a tab that streamed for 10s while hidden).
+  /// Start → the frame after the reveal actually painted. Null when the
+  /// window was not continuously visible (rAF is suspended while occluded,
+  /// so the number would be "how long the user looked away").
   repaintMs: number | null;
+  /// True when the span crossed a non-visible period — the sample's repaint
+  /// is unusable and was dropped rather than recorded as a stall.
+  spannedHidden: boolean;
   /// Delay between the originating user event and activate() starting. A
   /// frozen screen with a fast elapsedMs means the click sat in the queue.
   queuedMs: number | null;
@@ -7346,24 +7348,41 @@ export class TabManager {
   private finishActivationMetric(args: {
     tab: Tab;
     activationStartedAt: number;
+    /// activate()'s synchronous work, measured by the caller so the number
+    /// means the same thing for every tab kind. Measuring it here would
+    /// silently include an rAF wait on the terminal path (which calls this
+    /// from inside its drift-pass frame) and not on the others — that made
+    /// `switch` p95 read 3721ms in real 0.11.4 data, a frame wait, not work.
+    syncMs: number;
     queuedMs: number | null;
     hiddenOutputBytes: number;
     hiddenOutputChunks: number;
     fit: SwitchFitBreadcrumb | null;
   }): void {
-    const { tab, activationStartedAt, queuedMs, hiddenOutputBytes, hiddenOutputChunks, fit } = args;
-    const elapsedMs = performance.now() - activationStartedAt;
+    const { tab, activationStartedAt, syncMs, queuedMs, hiddenOutputBytes, hiddenOutputChunks, fit } = args;
+    // WebKit suspends rAF entirely while the window is occluded, so a switch
+    // followed by an alt-tab yields a huge repaint with healthy starvation —
+    // indistinguishable from a real stall unless we watch visibility across
+    // the whole span. Both endpoints are checked, plus any change between.
+    let spannedHidden = document.visibilityState !== "visible";
+    const onVisibility = (): void => {
+      if (document.visibilityState !== "visible") spannedHidden = true;
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     // Second frame: the first rAF runs BEFORE paint, so the frame after it is
     // the earliest point the revealed pane is actually on screen.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const repaintMs = performance.now() - activationStartedAt;
+        document.removeEventListener("visibilitychange", onVisibility);
+        if (document.visibilityState !== "visible") spannedHidden = true;
         probePostRevealStarvation((postRevealStarvedMs) => {
           reportTabActivation({
             tabId: tab.id,
             kind: tab.kind,
-            elapsedMs,
-            repaintMs,
+            elapsedMs: syncMs,
+            repaintMs: spannedHidden ? null : repaintMs,
+            spannedHidden,
             queuedMs,
             fitMs: fit?.fitMs ?? 0,
             nudgeMs: fit?.nudgeMs ?? 0,
@@ -7377,7 +7396,7 @@ export class TabManager {
           });
           for (const v of buildSwitchVitals({
             kind: tab.kind,
-            elapsedMs,
+            elapsedMs: syncMs,
             repaintMs,
             queuedMs,
             starvedMs: postRevealStarvedMs,
@@ -7385,6 +7404,7 @@ export class TabManager {
             hiddenOutputChunks,
             tabCount: this.tabs.length,
             fit,
+            spannedHidden,
           })) {
             this.vitals?.record(v.metric, v.value, v.aux, v.detail);
           }
@@ -7494,6 +7514,7 @@ export class TabManager {
       this.finishActivationMetric({
         tab,
         activationStartedAt,
+        syncMs: performance.now() - activationStartedAt,
         queuedMs,
         hiddenOutputBytes: 0,
         hiddenOutputChunks: 0,
@@ -7664,6 +7685,13 @@ export class TabManager {
     // visibility:hidden, and focus() on a hidden textarea is a no-op.
     if (!deferSwap || syncRevealed) term.focus();
 
+    // End of activate()'s synchronous body. Captured HERE so the `switch`
+    // metric excludes the rAF wait below — the terminal path defers its
+    // drift pass by a frame, and folding that wait into the metric is what
+    // made real 0.11.4 data report a 3721ms "switch" whose actual work was
+    // ~15ms.
+    const syncMs = performance.now() - activationStartedAt;
+
     requestAnimationFrame(() => {
       // Superseded by a later activate(), or the pane was hidden again
       // (settings page opened mid-switch) — the screen isn't ours.
@@ -7700,6 +7728,7 @@ export class TabManager {
       this.finishActivationMetric({
         tab,
         activationStartedAt,
+        syncMs,
         queuedMs,
         hiddenOutputBytes,
         hiddenOutputChunks,

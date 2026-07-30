@@ -31,6 +31,7 @@ export interface SwitchVitalInput {
   /// Tab kind — "shell" | "acp" | "pi" | "browser". 0.11.3 recorded only
   /// shell tabs because the per-kind early returns preceded the record call.
   kind: string;
+  /// activate()'s synchronous body only — the same span for every tab kind.
   elapsedMs: number;
   repaintMs: number | null;
   queuedMs: number | null;
@@ -40,6 +41,10 @@ export interface SwitchVitalInput {
   tabCount: number;
   /// Geometry breadcrumb — terminal tabs only.
   fit: SwitchFitBreadcrumb | null;
+  /// True when the window was not continuously visible between activation and
+  /// the repaint frame. WebKit suspends rAF while occluded, so `repaintMs`
+  /// then measures how long the user looked away — not a slow repaint.
+  spannedHidden: boolean;
 }
 
 export interface BuiltVital {
@@ -71,6 +76,10 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
   }
   const switchDetail: Record<string, unknown> = { ...shared };
 
+  // A repaint measured across a hidden stretch is unusable, but silently
+  // dropping it would make "how often does this happen" unanswerable.
+  if (input.spannedHidden) switchDetail.repaintDiscarded = "window-not-visible";
+
   const out: BuiltVital[] = [
     {
       metric: "switch",
@@ -79,7 +88,7 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
       detail: switchDetail,
     },
   ];
-  if (input.repaintMs !== null) {
+  if (input.repaintMs !== null && !input.spannedHidden) {
     out.push({
       metric: "repaint",
       value: r1(input.repaintMs),

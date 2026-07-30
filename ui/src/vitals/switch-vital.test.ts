@@ -17,6 +17,7 @@ const base = {
   hiddenOutputChunks: 3,
   tabCount: 13,
   fit: null,
+  spannedHidden: false,
 };
 
 describe("buildSwitchVitals", () => {
@@ -78,5 +79,33 @@ describe("buildSwitchVitals", () => {
   it("omits the repaint event when the repaint frame never arrived", () => {
     const out = buildSwitchVitals({ ...base, repaintMs: null });
     expect(out.map((e) => e.metric)).toEqual(["switch"]);
+  });
+
+  // Real 0.11.4 data: a 3721ms switch whose synchronous work was 15ms and
+  // whose post-reveal starvation was a healthy 12ms — the shape of "no
+  // animation frame arrived". WebKit suspends rAF entirely while the window
+  // is occluded, so an activation followed by an alt-tab produces the exact
+  // same shape without anything being slow. Those samples must not pollute
+  // the repaint percentiles.
+  describe("when the window was not visible for the whole span", () => {
+    it("drops the repaint event", () => {
+      const out = buildSwitchVitals({ ...base, spannedHidden: true });
+      expect(out.map((e) => e.metric)).toEqual(["switch"]);
+    });
+
+    it("still records the switch event, whose value is purely synchronous", () => {
+      const out = buildSwitchVitals({ ...base, spannedHidden: true });
+      expect(out[0].value).toBe(12.3);
+    });
+
+    it("leaves a trace so discarded samples are countable, not invisible", () => {
+      const out = buildSwitchVitals({ ...base, spannedHidden: true });
+      expect(out[0].detail.repaintDiscarded).toBe("window-not-visible");
+    });
+
+    it("adds no such flag on a clean sample", () => {
+      const out = buildSwitchVitals(base);
+      expect(out[0].detail).not.toHaveProperty("repaintDiscarded");
+    });
   });
 });
