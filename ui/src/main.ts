@@ -122,6 +122,9 @@ import {
 import { ChangesSurface } from "./changes/index";
 import { WorktreesSurface } from "./worktrees/index";
 import "./worktrees/worktrees.css";
+import { VitalsSurface } from "./vitals/page";
+import { VitalsCollector } from "./vitals/collector";
+import { vitalsDaily, vitalsRecord, vitalsSummary, vitalsWorst } from "./api";
 import { gitRepoSummary } from "./api";
 import { handleHandoffRouted, type HandoffRoutedEvent } from "./teammate/handoff-spawn";
 import type { TabPlacement } from "./tabs/manager";
@@ -2167,6 +2170,21 @@ async function boot(): Promise<void> {
   };
   window.addEventListener("covenant:open-worktrees", () => { void openWorktrees(); });
 
+  // UI Vitals — terminal-speed metrics. Collector feeds every capture
+  // point in the TabManager; the surface is the ⌘⌥V dashboard.
+  const vitalsCollector = new VitalsCollector((ev) => vitalsRecord(ev));
+  manager.vitals = vitalsCollector;
+  window.addEventListener("beforeunload", () => vitalsCollector.flush());
+  const vitalsHost = document.createElement("div");
+  document.body.appendChild(vitalsHost);
+  const vitalsSurface = new VitalsSurface(vitalsHost, {
+    summary: vitalsSummary,
+    worst: vitalsWorst,
+    daily: vitalsDaily,
+    currentVersion: () => getVersion(),
+  });
+  window.addEventListener("covenant:open-vitals", () => { void vitalsSurface.open(); });
+
   const openChanges = async (cwdArg?: string, onBack?: () => void, focusFile?: string): Promise<void> => {
     const cwd = cwdArg ?? manager.activeCwd();
     if (!cwd) return;
@@ -2899,6 +2917,13 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "w" || e.key === "W" || e.key === "∑")) {
       e.preventDefault();
       if (worktreesSurface.isOpen) { worktreesSurface.close(); } else { void openWorktrees(); }
+      return;
+    }
+    // ⌘⌥V / Ctrl+Alt+V → Vitals dashboard. "√" is what ⌥V emits on
+    // macOS; modHeld() resolves the primary modifier per platform.
+    if (modHeld(e) && e.altKey && !e.shiftKey && (e.key === "v" || e.key === "V" || e.key === "√")) {
+      e.preventDefault();
+      if (vitalsSurface.isOpen()) { vitalsSurface.close(); } else { void vitalsSurface.open(); }
       return;
     }
     // Canon cockpit for the active group (full-screen, skips the rail):

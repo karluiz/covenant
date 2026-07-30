@@ -37,5 +37,10 @@ export function buildActions(
       title: "Close current tab",
       run: () => tabManager.closeActiveTab(),
     },
+    {
+      id: "open-vitals",
+      title: "Vitals",
+      run: () => window.dispatchEvent(new CustomEvent("covenant:open-vitals")),
+    },
   ];
 }
