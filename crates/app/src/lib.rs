@@ -85,6 +85,7 @@ pub mod teammate;
 pub mod telegram;
 mod term_share;
 mod theme;
+mod ui_vitals;
 mod vitals;
 mod world;
 
@@ -5842,6 +5843,10 @@ pub fn run() {
             spawn_session,
             replay_scrollback,
             delete_scrollback,
+            ui_vitals::vitals_record,
+            ui_vitals::vitals_summary,
+            ui_vitals::vitals_worst,
+            ui_vitals::vitals_daily,
             read_font_bytes,
             list_monospace_fonts,
             write_to_session,

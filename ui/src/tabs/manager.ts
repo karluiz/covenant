@@ -24,6 +24,8 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { TerminalFinder } from "../terminal/finder";
 import { playCrossfade } from "./crossfade";
+import { InputLatencyProbe, isPrintableKey } from "../vitals/input-probe";
+import type { VitalsCollector } from "../vitals/collector";
 import { mountWelcomeHint, dismissWelcomeHint } from "../terminal/welcome-hint";
 import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
 import { mountCdPicker } from "../terminal/cd-picker";
@@ -1110,6 +1112,20 @@ export class TabManager {
   private readonly tabs: Tab[] = [];
   private readonly groups: Map<string, TabGroup> = new Map();
   private activeId: string | null = null;
+  /// UI-vitals sink, injected by main.ts after construction. Nullable so
+  /// the manager stays constructible in tests without the collector.
+  public vitals: VitalsCollector | null = null;
+  /// Keystroke→painted-echo sampler (the input vital). One probe for the
+  /// whole app: it only ever samples the ACTIVE tab's session.
+  private readonly inputProbe = new InputLatencyProbe({
+    now: () => performance.now(),
+    onSample: (value, aux) =>
+      this.vitals?.record("input", Math.round(value * 10) / 10, Math.round(aux * 10) / 10, null),
+  });
+  /// One-shot boot vital: launch → first interactive prompt on the tab
+  /// the restore activated. Replay bytes accumulate for its detail blob.
+  private bootVitalPending = true;
+  private bootReplayBytes = 0;
   private missionPicker: ((opts: MissionPageOpts) => Promise<PageResult>) | null = null;
   private nextSeq = 1;
   private nextGroupSeq = 1;
@@ -4335,6 +4351,7 @@ export class TabManager {
     if (replayPromise) {
       const tail = await replayPromise;
       replayedBytes = tail.byteLength;
+      this.bootReplayBytes += replayedBytes;
       // Chunked: one 2 MiB write is ONE unbreakable parse task in xterm's
       // WriteBuffer — N restored tabs used to stack seconds of these right
       // when the user makes their first tab switch (see chunkForTermWrite).
@@ -4347,7 +4364,11 @@ export class TabManager {
     if (!opts?.initialCommand && replayedBytes === 0)
       mountWelcomeHint(paneHost0, term);
     const writeTerminalOutput = (chunk: Uint8Array): void => {
+      // Input vital: this chunk may be the sampled keystroke's echo. The
+      // probe returns the paint-completion callback only when it is.
+      const paintDone = this.inputProbe.onOutputChunk(String(sessionId));
       term.write(chunk, () => {
+        if (paintDone) requestAnimationFrame(paintDone);
         // Belt-and-suspenders: if a TUI exits without disabling mouse
         // tracking OR focus reporting we may not get a prompt_start (no
         // shell integration, or the event arrives later). Detect the stuck
@@ -4424,6 +4445,16 @@ export class TabManager {
               recall?.notifyPromptStart();
               promptHint.reset();
               cdPicker.reset();
+              // Boot vital: first interactive prompt on the tab the boot
+              // restore activated = launch→usable. One-shot per app run.
+              if (this.bootVitalPending && tabRef.current?.id === this.activeId) {
+                this.bootVitalPending = false;
+                this.vitals?.record("boot", Math.round(performance.now()), null, {
+                  tabsRestored: this.tabs.length,
+                  replayBytesTotal: this.bootReplayBytes,
+                  workspace: this.activeWorkspaceName ?? null,
+                });
+              }
               // A TUI that crashed/was killed can leave mouse tracking or focus
               // reporting enabled; every mouse move then leaks SGR reports (e.g.
               // `65;66;25M`) and every focus change leaks `^[[I`/`^[[O` into the
@@ -4883,6 +4914,11 @@ export class TabManager {
         promptHint.reset();
         cdPicker.reset();
         return; // do NOT forward the carriage return to the shell
+      }
+      // Input vital: sample this keystroke's round trip only when it's the
+      // active tab at a shell prompt (guards live inside the probe).
+      if (tab?.id === this.activeId) {
+        this.inputProbe.onKeystroke(String(sessionId), atPrompt, isPrintableKey(data));
       }
       void writeToSession(sessionId, encoder.encode(data)).catch((e) =>
         // eslint-disable-next-line no-console
@@ -7351,6 +7387,8 @@ export class TabManager {
     // A crossfade still in flight has TWO painted panes — force-finish
     // it so pickPaintedPaneId's single-painted-pane invariant holds.
     this.pendingCrosscut?.();
+    // Leaving the previous tab invalidates any in-flight input sample.
+    this.inputProbe.cancel();
     const paintedId = pickPaintedPaneId(
       this.tabs.map((t) => ({
         id: t.id,
@@ -7606,6 +7644,17 @@ export class TabManager {
           hiddenOutputChunks,
           usedNudge: plan.nudge,
           fitChangedDimensions: dimsChangedByFit,
+        });
+        this.vitals?.record("switch", Math.round(elapsedMs * 10) / 10, postRevealStarvedMs, {
+          fitMs: Math.round(fitMs * 10) / 10,
+          nudgeMs: Math.round(nudgeMs * 10) / 10,
+          colsDelta,
+          rowsDelta,
+          hiddenOutputBytes,
+          hiddenOutputChunks,
+          usedNudge: plan.nudge,
+          fitChangedDimensions: dimsChangedByFit,
+          tabCount: this.tabs.length,
         });
       });
     });

@@ -3842,3 +3842,28 @@ export async function lspListInstalled(): Promise<LspInstalledServer[]> {
 export async function lspDeleteServer(language: string): Promise<void> {
   await invoke<void>("lsp_delete_server", { language });
 }
+
+// ── UI Vitals (terminal-speed metrics) ──────────────────────────────
+// Spec: docs/superpowers/specs/2026-07-29-ui-vitals-design.md. Events
+// batch through VitalsCollector; the backend stamps ts + app_version.
+
+import type { VitalEvent } from "./vitals/collector";
+import type { VitalsDailyRow, VitalsSummaryRow, VitalsWorstRow } from "./vitals/page";
+
+export type { VitalsDailyRow, VitalsSummaryRow, VitalsWorstRow } from "./vitals/page";
+
+export async function vitalsRecord(events: VitalEvent[]): Promise<void> {
+  await invoke<void>("vitals_record", { events });
+}
+
+export async function vitalsSummary(days: number): Promise<VitalsSummaryRow[]> {
+  return await invoke<VitalsSummaryRow[]>("vitals_summary", { days });
+}
+
+export async function vitalsWorst(metric: string, limit: number): Promise<VitalsWorstRow[]> {
+  return await invoke<VitalsWorstRow[]>("vitals_worst", { metric, limit });
+}
+
+export async function vitalsDaily(metric: string, days: number): Promise<VitalsDailyRow[]> {
+  return await invoke<VitalsDailyRow[]>("vitals_daily", { metric, days });
+}
