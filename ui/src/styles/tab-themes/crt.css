@@ -41,9 +41,10 @@ body.tab-style-crt .tab-btn.active::before {
     display: none;
 }
 
+/* No margin: the pill's `gap` owns lead spacing, so the label starts at
+   the same x whether the prompt, a globe or an operator won the slot. */
 body.tab-style-crt .tab-lead {
     display: inline-block;
-    margin-right: 6px;
     font-weight: 700;
     color: color-mix(in srgb, var(--accent) 50%, var(--tab-fg-rest));
     opacity: 0.6;
@@ -55,12 +56,9 @@ body.tab-style-crt .tab-btn.active .tab-lead {
 }
 body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn .tab-lead::before { content: "├─"; }
 body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn:last-child .tab-lead::before { content: "└─"; }
-/* A pill already carrying a leading glyph doesn't get the connector too:
-   in the left rail the group shell (indent + header chip + spine) already
-   says "this belongs to a group", and two glyphs before the name is the
-   name losing characters. The busy glyph wins — it reports something
-   running, the connector repeats what the shell drew. */
-body.tab-style-crt .tab-btn:has(.tab-busy-dot) .tab-lead { display: none; }
+/* The busy glyph used to sit in the lead slot and steal it from the tree
+   connector. State moved to its own slot before the ×, so the connector
+   keeps the lead unconditionally and nothing competes for it. */
 
 /* Blinking block caret trailing the active label. */
 body.tab-style-crt .tab-btn.active .tab-caret {
@@ -74,4 +72,38 @@ body.tab-style-crt .tab-btn.active .tab-caret {
 }
 @media (prefers-reduced-motion: reduce) {
     body.tab-style-crt .tab-btn.active .tab-caret { animation: none; }
+}
+
+/* ── STATE · CRT dialect ────────────────────────────────────────────
+   Characters, not geometry. This is a phosphor terminal: a soft Lucide
+   dot sitting next to a blinking block caret reads as two different
+   products on one row. One char per state, in the mono the pill already
+   sets — `!` needs you, `?` holds a question, `@` someone is at the
+   keys, `*` a job is running, `^` this is the checkout that built the
+   app, `~` the session is going out over the wire. */
+body.tab-style-crt .tab-state__atom {
+    width: auto;
+    height: auto;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+}
+body.tab-style-crt .tab-state[data-state="attention"] .tab-state__atom::before { content: "!"; }
+body.tab-style-crt .tab-state[data-state="waiting"]   .tab-state__atom::before { content: "?"; }
+body.tab-style-crt .tab-state[data-state="driving"]   .tab-state__atom::before { content: "@"; }
+body.tab-style-crt .tab-state[data-state="serving"]   .tab-state__atom::before { content: "*"; }
+body.tab-style-crt .tab-state[data-state="live"]      .tab-state__atom::before { content: "^"; }
+body.tab-style-crt .tab-state[data-state="shared"]    .tab-state__atom::before { content: "~"; }
+
+/* The chassis breathe is a box-shadow halo — meaningless on a glyph.
+   Phosphor blinks instead, on the same element the chassis
+   reduced-motion rule already silences. */
+body.tab-style-crt .tab-state[data-state="waiting"] .tab-state__atom {
+    animation: crt-state-blink 1.6s steps(2, jump-none) infinite;
+}
+@keyframes crt-state-blink {
+    50% { opacity: 0.25; }
 }

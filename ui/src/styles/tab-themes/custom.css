@@ -191,3 +191,7 @@ body.tab-style-custom[data-tab-bg="translucent"] .tab-group-body > .tab-btn.tab-
 }
 
 /* group chips are chassis-owned — group knobs are inert on the new base */
+/* ── STATE · CUSTOM dialect ──
+   None, deliberately. Custom's whole contract is "the chassis, with
+   knobs" — inventing a look here would be a fifth design nobody asked
+   for. The chassis dot/ring is the custom dialect. */

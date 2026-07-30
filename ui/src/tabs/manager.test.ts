@@ -1244,3 +1244,88 @@ describe("split pane[1] reacts to its own session events", () => {
     expect(panes[0]!.busyProc).toBeUndefined();
   });
 });
+
+describe("the tab LEAD slot holds exactly one glyph", () => {
+  // Before the slot had a declared priority these rendered independently
+  // and stacked: an operator pinned on a grouped CRT tab put an avatar AND
+  // a tree connector in front of the name.
+  it("gives it to the operator, then the browser globe, then the theme prompt", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      mountTabLead: (pill: HTMLElement, tab: Record<string, unknown>) => void;
+      operatorCache: Map<string, unknown>;
+    };
+    priv.operatorCache.set("op1", { id: "op1", name: "Karl", emoji: "K", xp: 10 });
+
+    const leadOf = (kind: string, operator: string | null): string[] => {
+      const pill = document.createElement("div");
+      priv.mountTabLead.call(m, pill, {
+        id: "t",
+        kind,
+        panes: [fakePane({ operator })],
+        layout: { kind: "single", activePaneIdx: 0 },
+      });
+      return [...pill.children].map((c) => c.className.split(" ")[0]!);
+    };
+
+    // Identity beats kind beats decoration — and it is always exactly one.
+    expect(leadOf("shell", "op1")).toEqual(["tab-op-stack"]);
+    expect(leadOf("browser", "op1")).toEqual(["tab-op-stack"]);
+    expect(leadOf("browser", null)).toEqual(["tab-browser-glyph"]);
+    expect(leadOf("shell", null)).toEqual(["tab-lead"]);
+  });
+
+  it("falls through to the theme prompt when the operator is not in the cache", () => {
+    // An empty stack would still eat the slot and CRT would lose its prompt.
+    const m = makeManager();
+    const priv = m as unknown as {
+      mountTabLead: (pill: HTMLElement, tab: Record<string, unknown>) => void;
+    };
+    const pill = document.createElement("div");
+    priv.mountTabLead.call(m, pill, {
+      id: "t",
+      kind: "shell",
+      panes: [fakePane({ operator: "ghost" })],
+      layout: { kind: "single", activePaneIdx: 0 },
+    });
+    expect([...pill.children].map((c) => c.className)).toEqual(["tab-lead"]);
+  });
+});
+
+describe("the STATE atom lands before the ACTION cluster", () => {
+  // What the tab IS DOING and what you can DO to it are different
+  // questions; interleaving them is how the pill got unreadable in the
+  // first place. Anchoring on .tab-close alone would drop the atom
+  // between the spec badge and the ×.
+  it("inserts before the first action, not between actions", () => {
+    const m = makeManager();
+    const priv = m as unknown as {
+      mountTabState: (pill: HTMLElement, tab: Record<string, unknown>) => void;
+      blockedSessionIds: Set<string>;
+    };
+    priv.blockedSessionIds.add("s1");
+
+    const pill = document.createElement("div");
+    for (const cls of ["tab-label", "tab-caret", "spec-badge", "tab-close"]) {
+      const el = document.createElement("span");
+      el.className = cls;
+      pill.appendChild(el);
+    }
+
+    priv.mountTabState.call(m, pill, {
+      id: "t",
+      kind: "shell",
+      panes: [fakePane({ sessionId: "s1" })],
+      layout: { kind: "single", activePaneIdx: 0 },
+    });
+
+    expect([...pill.children].map((c) => c.className.split(" ")[0])).toEqual([
+      "tab-label",
+      "tab-caret",
+      "tab-state",
+      "spec-badge",
+      "tab-close",
+    ]);
+    expect(pill.querySelector(".tab-state")?.getAttribute("data-state")).toBe("attention");
+  });
+});
