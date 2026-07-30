@@ -6,6 +6,60 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.3 — UI Vitals dashboard + format-independent spec scoring
+
+### Added
+
+- **UI Vitals — terminal speed, measured instead of felt**: three vitals
+  are now captured where their timings already exist and persisted per app
+  version in `<data_dir>/vitals.db`, so releases can be compared from real
+  local usage (no telemetry, nothing leaves the machine). `switch` records
+  every shell-tab activation — click→reveal plus ~1s of post-reveal
+  event-loop starvation, carrying the full slow-activation breadcrumb
+  (`fitMs`, `nudgeMs`, `colsDelta`, hidden-output bytes) as its detail.
+  `input` samples a keystroke's trip to the screen at most once a second,
+  only at an OSC 133 prompt on a printable key, isolating the PTY round
+  trip from parse+paint. `boot` measures launch→first interactive prompt
+  with the restore-storm size for normalization. Events batch through a
+  collector (5s flush, 500-event cap, no timers while idle, failures
+  swallowed — vitals never degrade what they measure) into one
+  fire-and-forget IPC; the backend stamps the version and prunes past 90
+  days (`ui/src/vitals/`, `crates/app/src/ui_vitals.rs`). The dashboard is
+  ⌘⌥V / Ctrl+Alt+V or the palette's "Vitals": p50/p95 cards for the
+  running version, a by-version comparison table, 30-day p95 sparklines,
+  and the ten worst switches with their diagnostics. Design and plan in
+  `docs/superpowers/specs/2026-07-29-ui-vitals-design.md` and
+  `docs/superpowers/plans/2026-07-29-ui-vitals.md`.
+
+- **SpecScore judges quality, not shape**: free-form specs (superpowers
+  design docs) scored ~20/D because the engine only credited the six
+  canonical headings. Alias headings now count (`## Why` → goal,
+  `## Non-goals` → out of scope, `## Success criteria` → acceptance,
+  `## Risks` → complexity), goal falls back to the preamble's first prose
+  paragraph, and boundaries credit concrete paths anywhere in the document.
+  The deep LLM judge scores each dimension absolutely from content wherever
+  it lives instead of applying ±10 deltas that capped a perfect free-form
+  doc at ~70, and "Convert to canonical" keys off a new `SpecScore.canonical`
+  flag rather than `goal == 0`, which aliases made unreliable
+  (`ui/src/spec-score/engine.ts`, `ui/src/spec-score/deep.ts`,
+  `ui/src/spec-score/badge.ts`, `crates/app/src/summarizer.rs`).
+
+### Fixed
+
+- **Branch popover survives a deleted cwd**: a tab stranded in a removed
+  worktree kept a cwd that no longer exists, so `repo_summary` refused with
+  a raw "cwd is not a directory" error in the popover. `repo_summary` and
+  `switch_branch` now walk up to the nearest surviving ancestor — since
+  `.covenant/worktrees/<slug>` sits inside the main checkout, the popover
+  recovers there and branch switching acts on the repo it displays
+  (`crates/app/src/git_tools.rs`).
+
+- **Branch chip hover matches its neighbors**: the git branch selector had
+  a near-invisible `ink/0.025` hover while the adjacent Set spec / Set
+  operator pills use an accent-tinted fill plus border. The branch chip now
+  uses the same recipe, and `.sb-left` gained right padding so the hover
+  fill stays clear of the framing divider (`ui/src/styles.css`).
+
 ## v0.11.2 — First-tab-switch lag fix + worktree Merge & end
 
 ### Added
