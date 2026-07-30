@@ -43,6 +43,7 @@ const DEFAULT_SPAWNS: &[(&str, &str, &str, &[&str])] = &[
     ("copilot", "Copilot", "gh", &["copilot"]),
     ("hermes", "Hermes", "hermes", &[]),
     ("cursor", "Cursor", "agent", &[]),
+    ("kimi", "Kimi", "kimi", &[]),
 ];
 
 /// Presets we want to backfill into a previously-persisted spawns.json
@@ -50,7 +51,7 @@ const DEFAULT_SPAWNS: &[(&str, &str, &str, &[&str])] = &[
 /// this list are restored if missing — anything the user has deleted
 /// stays deleted. Adding an entry here is a one-shot migration; once it
 /// has shipped in a release, every existing install will have the row.
-const BACKFILL_IDS: &[&str] = &["hermes", "cursor"];
+const BACKFILL_IDS: &[&str] = &["hermes", "cursor", "kimi"];
 
 impl SpawnStore {
     pub fn open(data_dir: &Path) -> std::io::Result<Self> {
@@ -219,6 +220,9 @@ mod tests {
             .expect("cursor preset");
         assert_eq!(cursor.command, "agent");
         assert!(!cursor.default, "cursor must not steal default from claude");
+        let kimi = list.iter().find(|s| s.id == "kimi").expect("kimi preset");
+        assert_eq!(kimi.command, "kimi");
+        assert!(!kimi.default, "kimi must not steal default from claude");
         assert!(dir.path().join("spawns.json").exists());
     }
 
@@ -254,6 +258,10 @@ mod tests {
             list.iter().any(|s| s.id == "cursor"),
             "cursor must be backfilled"
         );
+        assert!(
+            list.iter().any(|s| s.id == "kimi"),
+            "kimi must be backfilled"
+        );
         // Backfill must NOT restore presets the user has deleted.
         assert!(!list.iter().any(|s| s.id == "codex"));
         assert!(!list.iter().any(|s| s.id == "copilot"));
@@ -273,6 +281,7 @@ mod tests {
         let parsed: Vec<SpawnSpec> = serde_json::from_str(&after_second).unwrap();
         assert_eq!(parsed.iter().filter(|s| s.id == "hermes").count(), 1);
         assert_eq!(parsed.iter().filter(|s| s.id == "cursor").count(), 1);
+        assert_eq!(parsed.iter().filter(|s| s.id == "kimi").count(), 1);
     }
 
     #[test]

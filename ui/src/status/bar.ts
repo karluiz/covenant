@@ -1798,6 +1798,7 @@ function executorBrand(name: string): { color: string; label: string } | null {
   //   Codex     — OpenAI teal-green (chatgpt.com / openai.com primary)
   //   Pi        — Pi's startup/help accent teal
   //   Hermes    — Nous Research amber/gold (nousresearch.com brand palette)
+  //   Kimi      — Kimi Code's CLI accent blue (welcome banner / mark)
   switch (name.toLowerCase()) {
     case "claude":
       return { color: "#cc785c", label: "Claude" };
@@ -1815,6 +1816,8 @@ function executorBrand(name: string): { color: string; label: string } | null {
       return { color: "#8fd3c7", label: "Pi" };
     case "hermes":
       return { color: "#d4a857", label: "Hermes" };
+    case "kimi":
+      return { color: "#6ba4f8", label: "Kimi" };
     default:
       return null;
   }

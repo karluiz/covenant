@@ -59,6 +59,7 @@ const LOGICAL_CLIS: &[&str] = &[
     "cursor-agent",
     "gemini",
     "hermes",
+    "kimi",
     "ollama",
     "pi",
 ];

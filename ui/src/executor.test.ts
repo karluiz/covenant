@@ -18,6 +18,14 @@ describe("detectExecutor", () => {
     expect(detectExecutor("hermes model")).toBe("hermes");
   });
 
+  it("recognizes Kimi Code as an agent executor", () => {
+    expect(detectExecutor("kimi")).toBe("kimi");
+    expect(detectExecutor("kimi-code")).toBe("kimi");
+    expect(detectExecutor("/opt/homebrew/bin/kimi")).toBe("kimi");
+    expect(detectExecutor("cd /tmp/wt && kimi")).toBe("kimi");
+    expect(detectExecutor("kimi --resume")).toBe("kimi");
+  });
+
   it("recognizes Cursor's CLI agent", () => {
     expect(detectExecutor("agent")).toBe("cursor");
     expect(detectExecutor("cursor-agent")).toBe("cursor");

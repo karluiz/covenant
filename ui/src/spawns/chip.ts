@@ -17,6 +17,7 @@ export const BRAND_COLORS: Record<string, string> = {
   opencode: "#b794f4",
   pi: "#f0a050",
   hermes: "#7ee0a0",
+  kimi: "#6ba4f8",
   cursor: "#e5e7eb",
   gemini: "#5fb3c4",
   ollama: "#a78bfa",

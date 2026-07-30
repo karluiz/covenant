@@ -218,7 +218,7 @@ pub struct TaskDraft {
     pub scope: TaskScope,
     /// Which executor agent should drive this task once confirmed.
     /// Required for `do` archetype; ignored for review/watch. One of:
-    /// claude, codex, copilot, pi, hermes, cursor (see project_executors_naming).
+    /// claude, codex, copilot, pi, hermes, cursor, kimi (see project_executors_naming).
     /// Optional in the wire format to keep older rows deserializable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executor: Option<String>,

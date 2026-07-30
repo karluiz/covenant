@@ -297,6 +297,8 @@ pub fn build_system_prompt(operator: &Operator) -> String {
          - `hermes` — internal/experimental; only when explicitly asked.\n\
          - `cursor` — Cursor's CLI agent (`cursor-agent`). Good at multi-file \
            edits; use when the user asks for Cursor.\n\
+         - `kimi` — Moonshot AI's Kimi Code CLI. Use when the user asks for \
+           Kimi or K3.\n\
          \n\
          Pass the executor name as the `executor` field on `propose_task`. \
          Do not invent executors not in this list.\n\

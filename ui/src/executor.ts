@@ -29,6 +29,9 @@ const EXECUTORS: { match: RegExp; name: string }[] = [
   // Spawn preset ships in spawns_store.rs; phase detection lives in
   // crates/blocks/src/executor_phase.rs.
   { match: /^hermes$/, name: "hermes" },
+  // Moonshot AI's Kimi Code CLI — MIT, installs as `kimi` (install
+  // script or `npm i -g @kimi-code/cli`).
+  { match: /^kimi(-code)?$/, name: "kimi" },
 ];
 
 /// Strip optional `env VAR=val ...` / `time` / `sudo` prefixes from

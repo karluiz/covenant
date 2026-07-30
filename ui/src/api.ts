@@ -562,7 +562,7 @@ export interface TaskDraft {
   scope:       TaskScope;
   /// Which executor agent should drive this task once confirmed.
   /// Required for archetype="do"; ignored for review/watch.
-  /// One of: "claude" | "codex" | "copilot" | "pi" | "hermes" | "cursor".
+  /// One of: "claude" | "codex" | "copilot" | "pi" | "hermes" | "cursor" | "kimi".
   executor?:   string;
 }
 

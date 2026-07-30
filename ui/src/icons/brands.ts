@@ -1,8 +1,10 @@
 // Per-vendor brand icons for executor agents shown in the status bar.
 //
 // Sources:
-//   - claude / copilot / cursor → simple-icons (CC0). Tree-shaken at
-//     build time so only these three entries are bundled.
+//   - claude / copilot / cursor / kimi → simple-icons (CC0). Tree-shaken
+//     at build time so only these entries are bundled. Kimi Code's mark
+//     is the Moonshot AI logo (`siMoonshotai`) — Kimi is Moonshot's
+//     product and Simple Icons carries no separate `kimi` entry.
 //   - aider → upstream `brain.svg` from Aider-AI/aider (Apache-2.0),
 //     inlined as a single path. The parrot mascot is too detailed for
 //     a 12px badge; the brain reads cleanly at small sizes.
@@ -20,7 +22,7 @@
 // surrounding chip's brand color drives the tint via CSS — no
 // per-vendor CSS rules needed downstream.
 
-import { siClaude, siCursor, siGithubcopilot, siTelegram } from "simple-icons";
+import { siClaude, siCursor, siGithubcopilot, siMoonshotai, siTelegram } from "simple-icons";
 
 interface BrandIcon {
   /// SVG `path d=` data. Single path per icon — multi-path marks are
@@ -74,6 +76,7 @@ const BRAND_ICONS: Record<string, BrandIcon> = {
   codex: { pathD: CODEX_SPARKLE_PATH },
   pi: { pathD: PI_MONOGRAM_PATH, evenodd: true },
   hermes: { pathD: HERMES_STAFF_PATH },
+  kimi: { pathD: siMoonshotai.path },
 };
 
 /// Render the brand icon for an executor as an inline SVG string, or

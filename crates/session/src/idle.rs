@@ -21,6 +21,11 @@ pub const KNOWN_AGENTS: &[&str] = &[
     "hermes",
     // Cursor's CLI — fg_proc canonicalizes agent/cursor-agent to this.
     "cursor",
+    // ponytail: kimi is known but deliberately NOT in INLINE_AGENTS — we
+    // have no captured `kimi` prompt row to match, and an inline agent
+    // without a prompt regex never fires anyway. Add both together once
+    // a real transcript exists.
+    "kimi",
 ];
 
 /// Agents that render inline (no alternate screen). For these we skip the
