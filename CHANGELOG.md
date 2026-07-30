@@ -6,6 +6,73 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.8 — Tab pills speak one state; watch tasks report decisions
+
+### Added
+
+- **One state atom replaces six pill indicators**: the tab pill carried six
+  independently-invented status glyphs — the agent-idle ellipsis, the busy-proc
+  glyph, the live-worktree ring, the share dot, the AOM "driving" dot and the
+  escalation dot. Three were greens with unrelated meanings, two were absolutely
+  positioned into the same 28px beside the close ×, and three raced for the lead
+  slot, so which glyph you saw depended on which event fired last. Status is
+  mutually exclusive in practice, so the pill now gets one slot and one atom,
+  resolved by a pure ladder in `ui/src/tabs/tab-state.ts` (attention > waiting >
+  driving > serving > live > shared). Losing states are counted as `+n` and named
+  in the tooltip. One `mountTabState()` path in `ui/src/tabs/manager.ts` replaces
+  six render paths, and one `tabStateInput()` read means the incremental and full
+  renders cannot disagree. Colour is severity (tokens only), shape is kind —
+  filled means the system is acting, hollow means it stopped and is waiting on you.
+
+- **One lead glyph per pill, by declared priority**: the lead slot had three
+  possible occupants that could render at once — the operator stack, the browser
+  globe and the theme prompt — so an operator pinned on a grouped CRT tab put an
+  avatar *and* a tree connector in front of the name. `mountTabLead()` now emits
+  exactly one glyph, identity > kind > decoration; the theme lead yields because
+  the group shell already draws the indent and spine. `buildOperatorStack()` comes
+  out of `renderTabPill` and returns null when nobody is on the tab, including
+  when every stacked id missed the operator cache — which used to leave an empty
+  stack eating the slot.
+
+- **Per-theme state dialects and an explicit ACTION cluster**: the atom shipped
+  as one chassis rendering identically across all four tab styles, so CRT — a
+  phosphor terminal with a blinking block caret — showed a soft geometric dot.
+  Each style now speaks its own dialect in CSS only, keyed on `[data-state]`, with
+  the renderer untouched: `crt` uses characters (`! ? @ * ^ ~`) and phosphor blink,
+  `forge` a sharp billet echoing its heated seam, `glass` a dot blurred into the
+  material, and `custom` none deliberately. The atom also anchors before the
+  *first* action (spec badge, split glyph, ×) instead of before the ×, so state
+  and controls stop interleaving, and the spec badge takes the ×'s manners —
+  quiet until the row is hovered or active.
+
+### Fixed
+
+- **A watch task now reports the decisions it actually took**: the supervision
+  card sat on "…" and "No attached session yet." while the Activity tab listed
+  the very same decisions. The card asked the wrong question — it only fetched
+  when `spawned_session` was set, and a watch task has none by design, since its
+  decisions are recorded against the tabs it watches rather than against itself.
+  A new `teammate_list_decisions_for_group` resolves the group's sessions from the
+  registry and unions their feeds (`crates/app/src/teammate/commands.rs`,
+  `crates/app/src/storage.rs`, where the two near-identical decision queries fold
+  into one reader). The virtual task's id is now derived from the group id so it
+  survives a poll instead of being reissued, which used to reset row expansion and
+  the cache; `GroupSupervision` carries `started_at_unix_ms`, preserved when the
+  same operator is re-asserted by the boot resync or the intervene toggle, so the
+  age is the age of the watch and not of the last list call; and cost is
+  `SUM(cost_usd)` over the group instead of a hardcoded zero.
+
+- **The task card was built on tokens that do not exist**: `--text-dim`,
+  `--text-muted` and `--border-soft` are undefined, so every rule in the card fell
+  back to a hardcoded dark value and light mode leaned on a `body.theme-light`
+  override that also double-spaced the list. `ui/src/styles.css` now composes from
+  `--ink-rgb`, `--fg-dim` and the `--ok`/`--fail`/`--running` semantic tokens, with
+  radii on `--rail-radius` and type on the `--fs-*` scale, and the override drops
+  out. The watch variant also loses what does not apply to it — no executor strip,
+  no Proposed→Done lifecycle, no dead "Watching group" chip, two stat tiles instead
+  of a padded three — and each decision row gains the Activity tab's origin chip,
+  since a union feed has to say which tab decided.
+
 ## v0.11.7 — Vitals record global write pressure across agents
 
 ### Added
