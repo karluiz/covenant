@@ -188,6 +188,12 @@ use std::sync::RwLock;
 pub struct GroupSupervision {
     pub operator: OperatorId,
     pub intervene: bool,
+    /// When this operator took the group. Preserved across re-asserts of the
+    /// same operator (boot resync, intervene toggle) so the watch clock does
+    /// not restart on every sync.
+    /// ponytail: resets on app restart — supervision is in-memory only. Persist
+    /// alongside the tab manifest if "watching since yesterday" ever matters.
+    pub started_at_unix_ms: u64,
 }
 
 pub struct OperatorRegistry {
@@ -746,7 +752,15 @@ impl OperatorRegistry {
     pub fn set_group_supervisor(&self, group_id: String, sup: Option<GroupSupervision>) {
         let mut g = self.group_supervisors.write().unwrap();
         match sup {
-            Some(s) => {
+            Some(mut s) => {
+                // Re-asserting the same operator (boot resync, intervene
+                // toggle) keeps the original attach time — otherwise every
+                // sync would reset the watch age to zero.
+                if let Some(prev) = g.get(&group_id) {
+                    if prev.operator == s.operator {
+                        s.started_at_unix_ms = prev.started_at_unix_ms;
+                    }
+                }
                 g.insert(group_id, s);
             }
             None => {
@@ -1344,6 +1358,7 @@ pub mod commands {
                     Some(GroupSupervision {
                         operator: oid,
                         intervene,
+                        started_at_unix_ms: now_ms(),
                     }),
                 );
             }
@@ -1525,6 +1540,7 @@ mod supervision_tests {
             Some(GroupSupervision {
                 operator: sup,
                 intervene: false,
+                started_at_unix_ms: 0,
             }),
         );
         assert_eq!(reg.effective_for(sid).id, sup);
@@ -1533,6 +1549,38 @@ mod supervision_tests {
         let driver = add_supervisor(&reg, "Driver", false);
         reg.pin_session(sid, driver);
         assert_eq!(reg.effective_for(sid).id, driver);
+    }
+
+    /// The boot resync and the intervene toggle both re-assert the same
+    /// supervisor; neither may restart the watch clock. A different operator
+    /// taking over does start a new one.
+    #[test]
+    fn re_attaching_same_supervisor_keeps_started_at() {
+        let reg = OperatorRegistry::for_tests("Default");
+        let sup = add_supervisor(&reg, "Warden", true);
+        let other = add_supervisor(&reg, "Other", true);
+        let attach = |op, intervene, at| {
+            reg.set_group_supervisor(
+                "g1".into(),
+                Some(GroupSupervision {
+                    operator: op,
+                    intervene,
+                    started_at_unix_ms: at,
+                }),
+            );
+        };
+
+        attach(sup, false, 1_000);
+        attach(sup, true, 9_999); // same operator, intervene flipped
+        let s = reg.group_supervision("g1").unwrap();
+        assert_eq!(s.started_at_unix_ms, 1_000);
+        assert!(s.intervene);
+
+        attach(other, false, 9_999); // handover → fresh clock
+        assert_eq!(
+            reg.group_supervision("g1").unwrap().started_at_unix_ms,
+            9_999
+        );
     }
 
     #[test]
@@ -1546,6 +1594,7 @@ mod supervision_tests {
             Some(GroupSupervision {
                 operator: sup,
                 intervene: false,
+                started_at_unix_ms: 0,
             }),
         );
         assert!(reg.effective_for(sid).is_default);
@@ -1563,6 +1612,7 @@ mod supervision_tests {
             Some(GroupSupervision {
                 operator: sup,
                 intervene: false,
+                started_at_unix_ms: 0,
             }),
         );
         assert!(reg.perception_enabled_for(sid));
@@ -1589,6 +1639,7 @@ mod supervision_tests {
             Some(GroupSupervision {
                 operator: sup,
                 intervene: false,
+                started_at_unix_ms: 0,
             }),
         );
 

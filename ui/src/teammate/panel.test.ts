@@ -12,6 +12,7 @@ vi.mock("../api", async (importOriginal) => {
     ...original,
     primeSpawnedTab: vi.fn().mockResolvedValue(undefined),
     injectCommand:   vi.fn().mockResolvedValue(undefined),
+    teammateListDecisionsForGroup: vi.fn().mockResolvedValue([]),
   };
 });
 
@@ -771,6 +772,27 @@ describe("TeammatePanel task action row", () => {
   it("falls back to a short id when the group is gone", async () => {
     const host = await mountSupervision(() => null);
     expect(titleText(host)).toBe("Supervising e4e348f6");
+  });
+
+  // A watch task has no spawned session, so the per-session feed can never
+  // answer for it — it must ask for the whole group, or the card sits on
+  // "loading" forever while Activity shows the very same decisions.
+  it("loads a watch task's decisions from its group, not a session", async () => {
+    vi.mocked(ApiModule.teammateListDecisionsForGroup).mockResolvedValue([
+      { id: 1, session_id_short: "abc123", timestamp_unix_ms: Date.now(), in_flight_command: null,
+        output_excerpt: "", action: "reply", reply_text: "yes", rationale: null, executed: true,
+        mission_path: null, executor_name: "claude", operator_id: null, operator_name: "Zeta",
+        cost_usd: 0.01, applied_memory_id: null, escalation: null },
+    ]);
+    const host = await mountSupervision(() => "Covenant");
+    (host.querySelector(".task-item__head") as HTMLElement).click();
+    await vi.waitFor(() => expect(host.querySelectorAll(".decision")).toHaveLength(1));
+
+    expect(ApiModule.teammateListDecisionsForGroup)
+      .toHaveBeenCalledWith("e4e348f6-0695-4e45-acf6-b4ca2ac4f4ad");
+    expect(host.textContent).not.toContain("No attached session yet.");
+    // A watch is never proposed, spawned or finished — no lifecycle to show.
+    expect(host.querySelector(".task-timeline")).toBeNull();
   });
 
   function markDoneButton(host: HTMLElement): HTMLButtonElement | undefined {

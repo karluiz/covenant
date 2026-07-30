@@ -612,6 +612,26 @@ async fn emit_system_error(
     let _ = app.emit("teammate-message", &msg);
 }
 
+/// Stable id for a group's virtual watch task. The task is rebuilt on every
+/// list call, so a fresh ulid would hand the UI a new id each poll and reset
+/// everything keyed by it (row expansion, decisions cache). FNV-1a of the
+/// group id, twice, into the 16 bytes of a Ulid.
+fn watch_task_id(group_id: &str) -> TaskId {
+    let mut bytes = [0u8; 16];
+    for (half, seed) in [0xcbf2_9ce4_8422_2325u64, 0x9e37_79b9_7f4a_7c15u64]
+        .into_iter()
+        .enumerate()
+    {
+        let mut h = seed;
+        for b in group_id.as_bytes() {
+            h ^= u64::from(*b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        bytes[half * 8..half * 8 + 8].copy_from_slice(&h.to_be_bytes());
+    }
+    TaskId(ulid::Ulid::from_bytes(bytes))
+}
+
 #[tauri::command]
 pub async fn teammate_list_tasks(
     storage: State<'_, Arc<Storage>>,
@@ -628,10 +648,21 @@ pub async fn teammate_list_tasks(
     // is active in the in-memory registry. The frontend identifies them via
     // the `supervision_group` field and renders them without executor-task
     // controls (Stop / Continue / Open tab).
-    let now = now_unix_ms();
-    for (group_id, _sup) in registry.supervised_groups_for(operator_id) {
+    for (group_id, sup) in registry.supervised_groups_for(operator_id) {
+        // Cost + age come from the watch itself, not from a spawn: the
+        // decisions are recorded against the group's member sessions.
+        let sessions: Vec<String> = registry
+            .group_sessions(&group_id)
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let cost_usd = storage
+            .operator_decisions_cost_for_sessions(sessions)
+            .await
+            .unwrap_or(0.0);
+        let started = sup.started_at_unix_ms;
         tasks.push(Task {
-            id: TaskId::new(),
+            id: watch_task_id(&group_id),
             operator_id,
             archetype: TaskArchetype::Watch,
             title: format!("Supervising group {}", group_id),
@@ -640,10 +671,10 @@ pub async fn teammate_list_tasks(
             status: TaskStatus::Active,
             scope: TaskScope::default(),
             spawned_session: None,
-            created_at_unix_ms: now,
-            updated_at_unix_ms: now,
+            created_at_unix_ms: started,
+            updated_at_unix_ms: started,
             completed_at_unix_ms: None,
-            cost_usd_cents: 0,
+            cost_usd_cents: (cost_usd * 100.0).round().max(0.0) as u32,
             supervision_group: Some(group_id),
         });
     }
@@ -1226,6 +1257,27 @@ pub async fn teammate_list_decisions_for_session(
         .map_err(|e| e.to_string())
 }
 
+/// Same, for a supervision (watch) task: the union of the decisions taken
+/// over every tab currently in the group. A watch task has no session of its
+/// own, so `list_decisions_for_session` can never answer for it.
+#[tauri::command]
+pub async fn teammate_list_decisions_for_group(
+    storage: State<'_, Arc<Storage>>,
+    registry: State<'_, Arc<crate::operator_registry::OperatorRegistry>>,
+    group_id: String,
+    limit: u32,
+) -> Result<Vec<crate::storage::OperatorDecisionRow>, String> {
+    let sessions: Vec<String> = registry
+        .group_sessions(&group_id)
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    storage
+        .list_operator_decisions_for_sessions(sessions, limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Wipe every message and task for `operator_id`, and reset the in-memory
 /// runtime state back to Idle. Used by the panel's reset button for testing.
 #[tauri::command]
@@ -1695,8 +1747,17 @@ mod task_lifecycle_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{plan_completion_emits, CompletionFact};
+    use super::{plan_completion_emits, watch_task_id, CompletionFact};
     use crate::teammate::task_supervisor::TaskFlags;
+
+    /// The watch task is rebuilt on every list call — its id must not move,
+    /// or the UI loses whatever it keyed on it between two polls.
+    #[test]
+    fn watch_task_id_is_stable_per_group() {
+        let g = "e4e348f6-0695-4e45-acf6-b4ca2ac4f4ad";
+        assert_eq!(watch_task_id(g), watch_task_id(g));
+        assert_ne!(watch_task_id(g), watch_task_id("other-group"));
+    }
 
     #[test]
     fn completion_plan_emits_finisher_always_and_gates_others() {

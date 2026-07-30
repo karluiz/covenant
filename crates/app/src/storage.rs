@@ -576,6 +576,34 @@ fn shorten(id: &str) -> String {
     }
 }
 
+/// `?,?,?` for an `IN (…)` clause of `n` bound values.
+fn placeholders(n: usize) -> String {
+    std::iter::repeat_n("?", n).collect::<Vec<_>>().join(",")
+}
+
+/// Row shape shared by every `operator_decisions` feed. Column order must
+/// match the SELECT list in `query_operator_decisions`.
+fn map_operator_decision_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<OperatorDecisionRow> {
+    Ok(OperatorDecisionRow {
+        id: r.get(0)?,
+        session_id_short: shorten(r.get::<_, String>(1)?.as_str()),
+        timestamp_unix_ms: r.get::<_, i64>(2)? as u64,
+        in_flight_command: r.get(3)?,
+        output_excerpt: r.get(4)?,
+        action: r.get(5)?,
+        reply_text: r.get(6)?,
+        rationale: r.get(7)?,
+        executed: r.get::<_, i64>(8)? != 0,
+        mission_path: r.get(9)?,
+        executor_name: r.get(10)?,
+        operator_id: r.get(11)?,
+        operator_name: r.get(12)?,
+        cost_usd: r.get::<_, f64>(13)?,
+        applied_memory_id: r.get::<_, Option<i64>>(14)?,
+        escalation: r.get::<_, Option<String>>(15)?,
+    })
+}
+
 fn handoff_select_cols_where(tail: &str) -> String {
     format!(
         "SELECT id, chain_id, depth, from_operator_id, to_operator_id, task_id, \
@@ -1809,46 +1837,7 @@ impl Storage {
         &self,
         limit: u32,
     ) -> Result<Vec<OperatorDecisionRow>, StorageError> {
-        let conn = self.inner.clone();
-        tokio::task::spawn_blocking(move || -> Result<Vec<OperatorDecisionRow>, StorageError> {
-            let c = conn.blocking_lock();
-            let mut stmt = c.prepare(
-                "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
-                            output_excerpt, action, reply_text, rationale, executed,
-                            mission_path, executor_name, operator_id, operator_name,
-                            cost_usd, applied_memory_id, escalation
-                     FROM operator_decisions
-                     ORDER BY id DESC
-                     LIMIT ?1",
-            )?;
-            let rows = stmt.query_map(params![limit as i64], |r| {
-                Ok(OperatorDecisionRow {
-                    id: r.get(0)?,
-                    session_id_short: shorten(r.get::<_, String>(1)?.as_str()),
-                    timestamp_unix_ms: r.get::<_, i64>(2)? as u64,
-                    in_flight_command: r.get(3)?,
-                    output_excerpt: r.get(4)?,
-                    action: r.get(5)?,
-                    reply_text: r.get(6)?,
-                    rationale: r.get(7)?,
-                    executed: r.get::<_, i64>(8)? != 0,
-                    mission_path: r.get(9)?,
-                    executor_name: r.get(10)?,
-                    operator_id: r.get(11)?,
-                    operator_name: r.get(12)?,
-                    cost_usd: r.get::<_, f64>(13)?,
-                    applied_memory_id: r.get::<_, Option<i64>>(14)?,
-                    escalation: r.get::<_, Option<String>>(15)?,
-                })
-            })?;
-            let mut out = Vec::new();
-            for row in rows {
-                out.push(row?);
-            }
-            Ok(out)
-        })
-        .await
-        .map_err(|e| StorageError::Join(e.to_string()))?
+        self.query_operator_decisions(None, limit).await
     }
 
     /// List the most recent operator decisions for a single session. Used
@@ -1859,39 +1848,78 @@ impl Storage {
         session_id: String,
         limit: u32,
     ) -> Result<Vec<OperatorDecisionRow>, StorageError> {
+        self.query_operator_decisions(Some(vec![session_id]), limit)
+            .await
+    }
+
+    /// Same, across several sessions at once — the decisions a supervisor
+    /// took over every tab in a group. Decisions are recorded against the
+    /// *watched* session, so a group's feed is the union of its members'.
+    pub async fn list_operator_decisions_for_sessions(
+        &self,
+        session_ids: Vec<String>,
+        limit: u32,
+    ) -> Result<Vec<OperatorDecisionRow>, StorageError> {
+        self.query_operator_decisions(Some(session_ids), limit)
+            .await
+    }
+
+    /// Total USD the operator spent deciding over these sessions. Powers the
+    /// cost tile of a group's watch task, which has no session of its own.
+    pub async fn operator_decisions_cost_for_sessions(
+        &self,
+        session_ids: Vec<String>,
+    ) -> Result<f64, StorageError> {
+        if session_ids.is_empty() {
+            return Ok(0.0);
+        }
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<f64, StorageError> {
+            let c = conn.blocking_lock();
+            let sql = format!(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM operator_decisions \
+                 WHERE session_id IN ({})",
+                placeholders(session_ids.len()),
+            );
+            let params = rusqlite::params_from_iter(session_ids.iter());
+            Ok(c.query_row(&sql, params, |r| r.get::<_, f64>(0))?)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// One reader for the three decision feeds: `None` sessions = every
+    /// session, `Some(ids)` = only those. Newest first, limited.
+    async fn query_operator_decisions(
+        &self,
+        session_ids: Option<Vec<String>>,
+        limit: u32,
+    ) -> Result<Vec<OperatorDecisionRow>, StorageError> {
+        if session_ids.as_ref().is_some_and(|s| s.is_empty()) {
+            return Ok(Vec::new());
+        }
         let conn = self.inner.clone();
         tokio::task::spawn_blocking(move || -> Result<Vec<OperatorDecisionRow>, StorageError> {
             let c = conn.blocking_lock();
-            let mut stmt = c.prepare(
+            let filter = match &session_ids {
+                Some(ids) => format!("WHERE session_id IN ({})", placeholders(ids.len())),
+                None => String::new(),
+            };
+            let sql = format!(
                 "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
-                            output_excerpt, action, reply_text, rationale, executed,
-                            mission_path, executor_name, operator_id, operator_name,
-                            cost_usd, applied_memory_id, escalation
-                     FROM operator_decisions
-                     WHERE session_id = ?1
-                     ORDER BY id DESC
-                     LIMIT ?2",
+                        output_excerpt, action, reply_text, rationale, executed,
+                        mission_path, executor_name, operator_id, operator_name,
+                        cost_usd, applied_memory_id, escalation
+                 FROM operator_decisions {filter}
+                 ORDER BY id DESC LIMIT {limit}",
+                limit = limit as i64,
+            );
+            let mut stmt = c.prepare(&sql)?;
+            let bound: Vec<String> = session_ids.unwrap_or_default();
+            let rows = stmt.query_map(
+                rusqlite::params_from_iter(bound.iter()),
+                map_operator_decision_row,
             )?;
-            let rows = stmt.query_map(params![session_id, limit as i64], |r| {
-                Ok(OperatorDecisionRow {
-                    id: r.get(0)?,
-                    session_id_short: shorten(r.get::<_, String>(1)?.as_str()),
-                    timestamp_unix_ms: r.get::<_, i64>(2)? as u64,
-                    in_flight_command: r.get(3)?,
-                    output_excerpt: r.get(4)?,
-                    action: r.get(5)?,
-                    reply_text: r.get(6)?,
-                    rationale: r.get(7)?,
-                    executed: r.get::<_, i64>(8)? != 0,
-                    mission_path: r.get(9)?,
-                    executor_name: r.get(10)?,
-                    operator_id: r.get(11)?,
-                    operator_name: r.get(12)?,
-                    cost_usd: r.get::<_, f64>(13)?,
-                    applied_memory_id: r.get::<_, Option<i64>>(14)?,
-                    escalation: r.get::<_, Option<String>>(15)?,
-                })
-            })?;
             let mut out = Vec::new();
             for row in rows {
                 out.push(row?);
@@ -3909,6 +3937,61 @@ mod tests {
         assert_eq!(
             row.escalation.as_deref(),
             Some("Your executor isn't accepting input")
+        );
+    }
+
+    /// A group's watch feed is the union of its members' decisions, and its
+    /// cost the sum of theirs — the two queries a supervision task lives on.
+    #[tokio::test]
+    async fn group_feed_unions_member_sessions() {
+        let (s, _g) = fresh();
+        let (a, b, outside) = (SessionId::new(), SessionId::new(), SessionId::new());
+        for (sid, cost) in [(a, 0.25), (b, 0.50), (outside, 9.0)] {
+            s.save_operator_decision(
+                sid,
+                1,
+                None,
+                "out".into(),
+                "reply".into(),
+                None,
+                None,
+                false,
+                cost,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        }
+
+        let group = vec![a.to_string(), b.to_string()];
+        let rows = s
+            .list_operator_decisions_for_sessions(group.clone(), 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.len(),
+            2,
+            "outside session must not leak into the group"
+        );
+        let cost = s.operator_decisions_cost_for_sessions(group).await.unwrap();
+        assert!((cost - 0.75).abs() < 1e-9, "cost was {cost}");
+
+        // An empty group (no tabs yet) is not "every session".
+        assert!(s
+            .list_operator_decisions_for_sessions(vec![], 10)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            s.operator_decisions_cost_for_sessions(vec![])
+                .await
+                .unwrap(),
+            0.0
         );
     }
 
