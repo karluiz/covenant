@@ -6,6 +6,55 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.2 — First-tab-switch lag fix + worktree Merge & end
+
+### Added
+
+- **Worktree "Merge & end" + "Commit" actions**: the Worktrees page detail
+  panel can now merge a worktree's branch into main and reclaim the
+  worktree in one step, or commit its pending changes in place. Backed by
+  a new `merge_and_end` git command with a `worktree_merge_end` IPC
+  wrapper (`crates/app/src/git_tools.rs`, `ui/src/worktrees/index.ts`,
+  `ui/src/api.ts`).
+
+- **Toast liveness bar**: every toast drains a 2px `.toast-life` bar along
+  its bottom edge in sync with the 12s auto-dismiss timer; hovering pauses
+  it and leaving re-arms a fresh drain, so it's always legible how long a
+  card has left (`ui/src/notifications`).
+
+### Changed
+
+- **First tab switch no longer stalls for seconds**: three verified causes
+  fixed in `ui/src/tabs/manager.ts`. (1) xterm parses each `write()`
+  atomically — restore used to hand each tab its persisted scrollback tail
+  (up to 2 MiB) as ONE write, stacking seconds of unbreakable parse tasks
+  right when the first switch happens; replay writes (both panes) and
+  `HiddenOutputBatch.flush()` now slice through `chunkForTermWrite`
+  (64 KiB). (2) Hidden tabs can never refit under `display:none`, so any
+  window resize / sidebar fold / font swap stranded them on stale cols and
+  their next activation paid a synchronous full-buffer reflow — a debounced
+  `scheduleHiddenRefit` walk now resizes them to the active grid off the
+  critical path. (3) The DPR-change fontSize nudge cleared every DOM
+  renderer tab's glyph-width cache at once; it's now scoped to canvas
+  (ligature) tabs. The slow-activation breadcrumb gained fit/nudge spans,
+  the cols delta, and ~1s of post-reveal starvation sampling.
+
+- **Perception chip decays**: the tab-strip perception chip fades out five
+  minutes after the operator's last auto-answer — it marks a recent act,
+  not a mandate; each auto-answer restarts the clock
+  (`ui/src/tabs/manager.ts`).
+
+### Fixed
+
+- **Duplicate "Worktree is gone" toasts**: every tree refresh against a
+  pruned worktree pushed its own identical info card; visible info toasts
+  now dedupe (`ui/src/notifications`).
+
+- **Custom harnesses can be renamed**: custom spawn rows were stuck as
+  "New spawn" — the settings collect() froze the label with no input to
+  change it. The spawn editor now has an editable Name field
+  (`ui/src/settings`).
+
 ## v0.11.1 — Start agent here (current worktree) + perf polish
 
 ### Added
