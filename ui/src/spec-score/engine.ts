@@ -1,4 +1,3 @@
-import { parseSectionsFromMarkdown } from '../spec-chat/sections';
 import type { SpecSectionKey } from '../spec-chat/events';
 
 export type DimensionKey =
@@ -25,6 +24,9 @@ export interface SpecScore {
   grade: Grade;
   dimensions: DimensionScore[];
   deep?: boolean;
+  /** False when the doc lacks the canonical `## Goal` shape — content may
+   *  still score via alias headings, but the canonicalize rewrite applies. */
+  canonical?: boolean;
 }
 
 export interface DeepAdjustments {
@@ -50,20 +52,70 @@ function sentences(text: string): number {
   return text.split(/[.!?]+(?:\s|$)/).filter((s) => s.trim().length > 0).length;
 }
 
+// Quality lives in the content, not the canonical headings — each dimension
+// accepts common alias headings (## Why → goal, ## Non-goals → out of scope,
+// ## Risks → complexity, …) so free-form specs score on what they say.
+// Titles are normalized (lowercase, non-alphanumerics → spaces) before matching.
+const SECTION_ALIASES: [SpecSectionKey, RegExp][] = [
+  ['goal', /^(goal|why\b|motivation|purpose|objective|problem|overview|context)/],
+  ['out_of_scope', /^(out of scope|non ?goals?\b|not doing|not in scope|exclusions|what this is( ?no|n)t)/],
+  ['acceptance', /^(acceptance|success (criteria|metrics)|verification|validation|definition of done|done when|testing)/],
+  ['file_boundaries', /^(file boundaries|files( touched)?\b|touched files|where\b|implementation)/],
+  ['complexity', /^(complexity|risks?\b|trade ?offs?\b|concerns|edge cases)/],
+  ['open_questions', /^(open questions?|questions|unknowns|unresolved)/],
+];
+
+function sectionsByAlias(doc: string): Map<SpecSectionKey, string> {
+  const map = new Map<SpecSectionKey, string>();
+  let cur: SpecSectionKey | null = null;
+  let buf: string[] = [];
+  const flush = () => {
+    if (cur && !map.has(cur)) map.set(cur, buf.join('\n').trim());
+  };
+  for (const line of doc.split('\n')) {
+    const m = /^##\s+(.+?)\s*$/.exec(line);
+    if (m) {
+      flush();
+      const t = m[1].toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      cur = SECTION_ALIASES.find(([, re]) => re.test(t))?.[0] ?? null;
+      buf = [];
+    } else if (cur) {
+      buf.push(line);
+    }
+  }
+  flush();
+  return map;
+}
+
+/** First prose paragraph of the preamble (before any `##`) — the goal of a
+ *  free-form spec usually lives there. Bullets and code fences don't count. */
+function firstParagraph(doc: string): string {
+  const buf: string[] = [];
+  for (const line of doc.split('\n')) {
+    if (/^##\s/.test(line)) break;
+    if (/^#|^```/.test(line) || !line.trim() || BULLET_RE.test(line)) {
+      if (buf.length) break;
+      continue;
+    }
+    buf.push(line.trim());
+  }
+  return buf.join(' ');
+}
+
 export function scoreSpec(md: string | null): SpecScore {
   const doc = md ?? '';
-  const secs = parseSectionsFromMarkdown(doc);
-  const body = (k: SpecSectionKey) => secs.get(k)?.markdown.trim() ?? '';
+  const secs = sectionsByAlias(doc);
+  const body = (k: SpecSectionKey) => secs.get(k) ?? '';
   const dims: DimensionScore[] = [];
   const dim = (key: DimensionKey, label: string, weight: number, earned: number, findings: string[]) =>
     dims.push({ key, label, weight, earned: Math.max(0, Math.min(weight, Math.round(earned))), findings });
 
   // Goal clarity (20)
   {
-    const g = body('goal');
+    const g = body('goal') || firstParagraph(doc);
     const findings: string[] = [];
     let earned = 0;
-    if (!g) findings.push('Goal section is missing or empty.');
+    if (!g) findings.push('No goal section and no opening paragraph stating one.');
     else {
       earned = 10;
       const n = sentences(g);
@@ -110,11 +162,15 @@ export function scoreSpec(md: string | null): SpecScore {
     const b = body('file_boundaries');
     const findings: string[] = [];
     let earned = 0;
-    if (!b) findings.push('File boundaries section is missing or empty.');
-    else {
+    if (b) {
       earned = 5;
       if (PATH_RE.test(b)) earned += 5;
       else findings.push('File boundaries names no concrete paths.');
+    } else if (PATH_RE.test(doc)) {
+      // ponytail: paths anywhere count — a dedicated section is nicer, not required
+      earned = 8;
+    } else {
+      findings.push('No concrete file paths anywhere in the document.');
     }
     dim('boundaries', 'Boundaries', 10, earned, findings);
   }
@@ -166,7 +222,8 @@ export function scoreSpec(md: string | null): SpecScore {
   }
 
   const score = dims.reduce((acc, d) => acc + d.earned, 0);
-  return { score, grade: gradeFor(score), dimensions: dims };
+  const canonical = /^##\s+goal\s*$/im.test(doc);
+  return { score, grade: gradeFor(score), dimensions: dims, canonical };
 }
 
 /** Apply LLM deep-score adjustments; per-dimension earned clamps to [0, weight].
@@ -187,5 +244,5 @@ export function applyDeep(base: SpecScore, deep: DeepAdjustments): SpecScore {
     return { ...d, earned, findings };
   });
   const score = dimensions.reduce((acc, d) => acc + d.earned, 0);
-  return { score, grade: gradeFor(score), dimensions, deep: true };
+  return { ...base, score, grade: gradeFor(score), dimensions, deep: true };
 }

@@ -185,9 +185,9 @@ export function renderBreakdown(
     }
     root.append(row);
   }
-  // Non-canonical spec (no ## Goal → the goal dimension earns 0): offer the
-  // LLM rewrite into the canonical shape.
-  if (opts?.onCanonicalize && s.dimensions.some((d) => d.key === 'goal' && d.earned === 0)) {
+  // Non-canonical spec (no ## Goal heading — content may still score via
+  // alias headings): offer the LLM rewrite into the canonical shape.
+  if (opts?.onCanonicalize && s.canonical === false) {
     root.append(oneshotButton('Convert to canonical', 'Converting…', opts.onCanonicalize));
   }
   if (s.deep) {

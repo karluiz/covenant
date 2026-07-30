@@ -442,13 +442,22 @@ pub async fn suggest_title_oneshot(
 
 const DEEP_SCORE_MAX_TOKENS: u32 = 700;
 const DEEP_SCORE_SYSTEM_PROMPT: &str = "\
-You judge software specs. Given a spec, return ONLY a JSON object: \
-{\"adjustments\":{<dimension>: <integer delta>}, \"findings\": [<string>]}. \
-Dimensions: goal, verifiability, scope, boundaries, complexity, loose_ends, precision. \
-Deltas are small corrections (-10..10) to a heuristic score, for problems heuristics \
-miss: semantic ambiguity, contradictions between sections, acceptance criteria that \
-sound testable but are not, goals that hide multiple goals. Findings are short, \
-concrete, and quote the offending text. No prose outside the JSON.";
+You judge software spec quality from content alone, independent of formatting \
+or heading names — a goal stated in a '## Why' section or an opening paragraph \
+counts exactly as much as one under '## Goal'. Return ONLY a JSON object: \
+{\"scores\":{<dimension>: <integer>}, \"findings\": [<string>]}. \
+Score every dimension absolutely, 0 up to its max: \
+goal 20 (one clear stated objective), \
+verifiability 25 (testable acceptance/success criteria), \
+scope 15 (explicit exclusions or non-goals), \
+boundaries 10 (names concrete files, paths, or modules), \
+complexity 10 (honest risk/complexity assessment), \
+loose_ends 10 (no TBDs, TODOs, or unresolved questions), \
+precision 10 (no vague wording). \
+Deduct for problems heuristics miss: semantic ambiguity, contradictions between \
+sections, criteria that sound testable but are not, goals hiding multiple goals. \
+Findings are short, concrete, and quote the offending text. \
+No prose outside the JSON.";
 
 const CANONICALIZE_MAX_TOKENS: u32 = 4000;
 const CANONICALIZE_SYSTEM_PROMPT: &str = "\

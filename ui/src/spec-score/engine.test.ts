@@ -111,6 +111,67 @@ describe('scoreSpec', () => {
   });
 });
 
+describe('scoreSpec on free-form specs', () => {
+  const FREEFORM = `# UI Vitals — terminal-speed metrics
+
+Date: 2026-07-29. Detect speed regressions between releases from real local usage. No network, no telemetry.
+
+## Why
+
+Speed is the product metric for a terminal. A 2-3s first switch shipped unnoticed.
+
+## Non-goals
+
+- Cloud telemetry of any kind.
+- Windows support in v1.
+
+## Success criteria
+
+- Every shell-tab activation writes one row to \`vitals_events\` in SQLite.
+- \`hyperfine\` shows no measurable overhead on tab switch.
+
+## Risks
+
+The rAF-based window can land after the heavy work; sampling for ~1s after reveal covers it.
+
+## Implementation
+
+Lives in \`ui/src/terminal/activate.ts\` and \`crates/app/src/vitals.rs\`.
+`;
+
+  it('scores content under alias headings, not just canonical ones', () => {
+    const s = scoreSpec(FREEFORM);
+    expect(s.dimensions.find((d) => d.key === 'goal')!.earned).toBeGreaterThan(0);
+    expect(s.dimensions.find((d) => d.key === 'scope')!.earned).toBeGreaterThan(0);
+    expect(s.dimensions.find((d) => d.key === 'verifiability')!.earned).toBeGreaterThan(0);
+    expect(s.dimensions.find((d) => d.key === 'complexity')!.earned).toBeGreaterThan(0);
+    expect(s.dimensions.find((d) => d.key === 'boundaries')!.earned).toBeGreaterThan(0);
+    expect(s.score).toBeGreaterThanOrEqual(70);
+    expect(s.canonical).toBe(false);
+  });
+
+  it('falls back to the opening paragraph for the goal', () => {
+    const md = '# Title\n\nShip a thing that does X for Y.\n\n## Notes\n\n- whatever\n';
+    const goal = scoreSpec(md).dimensions.find((d) => d.key === 'goal')!;
+    expect(goal.earned).toBe(goal.weight);
+  });
+
+  it('does not read bullets of a later section as the goal', () => {
+    const md = GOLDEN.replace(/## Goal[\s\S]*?(?=## Out of scope)/, '');
+    expect(scoreSpec(md).dimensions.find((d) => d.key === 'goal')!.earned).toBe(0);
+  });
+
+  it('credits paths anywhere when no boundaries section exists', () => {
+    const md = '# T\n\nDo X.\n\nThe change lives in \`ui/src/foo.ts\`.\n';
+    const b = scoreSpec(md).dimensions.find((d) => d.key === 'boundaries')!;
+    expect(b.earned).toBe(8);
+  });
+
+  it('marks canonical specs canonical', () => {
+    expect(scoreSpec(GOLDEN).canonical).toBe(true);
+  });
+});
+
 describe('gradeFor', () => {
   it('maps thresholds', () => {
     expect(gradeFor(95)).toBe('S');
