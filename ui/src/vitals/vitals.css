@@ -19,7 +19,9 @@ body.vitals-fullscreen { overflow: hidden; }
 /* Metric cards — Switch / Input / Boot for the running version. */
 .vt-cards {
   display: grid;
-  grid-template-columns: repeat(3, minmax(200px, 1fr));
+  /* auto-fit, not a fixed count: adding a metric must not orphan the last
+     card onto its own row (it did when Repaint made four). */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 14px;
   margin-bottom: 28px;
 }
