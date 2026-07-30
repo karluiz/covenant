@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.7 — Vitals record global write pressure across agents
+
+### Added
+
+- **Switch vitals now measure output pressure across *all* terminals, not just
+  the tab being entered**: the breadcrumb recorded `hiddenOutputBytes` for the
+  activated tab only, and on the slowest real samples that read 0 B — which
+  looked like proof that buffered output was not the trigger. That inference had
+  a hole: the freeze shows up specifically while several agents are running, and
+  output pressure in the *other* tabs (including the one already on screen) was
+  never measured anywhere, so a slow switch could sit in the middle of peak load
+  and still look perfectly clean. A bucketed meter (`ui/src/vitals/write-pressure.ts`,
+  O(1) insert so it can live in the hot streaming path) is fed by all three PTY
+  output sites — pane 0, split panes, and restored second panes — and every
+  switch now carries:
+
+  - `writeBytesLast5s` — bytes delivered to every terminal in the trailing 5s
+  - `busyTabs` — distinct sessions that produced output in that window, i.e. how
+    many agents were talking at once
+
+  If the correlation exists, the 1.2-1.4s repaints will line up with high global
+  pressure even where the entered tab shows 0 B. If it does not, the hypothesis
+  dies on real data rather than on argument.
+
 ## v0.11.6 — Vitals split the repaint gap into nameable causes
 
 ### Added
