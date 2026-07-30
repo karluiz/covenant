@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.10 — Vitals record window focus across the repaint gap
+
+### Added
+
+- **Focus continuity is now recorded on every switch**: v0.11.9's occlusion fix
+  helped, but less than its first sample suggested. Measured on 32 switches
+  instead of 19, the median repaint went 1095ms → **360ms** (3×, not the 4.5×
+  reported earlier) and the >900ms tail 52% → **38%**, not 16% — occlusion was
+  one source of suspended frames, not the only one. In the residue the mechanism
+  is unchanged: across all twelve slow samples `frame1Ms` accounts for nearly the
+  whole `repaint` (1160-1917ms of 1171-2072ms), so frames still are not being
+  produced. Concurrent agent output remains unsupported as the trigger — three
+  slow samples ran in total silence (`busyTabs` 0, `writeBytesLast5s` 0), and the
+  *fast* switches carry more tabs than the slow ones (median 16 vs 11), which is
+  backwards for a load story. One untested explanation still fits: the app was in
+  the background and macOS throttled its rendering, so returning costs a second
+  and a half. `focusedThroughout` records it — focus sampled at both ends of the
+  gap plus a `blur` listener in between (`ui/src/tabs/manager.ts`,
+  `ui/src/vitals/switch-vital.ts`).
+
+  Recorded, never used to discard: unlike visibility, an unfocused window still
+  receives animation frames, so those samples stay valid. The field is omitted
+  rather than defaulted when it cannot be determined.
+
 ## v0.11.9 — Candidate fix for the tab-switch freeze
 
 ### Fixed
