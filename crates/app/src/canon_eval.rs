@@ -338,13 +338,28 @@ fn emit_progress(app: &AppHandle, skill: &str, eval_id: &str, status: &str, reas
     );
 }
 
-/// Share this skill's results with the org registry, if it came from one.
+/// Share this run's results with the org registry, if the skill came from one.
+///
+/// Takes exactly the `EvalResult`s this run produced — NOT a re-read of the
+/// on-disk store, which can hold stale entries from a prior run (skipped/
+/// timed-out evals never overwrite their old verdict) or entries pinned to a
+/// package version the manifest no longer points at (a v1→v2 upgrade leaves
+/// v1 rows on disk under a manifest source that now resolves to v2). Pushing
+/// only what was just measured keeps every pushed row honest about both
+/// "was this eval run this time" and "which version was it run against".
 ///
 /// Best-effort by construction: a locally-authored skill returns early with no
 /// network call, and every failure past that point is a warn. The evals have
 /// already run and are already on disk — a push problem must never surface as
 /// an error for a side effect the user did not ask for.
-async fn push_results_for(repo_root: &std::path::Path, skill: &str) {
+async fn push_results_for(
+    repo_root: &std::path::Path,
+    skill: &str,
+    results: &[karl_canon::EvalResult],
+) {
+    if results.is_empty() {
+        return;
+    }
     let Ok(manifest) = karl_canon::read_manifest(repo_root) else {
         return;
     };
@@ -354,14 +369,6 @@ async fn push_results_for(repo_root: &std::path::Path, skill: &str) {
     let Some((org, name, version)) = karl_canon::parse_registry_source(&entry.source) else {
         return; // local: source — no registry to push to
     };
-    let results = karl_canon::read_results(repo_root);
-    let Some(inner) = results.get(skill) else {
-        return;
-    };
-    let rows: Vec<karl_canon::EvalResult> = inner.values().cloned().collect();
-    if rows.is_empty() {
-        return;
-    }
     // Resolve the PINNED version, never `latest` — results belong to the row
     // the user actually installed.
     let pkg = match crate::canon_registry::resolve(&org, &name, &version, "skill").await {
@@ -371,7 +378,7 @@ async fn push_results_for(repo_root: &std::path::Path, skill: &str) {
             return;
         }
     };
-    if let Err(e) = crate::canon_registry::push_evals(pkg.id, &rows).await {
+    if let Err(e) = crate::canon_registry::push_evals(pkg.id, results).await {
         tracing::warn!(target: "canon", skill, error = %e, "eval push failed");
     }
 }
@@ -404,6 +411,11 @@ pub async fn canon_run_evals(
         return Ok(());
     }
     let settings = state.settings.clone();
+    // Results this run actually produced — the only ones pushed to the
+    // registry. Deliberately NOT a re-read of eval-results.json: that file
+    // can hold stale/mis-versioned entries from prior runs (see
+    // `push_results_for`).
+    let mut fresh_results: Vec<karl_canon::EvalResult> = Vec::new();
     for ev in evals {
         emit_progress(&app, &skill, &ev.id, "running", "");
         let outcome = run_harness(&repo_root, &skill, &ev.scenario).await;
@@ -458,11 +470,12 @@ pub async fn canon_run_evals(
                     if v.pass { "pass" } else { "fail" },
                     &v.reason,
                 );
+                fresh_results.push(result);
             }
             Err(e) => emit_progress(&app, &skill, &ev.id, "error", &e),
         }
     }
-    push_results_for(&repo_root, &skill).await;
+    push_results_for(&repo_root, &skill, &fresh_results).await;
     emit_progress(&app, &skill, "", "done", "");
     Ok(())
 }
