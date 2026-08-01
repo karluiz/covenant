@@ -3433,6 +3433,20 @@ async fn run_tick(
         };
         let _ = final_action; // surfaced via action_str/reply_text below
 
+        // mind_v2's turn schema has no rationale field for reply/escalate, so
+        // a typed answer reaches the UI with nothing explaining WHY. The
+        // model's own thinking blocks are that explanation — carry them as
+        // the rationale when the action left it empty.
+        //
+        // Deliberately NOT stuffed into `OperatorAction.rationale`:
+        // `compute_loop_hash` hashes that field, and a per-turn thinking text
+        // would make every decision hash unique, blinding the loop detector.
+        let rationale = rationale_or_thinking(
+            rationale,
+            &ask_response.thinking_full,
+            &ask_response.thinking_summary,
+        );
+
         // Parse applied_memory: <id> out of the rationale (Task 5).
         let (cleaned_rationale, applied_memory_id) = match &rationale {
             Some(r) => {
@@ -5054,6 +5068,30 @@ fn compile_regexes(patterns: &[String]) -> Vec<Regex> {
         .collect()
 }
 
+/// Rationale shown for a decision, falling back to the model's own thinking.
+/// See the call site for why this never touches `OperatorAction.rationale`.
+fn rationale_or_thinking(
+    rationale: Option<String>,
+    thinking_full: &[String],
+    thinking_summary: &str,
+) -> Option<String> {
+    if let Some(r) = &rationale {
+        if !r.trim().is_empty() {
+            return rationale;
+        }
+    }
+    let thinking = if thinking_full.is_empty() {
+        thinking_summary.to_string()
+    } else {
+        thinking_full.join("\n\n")
+    };
+    if thinking.trim().is_empty() {
+        rationale
+    } else {
+        Some(truncate(thinking.trim(), 4000))
+    }
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         s.to_string()
@@ -6655,6 +6693,28 @@ What would you like to do?
         assert!(!block.contains(&"x".repeat(121)));
         assert!(block.contains(&"y".repeat(200)));
         assert!(!block.contains(&"y".repeat(201)));
+    }
+
+    #[test]
+    fn rationale_falls_back_to_thinking_when_v2_leaves_it_empty() {
+        let full = vec!["The gate asks to close".into(), "Caveats hold".into()];
+        // v2 REPLY: rationale empty → thinking blocks become the reasoning.
+        assert_eq!(
+            rationale_or_thinking(Some(String::new()), &full, "summary"),
+            Some("The gate asks to close\n\nCaveats hold".into())
+        );
+        // No thinking blocks → the 200-char summary still beats nothing.
+        assert_eq!(
+            rationale_or_thinking(None, &[], "summary"),
+            Some("summary".into())
+        );
+        // Pre-v2 rationale wins — never overwritten by thinking.
+        assert_eq!(
+            rationale_or_thinking(Some("triage: spinner".into()), &full, "s"),
+            Some("triage: spinner".into())
+        );
+        // Thinking disabled and no rationale → unchanged (no empty field).
+        assert_eq!(rationale_or_thinking(None, &[], ""), None);
     }
 
     #[test]

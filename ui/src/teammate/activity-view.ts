@@ -17,7 +17,7 @@ import {
   listOperatorDecisions,
   type OperatorDecisionRow,
 } from "../api";
-import { EventDetailDrawer } from "./event-detail-drawer";
+import { EventDetailDrawer, replyLabel } from "./event-detail-drawer";
 
 /* ── wire shapes (mirrors activity-feed.ts) ──────────────────────── */
 
@@ -148,7 +148,9 @@ function bodyForDecision(
     case "dry-run":
     case "perception": {
       const t = (replyText ?? "").replace(/\n/g, " ").trim();
-      return t.length === 0 ? "(empty)" : t;
+      // A control-only reply is a bare Enter, not a missing value.
+      if (t.length > 0) return t;
+      return replyText ? replyLabel(replyText) : "(empty)";
     }
     case "escalated":
     case "error":
