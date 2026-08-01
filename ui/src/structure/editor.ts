@@ -1539,9 +1539,14 @@ export class StructureEditor {
   /// Recompute the header SpecScore badge from the live text. Cheap (pure
   /// string pass) but debounced from the keystroke path via onDocChanged.
   private refreshSpecScore(): void {
-    const show =
-      isSpecPath(this.currentPath) && /^##\s+Goal\s*$/m.test(this.liveContent);
-    this.specScoreBadge.update(show ? scoreSpec(this.liveContent) : null);
+    // Gate on the path alone: a doc filed under /specs/ is a spec by
+    // declaration. Requiring a literal `## Goal` hid the badge on every
+    // design doc that says `## Problem` — the engine's SECTION_ALIASES
+    // already score those, and a low grade with findings is the right
+    // signal for a spec that isn't canonical.
+    this.specScoreBadge.update(
+      isSpecPath(this.currentPath) ? scoreSpec(this.liveContent) : null,
+    );
   }
 
   /// Rasterize the open SVG to <basename>.png next to the source.
