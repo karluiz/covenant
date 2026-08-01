@@ -41,12 +41,13 @@ export interface VitalsDataSource {
 
 // `repaint` leads: it is the metric that tracked perceived lag in
 // measurement, while `switch` covers only activate()'s own synchronous work.
-const METRICS = ["repaint", "switch", "input", "boot"] as const;
+const METRICS = ["repaint", "switch", "wsswitch", "input", "boot"] as const;
 type Metric = (typeof METRICS)[number];
 
 const METRIC_LABEL: Record<Metric, string> = {
   repaint: "Repaint",
   switch: "Switch",
+  wsswitch: "Workspace",
   input: "Input",
   boot: "Boot",
 };
@@ -58,6 +59,8 @@ const METRIC_HELP: Record<Metric, string> = {
     "Tab switch, felt: activation start → the revealed pane's first painted frame. Aux column = how long the click waited for the main thread.",
   switch:
     "Activation logic only: activate()'s own synchronous work — no click wait, no repaint. Typically 10-15ms even when a switch feels slow, so read Repaint first.",
+  wsswitch:
+    "Workspace switch, felt: switchTo start → the incoming workspace's first painted frame. Aux column = until every tab of the workspace finished restoring (cold workspaces respawn their PTYs; warm ones come back from the hibernation stash).",
   input: "Keystroke round trip: key → PTY echo painted. Samples over 1s are discarded, not recorded.",
   boot: "Launch → first shell prompt of the active tab.",
 };

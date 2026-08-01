@@ -44,6 +44,8 @@ function nowMs(): number {
   return Date.now();
 }
 
+const r1 = (n: number): number => Math.round(n * 10) / 10;
+
 function newId(): string {
   // crypto.randomUUID is available in the Tauri webview (Chromium ≥ 92).
   return crypto.randomUUID();
@@ -307,6 +309,7 @@ export class WorkspaceManager {
     if (id === this.activeId) return;
     const target = this.workspaces.find((w) => w.id === id);
     if (!target) return;
+    const startedAt = performance.now();
 
     // Snapshot current state into the outgoing workspace so a cold restart
     // restores the at-switch shape. Runtime state for the outgoing tabs
@@ -332,6 +335,7 @@ export class WorkspaceManager {
     let activeReady = (): void => {};
     const activeTabLive = new Promise<void>((resolve) => (activeReady = resolve));
 
+    let warm = false;
     const doRebuild = async (): Promise<void> => {
       // Detach outgoing tabs without killing PTYs.
       this.tabManager.hibernate(outgoingId);
@@ -342,6 +346,7 @@ export class WorkspaceManager {
       // If we already hibernated this workspace earlier in the session,
       // restore the live Tab objects — PTYs survived the switch.
       if (this.tabManager.unhibernate(id)) {
+        warm = true;
         // Restored from the in-memory stash — PTYs survived. Replay any
         // groups moved here while it was hibernated; restoreFromManifest
         // appends them to the live tabs without tearing the rest down.
@@ -376,11 +381,34 @@ export class WorkspaceManager {
     } finally {
       this.suspendPersist = false;
     }
+    // Reveal ≠ on screen — same lesson as the tab-switch vital: the frame
+    // after the first rAF is the earliest the incoming workspace is painted.
+    // Started here (not awaited) so measuring never delays the restore.
+    const revealMs = performance.now() - startedAt;
+    const painted = new Promise<number>((resolve) =>
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => resolve(performance.now() - startedAt)),
+      ),
+    );
     // The remaining tabs hydrate after the card lifts, but saveAll (below)
     // rebuilds this workspace's body from the live TabManager — persisting a
     // half-spawned set would drop the tabs still in flight. So finish the
     // full restore before persisting.
     await rebuild;
+    const rebuiltMs = performance.now() - startedAt;
+    void painted.then((paintedMs) => {
+      this.tabManager.vitals?.record("wsswitch", r1(paintedMs), Math.round(rebuiltMs), {
+        // Cold (respawns every PTY) vs warm (restored from the hibernation
+        // stash) is the variable that should dominate this number.
+        warm,
+        incomingTabs: target.tabs.length,
+        outgoingTabs: out.tabs.length,
+        revealMs: r1(revealMs),
+        // rAF is suspended while the window is occluded, so a switch the user
+        // walked away from measures the looking-away, not the switch.
+        hidden: document.visibilityState !== "visible",
+      });
+    });
     await this.saveAll();
     this.emitChange();
   }

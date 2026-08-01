@@ -190,16 +190,53 @@ export function chunkForTermWrite(data: Uint8Array): Uint8Array[] {
   return chunks;
 }
 
+/// Bytes a PAUSED batch holds before it starts dropping the oldest chunks.
+/// Only hibernated workspaces pause, and a workspace can sit off-screen for
+/// hours with an agent streaming into it — unbounded holding is a leak.
+export const HIDDEN_OUTPUT_HOLD_CAP_BYTES = 2 * 1024 * 1024;
+
 export class HiddenOutputBatch {
   private chunks: Uint8Array[] = [];
   private timer: number | null = null;
+  private paused = false;
+  private heldBytes = 0;
 
   constructor(private readonly write: (data: Uint8Array) => void) {}
 
   enqueue(chunk: Uint8Array): void {
     this.chunks.push(chunk);
-    if (this.timer !== null) return;
+    this.heldBytes += chunk.byteLength;
+    // ponytail: drop-oldest ring, not a replay from the backend's scrollback.
+    // Dropping whole chunks can cut an escape sequence in half; xterm resyncs
+    // at the next full redraw. Upgrade to replay-on-resume if that shows.
+    while (this.heldBytes > HIDDEN_OUTPUT_HOLD_CAP_BYTES && this.chunks.length > 1) {
+      this.heldBytes -= (this.chunks.shift() as Uint8Array).byteLength;
+    }
+    if (this.paused || this.timer !== null) return;
     this.timer = window.setTimeout(() => this.flush(), HIDDEN_OUTPUT_BATCH_DELAY_MS);
+  }
+
+  /// Stop handing bytes to xterm at all. Hidden is not the same as
+  /// unreachable: a hibernated workspace's terminals cannot be looked at by
+  /// any means, yet parsing their output still taxes the main thread of the
+  /// workspace the user IS in. Bytes keep accumulating (capped above).
+  pause(): void {
+    this.paused = true;
+    if (this.timer !== null) {
+      window.clearTimeout(this.timer);
+      this.timer = null;
+    }
+  }
+
+  /// Unpause and schedule the catch-up write. `delayMs` staggers the tabs of
+  /// a returning workspace so twenty terminals don't parse their whole
+  /// backlog in the frame that paints the switch. The tab the user lands on
+  /// doesn't wait for this — activate() flushes it directly.
+  resume(delayMs = HIDDEN_OUTPUT_BATCH_DELAY_MS): void {
+    if (!this.paused) return;
+    this.paused = false;
+    if (this.chunks.length === 0 || this.timer !== null) return;
+    this.timer = window.setTimeout(() => this.flush(), delayMs);
   }
 
   flush(): void {
@@ -207,6 +244,7 @@ export class HiddenOutputBatch {
       window.clearTimeout(this.timer);
       this.timer = null;
     }
+    this.heldBytes = 0;
     if (this.chunks.length === 0) return;
     const chunks = this.chunks;
     this.chunks = [];
@@ -228,6 +266,8 @@ export class HiddenOutputBatch {
     if (this.timer !== null) window.clearTimeout(this.timer);
     this.timer = null;
     this.chunks = [];
+    this.heldBytes = 0;
+    this.paused = false;
   }
 }
 
@@ -7212,6 +7252,11 @@ export class TabManager {
         this.workspace.removeChild(tab.pane);
       }
       tab.pane.hidden = true;
+      // Stop feeding xterm while the workspace is unreachable. Without this
+      // every hibernated workspace keeps parsing PTY output on the same main
+      // thread the visible workspace switches tabs on — the cost grows with
+      // how many workspaces you have OPEN, not with what's on screen.
+      tab.hiddenOutputBatch?.pause();
     }
     this.hibernated.set(workspaceId, {
       tabs,
@@ -7237,10 +7282,14 @@ export class TabManager {
     const stash = this.hibernated.get(workspaceId);
     if (!stash) return false;
     this.hibernated.delete(workspaceId);
-    for (const tab of stash.tabs) {
+    stash.tabs.forEach((tab, i) => {
       this.workspace.appendChild(tab.pane);
       tab.pane.hidden = true;
-    }
+      // Staggered: twenty tabs draining their backlog in the frame that
+      // paints the switch is the stall pause() exists to avoid, just moved.
+      // The tab being activated doesn't wait — activate() flushes it.
+      tab.hiddenOutputBatch?.resume(HIDDEN_OUTPUT_BATCH_DELAY_MS + i * 50);
+    });
     this.tabs.splice(0, this.tabs.length, ...stash.tabs);
     for (const [id, g] of stash.groups) this.groups.set(id, g);
     this.renderTabbar();
@@ -7249,6 +7298,12 @@ export class TabManager {
     } else if (this.tabs[0]) {
       this.activate(this.tabs[0].id, { skipIfSame: false });
     }
+    // The restored tabs held stale cols across everything that changed the
+    // workspace box while they were away (window resize, sidebar toggles) and
+    // couldn't refit under display:none. Without this each one pays the
+    // cols-change reflow on its first activation — restoreFromManifest already
+    // sweeps for exactly this; the warm path was the one that didn't.
+    this.scheduleHiddenRefit();
     return true;
   }
 
