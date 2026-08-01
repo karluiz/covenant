@@ -3110,7 +3110,10 @@ index e69de29..0cfbf08 100644
         // Sibling of the repo, not nested inside it — a nested checkout shows
         // up as an untracked dir in main and trips the clean-main precheck.
         let wt = tmp.path().join("feat");
-        git_run(&main, &["worktree", "add", "-q", "-b", "feat", wt.to_str().unwrap()]);
+        git_run(
+            &main,
+            &["worktree", "add", "-q", "-b", "feat", wt.to_str().unwrap()],
+        );
         std::fs::write(wt.join("feature.txt"), "new\n").unwrap();
         git_run(&wt, &["add", "."]);
         git_run(&wt, &["commit", "-q", "-m", "feat: work"]);
@@ -3122,7 +3125,11 @@ index e69de29..0cfbf08 100644
         let (_tmp, main, wt) = repo_with_feature_worktree();
 
         let out = merge_and_end(&main, wt.to_str().unwrap()).unwrap();
-        assert!(out.removed, "worktree should be reclaimed: {:?}", out.reason);
+        assert!(
+            out.removed,
+            "worktree should be reclaimed: {:?}",
+            out.reason
+        );
 
         // Merge commit exists on main with the conventional message.
         let subject = git(&main, &["log", "-1", "--format=%s"]).unwrap();
