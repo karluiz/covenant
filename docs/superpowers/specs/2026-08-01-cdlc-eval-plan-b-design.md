@@ -197,11 +197,15 @@ rather than as an absence.
 | Where | What |
 |---|---|
 | `crates/canon` | `parse_registry_source`: happy path, missing `@`, `local:` source, malformed org/name |
-| `covenant-server` | pure validation of the request body (empty list, >200 entries, empty / oversized `eval_id`) — inline `#[cfg(test)]`, matching the only test pattern that repo has |
+| `covenant-server` | pure validation of the request body (empty list, >200 entries, empty / oversized `eval_id`) |
+| `covenant-server` | DB-backed via `#[sqlx::test(migrations = "./migrations")]`: re-running an eval **replaces** its row rather than adding one, two members' results both count, and the aggregate query returns the right `(passed, total)` |
 | `ui` | registry card meta line with and without an eval aggregate |
 
-No DB-backed integration test: `covenant-server` has none today and this change
-is not the place to introduce that harness.
+The upsert is the property the whole design rests on, and it is a property of
+the `ON CONFLICT` clause — a pure unit test cannot observe it. `org_defaults.rs`
+already establishes the `#[sqlx::test]` pattern (spin up a scratch database,
+run the migrations, seed a user + org + package), so this costs a `seed()`
+helper, not a new harness.
 
 ## Out of scope
 
