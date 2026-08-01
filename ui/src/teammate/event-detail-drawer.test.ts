@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EventDetailDrawer, type EventDetail, type EventOrigin } from "./event-detail-drawer";
+import { EventDetailDrawer, replyLabel, type EventDetail, type EventOrigin } from "./event-detail-drawer";
 
 const esc: EventDetail = {
   ts: 1_717_000_000_000,
@@ -60,6 +60,17 @@ describe("EventDetailDrawer", () => {
     );
     expect(document.body.textContent).toContain("dry-run (not sent)");
     expect(document.body.textContent).toContain("yes");
+  });
+
+  it("names a bare-Enter reply instead of rendering an empty box", () => {
+    const drawer = new EventDetailDrawer(document.body, () => true);
+    drawer.open(
+      { ...esc, action: "reply", kindClass: "typed", executed: true, replyText: "\r", escalation: null },
+      deadOrigin,
+    );
+    expect(document.body.textContent).toContain("accepted the highlighted option");
+    // A real reply is still shown verbatim.
+    expect(replyLabel("2\r")).toBe("2\r");
   });
 
   it("closes on Escape and on the close button", () => {

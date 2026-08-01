@@ -133,8 +133,10 @@ export class EventDetailDrawer {
     // reply, or the wait rationale — whichever the action produced.
     const blocks: string[] = [];
     if (e.escalation) blocks.push(field("Escalation", e.escalation));
-    if (e.replyText) blocks.push(field("Reply", e.replyText, true));
-    if (e.rationale) blocks.push(field("Rationale", e.rationale));
+    if (e.replyText) blocks.push(field("Reply", replyLabel(e.replyText), true));
+    // Under mind_v2 this carries the operator's own thinking blocks — the
+    // "why" behind the reply — so label it as reasoning, not a one-liner.
+    if (e.rationale) blocks.push(field("Reasoning", e.rationale));
     if (blocks.length === 0) return "";
     return `<section class="tp-evd-sect">${blocks.join("")}</section>`;
   }
@@ -163,6 +165,17 @@ export class EventDetailDrawer {
 }
 
 /* ── helpers ─────────────────────────────────────────────────────── */
+
+/// Every live REPLY gets a trailing `\r` appended before injection (the
+/// auto-submit). When the model's text was empty, the whole reply IS that
+/// `\r` — the operator pressed Enter to take whatever option the harness had
+/// highlighted. Rendered raw that's an empty box, which reads as a bug rather
+/// than as a decision. Name it instead.
+export function replyLabel(s: string): string {
+  return s.replace(/[\r\n]/g, "").trim() === ""
+    ? "[Enter] — no text; accepted the highlighted option"
+    : s;
+}
 
 function field(label: string, value: string, mono = false): string {
   return `
