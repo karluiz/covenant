@@ -186,11 +186,14 @@ and a `stats` chip row per card. For `wire === "skill"` with `eval_total > 0`,
 the meta line gains one segment:
 
 ```
-v2.1.0 · 14 installs · 12/14 evals · karluiz
+v2.1.0 · 14 installs · 12/14 eval runs · karluiz
 ```
 
-Nothing when `eval_total === 0` — an empty `0/0 evals` would read as a failure
-rather than as an absence.
+Nothing when `eval_total === 0` — an empty `0/0 eval runs` would read as a
+failure rather than as an absence.
+
+**"eval runs", not "evals" — see the correction below.** The wording is load-
+bearing, not a style choice.
 
 ## Testing
 
@@ -207,6 +210,42 @@ already establishes the `#[sqlx::test]` pattern (spin up a scratch database,
 run the migrations, seed a user + org + package), so this costs a `seed()`
 helper, not a new harness.
 
+## Correction — what the number actually means (2026-08-01, post-implementation)
+
+The final whole-branch review caught a false premise in this spec's Problem
+section. Recorded here rather than edited away, because the reasoning matters
+more than the tidy version.
+
+The Problem section says the publisher "never finds out their skill fails two
+thirds of the time." That sentence assumes every org member runs **the same
+eval suite** against the package. They do not, and nothing in the product makes
+them. Verified three ways:
+
+- `install_from_dir` writes only `skill.toml` and `SKILL.md` into the installed
+  skill directory (`crates/canon/src/install.rs:124-125`). It never touches
+  `evals/`.
+- `read_skill_package`, the publish source, reads only those same two files
+  (`crates/canon/src/install.rs:172-176`), so `canon_publish` cannot carry
+  evals even if they existed.
+- Nothing in `crates/` ever *writes* an eval `.toml`. They are hand-authored,
+  per machine, under `.covenant/canon/skills/<skill>/evals/` — and `.covenant/`
+  is gitignored, so they do not even travel between clones of the same repo.
+
+Two members' `e1` are therefore unrelated tests. Compounding it, the row key is
+`(package_id, github_id, eval_id)`, so `count(*)` counts **(person × eval)
+pairs**: two members each running seven evals render a total of 14 for a skill
+that has seven.
+
+Everything built here is still correct for what it stores — the aggregate is
+version-scoped, the upsert replaces, the push is best-effort, and the judge's
+reasoning stays local. What was wrong was only the label. Hence **"12/14 eval
+runs"**: *of the 14 eval runs org members did against this version, 12 passed.*
+That is literally true of the table's contents and claims no suite size.
+
+The number becomes what this spec originally promised only once eval
+definitions ship inside the package. That is the follow-up:
+`2026-08-01-canon-package-evals-design.md`.
+
 ## Out of scope
 
 - Impact-section comparison of local vs. org pass-rate (rejected above)
@@ -214,3 +253,5 @@ helper, not a new harness.
 - Evals for non-skill kinds — the runner does not support them
 - History / trend of pass-rate over time — the PK deliberately forbids it
 - An opt-out setting for the push
+- **Distributing eval definitions with the package** — the follow-up above.
+  Without it this feature reports run activity, not suite conformance.
