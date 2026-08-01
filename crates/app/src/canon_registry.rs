@@ -34,6 +34,11 @@ pub struct PkgMeta {
     pub sha: String,
     #[serde(default = "default_kind")]
     pub kind: String,
+    /// Cross-org eval aggregate. Absent on a pre-Plan-B server → 0/0 → hidden.
+    #[serde(default)]
+    pub eval_passed: i64,
+    #[serde(default)]
+    pub eval_total: i64,
 }
 
 #[allow(dead_code)] // description/sha/publisher_login/kind are part of the server JSON contract
@@ -242,6 +247,27 @@ pub async fn unset_default(org: &str, kind: &str, name: &str) -> Result<(), Stri
 pub async fn record_install(id: i64) -> Result<(), String> {
     let url = format!("{}/cdlc/packages/{}/install", auth::backend_url(), id);
     send_authed(|j| client().post(&url).bearer_auth(j)).await?;
+    Ok(())
+}
+
+/// Push a skill's eval outcomes to the registry (Plan B). Pass/fail only —
+/// `EvalResult.reason` is free text an LLM wrote about the user's repo and
+/// never leaves the machine.
+pub async fn push_evals(pkg_id: i64, results: &[karl_canon::EvalResult]) -> Result<(), String> {
+    let url = format!("{}/cdlc/packages/{}/evals", auth::backend_url(), pkg_id);
+    let rows: Vec<Value> = results
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "eval_id": r.eval_id,
+                "pass": r.pass,
+                "baseline_pass": r.baseline_pass,
+                "ran_at_ms": r.ran_at_ms,
+            })
+        })
+        .collect();
+    let body = serde_json::json!({ "results": rows });
+    send_authed(|j| client().post(&url).bearer_auth(j).json(&body)).await?;
     Ok(())
 }
 

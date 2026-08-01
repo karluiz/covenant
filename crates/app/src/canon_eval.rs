@@ -338,6 +338,44 @@ fn emit_progress(app: &AppHandle, skill: &str, eval_id: &str, status: &str, reas
     );
 }
 
+/// Share this skill's results with the org registry, if it came from one.
+///
+/// Best-effort by construction: a locally-authored skill returns early with no
+/// network call, and every failure past that point is a warn. The evals have
+/// already run and are already on disk — a push problem must never surface as
+/// an error for a side effect the user did not ask for.
+async fn push_results_for(repo_root: &std::path::Path, skill: &str) {
+    let Ok(manifest) = karl_canon::read_manifest(repo_root) else {
+        return;
+    };
+    let Some(entry) = manifest.installed.iter().find(|i| i.name == skill) else {
+        return; // authored here, not installed — nothing to attribute it to
+    };
+    let Some((org, name, version)) = karl_canon::parse_registry_source(&entry.source) else {
+        return; // local: source — no registry to push to
+    };
+    let results = karl_canon::read_results(repo_root);
+    let Some(inner) = results.get(skill) else {
+        return;
+    };
+    let rows: Vec<karl_canon::EvalResult> = inner.values().cloned().collect();
+    if rows.is_empty() {
+        return;
+    }
+    // Resolve the PINNED version, never `latest` — results belong to the row
+    // the user actually installed.
+    let pkg = match crate::canon_registry::resolve(&org, &name, &version, "skill").await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(target: "canon", skill, error = %e, "eval push: resolve failed");
+            return;
+        }
+    };
+    if let Err(e) = crate::canon_registry::push_evals(pkg.id, &rows).await {
+        tracing::warn!(target: "canon", skill, error = %e, "eval push failed");
+    }
+}
+
 /// Run every eval for `skill`: harness → judge → persist → emit. Sequential
 /// (each eval is a full agent run + a judge call — slow and expensive on
 /// purpose). Aborts the whole run only if claude is not installed; a per-eval
@@ -424,6 +462,7 @@ pub async fn canon_run_evals(
             Err(e) => emit_progress(&app, &skill, &ev.id, "error", &e),
         }
     }
+    push_results_for(&repo_root, &skill).await;
     emit_progress(&app, &skill, "", "done", "");
     Ok(())
 }
