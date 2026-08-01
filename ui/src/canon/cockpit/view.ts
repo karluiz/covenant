@@ -174,10 +174,19 @@ function loopSubhead(text: string): HTMLElement {
 }
 
 /** The org-wide pass-rate segment for a registry card, or null when nobody has
- *  run this version's evals — "0/0 evals" would read as a broken package
- *  rather than an unmeasured one. */
+ *  run this version's evals — "0/0 eval runs" would read as a broken package
+ *  rather than an unmeasured one.
+ *
+ *  The row key is (package_id, github_id, eval_id), so this counts
+ *  (person × eval) pairs, not a suite of evals — two members each running
+ *  seven evals total 14. It says "eval runs" and not "evals" on purpose:
+ *  eval definitions are hand-authored per machine under
+ *  .covenant/canon/skills/<skill>/evals/ and never travel with the package
+ *  (install_from_dir / read_skill_package only touch skill.toml + SKILL.md),
+ *  so there is no shared suite size to report. Do not "tidy" this back to
+ *  "evals" — that would claim a number this data doesn't have. */
 export function evalChip(p: PkgMeta): string | null {
-  return p.eval_total > 0 ? `${p.eval_passed}/${p.eval_total} evals` : null;
+  return p.eval_total > 0 ? `${p.eval_passed}/${p.eval_total} eval runs` : null;
 }
 
 /** The nav, grouped by what each section is FOR — the lifecycle Canon exists

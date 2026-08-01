@@ -1072,7 +1072,7 @@ describe("evalChip", () => {
   });
 
   it("reads as a pass-rate when the org has run evals", () => {
-    expect(evalChip(pkg(12, 14))).toBe("12/14 evals");
+    expect(evalChip(pkg(12, 14))).toBe("12/14 eval runs");
   });
 
   it("is absent when nobody has run any", () => {
@@ -1081,6 +1081,6 @@ describe("evalChip", () => {
   });
 
   it("shows a total wipeout rather than hiding it", () => {
-    expect(evalChip(pkg(0, 3))).toBe("0/3 evals");
+    expect(evalChip(pkg(0, 3))).toBe("0/3 eval runs");
   });
 });

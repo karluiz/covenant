@@ -21,7 +21,7 @@ export function runEvals(
     label: "Run evals",
     message:
       `Run evals for "${skill}"? Each eval is a full agent run plus a judge call — this can take minutes and costs tokens. ` +
-      `Pass/fail results are shared with your org's registry — never the judge's reasoning.`,
+      `The eval's name and its pass/fail are shared with your org's registry — never the judge's reasoning.`,
     confirmText: "Run",
     onConfirm: () => { void execute(cwd, skill, btn, onDone); },
   });
