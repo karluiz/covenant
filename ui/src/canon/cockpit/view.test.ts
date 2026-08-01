@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { CanonCockpitView, unusedUnits, inventoryRows, skillCurrency } from "./view";
+import { CanonCockpitView, unusedUnits, inventoryRows, skillCurrency, evalChip } from "./view";
 
 // Mock the api module so tests don't invoke Tauri IPC.
 vi.mock("../../api", () => ({
@@ -49,7 +49,7 @@ import {
   canonOrgDefaults, canonOrgDefaultSet, canonUnitInstalled,
   canonNewUnit, canonImportSkill, canonUnitPath, canonDeleteUnit, scoreSkillUsage,
   canonProjectionStatus, canonExport, canonRunEvals,
-  type Operator,
+  type Operator, type PkgMeta,
 } from "../../api";
 import { openCreateOrgExperience } from "../create-org/view";
 
@@ -161,7 +161,7 @@ describe("CanonCockpitView create-org flow", () => {
 describe("CanonCockpitView Registry section", () => {
   it("renders registry search results for the active org", async () => {
     vi.mocked(canonSearch).mockResolvedValue([
-      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234", kind: "skill" },
+      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234", kind: "skill", eval_passed: 0, eval_total: 0 },
     ]);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("registry");
@@ -182,7 +182,7 @@ describe("CanonCockpitView Registry section", () => {
 
   it("searches and installs a non-skill kind through canonInstallRegistryUnit", async () => {
     vi.mocked(canonSearch).mockResolvedValue([
-      { id: 1, kind: "command", name: "deploy", version: "abc123def456", description: "d", publisher_login: "k", installs: 2, sha: "abc" },
+      { id: 1, kind: "command", name: "deploy", version: "abc123def456", description: "d", publisher_login: "k", installs: 2, sha: "abc", eval_passed: 0, eval_total: 0 },
     ]);
     const v = new CanonCockpitView(opts);
     v.open();
@@ -232,7 +232,7 @@ describe("CanonCockpitView org defaults", () => {
 
   it("registry cards show the org-default pin only to owners", async () => {
     vi.mocked(canonSearch).mockResolvedValue([
-      { id: 1, kind: "skill", name: "conventions", version: "1", description: "", publisher_login: "k", installs: 0, sha: "abc" },
+      { id: 1, kind: "skill", name: "conventions", version: "1", description: "", publisher_login: "k", installs: 0, sha: "abc", eval_passed: 0, eval_total: 0 },
     ]);
     const v = new CanonCockpitView(opts); // opts org role: owner
     v.open();
@@ -257,7 +257,7 @@ describe("CanonCockpitView org defaults", () => {
   it("pinning calls canonOrgDefaultSet with the card's kind and name", async () => {
     vi.mocked(canonOrgDefaults).mockResolvedValue([]);
     vi.mocked(canonSearch).mockResolvedValue([
-      { id: 1, kind: "skill", name: "conventions", version: "1", description: "", publisher_login: "k", installs: 0, sha: "abc" },
+      { id: 1, kind: "skill", name: "conventions", version: "1", description: "", publisher_login: "k", installs: 0, sha: "abc", eval_passed: 0, eval_total: 0 },
     ]);
     const v = new CanonCockpitView(opts);
     v.open();
@@ -725,7 +725,7 @@ describe("Canon staleness", () => {
       modifiedSkills: [],
     });
     vi.mocked(canonSearch).mockResolvedValueOnce([
-      { id: 1, name: "kyc", version: "2.1.0", description: "", publisher_login: "karluiz", installs: 9, sha: "zzz", kind: "skill" },
+      { id: 1, name: "kyc", version: "2.1.0", description: "", publisher_login: "karluiz", installs: 9, sha: "zzz", kind: "skill", eval_passed: 0, eval_total: 0 },
     ]);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("skills");
@@ -1061,5 +1061,26 @@ describe("CanonCockpitView authoring", () => {
     v.showSection("spec");
     v.element.querySelector<HTMLButtonElement>(".canon-sec-head-action")!.click();
     expect(onNewSpec).toHaveBeenCalledWith("/x");
+  });
+});
+
+describe("evalChip", () => {
+  const pkg = (eval_passed: number, eval_total: number): PkgMeta => ({
+    id: 1, name: "kyc-peru", version: "2.1.0", description: "",
+    publisher_login: "karluiz", installs: 14, sha: "abc1234", kind: "skill",
+    eval_passed, eval_total,
+  });
+
+  it("reads as a pass-rate when the org has run evals", () => {
+    expect(evalChip(pkg(12, 14))).toBe("12/14 eval runs");
+  });
+
+  it("is absent when nobody has run any", () => {
+    // 0/0 would read as a failing package rather than an unmeasured one.
+    expect(evalChip(pkg(0, 0))).toBeNull();
+  });
+
+  it("shows a total wipeout rather than hiding it", () => {
+    expect(evalChip(pkg(0, 3))).toBe("0/3 eval runs");
   });
 });

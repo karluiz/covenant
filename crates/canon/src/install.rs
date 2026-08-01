@@ -572,6 +572,21 @@ pub fn adopt_new_skills(
     Ok(adopted)
 }
 
+/// Split an `InstalledRef.source` of the form `registry:<org>/<name>@<version>`
+/// into its parts. `None` for any other source (`local:…`) or a malformed ref.
+///
+/// The version is taken from the LAST `@` so pre-release versions
+/// (`2.1.0-rc.1`) survive; org and name never contain `@`.
+pub fn parse_registry_source(source: &str) -> Option<(String, String, String)> {
+    let rest = source.strip_prefix("registry:")?;
+    let (path, version) = rest.rsplit_once('@')?;
+    let (org, name) = path.split_once('/')?;
+    if org.is_empty() || name.is_empty() || version.is_empty() {
+        return None;
+    }
+    Some((org.to_string(), name.to_string(), version.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1230,5 +1245,29 @@ mod tests {
         std::fs::write(dir.join("SKILL.md"), "# verify\nnot adopted yet\n").unwrap();
         let md = read_source(repo, ContextKind::Skill, "verify").unwrap();
         assert!(md.contains("not adopted yet"));
+    }
+
+    #[test]
+    fn parse_registry_source_reads_org_name_version() {
+        assert_eq!(
+            parse_registry_source("registry:mibanco/kyc-peru@1.0.0"),
+            Some(("mibanco".into(), "kyc-peru".into(), "1.0.0".into()))
+        );
+        // Versions contain dots and dashes; only the LAST '@' separates.
+        assert_eq!(
+            parse_registry_source("registry:acme/skill@2.1.0-rc.1"),
+            Some(("acme".into(), "skill".into(), "2.1.0-rc.1".into()))
+        );
+    }
+
+    #[test]
+    fn parse_registry_source_rejects_anything_else() {
+        assert_eq!(parse_registry_source("local:/tmp/kyc"), None);
+        assert_eq!(parse_registry_source("registry:kyc-peru@1.0.0"), None, "no org");
+        assert_eq!(parse_registry_source("registry:acme/kyc-peru"), None, "no version");
+        assert_eq!(parse_registry_source("registry:acme/@1.0.0"), None, "empty name");
+        assert_eq!(parse_registry_source("registry:/kyc@1.0.0"), None, "empty org");
+        assert_eq!(parse_registry_source("registry:acme/kyc@"), None, "empty version");
+        assert_eq!(parse_registry_source(""), None);
     }
 }

@@ -173,6 +173,22 @@ function loopSubhead(text: string): HTMLElement {
   return el;
 }
 
+/** The org-wide pass-rate segment for a registry card, or null when nobody has
+ *  run this version's evals — "0/0 eval runs" would read as a broken package
+ *  rather than an unmeasured one.
+ *
+ *  The row key is (package_id, github_id, eval_id), so this counts
+ *  (person × eval) pairs, not a suite of evals — two members each running
+ *  seven evals total 14. It says "eval runs" and not "evals" on purpose:
+ *  eval definitions are hand-authored per machine under
+ *  .covenant/canon/skills/<skill>/evals/ and never travel with the package
+ *  (install_from_dir / read_skill_package only touch skill.toml + SKILL.md),
+ *  so there is no shared suite size to report. Do not "tidy" this back to
+ *  "evals" — that would claim a number this data doesn't have. */
+export function evalChip(p: PkgMeta): string | null {
+  return p.eval_total > 0 ? `${p.eval_passed}/${p.eval_total} eval runs` : null;
+}
+
 /** The nav, grouped by what each section is FOR — the lifecycle Canon exists
  *  to run (docs/canon-context-is-the-new-code.md), not the directory layout.
  *  A flat list of twelve made "Loop" sit beside "MCP" as if they were the same
@@ -2011,8 +2027,9 @@ export class CanonCockpitView {
                 });
             });
             const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
+            const evals = evalChip(r);
             const meta = wire === "skill"
-              ? `${r.version} · ${installs} · ${r.publisher_login}`
+              ? [r.version, installs, evals, r.publisher_login].filter(Boolean).join(" · ")
               : `${installs} · ${r.publisher_login}`;
             const stats = wire === "skill"
               ? [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)]

@@ -34,6 +34,11 @@ pub struct PkgMeta {
     pub sha: String,
     #[serde(default = "default_kind")]
     pub kind: String,
+    /// Cross-org eval aggregate. Absent on a pre-Plan-B server → 0/0 → hidden.
+    #[serde(default)]
+    pub eval_passed: i64,
+    #[serde(default)]
+    pub eval_total: i64,
 }
 
 #[allow(dead_code)] // description/sha/publisher_login/kind are part of the server JSON contract
@@ -245,6 +250,33 @@ pub async fn record_install(id: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// The wire shape for one pushed eval row: exactly four keys, none of them
+/// `reason` or `duration_ms`. Kept as a standalone pure function — rather than
+/// inlined into `push_evals` — so the privacy boundary (the judge's free-text
+/// `reason` about the user's repo never leaves the machine) has a mechanical
+/// guard: `EvalResult` is `Serialize`, so a future `json!({"results": results})`
+/// would compile and silently upload it without this explicit allowlist and
+/// its covering test.
+fn eval_wire_row(r: &karl_canon::EvalResult) -> Value {
+    serde_json::json!({
+        "eval_id": r.eval_id,
+        "pass": r.pass,
+        "baseline_pass": r.baseline_pass,
+        "ran_at_ms": r.ran_at_ms,
+    })
+}
+
+/// Push a skill's eval outcomes to the registry (Plan B). Pass/fail only —
+/// `EvalResult.reason` is free text an LLM wrote about the user's repo and
+/// never leaves the machine.
+pub async fn push_evals(pkg_id: i64, results: &[karl_canon::EvalResult]) -> Result<(), String> {
+    let url = format!("{}/cdlc/packages/{}/evals", auth::backend_url(), pkg_id);
+    let rows: Vec<Value> = results.iter().map(eval_wire_row).collect();
+    let body = serde_json::json!({ "results": rows });
+    send_authed(|j| client().post(&url).bearer_auth(j).json(&body)).await?;
+    Ok(())
+}
+
 /// Minimal percent-encoding for path/query segments (slug/name/version are
 /// already restricted to url-safe chars server-side, but encode defensively).
 pub(crate) fn urlencoding(s: &str) -> String {
@@ -260,12 +292,49 @@ pub(crate) fn urlencoding(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::urlencoding;
+    use super::{eval_wire_row, urlencoding};
 
     #[test]
     fn urlencoding_escapes_unsafe() {
         assert_eq!(urlencoding("kyc-peru"), "kyc-peru");
         assert_eq!(urlencoding("a b/c"), "a%20b%2Fc");
         assert_eq!(urlencoding("1.0.0"), "1.0.0");
+    }
+
+    /// Privacy guard: `EvalResult.reason` is free text an LLM wrote about the
+    /// user's repo and must never appear in the pushed wire row. Also asserts
+    /// `duration_ms` is dropped and that the row has EXACTLY four keys, so
+    /// this test cannot rot into vacuousness (e.g. by only checking presence
+    /// of the four expected keys while tolerating extras added later).
+    #[test]
+    fn eval_wire_row_excludes_reason_and_duration_ms() {
+        let r = karl_canon::EvalResult {
+            eval_id: "kyc-refuses-without-id".to_string(),
+            pass: true,
+            reason: "The transcript reveals the repo uses a Postgres instance at \
+                     internal-db.corp.example with table `customer_pii`."
+                .to_string(),
+            ran_at_ms: 1_700_000_000_000,
+            duration_ms: 4_321,
+            baseline_pass: Some(false),
+        };
+        let row = eval_wire_row(&r);
+
+        let obj = row.as_object().expect("row is a JSON object");
+        assert_eq!(obj.len(), 4, "row must have exactly four keys");
+
+        assert_eq!(row.get("eval_id").unwrap(), "kyc-refuses-without-id");
+        assert_eq!(row.get("pass").unwrap(), true);
+        assert_eq!(row.get("baseline_pass").unwrap(), false);
+        assert_eq!(row.get("ran_at_ms").unwrap(), 1_700_000_000_000i64);
+
+        assert!(
+            row.get("reason").is_none(),
+            "judge's free-text reason must never be pushed"
+        );
+        assert!(
+            row.get("duration_ms").is_none(),
+            "duration_ms is not part of the wire contract"
+        );
     }
 }

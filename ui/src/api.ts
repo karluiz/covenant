@@ -1861,6 +1861,9 @@ export interface PkgMeta {
   installs: number;
   sha: string;
   kind: string;
+  /** Cross-org eval aggregate for this version. 0/0 when nobody has run them. */
+  eval_passed: number;
+  eval_total: number;
 }
 export async function canonMyOrgs(): Promise<Org[]> {
   return invoke<Org[]>("canon_my_orgs");
