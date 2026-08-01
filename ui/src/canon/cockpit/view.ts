@@ -173,6 +173,13 @@ function loopSubhead(text: string): HTMLElement {
   return el;
 }
 
+/** The org-wide pass-rate segment for a registry card, or null when nobody has
+ *  run this version's evals — "0/0 evals" would read as a broken package
+ *  rather than an unmeasured one. */
+export function evalChip(p: PkgMeta): string | null {
+  return p.eval_total > 0 ? `${p.eval_passed}/${p.eval_total} evals` : null;
+}
+
 /** The nav, grouped by what each section is FOR — the lifecycle Canon exists
  *  to run (docs/canon-context-is-the-new-code.md), not the directory layout.
  *  A flat list of twelve made "Loop" sit beside "MCP" as if they were the same
@@ -2011,8 +2018,9 @@ export class CanonCockpitView {
                 });
             });
             const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
+            const evals = evalChip(r);
             const meta = wire === "skill"
-              ? `${r.version} · ${installs} · ${r.publisher_login}`
+              ? [r.version, installs, evals, r.publisher_login].filter(Boolean).join(" · ")
               : `${installs} · ${r.publisher_login}`;
             const stats = wire === "skill"
               ? [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)]
