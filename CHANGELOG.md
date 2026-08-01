@@ -6,6 +6,68 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.12 — Eval results travel to the org registry
+
+### Added
+
+- **Eval results reach the org, not just your laptop**: running evals on a skill
+  produced a pass-rate that died in `.covenant/canon/eval-results.json` — the
+  next person to install that skill learned nothing from it, and its author
+  never found out. Finishing a run now pushes the outcome to the organization's
+  registry, keyed so a re-run *replaces* its previous verdict rather than piling
+  on top of it. Only for skills installed from that registry: a locally-authored
+  one makes no network call at all. The push can never fail a run — every error
+  is a log line, because the evals already ran and are already on disk.
+  `crates/canon/src/install.rs` (`parse_registry_source`),
+  `crates/app/src/canon_registry.rs`, `crates/app/src/canon_eval.rs`.
+
+- **Registry cards show what the org measured**: a package card now carries
+  `12/14 eval runs` beside its install count, so the decision to install can see
+  whether the thing works before making it. The number is scoped to that exact
+  version — publishing a new one starts from a blank slate, because v1 results
+  say nothing about v2. A package nobody has evaluated shows nothing rather than
+  `0/0`, which would read as broken instead of unmeasured; a genuine `0/3`
+  wipeout always shows. `ui/src/api.ts`, `ui/src/canon/cockpit/view.ts`.
+
+- **The run confirmation says what leaves the machine**: "Run evals" already
+  warned about cost; it now also discloses that the eval's name and its
+  pass/fail are shared with the org registry — and that the judge's reasoning
+  never is. `ui/src/canon/evals.ts`.
+
+### Changed
+
+- **The eval-aggregate spec carries its own correction**: the design assumed org
+  members run a shared eval suite. They do not — eval definitions never travel
+  with a package, so the aggregate sums uncoordinated private tests. That is why
+  the card says "eval runs" and not "evals". The false premise stays in the spec
+  with the correction beside it rather than being edited away, and the follow-up
+  that ships evals inside the package is designed.
+  `docs/superpowers/specs/2026-08-01-cdlc-eval-plan-b-design.md`,
+  `docs/superpowers/specs/2026-08-01-canon-package-evals-design.md`.
+
+### Fixed
+
+- **Only the current run's results are published**: the push read the whole
+  on-disk results file, so an eval that skipped or timed out this run had its
+  *previous* verdict republished as freshly measured — and after a v1 → v2
+  upgrade, stale v1 entries were filed under v2. A skill whose evals broke badly
+  enough to abort the harness could report a perfect score for a version where
+  three of five actually pass. The run now pushes only what it just measured.
+  `crates/app/src/canon_eval.rs`.
+
+- **The judge's reasoning cannot leak by refactor**: the promise that the LLM
+  judge's free-text verdict about your repository never leaves the machine
+  rested on the upload happening to name four fields by hand. `EvalResult`
+  derives `Serialize`, so the obvious tidy-up would have shipped that prose to
+  the registry with no test failing. The mapping is now a named function with a
+  test that pins it to exactly four keys. `crates/app/src/canon_registry.rs`.
+
+- **SpecScore badge on design docs**: the doc viewer required a literal
+  `## Goal` heading on top of the `/specs/` path check, so every design doc
+  opening with `## Problem` rendered no score at all — even though the engine's
+  section aliases already map problem/why/overview/context onto the goal
+  dimension.
+
 ## v0.11.11 — Workspace switches measured, then made cheaper
 
 ### Added
