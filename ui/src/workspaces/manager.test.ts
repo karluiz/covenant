@@ -254,6 +254,34 @@ const mkWorkspace = (id: string, name: string, tabs: TabManifestV1["tabs"]) => (
 describe("WorkspaceManager.switchTo", () => {
   beforeEach(() => saveSpy.mockClear());
 
+  it("records a wsswitch vital once the incoming workspace painted", async () => {
+    const { manager } = makeMockTabManager();
+    const record = vi.fn();
+    manager.vitals = { record };
+    const ws = new WorkspaceManager(manager);
+    await ws.boot(
+      JSON.stringify({
+        version: 2,
+        active_workspace_id: "w1",
+        workspaces: [
+          mkWorkspace("w1", "One", [mkTab("a")]),
+          mkWorkspace("w2", "Heavy", [mkTab("b0"), mkTab("b1"), mkTab("b2")]),
+        ],
+      }),
+    );
+
+    await ws.switchTo("w2");
+    // The vital lands two frames after the reveal, not on the switch's await.
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(record).toHaveBeenCalledTimes(1);
+    const [metric, value, aux, detail] = record.mock.calls[0];
+    expect(metric).toBe("wsswitch");
+    expect(value).toBeGreaterThanOrEqual(0);
+    expect(aux).toBeGreaterThanOrEqual(0);
+    expect(detail).toMatchObject({ warm: false, incomingTabs: 3, outgoingTabs: 1 });
+  });
+
   it("returns once the active tab is live, without waiting for the rest", async () => {
     const { manager, state } = makeMockTabManager();
     const ws = new WorkspaceManager(manager);

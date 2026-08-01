@@ -4,7 +4,7 @@
 /// `repaint` is the one that tracks perceived tab-switch lag; `switch` only
 /// covers activate()'s own synchronous work (10-15ms typical), so a healthy
 /// `switch` says nothing about how the switch felt. See vitals/switch-vital.ts.
-export type VitalMetric = "switch" | "repaint" | "input" | "boot";
+export type VitalMetric = "switch" | "repaint" | "wsswitch" | "input" | "boot";
 
 export interface VitalEvent {
   metric: VitalMetric;
