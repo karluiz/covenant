@@ -4,6 +4,7 @@ import {
   computeActivationRefit,
   HiddenOutputBatch,
   HIDDEN_OUTPUT_BATCH_DELAY_MS,
+  HIDDEN_OUTPUT_HOLD_CAP_BYTES,
   pickPaintedPaneId,
   planHiddenTabResizes,
   shouldRoNudge,
@@ -102,6 +103,46 @@ describe("HiddenOutputBatch", () => {
     expect(joined[0]).toBe(1);
     expect(joined[half.byteLength]).toBe(2);
     expect(joined[total - 1]).toBe(2);
+  });
+
+  it("writes nothing while paused, then catches up on resume", () => {
+    // A hibernated workspace's terminals are unreachable — parsing their
+    // output would only tax the workspace the user is actually in.
+    vi.useFakeTimers();
+    const writes: Uint8Array[] = [];
+    const batch = new HiddenOutputBatch((data) => writes.push(data));
+
+    batch.pause();
+    batch.enqueue(new Uint8Array([1]));
+    batch.enqueue(new Uint8Array([2]));
+    vi.advanceTimersByTime(HIDDEN_OUTPUT_BATCH_DELAY_MS * 100);
+    expect(writes).toEqual([]);
+
+    batch.resume(200);
+    vi.advanceTimersByTime(199);
+    expect(writes).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect([...writes[0]]).toEqual([1, 2]);
+  });
+
+  it("drops the oldest held bytes past the cap instead of growing forever", () => {
+    vi.useFakeTimers();
+    const writes: Uint8Array[] = [];
+    const batch = new HiddenOutputBatch((data) => writes.push(data));
+
+    batch.pause();
+    const mb = HIDDEN_OUTPUT_HOLD_CAP_BYTES / 2;
+    batch.enqueue(new Uint8Array(mb).fill(1));
+    batch.enqueue(new Uint8Array(mb).fill(2));
+    batch.enqueue(new Uint8Array(mb).fill(3));
+    batch.resume(0);
+    vi.advanceTimersByTime(1);
+
+    const total = writes.reduce((n, w) => n + w.byteLength, 0);
+    expect(total).toBe(HIDDEN_OUTPUT_HOLD_CAP_BYTES);
+    // The 1s went; the tail survived in order.
+    expect(writes[0][0]).toBe(2);
+    expect(writes[writes.length - 1][0]).toBe(3);
   });
 
   it("splits even a single oversized chunk", () => {
