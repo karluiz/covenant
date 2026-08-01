@@ -6,6 +6,56 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.11 — Workspace switches measured, then made cheaper
+
+### Added
+
+- **The workspace switch is now a vital**: switching workspaces felt slower than
+  switching tabs and nothing measured it. `wsswitch` times `switchTo` start → the
+  incoming workspace's first painted frame, with the full restore in the aux
+  column and `warm` (hibernation-stash hit vs. cold PTY respawn), `revealMs` and
+  tab counts in the detail — so the data says which leg is slow before anything
+  is tuned. Fifth card on the ⌘⌥V dashboard. `ui/src/workspaces/manager.ts`,
+  `ui/src/vitals/{collector,page}.ts`.
+
+- **Exact-match and regex toggles in terminal search**: the in-terminal find bar
+  searched partial + case-insensitive with no way to narrow it. Two sticky
+  toggles beside the nav buttons — Exact (whole word + case sensitive) and `.*`
+  (regex). A half-typed regex renders as no-match instead of throwing out of the
+  input handler. `ui/src/terminal/finder.ts`.
+
+- **The reasoning behind a typed reply**: the event drawer showed a REPLY with
+  nothing explaining it — mind_v2's turn schema has no rationale field for
+  reply/escalate, so every v2 decision persisted an empty rationale. The model's
+  thinking blocks are that reasoning; they now carry into the decision row when
+  the action left rationale empty, deliberately downstream of
+  `compute_loop_hash` so per-turn thinking text can't blind the loop detector.
+  A bare-Enter reply (the operator accepting whatever option the harness had
+  highlighted) is named instead of rendering as an empty box.
+  `crates/app/src/operator.rs`, `ui/src/teammate/activity-view.ts`.
+
+### Changed
+
+- **Hibernated workspaces stop parsing**: hidden is not the same as unreachable.
+  A hibernated workspace's terminals kept feeding xterm, and that parse landed on
+  the main thread of the workspace the user is actually in — so the cost scaled
+  with how many workspaces were open rather than with what was on screen.
+  `HiddenOutputBatch` gains pause/resume with a 2 MiB drop-oldest hold cap;
+  `hibernate()` pauses, `unhibernate()` resumes staggered so twenty backlogs
+  don't drain in the frame that paints the switch. `unhibernate()` also schedules
+  the hidden refit `restoreFromManifest` already ran — restored tabs held stale
+  cols across every workspace-box change they slept through and paid the reflow
+  on first activation. `ui/src/tabs/manager.ts`.
+
+### Fixed
+
+- **Project notes edit inline instead of stacking on the trash**: editing a note
+  appended a bare `rail-row-action` Save button, and that class is absolutely
+  positioned top-right — so it sat on the delete icon and turned red on hover.
+  The row now enters an `is-editing` state matching the composer above the list:
+  sharp corners, panel surface, accent focus border, ⌘↵ saves and Esc cancels.
+  `ui/src/project-notes/notes-tab.ts`, `ui/src/project-notes/styles.css`.
+
 ## v0.11.10 — Vitals record window focus across the repaint gap
 
 ### Added
