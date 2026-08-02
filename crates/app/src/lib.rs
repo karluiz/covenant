@@ -6046,6 +6046,7 @@ pub fn run() {
             operator_registry::commands::operator_set_acp_enabled,
             operator_registry::commands::operator_set_mcp_servers,
             operator_registry::commands::operator_set_perception_enabled,
+            operator_registry::commands::operator_set_perception_reflexes,
             operator_registry::commands::operator_set_supervision_enabled,
             operator_registry::commands::operator_set_org,
             operator_sync::commands::operator_org_pull,

@@ -231,6 +231,7 @@ pub(crate) enum PerceptionOutcome {
 /// safety envelope.
 pub(crate) async fn perception_decide_async<F, Fut>(
     req: &PermissionRequest,
+    reflexes: &str,
     consecutive: u32,
     cap: u32,
     judge: F,
@@ -239,7 +240,7 @@ where
     F: Fn(String) -> Fut,
     Fut: std::future::Future<Output = String>,
 {
-    let prompt = build_judge_prompt(req);
+    let prompt = build_judge_prompt(req, reflexes);
     let raw = judge(prompt).await;
     let verdict = parse_judge_reply(&raw, req);
     match perception_decide(req, &verdict, consecutive, cap) {
@@ -1481,7 +1482,17 @@ pub async fn spawn_acp_session(
                             async move { perception_judge(&settings, prompt).await }
                         };
                         let consec = tab_for_task.perception_consecutive.load(Ordering::Acquire);
-                        match perception_decide_async(&request, consec, PERCEPTION_CAP, judge).await
+                        // Same live re-read as the gate: the operator's
+                        // pre-made decisions, fed to the judge only.
+                        let reflexes = registry_for_task.perception_reflexes_for(session_id);
+                        match perception_decide_async(
+                            &request,
+                            &reflexes,
+                            consec,
+                            PERCEPTION_CAP,
+                            judge,
+                        )
+                        .await
                         {
                             PerceptionOutcome::Answered { option_id, reason } => {
                                 // `respond_permission` takes references, so
@@ -2362,7 +2373,7 @@ mod tests {
         );
         let judge =
             |_p: String| async { r#"{"trivial":true,"option_id":"allow_once"}"#.to_string() };
-        let out = perception_decide_async(&req, 0, PERCEPTION_CAP, judge).await;
+        let out = perception_decide_async(&req, "", 0, PERCEPTION_CAP, judge).await;
         assert!(
             matches!(out, PerceptionOutcome::Answered { option_id, .. } if option_id == "allow_once")
         );
@@ -2372,7 +2383,7 @@ mod tests {
     async fn perception_step_escalates_when_judge_uncertain() {
         let req = perm_req("read", None, &[("allow_once", "allow_once")]);
         let judge = |_p: String| async { r#"{"trivial":false}"#.to_string() };
-        let out = perception_decide_async(&req, 0, PERCEPTION_CAP, judge).await;
+        let out = perception_decide_async(&req, "", 0, PERCEPTION_CAP, judge).await;
         assert!(matches!(out, PerceptionOutcome::Escalated));
     }
 
@@ -2382,7 +2393,7 @@ mod tests {
         // auto-answer.
         let req = perm_req("read", None, &[("allow_once", "allow_once")]);
         let judge = |_p: String| async { String::new() };
-        let out = perception_decide_async(&req, 0, PERCEPTION_CAP, judge).await;
+        let out = perception_decide_async(&req, "", 0, PERCEPTION_CAP, judge).await;
         assert!(matches!(out, PerceptionOutcome::Escalated));
     }
 
@@ -2392,7 +2403,7 @@ mod tests {
         let req = perm_req("read", None, &[("allow_once", "allow_once")]);
         let judge =
             |_p: String| async { r#"{"trivial":true,"option_id":"allow_once"}"#.to_string() };
-        let out = perception_decide_async(&req, PERCEPTION_CAP, PERCEPTION_CAP, judge).await;
+        let out = perception_decide_async(&req, "", PERCEPTION_CAP, PERCEPTION_CAP, judge).await;
         assert!(matches!(out, PerceptionOutcome::Escalated));
     }
 

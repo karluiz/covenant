@@ -135,6 +135,7 @@ pub(crate) fn build_import_op(
         github_access: Default::default(),
         acp_enabled: false,
         perception_enabled: false,
+        perception_reflexes: String::new(),
         supervision_enabled: false,
         org_slug: None,
         mcp_servers: vec![],

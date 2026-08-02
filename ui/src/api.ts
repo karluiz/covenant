@@ -363,6 +363,10 @@ export interface Operator {
   /// Whether the operator auto-answers trivial, safe executor permission
   /// prompts in ACP sessions it's assigned to. Default off.
   perception_enabled: boolean;
+  /// Decisions the principal already made, one per line. Given to the
+  /// Perception judge as evidence a prompt is trivial — it can never widen
+  /// the backend's safety floor. Absent on operators saved before 0.11.13.
+  perception_reflexes?: string;
   /// Whether this operator may act as a group's SUPERVISOR (cross-session
   /// world model + AOM claim eligibility). Default off.
   supervision_enabled: boolean;
@@ -486,6 +490,13 @@ export async function operatorSetPerceptionEnabled(
   enabled: boolean,
 ): Promise<void> {
   return invoke<void>("operator_set_perception_enabled", { id, enabled });
+}
+
+export async function operatorSetPerceptionReflexes(
+  id: string,
+  reflexes: string,
+): Promise<void> {
+  return invoke<void>("operator_set_perception_reflexes", { id, reflexes });
 }
 
 export async function operatorSetSupervisionEnabled(

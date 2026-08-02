@@ -91,7 +91,13 @@ pub fn decide(
 /// Build the judge prompt. Deliberately narrow: the model only decides
 /// "is this trivial with one obviously-correct choice", never safety —
 /// safety is the code-level floor in `decide`.
-pub fn build_judge_prompt(req: &PermissionRequest) -> String {
+///
+/// `reflexes` is the operator's free-text list of decisions the principal
+/// already made (the soul's Reflexes layer, one per line). It can only make
+/// the judge more decisive on prompts that ALREADY pass the floor in
+/// `decide` — it is appended to the judge prompt, never consulted by the
+/// floor, so no reflex can widen what is auto-answerable.
+pub fn build_judge_prompt(req: &PermissionRequest, reflexes: &str) -> String {
     let kind = req.tool_call.kind.as_deref().unwrap_or("unknown");
     let cmd = req.tool_call.command().unwrap_or("");
     let question = req.tool_call.title.as_deref().unwrap_or("");
@@ -104,6 +110,18 @@ pub fn build_judge_prompt(req: &PermissionRequest) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    // The principal's standing decisions, if any. Framed as evidence of
+    // triviality — never as permission, which is `decide`'s job alone.
+    let reflex_block = match reflexes.trim() {
+        "" => String::new(),
+        r => format!(
+            "\nThe principal has ALREADY DECIDED the following, in their own words.\n\
+             A prompt one of these plainly covers IS trivial — pick the option it implies.\n\
+             Anything they do not plainly cover stays not trivial. They grant no permission:\n\
+             safety is judged elsewhere, so never read one as making an action safe.\n\
+             <decisions>\n{r}\n</decisions>\n"
+        ),
+    };
     format!(
         "You gate an executor's permission prompt for a supervising operator.\n\
          Decide ONLY whether this is a trivial decision with one obviously-correct answer\n\
@@ -111,7 +129,8 @@ pub fn build_judge_prompt(req: &PermissionRequest) -> String {
          a recommended workflow default). A choice that commits consequential work\n\
          (deploying, deleting, spending real resources) is NOT trivial even if one option\n\
          is labelled recommended. If there is ANY doubt, say it is not trivial.\n\
-         Do NOT reason about danger — that is handled separately.\n\n\
+         Do NOT reason about danger — that is handled separately.\n\
+         {reflex_block}\n\
          question: {question}\ntool kind: {kind}\ncommand: {cmd}\noptions:\n{opts}\n\n\
          Reply with ONLY JSON: {{\"trivial\": <bool>, \"option_id\": \"<one of the option ids, or omit>\"}}"
     )
@@ -466,7 +485,46 @@ mod tests {
                 opt("reject_once", "reject_once"),
             ],
         );
-        let p = build_judge_prompt(&r);
+        let p = build_judge_prompt(&r, "");
         assert!(p.contains("allow_once") && p.contains("reject_once") && p.contains("ls"));
+        // No reflexes → no decisions block at all.
+        assert!(!p.contains("<decisions>"));
+    }
+
+    #[test]
+    fn reflexes_reach_the_prompt() {
+        let r = req("read", None, vec![opt("allow_once", "allow_once")]);
+        let p = build_judge_prompt(&r, "  Plans run with subagents, one per task.  ");
+        assert!(p.contains("<decisions>"));
+        assert!(p.contains("Plans run with subagents, one per task."));
+    }
+
+    #[test]
+    fn whitespace_only_reflexes_add_no_block() {
+        let r = req("read", None, vec![opt("allow_once", "allow_once")]);
+        assert!(!build_judge_prompt(&r, "\n  \n").contains("<decisions>"));
+    }
+
+    #[test]
+    fn reflexes_cannot_widen_the_safety_floor() {
+        // The whole point of keeping reflexes in the PROMPT: even a judge
+        // fully convinced by them cannot get a destructive command through.
+        let r = req(
+            "execute",
+            Some("rm -rf /"),
+            vec![
+                opt("allow_once", "allow_once"),
+                opt("reject_once", "reject_once"),
+            ],
+        );
+        let d = decide(
+            &r,
+            &JudgeVerdict::Trivial {
+                option_id: "allow_once".into(),
+            },
+            0,
+            5,
+        );
+        assert!(matches!(d, PerceptionDecision::Escalate));
     }
 }

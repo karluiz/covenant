@@ -62,6 +62,7 @@ async fn supervisor_emits_duda_then_enojo_on_repeated_failure() {
         github_access: covenant_lib::operator_registry::GithubAccess::Off,
         acp_enabled: false,
         perception_enabled: false,
+        perception_reflexes: String::new(),
         supervision_enabled: false,
         org_slug: None,
         mcp_servers: vec![],
