@@ -214,7 +214,12 @@ async fn run_scenario_in(sbox_path: &Path, scenario: &str, started: Instant) -> 
 /// Run one scenario through `claude -p` in the sandbox. Confined by read-only
 /// tools (Read/Grep/Glob) + deny-list settings.json + cwd sandbox + timeout.
 /// Full-tool agentic runs need the deferred hardened container.
-pub async fn run_harness(repo_root: &Path, skill: &str, scenario: &str) -> HarnessOutcome {
+pub async fn run_harness(
+    repo_root: &Path,
+    kind: karl_canon::ContextKind,
+    name: &str,
+    scenario: &str,
+) -> HarnessOutcome {
     let started = Instant::now();
     let available = tokio::task::spawn_blocking(claude_available)
         .await
@@ -226,7 +231,7 @@ pub async fn run_harness(repo_root: &Path, skill: &str, scenario: &str) -> Harne
             duration_ms: 0,
         };
     }
-    let sbox = match prepare_sandbox(repo_root, karl_canon::ContextKind::Skill, skill) {
+    let sbox = match prepare_sandbox(repo_root, kind, name) {
         Ok(s) => s,
         Err(e) => {
             return HarnessOutcome {
@@ -375,20 +380,45 @@ pub async fn judge(
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+/// Parse a kind slug from the frontend. Rejects anything unevaluable, so an
+/// MCP server cannot be run through the harness by passing its name.
+fn parse_evaluable_kind(s: &str) -> Result<karl_canon::ContextKind, String> {
+    use karl_canon::ContextKind::*;
+    let k = match s {
+        "skill" => Skill,
+        "command" => Command,
+        "agent" => Agent,
+        "context" => Context,
+        "memory" => Memory,
+        other => return Err(format!("unknown kind: {other}")),
+    };
+    debug_assert!(k.evaluable());
+    Ok(k)
+}
+
 #[derive(Debug, Clone, Serialize)]
-pub struct EvalSkillSummary {
-    pub skill: String,
+pub struct EvalUnitSummary {
+    pub kind: String,
+    pub name: String,
     pub passed: usize,
     pub total: usize,
     pub baseline_passed: usize,
     pub baseline_total: usize,
 }
 
-fn emit_progress(app: &AppHandle, skill: &str, eval_id: &str, status: &str, reason: &str) {
+fn emit_progress(
+    app: &AppHandle,
+    kind: &str,
+    name: &str,
+    eval_id: &str,
+    status: &str,
+    reason: &str,
+) {
     let _ = app.emit(
         "canon-eval-progress",
         serde_json::json!({
-            "skill": skill,
+            "kind": kind,
+            "name": name,
             "eval_id": eval_id,
             "status": status,
             "reason": reason,
@@ -412,36 +442,42 @@ fn emit_progress(app: &AppHandle, skill: &str, eval_id: &str, status: &str, reas
 /// an error for a side effect the user did not ask for.
 async fn push_results_for(
     repo_root: &std::path::Path,
-    skill: &str,
+    kind: karl_canon::ContextKind,
+    name: &str,
     results: &[karl_canon::EvalResult],
 ) {
     if results.is_empty() {
         return;
     }
+    // Only installed skills carry a registry: source. Memory is not packageable
+    // at all, so its results correctly never leave the machine.
+    if kind != karl_canon::ContextKind::Skill {
+        return;
+    }
     let Ok(manifest) = karl_canon::read_manifest(repo_root) else {
         return;
     };
-    let Some(entry) = manifest.installed.iter().find(|i| i.name == skill) else {
+    let Some(entry) = manifest.installed.iter().find(|i| i.name == name) else {
         return; // authored here, not installed — nothing to attribute it to
     };
-    let Some((org, name, version)) = karl_canon::parse_registry_source(&entry.source) else {
+    let Some((org, pkg_name, version)) = karl_canon::parse_registry_source(&entry.source) else {
         return; // local: source — no registry to push to
     };
     // Resolve the PINNED version, never `latest` — results belong to the row
     // the user actually installed.
-    let pkg = match crate::canon_registry::resolve(&org, &name, &version, "skill").await {
+    let pkg = match crate::canon_registry::resolve(&org, &pkg_name, &version, "skill").await {
         Ok(p) => p,
         Err(e) => {
-            tracing::warn!(target: "canon", skill, error = %e, "eval push: resolve failed");
+            tracing::warn!(target: "canon", name, error = %e, "eval push: resolve failed");
             return;
         }
     };
     if let Err(e) = crate::canon_registry::push_evals(pkg.id, results).await {
-        tracing::warn!(target: "canon", skill, error = %e, "eval push failed");
+        tracing::warn!(target: "canon", name, error = %e, "eval push failed");
     }
 }
 
-/// Run every eval for `skill`: harness → judge → persist → emit. Sequential
+/// Run every eval for `name`: harness → judge → persist → emit. Sequential
 /// (each eval is a full agent run + a judge call — slow and expensive on
 /// purpose). Aborts the whole run only if claude is not installed; a per-eval
 /// transient failure (non-zero exit, empty stdout) skips that eval and continues.
@@ -450,12 +486,14 @@ pub async fn canon_run_evals(
     app: AppHandle,
     state: State<'_, crate::AppState>,
     cwd: String,
-    skill: String,
+    kind: String,
+    name: String,
 ) -> Result<(), String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
     let repo_root = std::path::PathBuf::from(&cwd);
-    let evals = karl_canon::read_evals(&repo_root, &skill);
+    let evals = karl_canon::read_evals(&repo_root, unit_kind, &name);
     if evals.is_empty() {
-        emit_progress(&app, &skill, "", "done", "no evals found");
+        emit_progress(&app, &kind, &name, "", "done", "no evals found");
         return Ok(());
     }
     // Global precondition: claude must be on PATH. Check once so a missing CLI
@@ -464,8 +502,15 @@ pub async fn canon_run_evals(
         .await
         .unwrap_or(false);
     if !available {
-        emit_progress(&app, &skill, "", "skipped", "claude CLI not found on PATH");
-        emit_progress(&app, &skill, "", "done", "");
+        emit_progress(
+            &app,
+            &kind,
+            &name,
+            "",
+            "skipped",
+            "claude CLI not found on PATH",
+        );
+        emit_progress(&app, &kind, &name, "", "done", "");
         return Ok(());
     }
     let settings = state.settings.clone();
@@ -475,17 +520,17 @@ pub async fn canon_run_evals(
     // `push_results_for`).
     let mut fresh_results: Vec<karl_canon::EvalResult> = Vec::new();
     for ev in evals {
-        emit_progress(&app, &skill, &ev.id, "running", "");
-        let outcome = run_harness(&repo_root, &skill, &ev.scenario).await;
+        emit_progress(&app, &kind, &name, &ev.id, "running", "");
+        let outcome = run_harness(&repo_root, unit_kind, &name, &ev.scenario).await;
         match outcome.status {
             HarnessStatus::Skipped(reason) => {
                 // Per-eval transient (non-zero exit, empty stdout, sandbox failure):
                 // skip this one eval and continue with the rest.
-                emit_progress(&app, &skill, &ev.id, "skipped", &reason);
+                emit_progress(&app, &kind, &name, &ev.id, "skipped", &reason);
                 continue;
             }
             HarnessStatus::TimedOut => {
-                emit_progress(&app, &skill, &ev.id, "error", "harness timed out");
+                emit_progress(&app, &kind, &name, &ev.id, "error", "harness timed out");
                 continue;
             }
             HarnessStatus::Ran => {}
@@ -518,42 +563,49 @@ pub async fn canon_run_evals(
                     duration_ms: outcome.duration_ms,
                     baseline_pass,
                 };
-                if let Err(e) = karl_canon::write_result(&repo_root, &skill, &result) {
+                if let Err(e) = karl_canon::write_result(&repo_root, unit_kind, &name, &result) {
                     tracing::warn!(target: "canon", error = %e, "write_result failed");
                 }
                 emit_progress(
                     &app,
-                    &skill,
+                    &kind,
+                    &name,
                     &ev.id,
                     if v.pass { "pass" } else { "fail" },
                     &v.reason,
                 );
                 fresh_results.push(result);
             }
-            Err(e) => emit_progress(&app, &skill, &ev.id, "error", &e),
+            Err(e) => emit_progress(&app, &kind, &name, &ev.id, "error", &e),
         }
     }
-    push_results_for(&repo_root, &skill, &fresh_results).await;
-    emit_progress(&app, &skill, "", "done", "");
+    push_results_for(&repo_root, unit_kind, &name, &fresh_results).await;
+    emit_progress(&app, &kind, &name, "", "done", "");
     Ok(())
 }
 
-/// Per-skill `(passed,total)` for the Loop, read from eval-results.json.
+/// Per-unit `(passed,total)` for the Impact section, read from eval-results.json.
 #[tauri::command]
-pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalSkillSummary>, String> {
+pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, String> {
     let repo_root = std::path::PathBuf::from(&cwd);
     let all = karl_canon::read_results(&repo_root);
     Ok(all
         .into_iter()
-        .map(|(skill, inner)| {
+        .map(|(key, inner)| {
+            // Keys are "<kind>/<name>"; a legacy bare key is a skill.
+            let (kind, name) = match key.split_once('/') {
+                Some((k, n)) => (k.to_string(), n.to_string()),
+                None => ("skill".to_string(), key.clone()),
+            };
             let passed = inner.values().filter(|r| r.pass).count();
             let baseline_total = inner.values().filter(|r| r.baseline_pass.is_some()).count();
             let baseline_passed = inner
                 .values()
                 .filter(|r| r.baseline_pass == Some(true))
                 .count();
-            EvalSkillSummary {
-                skill,
+            EvalUnitSummary {
+                kind,
+                name,
                 passed,
                 total: inner.len(),
                 baseline_passed,
