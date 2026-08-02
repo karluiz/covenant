@@ -77,6 +77,17 @@ pub(crate) fn prepare_sandbox(
             format!("{} units are not evaluable", kind.label()),
         ));
     }
+    // `name` reaches path joins below (both the sandbox destination and the
+    // real-repo source read) — an unvalidated `../../etc/...` or a leading
+    // `/` would either escape the tempdir or, via `Path::join`'s absolute-path
+    // override, discard the base entirely. Same predicate `delete_unit` and
+    // `uninstall_skill` already rely on, reused rather than re-hand-rolled.
+    if !karl_canon::valid_pkg_name(name) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{name:?} is not a valid unit name"),
+        ));
+    }
 
     let sbox = tempfile::Builder::new().prefix("eval-sbox-").tempdir()?;
     let dst_canon = sbox.path().join(".covenant/canon");
@@ -93,8 +104,8 @@ pub(crate) fn prepare_sandbox(
         }
         // project_with_active reads its skill set from the manifest, NOT from
         // disk — without this the sandbox projects nothing and the eval
-        // silently measures an empty context.
-        std::fs::create_dir_all(&dst_canon)?;
+        // silently measures an empty context. (`dst_canon` already exists —
+        // `dst` above is a child of it — so no create_dir_all needed here.)
         std::fs::write(
             dst_canon.join("canon.toml"),
             format!(
@@ -660,9 +671,13 @@ mod tests {
         let sbox = prepare_sandbox(root, ContextKind::Memory, "decision-x").unwrap();
 
         let agents_md = fs::read_to_string(sbox.path().join("AGENTS.md")).unwrap();
+        // Exact shape, matching `project_writes_memory_section_into_agents_md`
+        // in crates/canon/src/project.rs — a bare substring would still pass
+        // for a malformed, duplicated, or out-of-section bullet.
+        assert!(agents_md.contains("## Memory"), "memory heading missing");
         assert!(
-            agents_md.contains("decision-x"),
-            "memory missing from the managed block"
+            agents_md.contains("- We chose decision-x"),
+            "memory bullet missing"
         );
     }
 
@@ -674,6 +689,24 @@ mod tests {
         assert!(prepare_sandbox(root, ContextKind::Mcp, "ctx7").is_err());
         assert!(prepare_sandbox(root, ContextKind::Spec, "3.1-alpha").is_err());
         assert!(prepare_sandbox(root, ContextKind::Command, "ghost").is_err());
+    }
+
+    #[test]
+    fn prepare_sandbox_rejects_a_traversing_name() {
+        use karl_canon::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        for bad in [
+            "../../../../etc/cron.d/evil",
+            "/etc/passwd",
+            ".hidden",
+            "has/slash",
+        ] {
+            assert!(
+                prepare_sandbox(root, ContextKind::Command, bad).is_err(),
+                "{bad:?} must be rejected before any filesystem write"
+            );
+        }
     }
 
     #[test]

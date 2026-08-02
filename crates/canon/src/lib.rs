@@ -17,7 +17,7 @@ pub use eval::{pass_rate, read_evals, read_results, unit_key, write_result, Eval
 pub use install::{
     adopt, adopt_new_skills, content_version, delete_unit, install_from_dir, install_local,
     install_unit, parse_registry_source, read_skill_package, read_source, source_path, status,
-    uninstall_skill, CanonStatus,
+    uninstall_skill, valid_pkg_name, CanonStatus,
 };
 pub use inventory::{detected_rows, resolve_state, UnitState};
 pub use kind::{list_context, ContextKind, ContextUnit};
