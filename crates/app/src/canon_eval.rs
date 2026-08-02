@@ -58,21 +58,68 @@ fn denylist_settings() -> String {
     .to_string()
 }
 
-/// Create a temp dir, project the skill into `.claude/skills/canon-<skill>/`,
-/// and write the deny-list `settings.json`. Errors if SKILL.md is missing.
-pub(crate) fn prepare_sandbox(repo_root: &Path, skill: &str) -> std::io::Result<tempfile::TempDir> {
-    let src = karl_canon::canon_dir(repo_root)
-        .join("skills")
-        .join(skill)
-        .join("SKILL.md");
-    let body = std::fs::read_to_string(&src)?; // missing skill → Err
+/// Create a temp dir holding a one-unit Canon tree, project it with the same
+/// code that projects the real repo, then write the deny-list `settings.json`.
+///
+/// Projecting rather than hand-writing the executor file means the eval tests
+/// the unit AS PROJECTED — a context doc becomes a synthesized skill, a memory
+/// becomes a bullet in the managed block — which is what actually reaches the
+/// model. It also means memory and context work with no code of their own.
+pub(crate) fn prepare_sandbox(
+    repo_root: &Path,
+    kind: karl_canon::ContextKind,
+    name: &str,
+) -> std::io::Result<tempfile::TempDir> {
+    use karl_canon::ContextKind;
+    if !kind.evaluable() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{} units are not evaluable", kind.label()),
+        ));
+    }
+
     let sbox = tempfile::Builder::new().prefix("eval-sbox-").tempdir()?;
-    let skill_dir = sbox
-        .path()
-        .join(".claude/skills")
-        .join(format!("canon-{skill}"));
-    std::fs::create_dir_all(&skill_dir)?;
-    std::fs::write(skill_dir.join("SKILL.md"), body)?;
+    let dst_canon = sbox.path().join(".covenant/canon");
+
+    if kind == ContextKind::Skill {
+        // A skill is a directory of exactly the two files a package carries.
+        let src = karl_canon::canon_dir(repo_root).join("skills").join(name);
+        let dst = dst_canon.join("skills").join(name);
+        std::fs::create_dir_all(&dst)?;
+        std::fs::copy(src.join("SKILL.md"), dst.join("SKILL.md"))?; // missing → Err
+        let toml_src = src.join("skill.toml");
+        if toml_src.exists() {
+            std::fs::copy(&toml_src, dst.join("skill.toml"))?;
+        }
+        // project_with_active reads its skill set from the manifest, NOT from
+        // disk — without this the sandbox projects nothing and the eval
+        // silently measures an empty context.
+        std::fs::create_dir_all(&dst_canon)?;
+        std::fs::write(
+            dst_canon.join("canon.toml"),
+            format!(
+                "version = 1\n\n[[installed]]\nname = \"{name}\"\nversion = \"0.0.0\"\n\
+                 source = \"local:eval-sandbox\"\nsha = \"\"\ninstalledAt = \"\"\n"
+            ),
+        )?;
+    } else {
+        // Every other evaluable kind is one markdown file under its kind dir.
+        let file = format!("{name}.md");
+        let src = karl_canon::canon_dir(repo_root)
+            .join(kind.dir())
+            .join(&file);
+        let body = std::fs::read_to_string(&src)?; // missing unit → Err
+        let dst = dst_canon.join(kind.dir());
+        std::fs::create_dir_all(&dst)?;
+        std::fs::write(dst.join(&file), body)?;
+    }
+
+    karl_canon::project(sbox.path())
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+    // AFTER project(): the deny-list is the sandbox's only safety boundary and
+    // must not be clobbered by a future projection target claiming the name.
+    std::fs::create_dir_all(sbox.path().join(".claude"))?;
     std::fs::write(
         sbox.path().join(".claude/settings.json"),
         denylist_settings(),
@@ -168,7 +215,7 @@ pub async fn run_harness(repo_root: &Path, skill: &str, scenario: &str) -> Harne
             duration_ms: 0,
         };
     }
-    let sbox = match prepare_sandbox(repo_root, skill) {
+    let sbox = match prepare_sandbox(repo_root, karl_canon::ContextKind::Skill, skill) {
         Ok(s) => s,
         Err(e) => {
             return HarnessOutcome {
@@ -536,13 +583,108 @@ mod tests {
     }
 
     #[test]
+    fn prepare_sandbox_projects_a_command() {
+        use karl_canon::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let canon = root.join(".covenant/canon");
+        fs::create_dir_all(canon.join("commands")).unwrap();
+        fs::write(canon.join("commands/horizon.md"), "# Ship a release\n").unwrap();
+
+        let sbox = prepare_sandbox(root, ContextKind::Command, "horizon").unwrap();
+
+        let projected = sbox.path().join(".claude/commands/horizon.md");
+        assert!(
+            projected.exists(),
+            "command was not projected into the sandbox"
+        );
+        assert!(fs::read_to_string(&projected)
+            .unwrap()
+            .contains("Ship a release"));
+        assert!(sbox.path().join(".claude/settings.json").exists());
+    }
+
+    /// The dangerous one: a skill projects only if canon.toml lists it, so a
+    /// sandbox without the manifest silently tests nothing.
+    #[test]
+    fn prepare_sandbox_projects_a_skill_via_a_written_manifest() {
+        use karl_canon::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join(".covenant/canon/skills/kyc-peru");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: kyc-peru\n---\nKYC rules.\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("skill.toml"),
+            "name = \"kyc-peru\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+
+        let sbox = prepare_sandbox(root, ContextKind::Skill, "kyc-peru").unwrap();
+
+        let projected = sbox.path().join(".claude/skills/canon-kyc-peru/SKILL.md");
+        assert!(
+            projected.exists(),
+            "skill not projected — is canon.toml written?"
+        );
+        assert!(fs::read_to_string(&projected)
+            .unwrap()
+            .contains("KYC rules"));
+    }
+
+    /// Memory has no file-per-item target; it lands in the managed block.
+    ///
+    /// Fixture note: `project()`'s memory bullet is built ONLY from the
+    /// frontmatter `description` (see `project_writes_memory_section_into_agents_md`
+    /// in `crates/canon/src/project.rs`, which asserts the bullet is exactly
+    /// `- We chose X` — the file stem never appears). So the description text
+    /// here embeds the unit name (`decision-x`) itself, otherwise this test
+    /// would assert on a substring that real projection never produces.
+    #[test]
+    fn prepare_sandbox_projects_memory_into_the_managed_block() {
+        use karl_canon::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let canon = root.join(".covenant/canon");
+        fs::create_dir_all(canon.join("memory")).unwrap();
+        fs::write(
+            canon.join("memory/decision-x.md"),
+            "---\ndescription: We chose decision-x\n---\nlonger body\n",
+        )
+        .unwrap();
+
+        let sbox = prepare_sandbox(root, ContextKind::Memory, "decision-x").unwrap();
+
+        let agents_md = fs::read_to_string(sbox.path().join("AGENTS.md")).unwrap();
+        assert!(
+            agents_md.contains("decision-x"),
+            "memory missing from the managed block"
+        );
+    }
+
+    #[test]
+    fn prepare_sandbox_rejects_unevaluable_kinds_and_unknown_units() {
+        use karl_canon::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        assert!(prepare_sandbox(root, ContextKind::Mcp, "ctx7").is_err());
+        assert!(prepare_sandbox(root, ContextKind::Spec, "3.1-alpha").is_err());
+        assert!(prepare_sandbox(root, ContextKind::Command, "ghost").is_err());
+    }
+
+    #[test]
     fn prepare_sandbox_projects_skill_and_denylist() {
+        use karl_canon::ContextKind;
         let repo = tempfile::tempdir().unwrap();
         let skill_dir = repo.path().join(".covenant/canon/skills/kyc-peru");
         fs::create_dir_all(&skill_dir).unwrap();
         fs::write(skill_dir.join("SKILL.md"), "# KYC Peru\nrefuse without KYC").unwrap();
 
-        let sbox = prepare_sandbox(repo.path(), "kyc-peru").unwrap();
+        let sbox = prepare_sandbox(repo.path(), ContextKind::Skill, "kyc-peru").unwrap();
         let projected = sbox.path().join(".claude/skills/canon-kyc-peru/SKILL.md");
         assert!(projected.exists(), "skill projected into sandbox");
         assert!(
@@ -563,8 +705,9 @@ mod tests {
 
     #[test]
     fn missing_skill_md_is_an_error() {
+        use karl_canon::ContextKind;
         let repo = tempfile::tempdir().unwrap();
-        assert!(prepare_sandbox(repo.path(), "nope").is_err());
+        assert!(prepare_sandbox(repo.path(), ContextKind::Skill, "nope").is_err());
     }
 
     #[test]
