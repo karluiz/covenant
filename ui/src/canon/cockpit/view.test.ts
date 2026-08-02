@@ -367,6 +367,8 @@ describe("CanonCockpitView unit publish actions", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
     });
+    // Commands are evaluable — the row must carry a Run evals action too.
+    expect(v.element.querySelector(".canon-skill-row [aria-label='Run evals']")).toBeTruthy();
     const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
     pub.click();
     await vi.waitFor(() => {
@@ -374,7 +376,7 @@ describe("CanonCockpitView unit publish actions", () => {
     });
   });
 
-  it("mcp rows publish to the registry with kind mcp", async () => {
+  it("mcp rows publish to the registry with kind mcp, and never get a Run evals action", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
       installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [{ name: "figma", description: null, transport: "stdio" }], specs: [], detectedSkills: [],
     });
@@ -383,6 +385,10 @@ describe("CanonCockpitView unit publish actions", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
     });
+    // MCP is a connection, not context — running it through the harness would
+    // mean starting the server. UNIT_SPECS.mcp carries no `evaluable` flag;
+    // this pins the render-level consequence, not just the data.
+    expect(v.element.querySelector(".canon-skill-row [aria-label='Run evals']")).toBeNull();
     const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
     pub.click();
     await vi.waitFor(() => {
