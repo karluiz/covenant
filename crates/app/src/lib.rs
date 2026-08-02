@@ -4055,6 +4055,26 @@ async fn structure_move_into(
         .map_err(|e| format!("move_into join: {e}"))?
 }
 
+/// A tab whose worktree got pruned keeps the dead cwd forever, so search
+/// would fail with "not a directory" until the tab is closed. Fall back to
+/// the nearest ancestor that still exists AND holds a `.git` — for a
+/// removed `.covenant/worktrees/<slug>` that is the main repo root, which
+/// is where the user meant to look anyway. No such ancestor: hand the
+/// original path back and let the caller report the real error.
+fn existing_search_root(p: PathBuf) -> PathBuf {
+    if p.is_dir() {
+        return p;
+    }
+    let mut a = p.as_path();
+    while let Some(parent) = a.parent() {
+        if parent.join(".git").exists() {
+            return parent.to_path_buf();
+        }
+        a = parent;
+    }
+    p
+}
+
 /// Project-wide substring search across the cwd, honoring .gitignore.
 /// Heavy filesystem work runs on the blocking pool so the IPC thread
 /// stays responsive while the user is still typing the next char.
@@ -4064,7 +4084,7 @@ async fn structure_search(
     query: String,
     limit: u32,
 ) -> Result<Vec<structure::SearchHit>, String> {
-    let p = PathBuf::from(cwd);
+    let p = existing_search_root(PathBuf::from(cwd));
     tokio::task::spawn_blocking(move || structure::search(&p, &query, limit))
         .await
         .map_err(|e| format!("search join: {e}"))?
@@ -4078,7 +4098,7 @@ async fn structure_find_files(
     query: String,
     limit: u32,
 ) -> Result<Vec<structure::FileHit>, String> {
-    let p = PathBuf::from(cwd);
+    let p = existing_search_root(PathBuf::from(cwd));
     tokio::task::spawn_blocking(move || structure::find_files(&p, &query, limit))
         .await
         .map_err(|e| format!("find_files join: {e}"))?
@@ -6243,6 +6263,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::resolve_scope;
+    use std::path::PathBuf;
 
     /// The pasteboard round-trip: what Copy writes is what Paste reads.
     #[cfg(target_os = "macos")]
@@ -6251,6 +6272,25 @@ mod tests {
         let want = vec!["/tmp/a.txt".to_string(), "/tmp/b c.txt".to_string()];
         super::structure_clipboard_set_files(want.clone());
         assert_eq!(super::structure_clipboard_files(), want);
+    }
+
+    /// A pruned worktree path falls back to the repo root that still exists.
+    #[test]
+    fn dead_worktree_cwd_falls_back_to_repo_root() {
+        let tmp = std::env::temp_dir().join(format!("cov-search-root-{}", std::process::id()));
+        let repo = tmp.join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let live = repo.join(".covenant/worktrees/live");
+        std::fs::create_dir_all(&live).unwrap();
+
+        let dead = repo.join(".covenant/worktrees/pruned");
+        assert_eq!(super::existing_search_root(dead), repo);
+        assert_eq!(super::existing_search_root(live.clone()), live);
+        assert_eq!(
+            super::existing_search_root(PathBuf::from("/nope/nothing")),
+            PathBuf::from("/nope/nothing")
+        );
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
