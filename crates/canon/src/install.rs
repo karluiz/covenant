@@ -7,7 +7,7 @@ use std::path::Path;
 
 /// Accepts only safe package names: non-empty, no leading dot, no path separators.
 /// Allowed characters: lowercase ASCII letters, digits, `.`, `-`, `_`.
-pub(crate) fn valid_pkg_name(name: &str) -> bool {
+pub fn valid_pkg_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('.')
         && name.bytes().all(|b| {
@@ -257,7 +257,22 @@ pub fn delete_unit(repo_root: &Path, kind: ContextKind, name: &str) -> Result<()
         )));
     }
     std::fs::remove_file(&path)?;
+    remove_evals(repo_root, kind, name);
     project(repo_root)
+}
+
+/// Best-effort removal of a unit's eval tree. A failure here must not fail the
+/// delete — the unit is already gone and a leftover directory is inert.
+fn remove_evals(repo_root: &Path, kind: ContextKind, name: &str) {
+    let dir = canon_dir(repo_root)
+        .join("evals")
+        .join(kind.slug())
+        .join(name);
+    if dir.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&dir) {
+            tracing::warn!(target: "canon", error = %e, "could not remove eval dir");
+        }
+    }
 }
 
 /// Where a not-yet-adopted unit lives in the executor dirs. Mirrors
@@ -452,6 +467,7 @@ pub fn uninstall_skill(repo_root: &Path, name: &str) -> Result<(), CanonError> {
     if dest.exists() {
         std::fs::remove_dir_all(&dest)?;
     }
+    remove_evals(repo_root, ContextKind::Skill, name);
     manifest.installed.retain(|i| i.name != name);
     write_manifest(repo_root, &manifest)?;
     write_lock(repo_root, &manifest)?;
@@ -1263,11 +1279,108 @@ mod tests {
     #[test]
     fn parse_registry_source_rejects_anything_else() {
         assert_eq!(parse_registry_source("local:/tmp/kyc"), None);
-        assert_eq!(parse_registry_source("registry:kyc-peru@1.0.0"), None, "no org");
-        assert_eq!(parse_registry_source("registry:acme/kyc-peru"), None, "no version");
-        assert_eq!(parse_registry_source("registry:acme/@1.0.0"), None, "empty name");
-        assert_eq!(parse_registry_source("registry:/kyc@1.0.0"), None, "empty org");
-        assert_eq!(parse_registry_source("registry:acme/kyc@"), None, "empty version");
+        assert_eq!(
+            parse_registry_source("registry:kyc-peru@1.0.0"),
+            None,
+            "no org"
+        );
+        assert_eq!(
+            parse_registry_source("registry:acme/kyc-peru"),
+            None,
+            "no version"
+        );
+        assert_eq!(
+            parse_registry_source("registry:acme/@1.0.0"),
+            None,
+            "empty name"
+        );
+        assert_eq!(
+            parse_registry_source("registry:/kyc@1.0.0"),
+            None,
+            "empty org"
+        );
+        assert_eq!(
+            parse_registry_source("registry:acme/kyc@"),
+            None,
+            "empty version"
+        );
         assert_eq!(parse_registry_source(""), None);
+    }
+
+    #[test]
+    fn delete_unit_also_removes_the_units_evals() {
+        use crate::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let canon = root.join(".covenant/canon");
+        std::fs::create_dir_all(canon.join("commands")).unwrap();
+        std::fs::write(canon.join("commands/horizon.md"), "# ship it\n").unwrap();
+        let evals = canon.join("evals/command/horizon");
+        std::fs::create_dir_all(&evals).unwrap();
+        std::fs::write(
+            evals.join("e1.toml"),
+            "id=\"e1\"\nscenario=\"s\"\nrubric=\"r\"\n",
+        )
+        .unwrap();
+
+        delete_unit(root, ContextKind::Command, "horizon").unwrap();
+
+        assert!(!canon.join("commands/horizon.md").exists());
+        assert!(!evals.exists(), "an orphan eval tree outlives its unit");
+    }
+
+    #[test]
+    fn uninstalling_a_skill_also_removes_its_evals() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let pkg = root.join("pkg");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(
+            pkg.join("skill.toml"),
+            "name = \"testing\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(pkg.join("SKILL.md"), "---\nname: testing\n---\nx\n").unwrap();
+        install_local(root, &pkg).unwrap();
+
+        let evals = root.join(".covenant/canon/evals/skill/testing");
+        std::fs::create_dir_all(&evals).unwrap();
+        std::fs::write(
+            evals.join("e1.toml"),
+            "id=\"e1\"\nscenario=\"s\"\nrubric=\"r\"\n",
+        )
+        .unwrap();
+
+        uninstall_skill(root, "testing").unwrap();
+
+        assert!(!evals.exists());
+    }
+
+    /// Removing one unit's evals must not touch a same-named unit of another kind.
+    #[test]
+    fn deleting_a_command_leaves_a_same_named_skills_evals_alone() {
+        use crate::ContextKind;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let canon = root.join(".covenant/canon");
+        std::fs::create_dir_all(canon.join("commands")).unwrap();
+        std::fs::write(canon.join("commands/green.md"), "# gate\n").unwrap();
+        for k in ["command", "skill"] {
+            let d = canon.join("evals").join(k).join("green");
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(
+                d.join("e1.toml"),
+                "id=\"e1\"\nscenario=\"s\"\nrubric=\"r\"\n",
+            )
+            .unwrap();
+        }
+
+        delete_unit(root, ContextKind::Command, "green").unwrap();
+
+        assert!(!canon.join("evals/command/green").exists());
+        assert!(
+            canon.join("evals/skill/green").exists(),
+            "wrong kind's evals removed"
+        );
     }
 }

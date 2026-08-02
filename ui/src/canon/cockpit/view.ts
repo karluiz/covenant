@@ -181,7 +181,7 @@ function loopSubhead(text: string): HTMLElement {
  *  (person × eval) pairs, not a suite of evals — two members each running
  *  seven evals total 14. It says "eval runs" and not "evals" on purpose:
  *  eval definitions are hand-authored per machine under
- *  .covenant/canon/skills/<skill>/evals/ and never travel with the package
+ *  .covenant/canon/evals/<kind>/<name>/ and never travel with the package
  *  (install_from_dir / read_skill_package only touch skill.toml + SKILL.md),
  *  so there is no shared suite size to report. Do not "tidy" this back to
  *  "evals" — that would claim a number this data doesn't have. */
@@ -250,6 +250,9 @@ interface UnitSpec {
   noRepoHint: string;
   /** Its empty state tells you to crawl the repo, so it carries the door. */
   crawlable?: true;
+  /** Can this kind be run through the eval harness? Absent for mcp — an MCP
+   *  server is a connection, not context, so there is nothing to judge. */
+  evaluable?: true;
   list: (s: CanonStatus) => readonly UnitRow[];
 }
 
@@ -263,7 +266,7 @@ interface UnitRow {
 
 const DETECTED_HINT = "Canon detects and adopts what's already in the repo.";
 
-const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
+export const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
   agents: {
     kind: "agent", pkg: "agent", icon: (size) => Icons.bot({ size }),
     noun: "subagent", plural: "subagents",
@@ -271,6 +274,7 @@ const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
     emptyHint: `Install a subagent, or crawl the repo for context — ${DETECTED_HINT}`,
     noRepoHint: "Point this group at a repo from the rail to manage subagents.",
     crawlable: true,
+    evaluable: true,
     list: (s) => s.agents,
   },
   commands: {
@@ -280,6 +284,7 @@ const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
     emptyHint: `Install a command, or crawl the repo for context — ${DETECTED_HINT}`,
     noRepoHint: "Point this group at a repo from the rail to manage commands.",
     crawlable: true,
+    evaluable: true,
     list: (s) => s.commands,
   },
   mcp: {
@@ -297,6 +302,7 @@ const UNIT_SPECS: Partial<Record<SectionKey, UnitSpec>> = {
     emptyTitle: "No memories yet",
     emptyHint: "Durable facts that ride into every executor's managed block.",
     noRepoHint: "Point this group at a repo from the rail to manage memory.",
+    evaluable: true,
     list: (s) => s.memory,
   },
 };
@@ -1655,6 +1661,15 @@ export class CanonCockpitView {
             const publish = this.unitPublishAction(cwd, pkg, u.name);
             if (publish) actions.push(publish);
           }
+          if (spec.evaluable && !detected) {
+            const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
+              runEvals(cwd, spec.kind, u.name, runBtn, () => {
+                this.invalidateStatus();
+                this.showSection(key);
+              });
+            });
+            actions.push(runBtn);
+          }
           if (!detected && this.canCreate()) actions.push(this.unitDeleteAction(cwd, spec.kind, u.name));
           list.appendChild(skillCard({
             name: u.name,
@@ -1832,7 +1847,10 @@ export class CanonCockpitView {
       ])
         .then(([status, published, evals]) => {
           const latest = new Map(published.map((p) => [p.name, p.version]));
-          const lifts = new Map(evals.map((e) => [e.skill, liftRow(e)]));
+          // Keyed by kind/name, not name alone — this repo can carry a
+          // command named "green" as well as a skill named "green"; a
+          // name-only map would let one's lift render on the other's card.
+          const lifts = new Map(evals.map((e) => [`${e.kind}/${e.name}`, liftRow(e)]));
           list.replaceChildren();
           if (status.installed.length === 0 && status.detectedSkills.length === 0) {
             list.appendChild(this.emptyState({
@@ -1867,12 +1885,12 @@ export class CanonCockpitView {
               actions.push(pub);
             }
             const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
-              runEvals(cwd, i.name, runBtn, () => { this.invalidateStatus(); load(); });
+              runEvals(cwd, "skill", i.name, runBtn, () => { this.invalidateStatus(); load(); });
             });
             actions.push(runBtn);
             actions.push(this.skillUninstallAction(cwd, i.name, reload));
             const currency = skillCurrency(i, latest.get(i.name), status.modifiedSkills ?? []);
-            const lift = lifts.get(i.name);
+            const lift = lifts.get(`skill/${i.name}`);
             const stats = [`v${i.version}`, i.source];
             if (currency) stats.push(currency);
             if (lift) stats.push(`lift ${lift.label}`);
@@ -2147,6 +2165,13 @@ export class CanonCockpitView {
           if (open) actions.push(open);
           const pub = this.unitPublishAction(cwd, "context", c.name);
           if (pub) actions.push(pub);
+          const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
+            runEvals(cwd, "context", c.name, runBtn, () => {
+              this.invalidateStatus();
+              this.showSection("context");
+            });
+          });
+          actions.push(runBtn);
           if (this.canCreate()) actions.push(this.unitDeleteAction(cwd, "context", c.name));
           list.appendChild(skillCard({
             name: c.name,
@@ -2293,7 +2318,7 @@ export class CanonCockpitView {
             const bar = lv.sign === "none"
               ? (r.total > 0 ? (r.passed / r.total) * 100 : 0)
               : Math.min(100, Math.abs(lv.pct));
-            const row = meterRow(r.skill, lv.label, bar, lv.sign === "pos");
+            const row = meterRow(`${r.kind}/${r.name}`, lv.label, bar, lv.sign === "pos");
             row.classList.add(`lift-${lv.sign}`);
             evalBox.appendChild(row);
           }

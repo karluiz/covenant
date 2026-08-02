@@ -49,6 +49,32 @@ impl ContextKind {
             Self::Skill => "Skill",
         }
     }
+
+    /// Lowercase singular name — the eval tree's namespace and the first
+    /// half of a result key. Deliberately NOT `dir()`, which is pluralized
+    /// and special-cases `Spec` to a repo-root path.
+    pub fn slug(&self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::Context => "context",
+            Self::Memory => "memory",
+            Self::Command => "command",
+            Self::Mcp => "mcp",
+            Self::Spec => "spec",
+            Self::Skill => "skill",
+        }
+    }
+
+    /// Can this kind be evaluated? True for everything that lands in an
+    /// executor's prompt as text. An MCP server is a connection — evaluating
+    /// it means starting the server, which is a different product. A spec is
+    /// never projected at all.
+    pub fn evaluable(&self) -> bool {
+        matches!(
+            self,
+            Self::Skill | Self::Command | Self::Agent | Self::Context | Self::Memory
+        )
+    }
 }
 
 /// Enumerate published specs under `<repo_root>/docs/specs/*.md` as (stem, title).

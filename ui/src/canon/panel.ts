@@ -601,7 +601,7 @@ export class CanonPanel {
       if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
         actions.push(railAction(Icons.upload({ size: 13 }), "Publish to registry", () => void this.publish(i.name)));
       }
-      const runBtn = railAction(Icons.play({ size: 13 }), "Run evals", () => this.runEvals(i.name, runBtn));
+      const runBtn = railAction(Icons.play({ size: 13 }), "Run evals", () => this.runEvals("skill", i.name, runBtn));
       actions.push(runBtn);
       const fetch = () => (cwd ? canonReadLocal(cwd, i.name) : Promise.resolve("(no project folder)"));
       return {
@@ -736,8 +736,11 @@ export class CanonPanel {
     if (cwd && skillRowByName.size > 0) {
       void canonEvalSummary(cwd)
         .then((summary) => {
+          // This map only ever holds skill rows — a same-named agent or
+          // command's eval summary must not badge a skill it isn't about.
           for (const es of summary) {
-            const row = skillRowByName.get(es.skill);
+            if (es.kind !== "skill") continue;
+            const row = skillRowByName.get(es.name);
             row?.querySelector(".rail-row-line")?.appendChild(liftBadgeEl(liftClass(es)));
           }
         })
@@ -793,10 +796,10 @@ export class CanonPanel {
     return row;
   }
 
-  private runEvals(skill: string, btn: HTMLButtonElement): void {
+  private runEvals(kind: string, name: string, btn: HTMLButtonElement): void {
     const cwd = this.opts.groupRootDir;
     if (!cwd) return;
-    runEvals(cwd, skill, btn, () => this.refresh());
+    runEvals(cwd, kind, name, btn, () => this.refresh());
   }
 
   private async exportNow(btn: HTMLButtonElement): Promise<void> {

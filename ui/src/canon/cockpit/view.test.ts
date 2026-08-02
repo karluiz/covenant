@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { CanonCockpitView, unusedUnits, inventoryRows, skillCurrency, evalChip } from "./view";
+import { CanonCockpitView, unusedUnits, inventoryRows, skillCurrency, evalChip, UNIT_SPECS } from "./view";
 
 // Mock the api module so tests don't invoke Tauri IPC.
 vi.mock("../../api", () => ({
@@ -367,6 +367,8 @@ describe("CanonCockpitView unit publish actions", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
     });
+    // Commands are evaluable — the row must carry a Run evals action too.
+    expect(v.element.querySelector(".canon-skill-row [aria-label='Run evals']")).toBeTruthy();
     const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
     pub.click();
     await vi.waitFor(() => {
@@ -374,7 +376,7 @@ describe("CanonCockpitView unit publish actions", () => {
     });
   });
 
-  it("mcp rows publish to the registry with kind mcp", async () => {
+  it("mcp rows publish to the registry with kind mcp, and never get a Run evals action", async () => {
     vi.mocked(canonLocalStatus).mockResolvedValueOnce({
       installed: [], agents: [], contexts: [], memory: [], commands: [], mcp: [{ name: "figma", description: null, transport: "stdio" }], specs: [], detectedSkills: [],
     });
@@ -383,6 +385,10 @@ describe("CanonCockpitView unit publish actions", () => {
     await vi.waitFor(() => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Publish to registry']")).toBeTruthy();
     });
+    // MCP is a connection, not context — running it through the harness would
+    // mean starting the server. UNIT_SPECS.mcp carries no `evaluable` flag;
+    // this pins the render-level consequence, not just the data.
+    expect(v.element.querySelector(".canon-skill-row [aria-label='Run evals']")).toBeNull();
     const pub = v.element.querySelector<HTMLButtonElement>(".canon-skill-row [aria-label='Publish to registry']")!;
     pub.click();
     await vi.waitFor(() => {
@@ -799,7 +805,7 @@ describe("CanonCockpitView eval from the row", () => {
     v.element.querySelector<HTMLButtonElement>("[aria-label='Run evals']")!.click();
     document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
     await vi.waitFor(() => {
-      expect(canonRunEvals).toHaveBeenCalledWith("/x", "kyc");
+      expect(canonRunEvals).toHaveBeenCalledWith("/x", "skill", "kyc");
     });
   });
 
@@ -809,7 +815,7 @@ describe("CanonCockpitView eval from the row", () => {
       agents: [], contexts: [], memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
     });
     vi.mocked(canonEvalSummary).mockResolvedValueOnce([
-      { skill: "kyc", passed: 4, total: 5, baseline_passed: 2, baseline_total: 5 },
+      { kind: "skill", name: "kyc", passed: 4, total: 5, baseline_passed: 2, baseline_total: 5 },
     ]);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("skills");
@@ -924,7 +930,7 @@ describe("CanonCockpitView Loop section", () => {
   });
 
   it("renders eval pass-rate in the Loop section (moved from the rail — see panel.test.ts)", async () => {
-    vi.mocked(canonEvalSummary).mockResolvedValueOnce([{ skill: "kyc-peru", passed: 4, total: 5, baseline_passed: 2, baseline_total: 5 }]);
+    vi.mocked(canonEvalSummary).mockResolvedValueOnce([{ kind: "skill", name: "kyc-peru", passed: 4, total: 5, baseline_passed: 2, baseline_total: 5 }]);
     const v = new CanonCockpitView(opts);
     v.open(); v.showSection("loop");
     await Promise.resolve(); await Promise.resolve();
@@ -1082,5 +1088,24 @@ describe("evalChip", () => {
 
   it("shows a total wipeout rather than hiding it", () => {
     expect(evalChip(pkg(0, 3))).toBe("0/3 eval runs");
+  });
+});
+
+describe("UNIT_SPECS evaluability", () => {
+  it("marks the evaluable kinds and leaves mcp out", () => {
+    // An MCP server is a connection, not context — running it through the
+    // harness would mean starting the server.
+    expect(UNIT_SPECS.agents?.evaluable).toBe(true);
+    expect(UNIT_SPECS.commands?.evaluable).toBe(true);
+    expect(UNIT_SPECS.memory?.evaluable).toBe(true);
+    expect(UNIT_SPECS.mcp?.evaluable).toBeUndefined();
+  });
+
+  it("gives every evaluable spec a kind the backend accepts", () => {
+    const accepted = ["skill", "command", "agent", "context", "memory"];
+    for (const [section, spec] of Object.entries(UNIT_SPECS)) {
+      if (!spec?.evaluable) continue;
+      expect(accepted, `${section} sends an unevaluable kind`).toContain(spec.kind);
+    }
   });
 });
