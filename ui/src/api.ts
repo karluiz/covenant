@@ -2041,8 +2041,9 @@ export async function canonUninstallSkill(cwd: string, name: string): Promise<vo
 
 // Canon — eval runner (Task 4) -----------------------------------------
 
-export interface EvalSkillSummary {
-  skill: string;
+export interface EvalUnitSummary {
+  kind: string;
+  name: string;
   passed: number;
   total: number;
   baseline_passed: number;
@@ -2050,18 +2051,19 @@ export interface EvalSkillSummary {
 }
 
 export interface CanonEvalProgress {
-  skill: string;
+  kind: string;
+  name: string;
   eval_id: string;
   status: "running" | "pass" | "fail" | "skipped" | "error" | "done";
   reason: string;
 }
 
-export async function canonRunEvals(cwd: string, skill: string): Promise<void> {
-  return invoke<void>("canon_run_evals", { cwd, skill });
+export async function canonRunEvals(cwd: string, kind: string, name: string): Promise<void> {
+  return invoke<void>("canon_run_evals", { cwd, kind, name });
 }
 
-export async function canonEvalSummary(cwd: string): Promise<EvalSkillSummary[]> {
-  return invoke<EvalSkillSummary[]>("canon_eval_summary", { cwd });
+export async function canonEvalSummary(cwd: string): Promise<EvalUnitSummary[]> {
+  return invoke<EvalUnitSummary[]>("canon_eval_summary", { cwd });
 }
 
 export async function onCanonEvalProgress(

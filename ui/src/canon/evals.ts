@@ -13,23 +13,25 @@ import { openConfirmPrompt } from "../workspaces/confirm-prompt";
 /** Confirm, then run. `onDone` refreshes whatever surface asked. */
 export function runEvals(
   cwd: string,
-  skill: string,
+  kind: string,
+  name: string,
   btn: HTMLButtonElement,
   onDone: () => void | Promise<void>,
 ): void {
   openConfirmPrompt({
     label: "Run evals",
     message:
-      `Run evals for "${skill}"? Each eval is a full agent run plus a judge call — this can take minutes and costs tokens. ` +
+      `Run evals for "${name}"? Each eval is a full agent run plus a judge call — this can take minutes and costs tokens. ` +
       `The eval's name and its pass/fail are shared with your org's registry — never the judge's reasoning.`,
     confirmText: "Run",
-    onConfirm: () => { void execute(cwd, skill, btn, onDone); },
+    onConfirm: () => { void execute(cwd, kind, name, btn, onDone); },
   });
 }
 
 async function execute(
   cwd: string,
-  skill: string,
+  kind: string,
+  name: string,
   btn: HTMLButtonElement,
   onDone: () => void | Promise<void>,
 ): Promise<void> {
@@ -38,7 +40,7 @@ async function execute(
   let doneReason = "";
   try {
     unlisten = await onCanonEvalProgress((e: CanonEvalProgress) => {
-      if (e.skill !== skill) return;
+      if (e.kind !== kind || e.name !== name) return;
       if (e.status === "running") pushInfoToast({ message: `Eval ${e.eval_id}: running…` });
       else if (e.status === "pass") pushInfoToast({ message: `Eval ${e.eval_id}: PASS` });
       else if (e.status === "fail") pushInfoToast({ message: `Eval ${e.eval_id}: FAIL — ${e.reason}` });
@@ -46,14 +48,14 @@ async function execute(
       else if (e.status === "error") pushInfoToast({ message: `Eval ${e.eval_id}: error — ${e.reason}` });
       else if (e.status === "done") doneReason = e.reason;
     });
-    await canonRunEvals(cwd, skill);
+    await canonRunEvals(cwd, kind, name);
     // The backend signals an empty run via the done note — don't claim
     // "finished" when nothing actually ran.
     pushInfoToast({
       message:
         doneReason === "no evals found"
-          ? `No evals for ${skill} — add .toml files under .covenant/canon/skills/${skill}/evals/`
-          : `Evals finished for ${skill}`,
+          ? `No evals for ${name} — add .toml files under .covenant/canon/evals/${kind}/${name}/`
+          : `Evals finished for ${name}`,
     });
     await onDone();
   } catch (e) {
