@@ -128,6 +128,22 @@ pub(crate) fn prepare_sandbox(
     karl_canon::project(sbox.path())
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
+    // `project()` writes memory bullets, context summaries and skill bodies
+    // into a managed block inside AGENTS.md. In a real repo that reaches the
+    // model because CLAUDE.md is a symlink to AGENTS.md — but a fresh tempdir
+    // has no such symlink, so Claude Code (which reads CLAUDE.md, not
+    // AGENTS.md) never sees any of it. Verified empirically: probing a
+    // sandbox of this exact shape with the harness's own
+    // `--allowedTools Read Grep Glob` returned the placeholder
+    // `PASSPHRASE=NOT-IN-CONTEXT` for a memory bullet until this copy was
+    // added, and the real value afterward. Without this, memory/context/
+    // skill evals grade the bare model against an empty control and report
+    // a fabricated ~0 lift for every managed-block kind.
+    let agents_md = sbox.path().join("AGENTS.md");
+    if agents_md.exists() {
+        std::fs::copy(&agents_md, sbox.path().join("CLAUDE.md"))?;
+    }
+
     // AFTER project(): the deny-list is the sandbox's only safety boundary and
     // must not be clobbered by a future projection target claiming the name.
     std::fs::create_dir_all(sbox.path().join(".claude"))?;
@@ -150,9 +166,21 @@ pub(crate) fn prepare_sandbox_bare(_repo_root: &Path) -> std::io::Result<tempfil
     Ok(sbox)
 }
 
-/// Returns CLI args for `claude -p <scenario>` that enforce read-only tools
-/// (Read/Grep/Glob) + deny-list settings.json + cwd sandbox + timeout.
-/// Full-tool agentic runs need the deferred hardened container.
+/// Returns CLI args for `claude -p <scenario>` that enforce non-mutating
+/// tools (Read/Grep/Glob/SlashCommand) + deny-list settings.json + cwd
+/// sandbox + timeout. Full-tool agentic runs need the deferred hardened
+/// container.
+///
+/// `SlashCommand` is allowed alongside the read-only trio because a
+/// command's body — the thing a `command`-kind eval is meant to test — only
+/// enters the prompt when the command is invoked; a projected
+/// `.claude/commands/<name>.md` otherwise contributes just its frontmatter
+/// `description` line. Verified empirically: the same probe that caught
+/// Finding 1 returned the placeholder `QUIBBLE=NOT-IN-CONTEXT` for a command
+/// body without this tool, and the real value with it — the model reaches
+/// the body on its own, without the scenario telling it to invoke anything.
+/// It does not grant Bash/Write/exec — invoking a slash command still only
+/// expands its markdown into context, it does not run it.
 fn harness_args(scenario: &str) -> Vec<String> {
     vec![
         "-p".to_string(),
@@ -161,6 +189,7 @@ fn harness_args(scenario: &str) -> Vec<String> {
         "Read".to_string(),
         "Grep".to_string(),
         "Glob".to_string(),
+        "SlashCommand".to_string(),
         "--strict-mcp-config".to_string(),
     ]
 }
@@ -801,6 +830,24 @@ mod tests {
             agents_md.contains("- We chose decision-x"),
             "memory bullet missing"
         );
+
+        // Finding 1: Claude Code reads CLAUDE.md, not AGENTS.md. A real repo's
+        // CLAUDE.md is a symlink to AGENTS.md; a tempdir sandbox has no such
+        // symlink, so without a CLAUDE.md copy the model never sees this
+        // bullet and the eval measures nothing. Assert on CLAUDE.md
+        // specifically — that is the file that determines whether the eval
+        // means anything, not AGENTS.md.
+        let claude_md = sbox.path().join("CLAUDE.md");
+        assert!(
+            claude_md.exists(),
+            "CLAUDE.md must exist in the sandbox — Claude Code does not read AGENTS.md"
+        );
+        assert!(
+            fs::read_to_string(&claude_md)
+                .unwrap()
+                .contains("- We chose decision-x"),
+            "CLAUDE.md must carry the same memory bullet AGENTS.md does"
+        );
     }
 
     #[test]
@@ -892,6 +939,10 @@ mod tests {
                 && a.iter().any(|s| s == "Grep")
                 && a.iter().any(|s| s == "Glob"),
             "read-only tools present"
+        );
+        assert!(
+            a.iter().any(|s| s == "SlashCommand"),
+            "SlashCommand allowed so a command-kind eval's body is reachable"
         );
         assert!(
             !a.iter()
