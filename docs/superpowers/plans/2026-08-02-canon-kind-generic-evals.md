@@ -993,11 +993,24 @@ The worked example, and the two documentation debts this change creates.
 
 **Interfaces:** none — content and docs only.
 
-**Note:** `.covenant/` is gitignored (`.gitignore:50`), so the three `.toml` files are local-only and will not appear in the commit. Only the spec edit is committed. This is itself the point the Plan B correction made: evals do not travel.
+**Read this first — the eval files are NOT in this worktree.** `.covenant/` is gitignored (`.gitignore:50`) and therefore per-checkout: a linked worktree has no `.covenant/canon/` at all. The three drafts live in the **main checkout**:
+
+```
+/Users/carlosgallardoarenas/Sources/karlTerminal/.covenant/canon/skills/horizon/evals/
+```
+
+So Task 7 splits across two locations:
+
+- The **file move happens in the main checkout** (`~/Sources/karlTerminal`), and is committed nowhere — the paths are ignored. That is not an oversight; it is the same fact the Plan B correction turned on. Evals do not travel.
+- The **spec edit happens in this worktree** and is the task's only commit.
+
+A backup of the three files exists at
+`/private/tmp/claude-501/-Users-carlosgallardoarenas-Sources-karlTerminal--covenant-worktrees-agent-claude-0801-ip3/c0f72fba-e8f7-430f-8656-0f9104122056/scratchpad/horizon-evals-backup/`.
+They are the only copies and git cannot restore them — restore from there if a move goes wrong.
 
 - [ ] **Step 1: Move the eval files and reword them for a read-only harness**
 
-The three drafts currently live at `.covenant/canon/skills/horizon/evals/`. Recreate them under `.covenant/canon/evals/command/horizon/` with their scenarios reworded: the harness allows `Read`, `Grep` and `Glob` only, in an empty temp dir, so a scenario that says "run the ritual" cannot pass no matter how good the command is. Each scenario must instead ask the model to **describe the exact commands it would run**, and the rubric grades that description.
+Working **in the main checkout** (`cd ~/Sources/karlTerminal`), recreate the three drafts from `.covenant/canon/skills/horizon/evals/` under `.covenant/canon/evals/command/horizon/` with their scenarios reworded: the harness allows `Read`, `Grep` and `Glob` only, in an empty temp dir, so a scenario that says "run the ritual" cannot pass no matter how good the command is. Each scenario must instead ask the model to **describe the exact commands it would run**, and the rubric grades that description.
 
 Concretely, in each of the three files change the closing instruction of `scenario` from an imperative to a description request — for example, `bumps-all-five-manifests.toml`:
 
@@ -1022,20 +1035,22 @@ commit, and then state the version each of the five files would hold.
 
 Keep every `rubric` as written. They already grade the description rather than the filesystem, and the `FAIL if it reaches for GNU sed's first-match idiom` clause is the whole point.
 
-Then remove the stale tree:
+Then remove the stale tree — `horizon` is a command and was never a skill, so the whole directory goes:
 
 ```bash
+cd ~/Sources/karlTerminal
 rm -rf .covenant/canon/skills/horizon
 ```
 
-- [ ] **Step 2: Verify the runner finds them**
+- [ ] **Step 2: Verify the move**
 
 ```bash
+ls ~/Sources/karlTerminal/.covenant/canon/evals/command/horizon/
+ls ~/Sources/karlTerminal/.covenant/canon/skills 2>&1
 cargo test -p karl-canon read_evals_finds_them_under_the_kind_keyed_tree
-ls .covenant/canon/evals/command/horizon/
 ```
 
-Expected: the test passes and three `.toml` files are listed. Confirm the old path is gone: `ls .covenant/canon/skills 2>&1` should report no such directory.
+Expected: three `.toml` files listed; `skills` reports no such directory; the test passes (run it from this worktree, where the code is).
 
 - [ ] **Step 3: Reconcile the packaging spec**
 
