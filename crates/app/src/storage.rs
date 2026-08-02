@@ -805,6 +805,12 @@ impl Storage {
             "ALTER TABLE operators ADD COLUMN perception_enabled INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // Perception reflexes: the principal's pre-made decisions, free
+        // text, one per line. Empty for existing rows (judge unaided).
+        let _ = conn.execute(
+            "ALTER TABLE operators ADD COLUMN perception_reflexes TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         // 3.26 operator MCP clients: per-operator allowlist of
         // config-level MCP server names, JSON array. Deny-biased.
         let _ = conn.execute(
@@ -1945,8 +1951,9 @@ impl Storage {
                 "INSERT INTO operators (id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
                  created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path, github_access, \
-                 acp_enabled, perception_enabled, supervision_enabled, org_slug) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+                 acp_enabled, perception_enabled, supervision_enabled, org_slug, \
+                 perception_reflexes) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1970,6 +1977,7 @@ impl Storage {
                     if op.perception_enabled { 1_i64 } else { 0_i64 },
                     if op.supervision_enabled { 1_i64 } else { 0_i64 },
                     op.org_slug,
+                    op.perception_reflexes,
                 ],
             )?;
             Ok(())
@@ -1991,7 +1999,8 @@ impl Storage {
                 "UPDATE operators SET name=?2, emoji=?3, color=?4, tags_json=?5, \
                  persona=?6, escalate_threshold=?7, model=?8, hard_constraints=?9, \
                  updated_at_unix_ms=?10, voice=?11, soul_path=?12, github_access=?13, \
-                 acp_enabled=?14, perception_enabled=?15, supervision_enabled=?16, org_slug=?17 WHERE id=?1",
+                 acp_enabled=?14, perception_enabled=?15, supervision_enabled=?16, org_slug=?17, \
+                 perception_reflexes=?18 WHERE id=?1",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -2012,6 +2021,7 @@ impl Storage {
                     if op.perception_enabled { 1_i64 } else { 0_i64 },
                     if op.supervision_enabled { 1_i64 } else { 0_i64 },
                     op.org_slug,
+                    op.perception_reflexes,
                 ],
             )?;
             Ok(())
@@ -2159,6 +2169,27 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    pub async fn operator_set_perception_reflexes(
+        &self,
+        id: String,
+        reflexes: String,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            let n = c.execute(
+                "UPDATE operators SET perception_reflexes=?2 WHERE id=?1",
+                params![id, reflexes],
+            )?;
+            if n == 0 {
+                return Err(StorageError::Other(format!("operator id {id} not found")));
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     pub async fn operator_set_supervision_enabled(
         &self,
         id: String,
@@ -2213,7 +2244,7 @@ impl Storage {
                  escalate_threshold, model, hard_constraints, is_default, \
                  created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path, github_access, \
                  acp_enabled, perception_enabled, org_slug, mcp_servers_json, \
-                 supervision_enabled \
+                 supervision_enabled, perception_reflexes \
                  FROM operators ORDER BY is_default DESC, LOWER(name) ASC",
             )?;
             let rows = stmt
@@ -2264,6 +2295,7 @@ impl Storage {
                             .and_then(|s| serde_json::from_str(&s).ok())
                             .unwrap_or_default(),
                         supervision_enabled: row.get::<_, i64>(20).unwrap_or(0) != 0,
+                        perception_reflexes: row.get::<_, String>(21).unwrap_or_default(),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -5003,6 +5035,7 @@ mod tests {
             github_access: GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: vec![],
@@ -5031,6 +5064,7 @@ mod tests {
             github_access: GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: vec![],
@@ -5111,6 +5145,7 @@ mod tests {
             github_access: GithubAccess::ReadOnly,
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: vec![],
@@ -5158,6 +5193,31 @@ mod tests {
                 .unwrap()
                 .perception_enabled
         );
+
+        // Reflexes: empty by default, replaced wholesale by their setter.
+        assert_eq!(
+            list4
+                .iter()
+                .find(|o| o.id == op_id)
+                .unwrap()
+                .perception_reflexes,
+            ""
+        );
+        s.operator_set_perception_reflexes(
+            op_id.to_string(),
+            "Plans run with subagents, one per task.".into(),
+        )
+        .await
+        .unwrap();
+        let list5 = s.operator_list().await.unwrap();
+        assert_eq!(
+            list5
+                .iter()
+                .find(|o| o.id == op_id)
+                .unwrap()
+                .perception_reflexes,
+            "Plans run with subagents, one per task."
+        );
     }
 
     #[tokio::test]
@@ -5187,6 +5247,7 @@ mod tests {
             github_access: GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: vec![],
@@ -5245,6 +5306,7 @@ mod tests {
             github_access: GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: vec![],
@@ -5369,6 +5431,7 @@ mod task_card_storage_tests {
             github_access: crate::operator_registry::GithubAccess::Off,
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: vec![],

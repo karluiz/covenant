@@ -118,6 +118,12 @@
   outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
+/* Reflexes: a short free-text list, so it reuses the input box and only
+   adds the bits a textarea needs. */
+.op-creator textarea.op-reflex-area {
+  resize: vertical; min-height: 84px; line-height: 1.5; display: block;
+}
+
 /* SOUL.md is a source file — render it as one. Overrides the `font: inherit`
    the shared input rule above would otherwise give it. */
 .op-creator .op-soul-source {

@@ -226,6 +226,38 @@ describe('supervision capability toggle', () => {
   });
 });
 
+describe('perception reflexes', () => {
+  it('seeds from the existing operator and survives the Behaviour section', () => {
+    const existing: Operator = {
+      id: 'rf1', name: 'Maya', emoji: '🟣', color: '#a855f7',
+      tags: [], persona: '', escalate_threshold: 0.5, model: 'claude-sonnet-4-6',
+      hard_constraints: '', voice: 'Terse', is_default: false,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+      github_access: 'Off',
+      acp_enabled: false,
+      perception_enabled: true,
+      perception_reflexes: 'Plans run with subagents, one per task.',
+      supervision_enabled: false,
+    };
+    const h = openOperatorModal({ mode: 'edit', existing });
+    expect(h.state.perceptionReflexes).toBe('Plans run with subagents, one per task.');
+    h.setSection('behaviour');
+    const area = h.el.querySelector<HTMLTextAreaElement>('.op-reflex-area');
+    expect(area?.value).toBe('Plans run with subagents, one per task.');
+    h.el.remove();
+  });
+
+  it('is hidden while Perception is off — it only feeds the judge', () => {
+    const h = openOperatorModal({ mode: 'create' });
+    h.setSection('behaviour');
+    expect(h.state.perceptionReflexes).toBe('');
+    expect(h.el.querySelector('.op-reflex-area')).toBeNull();
+    h.setPerceptionEnabled(true);
+    expect(h.el.querySelector('.op-reflex-area')).not.toBeNull();
+    h.el.remove();
+  });
+});
+
 describe('operator list grid', () => {
   it('renders one card per operator', () => {
     const ops: Operator[] = [{

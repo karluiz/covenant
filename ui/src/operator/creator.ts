@@ -8,6 +8,7 @@ import {
   operatorSetGithubAccess,
   operatorSetAcpEnabled,
   operatorSetPerceptionEnabled,
+  operatorSetPerceptionReflexes,
   operatorSetMcpServers,
   operatorSetSupervisionEnabled,
   operatorSetOrg,
@@ -119,6 +120,9 @@ export interface ModalState {
   /// Perception gate (auto-answer trivial, safe ACP permission prompts).
   /// Registry-side, same save pattern as acpEnabled.
   perceptionEnabled: boolean;
+  /// Decisions this version of you already made, one per line. Fed to the
+  /// Perception judge; registry-side, same save pattern as acpEnabled.
+  perceptionReflexes: string;
   /// 3.26 — MCP servers this operator may call. Registry-side, same
   /// save pattern as acpEnabled. Subset of `mcpAvailable`.
   mcpServers: string[];
@@ -157,6 +161,7 @@ export interface ModalHandle {
   setGithubAccess(a: GithubAccess): void;
   setAcpEnabled(b: boolean): void;
   setPerceptionEnabled(b: boolean): void;
+  setPerceptionReflexes(s: string): void;
   toggleMcpServer(name: string): void;
   setSupervisionEnabled(b: boolean): void;
   applyPreset(key: PresetKey): void;
@@ -226,6 +231,7 @@ export function openOperatorModal(opts: {
     githubAccess: opts.existing?.github_access ?? "Off",
     acpEnabled: opts.existing?.acp_enabled ?? false,
     perceptionEnabled: opts.existing?.perception_enabled ?? false,
+    perceptionReflexes: opts.existing?.perception_reflexes ?? "",
     mcpServers: opts.existing?.mcp_servers ?? [],
     mcpAvailable: [],
     supervisionEnabled: opts.existing?.supervision_enabled ?? false,
@@ -293,6 +299,7 @@ export function openOperatorModal(opts: {
     setGithubAccess(a) { state.githubAccess = a; render(); },
     setAcpEnabled(b) { state.acpEnabled = b; render(); },
     setPerceptionEnabled(b) { state.perceptionEnabled = b; render(); },
+    setPerceptionReflexes(s) { state.perceptionReflexes = s; },
     toggleMcpServer(name) {
       state.mcpServers = state.mcpServers.includes(name)
         ? state.mcpServers.filter((n) => n !== name)
@@ -394,6 +401,7 @@ function isDirty(h: ModalHandle): boolean {
     s.githubAccess !== (ex?.github_access ?? "Off") ||
     s.acpEnabled !== (ex?.acp_enabled ?? false) ||
     s.perceptionEnabled !== (ex?.perception_enabled ?? false) ||
+    s.perceptionReflexes !== (ex?.perception_reflexes ?? "") ||
     !sameStringSet(s.mcpServers, ex?.mcp_servers ?? []) ||
     s.supervisionEnabled !== (ex?.supervision_enabled ?? false)
   );
@@ -1164,6 +1172,32 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     perceptionField.append(perceptionLbl, perceptionSeg, perceptionHint);
     behaviour.append(perceptionField);
 
+    // ── Reflexes: decisions already made, fed to the Perception judge ──
+    // Only meaningful while Perception is on, so it rides the same toggle.
+    if (h.state.perceptionEnabled) {
+      const reflexField = document.createElement("div");
+      reflexField.className = "op-modal-field";
+      const reflexLbl = document.createElement("span");
+      reflexLbl.className = "op-modal-label";
+      reflexLbl.textContent = "Already decided";
+      const reflexArea = document.createElement("textarea");
+      reflexArea.className = "op-modal-input op-reflex-area";
+      reflexArea.rows = 4;
+      reflexArea.placeholder =
+        "One decision per line —\nPlans run with subagents, one per task.\nWhen a doc and the code disagree, follow the code.";
+      reflexArea.value = h.state.perceptionReflexes;
+      // `input`, not a re-render: re-rendering a textarea eats the caret.
+      reflexArea.addEventListener("input", () =>
+        h.setPerceptionReflexes(reflexArea.value),
+      );
+      const reflexHint = document.createElement("small");
+      reflexHint.className = "op-modal-hint";
+      reflexHint.textContent =
+        "Decisions you already made, in your words. They tell this version of you which prompts are settled — they never make an unsafe command safe, that floor is in code.";
+      reflexField.append(reflexLbl, reflexArea, reflexHint);
+      behaviour.append(reflexField);
+    }
+
     // ── MCP servers (3.26 — per-operator allowlist, registry-side) ────
     // Only rendered when config-level servers exist (Settings → MCP).
     if (h.state.mcpAvailable.length > 0) {
@@ -1565,6 +1599,16 @@ export function wireOperatorModal(handle: ModalHandle, opts: WireOpts): void {
           if (saved.id && handle.state.perceptionEnabled !== prevPerception) {
             try { await operatorSetPerceptionEnabled(saved.id, handle.state.perceptionEnabled); } catch (e) {
               console.warn("operator_set_perception_enabled failed", e);
+            }
+          }
+          // Reflexes ride the same registry-side pattern; skipped entirely
+          // when unchanged so an untouched operator never takes a write.
+          const prevReflexes = handle.state.mode === "edit"
+            ? (handle.state.existing?.perception_reflexes ?? "")
+            : "";
+          if (saved.id && handle.state.perceptionReflexes !== prevReflexes) {
+            try { await operatorSetPerceptionReflexes(saved.id, handle.state.perceptionReflexes); } catch (e) {
+              console.warn("operator_set_perception_reflexes failed", e);
             }
           }
           // Same registry-side pattern for the MCP server allowlist (3.26).

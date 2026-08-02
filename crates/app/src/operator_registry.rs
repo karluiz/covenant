@@ -68,6 +68,14 @@ pub struct Operator {
     /// permission prompts (Perception). Off by default.
     #[serde(default)]
     pub perception_enabled: bool,
+    /// The soul's REFLEXES layer, as free text — one pre-made decision per
+    /// line ("plans run with subagents, one per task"). Fed to the
+    /// Perception judge as evidence a prompt is trivial; it CANNOT widen the
+    /// code-level safety floor in `karl_agent::acp::perception::decide`,
+    /// which never reads it. Empty = judge decides unaided. Registry-only
+    /// (NOT SOUL frontmatter).
+    #[serde(default)]
+    pub perception_reflexes: String,
     /// When true, this operator can be attached to a tab group as its
     /// SUPERVISOR: group perception fallback, cross-tab correlation, and
     /// (opt-in per group) AOM intervention on unpinned panes. Off by
@@ -314,6 +322,7 @@ impl OperatorRegistry {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -513,6 +522,7 @@ impl OperatorRegistry {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -700,6 +710,27 @@ impl OperatorRegistry {
         Ok(())
     }
 
+    /// Replace the operator's Perception reflexes (free text, one pre-made
+    /// decision per line). Same shape as `set_perception_enabled`: persist,
+    /// then patch the in-memory cache the judge path reads.
+    pub async fn set_perception_reflexes(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        reflexes: String,
+    ) -> Result<(), RegistryError> {
+        if !self.by_id.read().unwrap().contains_key(&id) {
+            return Err(RegistryError::NotFound(id));
+        }
+        storage
+            .operator_set_perception_reflexes(id.to_string(), reflexes.clone())
+            .await?;
+        if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+            op.perception_reflexes = reflexes;
+        }
+        Ok(())
+    }
+
     pub async fn set_supervision_enabled(
         &self,
         storage: &Storage,
@@ -878,6 +909,18 @@ impl OperatorRegistry {
             .unwrap_or(false)
     }
 
+    /// The effective operator's pre-made decisions, for the Perception
+    /// judge. Same resolution chain (and same never-panic posture) as
+    /// `perception_enabled_for`; "" when unset or unresolvable.
+    pub fn perception_reflexes_for(&self, session_id: SessionId) -> String {
+        self.pinned(session_id)
+            .and_then(|oid| self.get(oid))
+            .or_else(|| self.supervisor_for(session_id))
+            .or_else(|| self.default())
+            .map(|op| op.perception_reflexes)
+            .unwrap_or_default()
+    }
+
     /// 3.12: bump an operator's XP by `amount`. Returns the new total.
     /// Persists to SQLite and updates the in-memory cache atomically.
     /// No-op (returns current xp, or 0 if unknown) on missing operator.
@@ -933,6 +976,7 @@ impl OperatorRegistry {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -1161,6 +1205,7 @@ pub mod commands {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -1199,6 +1244,7 @@ pub mod commands {
             github_access: existing.github_access,
             acp_enabled: existing.acp_enabled,
             perception_enabled: existing.perception_enabled,
+            perception_reflexes: existing.perception_reflexes.clone(),
             supervision_enabled: existing.supervision_enabled,
             org_slug: existing.org_slug.clone(),
             mcp_servers: existing.mcp_servers.clone(),
@@ -1280,6 +1326,20 @@ pub mod commands {
         let id: OperatorId = id.parse().map_err(map_err)?;
         registry
             .set_perception_enabled(&storage, id, enabled)
+            .await
+            .map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_set_perception_reflexes(
+        id: String,
+        reflexes: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<(), String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry
+            .set_perception_reflexes(&storage, id, reflexes)
             .await
             .map_err(map_err)
     }
@@ -1405,6 +1465,7 @@ mod voice_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -1707,6 +1768,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -1754,6 +1816,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -1803,6 +1866,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -1831,6 +1895,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -1889,6 +1954,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),
@@ -1938,6 +2004,7 @@ mod soul_io_tests {
             github_access: GithubAccess::default(),
             acp_enabled: false,
             perception_enabled: false,
+            perception_reflexes: String::new(),
             supervision_enabled: false,
             org_slug: None,
             mcp_servers: Vec::new(),

@@ -63,7 +63,16 @@ pub fn spawn(
                         let settings = settings.clone();
                         async move { perception_judge(&settings, prompt).await }
                     };
-                    match perception_decide_async(&req, consecutive, PERCEPTION_CAP, judge).await {
+                    let reflexes = registry.perception_reflexes_for(session_id);
+                    match perception_decide_async(
+                        &req,
+                        &reflexes,
+                        consecutive,
+                        PERCEPTION_CAP,
+                        judge,
+                    )
+                    .await
+                    {
                         PerceptionOutcome::Answered { option_id, reason } => {
                             // Re-verify the prompt survived judge latency
                             // unchanged; anything else → hand back.
