@@ -519,6 +519,18 @@ pub async fn canon_run_evals(
     name: String,
 ) -> Result<(), String> {
     let unit_kind = parse_evaluable_kind(&kind)?;
+    // `read_evals` below does a plain path join with no traversal guard —
+    // `prepare_sandbox`'s `valid_pkg_name` check runs one layer deeper, only
+    // once the harness actually spawns, so without this a traversing `name`
+    // (e.g. "../../../../etc") makes `read_evals` scan and parse an arbitrary
+    // directory's `*.toml` files before anything rejects the name. Bounded —
+    // every resulting eval still gets skipped once `prepare_sandbox` runs its
+    // own check — but each skip would emit that attacker-chosen `Eval::id`
+    // to the frontend as a toast. Validate here too; `prepare_sandbox` keeps
+    // its check as defense in depth.
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
     let repo_root = std::path::PathBuf::from(&cwd);
     let evals = karl_canon::read_evals(&repo_root, unit_kind, &name);
     if evals.is_empty() {
@@ -858,6 +870,37 @@ mod tests {
         assert!(prepare_sandbox(root, ContextKind::Mcp, "ctx7").is_err());
         assert!(prepare_sandbox(root, ContextKind::Spec, "3.1-alpha").is_err());
         assert!(prepare_sandbox(root, ContextKind::Command, "ghost").is_err());
+    }
+
+    /// `canon_run_evals` itself can't be invoked here — it's a `#[tauri::command]`
+    /// taking `AppHandle` + `State<'_, AppState>`, and this crate doesn't build
+    /// with `tauri`'s `test` feature or any mock-app harness (checked: no other
+    /// command with an `AppHandle` param is invoked directly from a unit test
+    /// anywhere in `crates/app/src`). So this test pins the validation path one
+    /// layer down: `canon_run_evals` guards `name` with exactly
+    /// `karl_canon::valid_pkg_name` before it ever calls `read_evals` (see the
+    /// comment at the top of that function). Confirming the predicate rejects
+    /// the traversal shapes `read_evals`'s plain `Path::join` cannot defend
+    /// against on its own is the closest in-process pin available; the
+    /// end-to-end behavior is exercised by `prepare_sandbox_rejects_a_traversing_name`
+    /// below for the second (defense-in-depth) check.
+    #[test]
+    fn canon_run_evals_name_guard_rejects_traversal() {
+        for bad in [
+            "../../../../Users/x/somewhere",
+            "../../../../etc/cron.d/evil",
+            "/etc/passwd",
+            ".hidden",
+            "has/slash",
+        ] {
+            assert!(
+                !karl_canon::valid_pkg_name(bad),
+                "{bad:?} must be rejected by the same guard canon_run_evals runs \
+                 before read_evals, so an unvalidated name never reaches read_dir"
+            );
+        }
+        // Sanity: the guard isn't rejecting everything.
+        assert!(karl_canon::valid_pkg_name("horizon"));
     }
 
     #[test]
