@@ -178,8 +178,8 @@ describe("CanonPanel", () => {
     });
     // Backend signals an empty run via the done note.
     (onCanonEvalProgress as Mock).mockImplementationOnce(
-      async (handler: (e: { skill: string; eval_id: string; status: string; reason: string }) => void) => {
-        handler({ skill: "kyc-peru", eval_id: "", status: "done", reason: "no evals found" });
+      async (handler: (e: { kind: string; name: string; eval_id: string; status: string; reason: string }) => void) => {
+        handler({ kind: "skill", name: "kyc-peru", eval_id: "", status: "done", reason: "no evals found" });
         return () => {};
       },
     );
@@ -405,13 +405,13 @@ describe("CanonPanel", () => {
 
 describe("liftBadgeEl", () => {
   it("builds a not-earning chip for negative lift", () => {
-    const el = liftBadgeEl(liftClass({ skill: "x", passed: 5, total: 10, baseline_passed: 7, baseline_total: 10 }));
+    const el = liftBadgeEl(liftClass({ kind: "skill", name: "x", passed: 5, total: 10, baseline_passed: 7, baseline_total: 10 }));
     expect(el.className).toContain("canon-lift-badge");
     expect(el.className).toContain("lift-not-earning");
     expect(el.textContent).toContain("not earning");
   });
   it("builds an earning chip for positive lift", () => {
-    const el = liftBadgeEl(liftClass({ skill: "x", passed: 8, total: 10, baseline_passed: 6, baseline_total: 10 }));
+    const el = liftBadgeEl(liftClass({ kind: "skill", name: "x", passed: 8, total: 10, baseline_passed: 6, baseline_total: 10 }));
     expect(el.className).toContain("lift-earning");
     expect(el.textContent).toContain("+20");
   });
