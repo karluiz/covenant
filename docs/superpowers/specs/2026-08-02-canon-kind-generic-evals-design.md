@@ -129,8 +129,13 @@ Two things this buys beyond brevity:
   synthesized into a skill with generated frontmatter; a memory becomes a
   bullet inside a managed block. What reaches the model is the projection, and
   that is now what the eval measures.
-- Memory and context work with no extra code, and they are the two kinds a
-  hand-rolled version would have gotten wrong.
+- Memory and context reuse `project()` with no extra code of their own — that
+  part of the bet holds. But the sandbox needs one thing `project()` does not
+  provide: `project()` writes memory bullets, context summaries and skill
+  bodies into a managed block inside `AGENTS.md`, on the assumption that
+  `CLAUDE.md` is a symlink to it. A real repo carries that symlink; a fresh
+  tempdir does not, and Claude Code reads `CLAUDE.md`, not `AGENTS.md`. See
+  the Correction below — this is not a hypothetical, it was measured.
 
 Order matters: write `settings.json` **after** `project()`. Projection does not
 touch `.claude/settings.json` today — verified, it writes agent, skill and
@@ -155,6 +160,15 @@ the same `settings.json`, no Canon at all.
 `push_results_for` resolves the unit's real kind instead of the literal
 `"skill"`. No server work: `cdlc::valid_kind` already accepts
 `skill|agent|command|context|mcp`.
+
+Correction: the shipped code early-returns for every non-skill kind instead —
+that is the correct call, not a shortfall. `install_unit` writes agent,
+command and context files with no manifest entry (only `canon.toml`'s
+`[[installed]]` rows, which today are skill-only), so a non-skill unit has no
+`source` string to resolve a registry package from and nothing to attribute a
+push to. Consequence: org-wide eval results stay skills-only for now,
+including for a registry-installed command — its evals run and are stored
+locally, they just never leave the machine.
 
 **Memory is not packageable** (`ContextUnit.packageable == false`), so its
 results run locally and never push. That falls out of `parse_registry_source`
@@ -190,8 +204,9 @@ skill are distinguishable.
 
 Worth stating because it changes how scenarios are phrased.
 
-`harness_args` allows `Read`, `Grep` and `Glob` only, and the sandbox is an
-otherwise-empty temp dir. The eval agent cannot create files, run `sed`, or
+`harness_args` allows `Read`, `Grep`, `Glob` and `SlashCommand` — non-mutating
+tools only — and the sandbox is an otherwise-empty temp dir. The eval agent
+cannot create files, run `sed`, or
 invoke `git`. Full-tool agentic runs wait on the hardened container that Plan A
 deferred.
 
@@ -219,6 +234,57 @@ reaches for GNU sed's 0,/re/s//.../ idiom`) rather than the happy path.
 
 The sandbox tests are the ones that matter: they are what proves the projection
 reuse works, and they are cheap because `project()` is pure filesystem.
+
+## Correction — the sandbox did not show the model what it claims to (2026-08-02, post-implementation)
+
+The final whole-branch review caught a false premise in section 2 above.
+Recorded here rather than edited away, because the reasoning matters more
+than the tidy version.
+
+Section 2 originally claimed memory and context "work with no extra code, and
+they are the two kinds a hand-rolled version would have gotten wrong." That is
+exactly backwards: they are the two kinds that silently did not work at all.
+
+`prepare_sandbox` calls `karl_canon::project(sbox.path())`, which writes
+memory bullets, context summaries and skill bodies into a managed block inside
+`AGENTS.md`. **Claude Code reads `CLAUDE.md`, not `AGENTS.md`.** The real repo
+only works because its `CLAUDE.md` is a symlink to `AGENTS.md`; a fresh
+tempdir produced by `tempfile::Builder` has no such symlink and `project()`
+does not create one.
+
+Verified empirically, not inferred. A sandbox of exactly the shape
+`prepare_sandbox` produced, probed with the harness's own
+`--allowedTools Read Grep Glob`:
+
+```
+PASSPHRASE=NOT-IN-CONTEXT   <- a memory bullet in AGENTS.md's managed block
+```
+
+Every memory/context eval's two arms (skill-projected vs. bare baseline) were
+therefore byte-identical in what the model actually saw. Every verdict graded
+the bare model and reported ~0 lift about a unit the judge's subject never
+read — a fabricated result, with nothing warning anyone.
+
+The fix: after `project()` succeeds and before `settings.json` is written,
+copy `<sbox>/AGENTS.md` to `<sbox>/CLAUDE.md` when it exists. Re-probing with
+that in place returned `PASSPHRASE=TANGERINE-42`. The same review found a
+sibling gap for commands — a `.claude/commands/<name>.md` body only enters the
+prompt when the command is invoked, so `harness_args` (§5) now allows
+`SlashCommand` alongside `Read`/`Grep`/`Glob`; the probe there went from
+`QUIBBLE=NOT-IN-CONTEXT` to `QUIBBLE=8817`.
+
+The reuse-`project()` decision in section 2 is still correct — it is the
+generalization discussed there that was incomplete, not the approach.
+
+## Known limitations
+
+**Agent (subagent) evals are unverified.** A subagent's body enters a *child*
+context when `Task` spawns it, not the parent transcript the harness captures
+via `claude -p`'s stdout. Whether the harness's judge can observe that a
+subagent read its own projected body — or whether it needs to inspect
+something other than the top-level transcript — was not established before
+this branch shipped. Treat `agent`-kind evals as unverified until that is
+checked with the same kind of direct probe used above for memory and command.
 
 ## Out of scope
 

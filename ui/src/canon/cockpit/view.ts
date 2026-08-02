@@ -181,7 +181,7 @@ function loopSubhead(text: string): HTMLElement {
  *  (person × eval) pairs, not a suite of evals — two members each running
  *  seven evals total 14. It says "eval runs" and not "evals" on purpose:
  *  eval definitions are hand-authored per machine under
- *  .covenant/canon/skills/<skill>/evals/ and never travel with the package
+ *  .covenant/canon/evals/<kind>/<name>/ and never travel with the package
  *  (install_from_dir / read_skill_package only touch skill.toml + SKILL.md),
  *  so there is no shared suite size to report. Do not "tidy" this back to
  *  "evals" — that would claim a number this data doesn't have. */
