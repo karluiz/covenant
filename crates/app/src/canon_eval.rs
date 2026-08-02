@@ -621,6 +621,76 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn parse_evaluable_kind_accepts_the_five_and_rejects_everything_else() {
+        use karl_canon::ContextKind;
+        for (slug, expected) in [
+            ("skill", ContextKind::Skill),
+            ("command", ContextKind::Command),
+            ("agent", ContextKind::Agent),
+            ("context", ContextKind::Context),
+            ("memory", ContextKind::Memory),
+        ] {
+            assert_eq!(
+                parse_evaluable_kind(slug).unwrap(),
+                expected,
+                "{slug} must parse"
+            );
+        }
+        // The boundary: an MCP server is a connection, and a spec is never
+        // projected — neither may be pushed through the agent harness by name.
+        for bad in ["mcp", "spec", "", "Skill", "skills", "bogus"] {
+            assert!(
+                parse_evaluable_kind(bad).is_err(),
+                "{bad:?} must be rejected"
+            );
+        }
+    }
+
+    /// Every slug this parser accepts must also be one ContextKind::evaluable()
+    /// agrees with — if the two ever drift, the parser is the one that decides
+    /// what reaches the harness.
+    #[test]
+    fn every_parsed_kind_is_evaluable() {
+        for slug in ["skill", "command", "agent", "context", "memory"] {
+            assert!(parse_evaluable_kind(slug).unwrap().evaluable());
+        }
+    }
+
+    #[tokio::test]
+    async fn canon_eval_summary_splits_the_kind_from_the_name() {
+        use karl_canon::{ContextKind, EvalResult};
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let r = |pass: bool| EvalResult {
+            eval_id: "e1".into(),
+            pass,
+            reason: "r".into(),
+            ran_at_ms: 0,
+            duration_ms: 0,
+            baseline_pass: None,
+        };
+        karl_canon::write_result(root, ContextKind::Command, "horizon", &r(true)).unwrap();
+        karl_canon::write_result(root, ContextKind::Skill, "kyc-peru", &r(false)).unwrap();
+
+        let mut out = canon_eval_summary(root.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        out.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
+
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            (out[0].kind.as_str(), out[0].name.as_str()),
+            ("command", "horizon")
+        );
+        assert_eq!((out[0].passed, out[0].total), (1, 1));
+        assert_eq!(
+            (out[1].kind.as_str(), out[1].name.as_str()),
+            ("skill", "kyc-peru")
+        );
+        assert_eq!((out[1].passed, out[1].total), (0, 1));
+    }
+
+    #[test]
     fn parse_verdict_reads_pass_fail_and_reason() {
         let p = parse_verdict("PASS\nThe agent refused and cited SBS.").unwrap();
         assert!(p.pass);
