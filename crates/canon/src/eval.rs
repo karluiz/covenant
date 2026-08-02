@@ -1,10 +1,12 @@
 //! Canon eval format + results store (Plan A of the eval runner).
 //!
-//! Evals are per-skill `.toml` files under
-//! `.covenant/canon/skills/<skill>/evals/*.toml`. Each is a behavior test:
-//! a `scenario` fed to a real executor and a `rubric` the judge applies to
-//! the transcript. Results are stored in `.covenant/canon/eval-results.json`.
+//! Evals are per-unit `.toml` files under
+//! `.covenant/canon/evals/<kind>/<name>/*.toml`, one tree shared by every
+//! evaluable kind. Each is a behavior test: a `scenario` fed to a real
+//! executor and a `rubric` the judge applies to the transcript. Results are
+//! stored in `.covenant/canon/eval-results.json`, keyed by `"<kind>/<name>"`.
 
+use crate::kind::ContextKind;
 use crate::manifest::canon_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -28,17 +30,24 @@ pub struct EvalResult {
     pub baseline_pass: Option<bool>,
 }
 
-fn evals_dir(repo_root: &Path, skill: &str) -> std::path::PathBuf {
+/// `.covenant/canon/evals/<kind>/<name>/` — one tree for every evaluable kind,
+/// so the path and the results key are the same string.
+fn evals_dir(repo_root: &Path, kind: ContextKind, name: &str) -> std::path::PathBuf {
     canon_dir(repo_root)
-        .join("skills")
-        .join(skill)
         .join("evals")
+        .join(kind.slug())
+        .join(name)
 }
 
-/// Scan `.covenant/canon/skills/<skill>/evals/*.toml`, sorted by id.
+/// The `eval-results.json` key for a unit: `"command/horizon"`.
+pub fn unit_key(kind: ContextKind, name: &str) -> String {
+    format!("{}/{}", kind.slug(), name)
+}
+
+/// Scan `.covenant/canon/evals/<kind>/<name>/*.toml`, sorted by id.
 /// Unparseable or non-toml files are skipped (warned), never fatal.
-pub fn read_evals(repo_root: &Path, skill: &str) -> Vec<Eval> {
-    let dir = evals_dir(repo_root, skill);
+pub fn read_evals(repo_root: &Path, kind: ContextKind, name: &str) -> Vec<Eval> {
+    let dir = evals_dir(repo_root, kind, name);
     let mut out = Vec::new();
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,
@@ -89,7 +98,12 @@ static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// and a fresh map is started — the old bytes are preserved for inspection.
 /// Write atomicity: serialised to `eval-results.json.tmp` then renamed over
 /// the target so a partial write can never leave the file in a corrupt state.
-pub fn write_result(repo_root: &Path, skill: &str, result: &EvalResult) -> std::io::Result<()> {
+pub fn write_result(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+    result: &EvalResult,
+) -> std::io::Result<()> {
     let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let path = results_path(repo_root);
@@ -117,7 +131,7 @@ pub fn write_result(repo_root: &Path, skill: &str, result: &EvalResult) -> std::
         }
     }
 
-    all.entry(skill.to_string())
+    all.entry(unit_key(kind, name))
         .or_default()
         .insert(result.eval_id.clone(), result.clone());
 
@@ -134,15 +148,32 @@ pub fn write_result(repo_root: &Path, skill: &str, result: &EvalResult) -> std::
     })
 }
 
-/// `(passed, total)` over stored results for `skill`; `None` if none yet.
-pub fn pass_rate(repo_root: &Path, skill: &str) -> Option<(usize, usize)> {
+/// `(passed, total)` over stored results for a unit; `None` if none yet.
+pub fn pass_rate(repo_root: &Path, kind: ContextKind, name: &str) -> Option<(usize, usize)> {
     let all = read_results(repo_root);
-    let inner = all.get(skill)?;
+    let inner = lookup(&all, kind, name)?;
     if inner.is_empty() {
         return None;
     }
     let passed = inner.values().filter(|r| r.pass).count();
     Some((passed, inner.len()))
+}
+
+/// Find a unit's results, tolerating one legacy shape.
+///
+/// ponytail: the bare-key fallback exists only for `eval-results.json` written
+/// by a build that predates kind-keying. Delete it once no such file can still
+/// be in the wild — there were none on the authoring machine when this landed.
+fn lookup<'a>(
+    all: &'a ResultMap,
+    kind: ContextKind,
+    name: &str,
+) -> Option<&'a BTreeMap<String, EvalResult>> {
+    all.get(&unit_key(kind, name)).or_else(|| {
+        (kind == ContextKind::Skill)
+            .then(|| all.get(name))
+            .flatten()
+    })
 }
 
 #[cfg(test)]
@@ -158,7 +189,7 @@ mod tests {
     #[test]
     fn reads_and_sorts_evals_for_a_skill() {
         let tmp = tempfile::tempdir().unwrap();
-        let evals_dir = tmp.path().join(".covenant/canon/skills/kyc-peru/evals");
+        let evals_dir = tmp.path().join(".covenant/canon/evals/skill/kyc-peru");
         write_eval(
             &evals_dir,
             "b.toml",
@@ -173,7 +204,7 @@ mod tests {
         write_eval(&evals_dir, "notes.md", "not an eval");
         write_eval(&evals_dir, "bad.toml", "id = ");
 
-        let evals = read_evals(tmp.path(), "kyc-peru");
+        let evals = read_evals(tmp.path(), ContextKind::Skill, "kyc-peru");
         assert_eq!(
             evals.len(),
             2,
@@ -186,7 +217,7 @@ mod tests {
     #[test]
     fn no_evals_dir_returns_empty() {
         let tmp = tempfile::tempdir().unwrap();
-        assert!(read_evals(tmp.path(), "missing").is_empty());
+        assert!(read_evals(tmp.path(), ContextKind::Skill, "missing").is_empty());
     }
 
     #[test]
@@ -200,15 +231,18 @@ mod tests {
             duration_ms: 10,
             baseline_pass: None,
         };
-        write_result(tmp.path(), "kyc-peru", &mk("e1", true)).unwrap();
-        write_result(tmp.path(), "kyc-peru", &mk("e2", false)).unwrap();
+        write_result(tmp.path(), ContextKind::Skill, "kyc-peru", &mk("e1", true)).unwrap();
+        write_result(tmp.path(), ContextKind::Skill, "kyc-peru", &mk("e2", false)).unwrap();
         // Re-running an eval overwrites its prior result.
-        write_result(tmp.path(), "kyc-peru", &mk("e2", true)).unwrap();
+        write_result(tmp.path(), ContextKind::Skill, "kyc-peru", &mk("e2", true)).unwrap();
 
-        assert_eq!(pass_rate(tmp.path(), "kyc-peru"), Some((2, 2)));
-        assert_eq!(pass_rate(tmp.path(), "other"), None);
+        assert_eq!(
+            pass_rate(tmp.path(), ContextKind::Skill, "kyc-peru"),
+            Some((2, 2))
+        );
+        assert_eq!(pass_rate(tmp.path(), ContextKind::Skill, "other"), None);
         let all = read_results(tmp.path());
-        assert_eq!(all["kyc-peru"]["e2"].pass, true, "latest run wins");
+        assert_eq!(all["skill/kyc-peru"]["e2"].pass, true, "latest run wins");
     }
 
     #[test]
@@ -222,11 +256,11 @@ mod tests {
             duration_ms: 1,
             baseline_pass: None,
         };
-        write_result(tmp.path(), "skill-a", &mk("e1", true)).unwrap();
-        write_result(tmp.path(), "skill-b", &mk("e1", false)).unwrap();
+        write_result(tmp.path(), ContextKind::Skill, "skill-a", &mk("e1", true)).unwrap();
+        write_result(tmp.path(), ContextKind::Skill, "skill-b", &mk("e1", false)).unwrap();
         let all = read_results(tmp.path());
         assert!(
-            all.contains_key("skill-a") && all.contains_key("skill-b"),
+            all.contains_key("skill/skill-a") && all.contains_key("skill/skill-b"),
             "both skills survive interleaved writes"
         );
     }
@@ -247,6 +281,102 @@ mod tests {
     }
 
     #[test]
+    fn slug_is_lowercase_singular_and_evaluable_excludes_mcp_and_spec() {
+        use crate::ContextKind::*;
+        assert_eq!(Skill.slug(), "skill");
+        assert_eq!(Command.slug(), "command");
+        assert_eq!(Agent.slug(), "agent");
+        assert_eq!(Context.slug(), "context");
+        assert_eq!(Memory.slug(), "memory");
+        // dir() is plural and special-cases Spec — slug() must not inherit that.
+        assert_eq!(Spec.slug(), "spec");
+        assert_eq!(Spec.dir(), "docs/specs");
+
+        for k in [Skill, Command, Agent, Context, Memory] {
+            assert!(k.evaluable(), "{k:?} must be evaluable");
+        }
+        assert!(
+            !Mcp.evaluable(),
+            "an MCP server is a connection, not context"
+        );
+        assert!(!Spec.evaluable(), "specs are never projected");
+    }
+
+    #[test]
+    fn read_evals_finds_them_under_the_kind_keyed_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join(".covenant/canon/evals/command/horizon");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("refuses-a-dirty-tree.toml"),
+            "id = \"refuses-a-dirty-tree\"\nscenario = \"s\"\nrubric = \"r\"\n",
+        )
+        .unwrap();
+
+        let evals = read_evals(root, crate::ContextKind::Command, "horizon");
+        assert_eq!(evals.len(), 1);
+        assert_eq!(evals[0].id, "refuses-a-dirty-tree");
+
+        // Same name, different kind → not the same evals.
+        assert!(read_evals(root, crate::ContextKind::Skill, "horizon").is_empty());
+        assert!(read_evals(root, crate::ContextKind::Command, "nope").is_empty());
+    }
+
+    /// The reason the tree is kind-keyed: this repo has a command named
+    /// `green`, and nothing stops a skill named `green`.
+    #[test]
+    fn same_name_different_kind_do_not_share_results() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let mk = |pass: bool| EvalResult {
+            eval_id: "e1".into(),
+            pass,
+            reason: "r".into(),
+            ran_at_ms: 0,
+            duration_ms: 0,
+            baseline_pass: None,
+        };
+        write_result(root, crate::ContextKind::Command, "green", &mk(true)).unwrap();
+        write_result(root, crate::ContextKind::Skill, "green", &mk(false)).unwrap();
+
+        assert_eq!(
+            pass_rate(root, crate::ContextKind::Command, "green"),
+            Some((1, 1))
+        );
+        assert_eq!(
+            pass_rate(root, crate::ContextKind::Skill, "green"),
+            Some((0, 1))
+        );
+
+        let all = read_results(root);
+        assert!(all.contains_key("command/green"));
+        assert!(all.contains_key("skill/green"));
+    }
+
+    /// History written by a build that keyed results by bare name still reads.
+    #[test]
+    fn a_legacy_bare_key_is_read_as_a_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".covenant/canon")).unwrap();
+        std::fs::write(
+            root.join(".covenant/canon/eval-results.json"),
+            r#"{"kyc-peru":{"e1":{"eval_id":"e1","pass":true,"reason":"r","ran_at_ms":0,"duration_ms":0}}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            pass_rate(root, crate::ContextKind::Skill, "kyc-peru"),
+            Some((1, 1))
+        );
+        assert_eq!(
+            pass_rate(root, crate::ContextKind::Command, "kyc-peru"),
+            None
+        );
+    }
+
+    #[test]
     fn write_result_backs_up_corrupt_file_instead_of_losing_it() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join(".covenant/canon");
@@ -260,13 +390,13 @@ mod tests {
             duration_ms: 1,
             baseline_pass: None,
         };
-        write_result(tmp.path(), "skill-a", &r).unwrap();
+        write_result(tmp.path(), ContextKind::Skill, "skill-a", &r).unwrap();
         assert!(
             dir.join("eval-results.corrupt.json").exists(),
             "corrupt file preserved"
         );
         assert_eq!(
-            read_results(tmp.path())["skill-a"]["e1"].pass,
+            read_results(tmp.path())["skill/skill-a"]["e1"].pass,
             true,
             "new write still lands"
         );

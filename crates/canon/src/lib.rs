@@ -13,7 +13,7 @@ pub mod project;
 pub mod types;
 
 pub use detect::scan_detected;
-pub use eval::{pass_rate, read_evals, read_results, write_result, Eval, EvalResult};
+pub use eval::{pass_rate, read_evals, read_results, unit_key, write_result, Eval, EvalResult};
 pub use install::{
     adopt, adopt_new_skills, content_version, delete_unit, install_from_dir, install_local,
     install_unit, parse_registry_source, read_skill_package, read_source, source_path, status,
