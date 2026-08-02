@@ -13,7 +13,7 @@ because the number is not a suite pass-rate. Two facts force that:
 - **Eval definitions never travel with the package.** `read_skill_package`
   reads exactly `skill.toml` and `SKILL.md` (`crates/canon/src/install.rs:172-176`);
   `install_from_dir` writes exactly those two (`install.rs:124-125`). Evals are
-  hand-authored per machine under `.covenant/canon/skills/<skill>/evals/*.toml`,
+  hand-authored per machine under `.covenant/canon/evals/skill/<name>/*.toml`,
   and `.covenant/` is gitignored, so they do not travel between clones either.
 - The result row key is `(package_id, github_id, eval_id)`, so the total counts
   (person × eval) pairs. Two members each running seven evals sum to 14.
@@ -96,6 +96,10 @@ Cap `evals_toml` at 256 KiB, matching `skill_md`.
 | `crates/canon` | `read_skill_package` returns the evals document; `install_from_dir` writes `evals/<id>.toml` per entry; a new `read_evals_doc` / `write_evals_doc` pair for the concat/split |
 | `crates/app` | `canon_publish` sends it; the registry install path passes it through |
 | `ui` | `evalChip` says `evals` again; the package preview shows the eval ids the package carries |
+
+The source path moved to `.covenant/canon/evals/<kind>/<name>/*.toml` under
+`2026-08-02-canon-kind-generic-evals-design.md`; packaging now has a kind
+dimension available to it should it ever carry a command's evals too.
 
 ## The two hard parts
 
