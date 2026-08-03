@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ExecutorPhase } from "../notch/store";
 import { attachTooltip } from "./tooltip/tooltip";
 import { Icons } from "./icons";
+import { brandIconSvg } from "./icons/brands";
 import { TurnAggregator, liveTail, type Turn } from "./activity/turns";
 
 type StatePayload = {
@@ -431,8 +432,13 @@ export function mountInlineNotch(host: HTMLElement): void {
       .map((t) => {
         // "[agent] · message" inside rail-name; the agent fragment keeps its
         // per-agent colour as the only identity cue (replacing the old dot).
+        // The brand mark replaces the name when we have one; agents without
+        // a brand icon (gemini, …) keep the text fallback.
+        const brand = showWho && t.agent ? brandIconSvg(t.agent, 12) : null;
         const namePrefix = showWho && t.agent
-          ? `<span style="color:${agentColor(t.agent)}">${escapeHtml(fmtAgent(t.agent))}</span> · `
+          ? `<span class="rail-brand" style="color:${agentColor(t.agent)}">${
+              brand ?? escapeHtml(fmtAgent(t.agent))
+            }</span> · `
           : "";
         // Live: the latest meaningful event. Frozen: outcome + duration —
         // the done summary stays available in the tooltip.
@@ -470,8 +476,10 @@ export function mountInlineNotch(host: HTMLElement): void {
           : "";
 
         const tipTail = t.events.length > 0 ? liveTail(t) : tail;
+        // The icon carries no text, so the agent name moves into the tooltip.
+        const tipTag = brand ? `${fmtAgent(t.agent)} · ${t.tag}` : t.tag;
         return `
-          <div class="rail-row activity-turn${isOpen ? " is-expanded" : ""}${foldable ? " is-foldable" : ""}" data-spine="${spineForTurn(t)}" data-row-id="${escapeHtml(t.id)}" data-tip-message="${escapeHtml(tipTail)}" data-tip-tag="${escapeHtml(t.tag)}" tabindex="0">
+          <div class="rail-row activity-turn${isOpen ? " is-expanded" : ""}${foldable ? " is-foldable" : ""}" data-spine="${spineForTurn(t)}" data-row-id="${escapeHtml(t.id)}" data-tip-message="${escapeHtml(tipTail)}" data-tip-tag="${escapeHtml(tipTag)}" tabindex="0">
             <div class="rail-row-line">
               <span class="activity-chev">${Icons.chevronRight({ size: 11 })}</span>
               <span class="rail-name">${namePrefix}${escapeHtml(tail)}</span>

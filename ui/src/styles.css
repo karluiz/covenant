@@ -20830,6 +20830,9 @@ body.theme-light .rail-search input { background: none; border: 0; }
 .rail-row-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .rail-cmd { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-meta); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .rail-name { font-family: var(--ui-font); font-size: var(--fs-body); font-weight: 500; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+/* Executor identity in the activity row: brand mark instead of the name,
+   tinted by the per-agent colour set inline. */
+.rail-brand svg { vertical-align: -2px; }
 .rail-meta { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--fg-dim); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .rail-when { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--fg-dim); margin-left: auto; white-space: nowrap; }
 .rail-num { color: var(--num); font-variant-numeric: tabular-nums; }
