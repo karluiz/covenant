@@ -4,3 +4,7 @@ args = [
     "@upstash/context7-mcp",
 ]
 command = "npx"
+
+[mcp_servers.canon-covenant]
+args = ["mcp-stdio"]
+command = "covenant"

@@ -7,6 +7,13 @@
       ],
       "command": "npx",
       "env": {}
+    },
+    "canon-covenant": {
+      "args": [
+        "mcp-stdio"
+      ],
+      "command": "covenant",
+      "env": {}
     }
   }
 }

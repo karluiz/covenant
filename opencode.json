@@ -9,6 +9,15 @@
       "enabled": true,
       "environment": {},
       "type": "local"
+    },
+    "canon-covenant": {
+      "command": [
+        "covenant",
+        "mcp-stdio"
+      ],
+      "enabled": true,
+      "environment": {},
+      "type": "local"
     }
   }
 }
