@@ -6,6 +6,35 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.18 — Idle tab-switch freeze: the user-event wake burst
+
+### Added
+
+- **Registry type-to-search + stable count badges**: typing anywhere in the
+  registry filters immediately, and section count badges no longer jump
+  while results stream in. `ui/src/canon/cockpit/view.ts`.
+- **Registry empty state + census cache on tab switch**: the registry keeps
+  its census across tab switches and shows a real empty state instead of a
+  blank pane. `ui/src/canon/cockpit/`.
+
+### Fixed
+
+- **Idle tab-switch freeze — user-event wake burst**: 0.11.16's metronome
+  closed the last diagnostic branch: on an unattended app macOS defers every
+  main-thread wakeup mechanism (tao wake port 1412ms, GCD main queue 1166ms,
+  even an mk_timer-backed `CFRunLoopTimer` 1390ms) at full priority in
+  default mode, while sibling threads tick punctually. The one path never
+  deferred — in every dataset since 0.11.4 — is user input via the
+  WindowServer event port. An `NSEvent` local monitor now opens a 3s window
+  on any real user event during which a helper thread posts tao's own dummy
+  ApplicationDefined event every 50ms, forcing runloop iterations through
+  the exempt path exactly when a switch needs frames; idle costs nothing.
+  `crates/app/src/mac_wake.rs`.
+- **Registry section lists on open**: opening the registry seeds section
+  results from the census with a loading state instead of empty lists.
+  `ui/src/canon/cockpit/view.ts`.
+
+
 ## v0.11.17 — Registry skill descriptions: YAML block scalars parsed
 
 ### Fixed
