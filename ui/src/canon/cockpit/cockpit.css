@@ -616,6 +616,10 @@ body.tabbar-left .canon-cockpit {
   font-size: 10px;
   color: var(--fg-dim);
 }
+/* Reserve the badge slot before the census resolves — no layout shift. */
+.canon-reg-kind-ct:empty::before {
+  content: "–";
+}
 .canon-reg-kind:hover:not(.is-active) {
   color: var(--fg);
   background: rgb(var(--ink-rgb) / 0.03);

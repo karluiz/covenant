@@ -1952,15 +1952,25 @@ export class CanonCockpitView {
     // so the row is scannable by glyph before you read a word; active state is
     // the shared accent underline. Every kind is a /cdlc/packages search;
     // operators are shared via the org roster sync, not a public registry.
-    type RegTab = { key: string; label: string; wire: CanonPkgKind; icon: string };
+    type RegTab = { key: SectionKey; label: string; wire: CanonPkgKind; icon: string; icon28: string };
     const REG_TABS: RegTab[] = [
-      { key: "skills", label: "Skills", wire: "skill", icon: Icons.sparkles({ size: 15 }) },
-      { key: "agents", label: "Subagents", wire: "agent", icon: Icons.bot({ size: 15 }) },
-      { key: "commands", label: "Commands", wire: "command", icon: Icons.terminalSquare({ size: 15 }) },
-      { key: "context", label: "Context", wire: "context", icon: Icons.fileText({ size: 15 }) },
-      { key: "mcp", label: "MCP", wire: "mcp", icon: Icons.radioTower({ size: 15 }) },
+      { key: "skills", label: "Skills", wire: "skill", icon: Icons.sparkles({ size: 15 }), icon28: Icons.sparkles({ size: 28 }) },
+      { key: "agents", label: "Subagents", wire: "agent", icon: Icons.bot({ size: 15 }), icon28: Icons.bot({ size: 28 }) },
+      { key: "commands", label: "Commands", wire: "command", icon: Icons.terminalSquare({ size: 15 }), icon28: Icons.terminalSquare({ size: 28 }) },
+      { key: "context", label: "Context", wire: "context", icon: Icons.fileText({ size: 15 }), icon28: Icons.fileText({ size: 28 }) },
+      { key: "mcp", label: "MCP", wire: "mcp", icon: Icons.radioTower({ size: 15 }), icon28: Icons.radioTower({ size: 28 }) },
     ];
     let tab: RegTab = REG_TABS[0];
+    // Flips on the first explicit search or tab click so the async census
+    // seed below never clobbers results the user asked for.
+    let userSearched = false;
+    // Empty-query rows per kind, filled by the seed fan-out and by browse
+    // fetches — tab switches render from here instantly, then revalidate.
+    const census = new Map<CanonPkgKind, PkgMeta[]>();
+    // Monotonic ticket per explicit search — a response landing after a newer
+    // search (or a tab switch, which also runs one) is dropped, not rendered.
+    let searchSeq = 0;
+    let debounceId: number | undefined;
     // Org defaults keyed `${kind}/${name}` — owners pin/unpin from the cards.
     const defaults = new Set<string>();
     void canonOrgDefaults(initialActive.slug)
@@ -1982,23 +1992,11 @@ export class CanonCockpitView {
       lbl.textContent = t.label;
       const ct = document.createElement("span");
       ct.className = "canon-reg-kind-ct";
-      ct.hidden = true;
       countEls.set(t.key, ct);
       b.append(ico, lbl, ct);
       b.addEventListener("click", () => { applyKindUI(t); runSearch(); });
       tabBtns.set(t.key, b);
       toggleRow.appendChild(b);
-    }
-
-    // Per-catalog counts. No census endpoint for the remote registry, so fan
-    // out one empty-query search per kind and fill each badge as it resolves —
-    // non-blocking, cached for the cockpit's lifetime.
-    // ponytail: 6 parallel searches on open; a canon_registry_census command
-    // returning all counts in one call is the upgrade path if this shows up hot.
-    for (const t of REG_TABS) {
-      const ct = countEls.get(t.key);
-      if (!ct) continue;
-      void canonSearch(initialActive.slug, null, t.wire).then((rows) => rows.length).then((n) => { ct.textContent = String(n); ct.hidden = false; }).catch(() => {});
     }
 
     const searchRow = document.createElement("div");
@@ -2018,85 +2016,112 @@ export class CanonCockpitView {
     const results = document.createElement("div");
     results.className = "canon-cockpit-search-results";
 
-    const runPkgSearch = (active: Org, wire: CanonPkgKind): void => {
-      results.replaceChildren(this.note("Searching…"));
-      void canonSearch(active.slug, input.value.trim() || null, wire)
-        .then((rows: PkgMeta[]) => {
-          results.replaceChildren();
-          if (rows.length === 0) {
-            results.appendChild(this.note("No packages found."));
-            return;
-          }
-          for (const r of rows) {
-            const inst = iconButton(Icons.download({ size: 15 }), "Install", () => {
-              const org = this.activeOrg();
-              if (!org) return;
-              errorEl.hidden = true;
-              inst.disabled = true;
-              const install = wire === "skill"
-                ? canonInstallRegistry(cwd, org.slug, r.name, r.version, this.opts.groupLabel, null)
-                : canonInstallRegistryUnit(cwd, org.slug, r.name, r.version, wire);
-              void install
-                .then(() => { this.invalidateStatus(); inst.innerHTML = Icons.check({ size: 15 }); })
-                .catch((e) => {
-                  errorEl.hidden = false;
-                  errorEl.textContent = this.friendlyError(e);
-                  inst.disabled = false;
-                });
-            });
-            const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
-            const evals = evalChip(r);
-            const meta = wire === "skill"
-              ? [r.version, installs, evals, r.publisher_login].filter(Boolean).join(" · ")
-              : `${installs} · ${r.publisher_login}`;
-            const stats = wire === "skill"
-              ? [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)]
-              : [`shared by ${r.publisher_login}`, installs];
-            const key = `${wire}/${r.name}`;
-            if (defaults.has(key)) stats.push("org default");
-            const actions = [inst];
-            if (isOwner) {
-              const pin = iconButton(Icons.pin({ size: 15 }), "Org default — suggested in every repo of the org", () => {
-                pin.disabled = true;
-                const on = !defaults.has(key);
-                const call = on
-                  ? canonOrgDefaultSet(active.slug, wire, r.name)
-                  : canonOrgDefaultUnset(active.slug, wire, r.name);
-                void call
-                  .then(() => {
-                    if (on) defaults.add(key); else defaults.delete(key);
-                    pin.classList.toggle("is-active", on);
-                    pin.disabled = false;
-                  })
-                  .catch((e) => {
-                    pin.disabled = false;
-                    errorEl.hidden = false;
-                    errorEl.textContent = this.friendlyError(e);
-                  });
-              });
-              pin.classList.add("canon-default-pin");
-              pin.classList.toggle("is-active", defaults.has(key));
-              actions.unshift(pin);
-            }
-            results.appendChild(skillCard({
-              name: r.name,
-              meta,
-              description: r.description,
-              className: "canon-search-result",
-              fetchPreview: () => canonPreview(active.slug, r.name, r.version, wire).then((p) => p.skill_md),
-              actions,
-              stats,
+    const renderRows = (active: Org, wire: CanonPkgKind, rows: PkgMeta[]): void => {
+      results.replaceChildren();
+      if (rows.length === 0) {
+        const q = input.value.trim();
+        results.appendChild(q
+          ? this.note(`No matches for “${q}”.`)
+          : this.emptyState({
+              icon: tab.icon28,
+              title: `No ${tab.key === "mcp" ? "MCP packages" : tab.label.toLowerCase()} in ${active.slug} yet`,
+              hint: `Publish one from this repo's ${tab.label} section.`,
+              action: { label: `Go to ${tab.label}`, onClick: () => this.showSection(tab.key) },
             }));
+        return;
+      }
+      for (const r of rows) {
+        const inst = iconButton(Icons.download({ size: 15 }), "Install", () => {
+          const org = this.activeOrg();
+          if (!org) return;
+          errorEl.hidden = true;
+          inst.disabled = true;
+          const install = wire === "skill"
+            ? canonInstallRegistry(cwd, org.slug, r.name, r.version, this.opts.groupLabel, null)
+            : canonInstallRegistryUnit(cwd, org.slug, r.name, r.version, wire);
+          void install
+            .then(() => { this.invalidateStatus(); inst.innerHTML = Icons.check({ size: 15 }); })
+            .catch((e) => {
+              errorEl.hidden = false;
+              errorEl.textContent = this.friendlyError(e);
+              inst.disabled = false;
+            });
+        });
+        const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
+        const evals = evalChip(r);
+        const meta = wire === "skill"
+          ? [r.version, installs, evals, r.publisher_login].filter(Boolean).join(" · ")
+          : `${installs} · ${r.publisher_login}`;
+        const stats = wire === "skill"
+          ? [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)]
+          : [`shared by ${r.publisher_login}`, installs];
+        const key = `${wire}/${r.name}`;
+        if (defaults.has(key)) stats.push("org default");
+        const actions = [inst];
+        if (isOwner) {
+          const pin = iconButton(Icons.pin({ size: 15 }), "Org default — suggested in every repo of the org", () => {
+            pin.disabled = true;
+            const on = !defaults.has(key);
+            const call = on
+              ? canonOrgDefaultSet(active.slug, wire, r.name)
+              : canonOrgDefaultUnset(active.slug, wire, r.name);
+            void call
+              .then(() => {
+                if (on) defaults.add(key); else defaults.delete(key);
+                pin.classList.toggle("is-active", on);
+                pin.disabled = false;
+              })
+              .catch((e) => {
+                pin.disabled = false;
+                errorEl.hidden = false;
+                errorEl.textContent = this.friendlyError(e);
+              });
+          });
+          pin.classList.add("canon-default-pin");
+          pin.classList.toggle("is-active", defaults.has(key));
+          actions.unshift(pin);
+        }
+        results.appendChild(skillCard({
+          name: r.name,
+          meta,
+          description: r.description,
+          className: "canon-search-result",
+          fetchPreview: () => canonPreview(active.slug, r.name, r.version, wire).then((p) => p.skill_md),
+          actions,
+          stats,
+        }));
+      }
+    };
+
+    const runPkgSearch = (active: Org, wire: CanonPkgKind): void => {
+      const query = input.value.trim() || null;
+      // Browsing (empty query) paints from the census instantly and
+      // revalidates in the background; typed searches always hit the network.
+      const cached = query === null ? census.get(wire) : undefined;
+      if (cached) renderRows(active, wire, cached);
+      else results.replaceChildren(this.note("Searching…"));
+      const seq = ++searchSeq;
+      void canonSearch(active.slug, query, wire)
+        .then((rows: PkgMeta[]) => {
+          if (query === null) {
+            census.set(wire, rows);
+            const t = REG_TABS.find((x) => x.wire === wire);
+            const ct = t && countEls.get(t.key);
+            if (ct) ct.textContent = String(rows.length);
           }
+          if (seq !== searchSeq) return; // a newer search owns the list
+          renderRows(active, wire, rows);
         })
         .catch((e) => {
-          results.replaceChildren();
+          if (seq !== searchSeq) return;
+          if (!cached) results.replaceChildren();
           errorEl.hidden = false;
           errorEl.textContent = this.friendlyError(e);
         });
     };
 
     const runSearch = (): void => {
+      userSearched = true;
       errorEl.hidden = true;
       const active = this.activeOrg();
       if (!active) {
@@ -2109,6 +2134,7 @@ export class CanonCockpitView {
 
     const applyKindUI = (next: RegTab): void => {
       tab = next;
+      window.clearTimeout(debounceId);
       for (const [key, b] of tabBtns) {
         const isActive = key === next.key;
         b.setAttribute("aria-pressed", String(isActive));
@@ -2119,8 +2145,41 @@ export class CanonCockpitView {
     };
     applyKindUI(REG_TABS[0]);
 
+    // Per-catalog counts + initial listing. No census endpoint for the remote
+    // registry, so fan out one empty-query search per kind: each resolves its
+    // tab badge, and the active kind's rows seed the results list so the
+    // section never opens empty.
+    // ponytail: 5 parallel searches on open; a canon_registry_census command
+    // returning all counts in one call is the upgrade path if this shows up hot.
+    results.replaceChildren(this.note("Loading…"));
+    for (const t of REG_TABS) {
+      const ct = countEls.get(t.key);
+      if (!ct) continue;
+      void canonSearch(initialActive.slug, null, t.wire)
+        .then((rows) => {
+          census.set(t.wire, rows);
+          ct.textContent = String(rows.length);
+          if (t.wire === tab.wire && !userSearched) renderRows(initialActive, t.wire, rows);
+        })
+        .catch((e) => {
+          if (t.wire === tab.wire && !userSearched) {
+            results.replaceChildren();
+            errorEl.hidden = false;
+            errorEl.textContent = this.friendlyError(e);
+          }
+        });
+    }
+
     go.addEventListener("click", runSearch);
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+    input.addEventListener("input", () => {
+      window.clearTimeout(debounceId);
+      debounceId = window.setTimeout(runSearch, 300);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      window.clearTimeout(debounceId);
+      runSearch();
+    });
 
     searchRow.append(input, go);
     el.append(toggleRow, searchRow, errorEl, results);

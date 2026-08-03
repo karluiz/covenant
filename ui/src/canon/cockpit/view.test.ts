@@ -172,6 +172,66 @@ describe("CanonCockpitView Registry section", () => {
     expect(v.element.textContent).toContain("kyc");
   });
 
+  it("seeds the active kind's listing on open without clicking Search", async () => {
+    vi.mocked(canonSearch).mockResolvedValue([
+      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234", kind: "skill", eval_passed: 0, eval_total: 0 },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("registry");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-search-result")).toBeTruthy();
+    });
+  });
+
+  it("shows the homologated empty state with a section CTA for a kind with zero packages", async () => {
+    vi.mocked(canonSearch).mockResolvedValue([]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("registry");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-cockpit-search-results .canon-cockpit-empty")).toBeTruthy();
+    });
+    const cta = [...v.element.querySelectorAll<HTMLButtonElement>(".rail-empty-btn")]
+      .find((b) => b.textContent === "Go to Skills");
+    expect(cta).toBeTruthy();
+  });
+
+  it("re-renders a revisited kind synchronously from the census cache", async () => {
+    vi.mocked(canonSearch).mockResolvedValue([
+      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234", kind: "skill", eval_passed: 0, eval_total: 0 },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("registry");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-search-result")).toBeTruthy();
+    });
+    const tabs = [...v.element.querySelectorAll<HTMLButtonElement>(".canon-reg-kind")];
+    tabs.find((b) => b.textContent?.startsWith("Commands"))!.click();
+    tabs.find((b) => b.textContent?.startsWith("Skills"))!.click();
+    // No await: the census painted the listing before the revalidate resolves.
+    expect(v.element.querySelector(".canon-search-result")).toBeTruthy();
+  });
+
+  it("searches as you type after a debounce", () => {
+    vi.mocked(canonSearch).mockResolvedValue([]);
+    vi.useFakeTimers();
+    try {
+      const v = new CanonCockpitView(opts);
+      v.open(); v.showSection("registry");
+      const input = v.element.querySelector(".canon-cockpit-search-input") as HTMLInputElement;
+      input.value = "kyc";
+      input.dispatchEvent(new Event("input"));
+      input.value = "kyc2";
+      input.dispatchEvent(new Event("input"));
+      const before = vi.mocked(canonSearch).mock.calls.length;
+      vi.advanceTimersByTime(300);
+      // One search for the settled query — the first keystroke's timer was superseded.
+      expect(vi.mocked(canonSearch).mock.calls.length).toBe(before + 1);
+      expect(canonSearch).toHaveBeenLastCalledWith(expect.any(String), "kyc2", "skill");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders all five registry kind tabs", async () => {
     const v = new CanonCockpitView(opts);
     v.open();
