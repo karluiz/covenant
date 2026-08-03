@@ -6,6 +6,50 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.13 — Idle tab-switch freeze fixed + kind-generic evals
+
+### Added
+
+- **Kind-generic evals**: the eval runner now reaches every evaluable Canon
+  kind, not just skills. Evals are keyed by kind and name
+  (`evals/<kind>/<name>/`), the sandbox is built by projecting a one-unit
+  Canon tree, any evaluable kind's row in the cockpit grows a Run-evals
+  action, and removing a unit removes its evals. `crates/app/src/canon_eval.rs`,
+  `ui/src/canon/cockpit/`.
+- **Per-operator reflexes**: the operator creator can record decisions the
+  principal has already made — reflexes that ship with the soul.
+  `ui/src/operator/creator.ts`.
+- **Native main-thread lag probe**: a Rust thread posts to the main runloop
+  every 100ms and records how late it ran; the worst lag across each tab
+  activation lands on the `repaint` vital as `detail.mainLagMs` and as a
+  "Main lag" column in the ⌘⌥V Vitals dashboard — the discriminator that
+  separates a blocked UI process from a cold compositor.
+  `crates/app/src/main_lag.rs`, `ui/src/vitals/`.
+
+### Changed
+
+- **Canon executor projections**: the `canon-covenant` MCP server is now
+  projected into the checked-in executor configs (`.mcp.json`,
+  `.codex/config.toml`, `opencode.json`), and the eval specs were corrected
+  to match where eval files actually live.
+
+### Fixed
+
+- **First tab switch after idle froze ~2s**: live process sampling during a
+  repro showed nothing computing during the gap — WebKit marks the
+  visible-but-static page visually idle and takes ~2s to re-engage its
+  rendering-update cycle. A 1×1 composited layer now flips its transform
+  once per second, keeping the cycle warm with one tiny layer commit.
+  Warm-pipeline switches measure p50 ~250ms vs ~2s cold.
+  `ui/src/render-heartbeat.ts`.
+- **Eval sandbox honesty**: the sandbox now writes the context files the
+  model is told it has (`CLAUDE.md` alongside `AGENTS.md`), and eval unit
+  names are validated before they reach `read_evals` scans or sandbox path
+  joins. `crates/app/src/canon_eval.rs`.
+- **Search in dead worktrees**: palette search falls back to the repo root
+  when the tab's worktree directory no longer exists instead of returning
+  nothing. `crates/app/src/lib.rs`.
+
 ## v0.11.12 — Eval results travel to the org registry
 
 ### Added
