@@ -172,6 +172,17 @@ describe("CanonCockpitView Registry section", () => {
     expect(v.element.textContent).toContain("kyc");
   });
 
+  it("seeds the active kind's listing on open without clicking Search", async () => {
+    vi.mocked(canonSearch).mockResolvedValue([
+      { id: 1, name: "kyc", version: "1.0.0", description: "", publisher_login: "karluiz", installs: 3, sha: "abc1234", kind: "skill", eval_passed: 0, eval_total: 0 },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("registry");
+    await vi.waitFor(() => {
+      expect(v.element.querySelector(".canon-search-result")).toBeTruthy();
+    });
+  });
+
   it("renders all five registry kind tabs", async () => {
     const v = new CanonCockpitView(opts);
     v.open();
