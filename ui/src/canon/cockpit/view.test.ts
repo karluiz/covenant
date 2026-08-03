@@ -211,6 +211,27 @@ describe("CanonCockpitView Registry section", () => {
     expect(v.element.querySelector(".canon-search-result")).toBeTruthy();
   });
 
+  it("searches as you type after a debounce", () => {
+    vi.mocked(canonSearch).mockResolvedValue([]);
+    vi.useFakeTimers();
+    try {
+      const v = new CanonCockpitView(opts);
+      v.open(); v.showSection("registry");
+      const input = v.element.querySelector(".canon-cockpit-search-input") as HTMLInputElement;
+      input.value = "kyc";
+      input.dispatchEvent(new Event("input"));
+      input.value = "kyc2";
+      input.dispatchEvent(new Event("input"));
+      const before = vi.mocked(canonSearch).mock.calls.length;
+      vi.advanceTimersByTime(300);
+      // One search for the settled query — the first keystroke's timer was superseded.
+      expect(vi.mocked(canonSearch).mock.calls.length).toBe(before + 1);
+      expect(canonSearch).toHaveBeenLastCalledWith(expect.any(String), "kyc2", "skill");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders all five registry kind tabs", async () => {
     const v = new CanonCockpitView(opts);
     v.open();

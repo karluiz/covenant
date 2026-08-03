@@ -1967,6 +1967,10 @@ export class CanonCockpitView {
     // Empty-query rows per kind, filled by the seed fan-out and by browse
     // fetches — tab switches render from here instantly, then revalidate.
     const census = new Map<CanonPkgKind, PkgMeta[]>();
+    // Monotonic ticket per explicit search — a response landing after a newer
+    // search (or a tab switch, which also runs one) is dropped, not rendered.
+    let searchSeq = 0;
+    let debounceId: number | undefined;
     // Org defaults keyed `${kind}/${name}` — owners pin/unpin from the cards.
     const defaults = new Set<string>();
     void canonOrgDefaults(initialActive.slug)
@@ -1988,7 +1992,6 @@ export class CanonCockpitView {
       lbl.textContent = t.label;
       const ct = document.createElement("span");
       ct.className = "canon-reg-kind-ct";
-      ct.hidden = true;
       countEls.set(t.key, ct);
       b.append(ico, lbl, ct);
       b.addEventListener("click", () => { applyKindUI(t); runSearch(); });
@@ -2097,14 +2100,20 @@ export class CanonCockpitView {
       const cached = query === null ? census.get(wire) : undefined;
       if (cached) renderRows(active, wire, cached);
       else results.replaceChildren(this.note("Searching…"));
+      const seq = ++searchSeq;
       void canonSearch(active.slug, query, wire)
         .then((rows: PkgMeta[]) => {
-          if (query === null) census.set(wire, rows);
-          if (wire !== tab.wire) return; // user switched tabs mid-flight
+          if (query === null) {
+            census.set(wire, rows);
+            const t = REG_TABS.find((x) => x.wire === wire);
+            const ct = t && countEls.get(t.key);
+            if (ct) ct.textContent = String(rows.length);
+          }
+          if (seq !== searchSeq) return; // a newer search owns the list
           renderRows(active, wire, rows);
         })
         .catch((e) => {
-          if (wire !== tab.wire) return;
+          if (seq !== searchSeq) return;
           if (!cached) results.replaceChildren();
           errorEl.hidden = false;
           errorEl.textContent = this.friendlyError(e);
@@ -2125,6 +2134,7 @@ export class CanonCockpitView {
 
     const applyKindUI = (next: RegTab): void => {
       tab = next;
+      window.clearTimeout(debounceId);
       for (const [key, b] of tabBtns) {
         const isActive = key === next.key;
         b.setAttribute("aria-pressed", String(isActive));
@@ -2149,7 +2159,6 @@ export class CanonCockpitView {
         .then((rows) => {
           census.set(t.wire, rows);
           ct.textContent = String(rows.length);
-          ct.hidden = false;
           if (t.wire === tab.wire && !userSearched) renderRows(initialActive, t.wire, rows);
         })
         .catch((e) => {
@@ -2162,7 +2171,15 @@ export class CanonCockpitView {
     }
 
     go.addEventListener("click", runSearch);
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+    input.addEventListener("input", () => {
+      window.clearTimeout(debounceId);
+      debounceId = window.setTimeout(runSearch, 300);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      window.clearTimeout(debounceId);
+      runSearch();
+    });
 
     searchRow.append(input, go);
     el.append(toggleRow, searchRow, errorEl, results);
