@@ -181,7 +181,7 @@ Rules:
 ## Components & interaction rules
 
 - **Tooltips:** always `attachTooltip()` from `ui/src/tooltip/tooltip.ts`. **Never** `element.title` — native tooltips are banned.
-- **Confirmations:** destructive actions use the in-app command-palette card style (`command-palette-overlay` / `command-palette-card`, see `workspaces/confirm-prompt.ts`), not native dialogs.
+- **Confirmations:** destructive actions use the in-app command-palette card style (`command-palette-overlay` / `command-palette-card`, see `workspaces/confirm-prompt.ts`), not native dialogs. `openConfirmPrompt` also covers rich confirms (`title` / `detail` rows / `warn` line) and unrecoverable-data ones (`focusCancel: true` so Enter backs out). Other modal surfaces (pickers, release notes) compose the same overlay + card classes for their skin — never invent a parallel `.modal` family.
 - **Drag & drop:** in-page HTML5 DnD does not fire in the webview — use pointer events + `elementFromPoint` (the tab strip is the reference implementation).
 - **Fixed overlays:** clamp against `window.innerWidth/Height ÷ zoom`, not `documentElement.client*` (visual px under WKWebView zoom).
 - **Buttons:** primary = `--accent` fill with dark text; everything else is ghost (transparent, ink-alpha hover). One primary per view.

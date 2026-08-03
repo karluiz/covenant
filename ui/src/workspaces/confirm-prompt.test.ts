@@ -78,4 +78,51 @@ describe("openConfirmPrompt", () => {
     expect(document.querySelectorAll(".workspace-confirm-overlay").length).toBe(1);
     expect(document.querySelector(".workspace-confirm-message")?.textContent).toBe("b");
   });
+
+  it("renders title, detail rows and warn line when provided", () => {
+    openConfirmPrompt({
+      title: "Delete tab and its operator memory?",
+      message: "5 turns of memory.",
+      detail: [
+        ["Current goal", "—"],
+        ["Last belief", "idle"],
+      ],
+      warn: "This memory is lost permanently.",
+      onConfirm: vi.fn(),
+    });
+    const el = overlay()!;
+    expect(el.querySelector(".workspace-confirm-title")?.textContent).toBe(
+      "Delete tab and its operator memory?",
+    );
+    const dts = el.querySelectorAll(".workspace-confirm-detail dt");
+    expect([...dts].map((d) => d.textContent)).toEqual(["Current goal", "Last belief"]);
+    expect(el.querySelector(".workspace-confirm-warn")?.textContent).toBe(
+      "This memory is lost permanently.",
+    );
+  });
+
+  it("focusCancel focuses Cancel and Enter cancels instead of confirming", () => {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    openConfirmPrompt({ message: "sure?", focusCancel: true, onConfirm, onCancel });
+    const cancel = document.querySelector<HTMLButtonElement>(".workspace-confirm-cancel")!;
+    expect(document.activeElement).toBe(cancel);
+    overlay()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(overlay()).toBeNull();
+  });
+
+  it("onCancel fires on Escape and backdrop click, never alongside onConfirm", () => {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    openConfirmPrompt({ message: "sure?", onConfirm, onCancel });
+    overlay()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    openConfirmPrompt({ message: "sure?", onConfirm, onCancel });
+    overlay()!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onCancel).toHaveBeenCalledTimes(2);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
 });

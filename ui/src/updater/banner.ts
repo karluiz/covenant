@@ -79,16 +79,16 @@ function openReleaseNotesModal(update: Update, onInstall: () => void): void {
 
   const overlay = document.createElement("div");
   overlay.id = MODAL_ID;
-  overlay.className = "update-modal-overlay";
+  overlay.className = "command-palette-overlay update-modal-overlay";
   overlay.innerHTML = `
-    <div class="update-modal" role="dialog" aria-modal="true" aria-label="Release notes">
+    <div class="command-palette-card update-modal" role="dialog" aria-modal="true" aria-label="Release notes">
       <div class="update-modal__head">
         <span class="update-modal__ver">v${update.version}</span>
         <div class="update-modal__titlewrap">
           <div class="update-modal__title">What's new</div>
           <div class="update-modal__from">Release notes</div>
         </div>
-        <button class="update-modal__close" type="button" aria-label="Close">×</button>
+        <button class="update-modal__close" type="button" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
       </div>
       <div class="update-modal__body"></div>
       <div class="update-modal__foot">
