@@ -123,6 +123,7 @@ body.theme-true-dark .kb-card { background: #141416; }
   color: var(--muted);
 }
 .kb-due { color: #f0a868; border-color: color-mix(in srgb, #f0a868 30%, transparent); }
+.kb-est { color: var(--muted); }
 .kb-subs { color: var(--muted); }
 .kb-subs.all { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
 .kb-tag { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
@@ -196,6 +197,7 @@ body.theme-true-dark .kb-card { background: #141416; }
   width: 320px;
   overflow-y: auto;
   border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   padding: 16px;
 }
 /* In the dock, the sheet fills the full height and Notes flex-grows to take

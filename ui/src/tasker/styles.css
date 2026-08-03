@@ -498,6 +498,49 @@ body.theme-true-dark .tasker-edit-note .md-editor {
 }
 .tasker-sheet-delete:hover { color: #f87171; }
 
+/* Editable task title at the top of the board-dock sheet. Seamless heading
+   look: no chrome until hover/focus. */
+.tasker-detail-title {
+  width: 100%;
+  min-width: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  padding: 0 0 4px;
+  color: var(--text-primary);
+  font-family: var(--ui-font);
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+}
+.tasker-detail-title:hover { border-bottom-color: var(--border); }
+.tasker-detail-title:focus { border-bottom-color: var(--accent); }
+/* The light theme's global `body.theme-light input` reset repaints a white
+   box over the seamless title — same escape hatch as .rail-search. */
+body.theme-light .tasker-detail-title { background: none; border: 0; border-bottom: 1px solid transparent; }
+body.theme-light .tasker-detail-title:hover { border-bottom-color: var(--border); }
+body.theme-light .tasker-detail-title:focus { border-bottom-color: var(--accent); }
+
+/* Time-estimate input in the detail sheet ("2h 30m" / "45m" / "90"). */
+.tasker-est-input {
+  width: 90px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 4px 8px;
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  outline: none;
+}
+.tasker-est-input:focus { border-color: var(--accent); }
+.tasker-est-input::placeholder { color: var(--text-tertiary); }
+
 .tasker-chip {
   display: inline-flex;
   align-items: center;

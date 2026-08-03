@@ -3,7 +3,7 @@
 import type { Task, Project, SubTask, TaskStatus, TaskPriority } from "./types";
 import { TaskStorage, generateId } from "./storage";
 import { Icons } from "../icons";
-import { BoardView, renderSubsFraction } from "./board";
+import { BoardView, renderSubsFraction, formatMinutes, parseDuration } from "./board";
 import { MarkdownEditor } from "../ui/markdown-editor";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
@@ -296,7 +296,9 @@ export class TaskerPanel {
     let dock = "";
     if (sel) {
       const task = this.storage.getTask(sel.projectId, sel.taskId);
-      if (task) dock = this.renderTaskDetails(sel.projectId, task);
+      // withTitle: the dock is the only surface showing this task, so the
+      // title must be editable here (the list view renames via its row).
+      if (task) dock = this.renderTaskDetails(sel.projectId, task, true);
     }
     // The toolbar's project switcher names the board being looked at, so the
     // share affordance belongs beside it — board view has no project header
@@ -480,10 +482,11 @@ export class TaskerPanel {
     `;
   }
 
-  private renderTaskDetails(projectId: string, task: Task): string {
+  private renderTaskDetails(projectId: string, task: Task, withTitle = false): string {
     const dueLabel = task.dueDate ? formatDueDate(task.dueDate) : "Add date";
     return `
       <div class="tasker-edit tasker-sheet" data-project-id="${projectId}" data-task-id="${task.id}">
+        ${withTitle ? `<input class="tasker-detail-title" type="text" value="${escapeAttr(task.title)}" autocomplete="off" spellcheck="false" aria-label="Task title" />` : ""}
         <div class="tasker-kv">
           <span class="tasker-kv-key">Status</span>
           <div class="tasker-seg tasker-seg-status" role="group">
@@ -501,6 +504,10 @@ export class TaskerPanel {
         <div class="tasker-kv">
           <span class="tasker-kv-key">Due</span>
           <button class="tasker-chip tasker-chip-due${task.dueDate ? " tasker-chip-due-set" : ""}" type="button">${escapeHtml(dueLabel)}</button>
+        </div>
+        <div class="tasker-kv">
+          <span class="tasker-kv-key">Estimate</span>
+          <input class="tasker-est-input" type="text" value="${task.estimatedMinutes ? formatMinutes(task.estimatedMinutes) : ""}" placeholder="2h 30m" autocomplete="off" aria-label="Time estimate" />
         </div>
         ${this.renderSubtasks(task)}
         <div class="tasker-kv tasker-kv-notes">
@@ -1141,6 +1148,58 @@ export class TaskerPanel {
         });
         mount.appendChild(editor.element);
         this.noteEditors.push({ editor, projectId, taskId });
+      }
+
+      const titleInput = edit.querySelector<HTMLInputElement>(".tasker-detail-title");
+      if (titleInput) {
+        const commit = (): void => {
+          const title = titleInput.value.trim();
+          const task = this.storage.getTask(projectId, taskId);
+          if (!task || title.length === 0 || title === task.title) return;
+          this.storage.updateTask(projectId, taskId, { title });
+          this.render();
+        };
+        titleInput.addEventListener("blur", commit);
+        titleInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            titleInput.blur();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            titleInput.value = this.storage.getTask(projectId, taskId)?.title ?? titleInput.value;
+            titleInput.blur();
+          }
+        });
+      }
+
+      const estInput = edit.querySelector<HTMLInputElement>(".tasker-est-input");
+      if (estInput) {
+        const commit = (): void => {
+          const task = this.storage.getTask(projectId, taskId);
+          if (!task) return;
+          const raw = estInput.value.trim();
+          const minutes = raw ? parseDuration(raw) : null;
+          if (raw && minutes === null) {
+            // Unparseable: restore the stored value instead of guessing.
+            estInput.value = task.estimatedMinutes ? formatMinutes(task.estimatedMinutes) : "";
+            return;
+          }
+          if ((minutes ?? undefined) === task.estimatedMinutes) return;
+          this.storage.updateTask(projectId, taskId, { estimatedMinutes: minutes ?? undefined });
+          this.render();
+        };
+        estInput.addEventListener("blur", commit);
+        estInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            estInput.blur();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            const task = this.storage.getTask(projectId, taskId);
+            estInput.value = task?.estimatedMinutes ? formatMinutes(task.estimatedMinutes) : "";
+            estInput.blur();
+          }
+        });
       }
 
       edit.querySelectorAll<HTMLButtonElement>(".tasker-seg-status .tasker-seg-btn").forEach((btn) => {
