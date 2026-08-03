@@ -38,6 +38,32 @@ function fmtDue(ts: number): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** 90 → "1h 30m", 120 → "2h", 45 → "45m". */
+export function formatMinutes(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+/** Logged minutes including the running timer, if any. */
+export function loggedMinutes(task: Task): number {
+  const run = task.timerStartedAt ? Math.round((Date.now() - task.timerStartedAt) / 60000) : 0;
+  return (task.spentMinutes ?? 0) + run;
+}
+
+/** "2h 30m" | "1.5h" | "45m" | bare "90" (minutes) → minutes, or null. */
+export function parseDuration(raw: string): number | null {
+  const s = raw.trim().toLowerCase();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) return parseInt(s, 10) || null;
+  const m = s.match(/^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+)\s*m(?:in)?)?$/);
+  if (!m || (!m[1] && !m[2])) return null;
+  const minutes = Math.round((m[1] ? parseFloat(m[1]) * 60 : 0) + (m[2] ? parseInt(m[2], 10) : 0));
+  return minutes > 0 ? minutes : null;
+}
+
 /** "2/5" subtask-progress chip, or "" when the task has none. Shared by the
  * board card and the rail row — `cls` picks the surface's base class; a
  * fully-checked list gets the extra `all` class. */
@@ -97,6 +123,16 @@ export class BoardView {
     const sel = this.deps.isSelected(projectId, task.id) ? " kb-card-selected" : "";
     const done = task.status === "done";
     const due = task.dueDate ? `<span class="kb-badge kb-due">${fmtDue(task.dueDate)}</span>` : "";
+    const estMin = task.estimatedMinutes;
+    const logged = loggedMinutes(task);
+    const running = !!task.timerStartedAt;
+    // One time chip: "1h 10m / 2h" once work is logged, bare estimate before.
+    const timeLabel = logged || running
+      ? formatMinutes(logged) + (estMin ? ` / ${formatMinutes(estMin)}` : "")
+      : estMin ? formatMinutes(estMin) : "";
+    const est = timeLabel
+      ? `<span class="kb-badge kb-est${running ? " kb-timing" : ""}" aria-label="Time">${timeLabel}</span>`
+      : "";
     const tags = (task.tags ?? [])
       .slice(0, 2)
       .map((t) => `<span class="kb-badge kb-tag">${escapeHtml(t)}</span>`)
@@ -105,7 +141,7 @@ export class BoardView {
       ? `<span class="kb-note" aria-label="Has description">${Icons.noteText({ size: 12 })}</span>`
       : "";
     const subs = renderSubsFraction(task, "kb-badge kb-subs");
-    const meta = due || tags || note || subs ? `<div class="kb-card-meta">${due}${subs}${tags}${note}</div>` : "";
+    const meta = due || est || tags || note || subs ? `<div class="kb-card-meta">${due}${est}${subs}${tags}${note}</div>` : "";
     return `
       <article class="kb-card kb-prio-${task.priority}${done ? " kb-card-done" : ""}${sel}"
         data-project-id="${projectId}" data-task-id="${task.id}">

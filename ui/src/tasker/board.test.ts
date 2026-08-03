@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import { TaskerPanel } from "./panel";
-import { BoardView } from "./board";
+import { BoardView, formatMinutes, parseDuration } from "./board";
 import { TaskStorage } from "./storage";
 import type { TaskStatus } from "./types";
 
@@ -305,5 +305,34 @@ describe("board project switcher", () => {
     const { host } = mountBoardPanel();
     expect(host.querySelector(".kb-project-select")).toBeNull();
     expect(host.querySelector(".kb-project-name")!.textContent).toContain("Inbox");
+  });
+});
+
+describe("time estimate helpers", () => {
+  it("formats minutes", () => {
+    expect(formatMinutes(45)).toBe("45m");
+    expect(formatMinutes(120)).toBe("2h");
+    expect(formatMinutes(90)).toBe("1h 30m");
+  });
+
+  it("parses durations", () => {
+    expect(parseDuration("2h 30m")).toBe(150);
+    expect(parseDuration("2h30m")).toBe(150);
+    expect(parseDuration("1.5h")).toBe(90);
+    expect(parseDuration("45m")).toBe(45);
+    expect(parseDuration("45min")).toBe(45);
+    expect(parseDuration("90")).toBe(90);
+    expect(parseDuration("")).toBeNull();
+    expect(parseDuration("0")).toBeNull();
+    expect(parseDuration("soon")).toBeNull();
+  });
+
+  it("renders the estimate badge on the card", () => {
+    const { storage, project, host, view } = boardHarness();
+    storage.createTask(project.id, "estimated", { status: "pending" });
+    const task = storage.getProject(project.id)!.tasks[0];
+    storage.updateTask(project.id, task.id, { estimatedMinutes: 90 });
+    view.render(host);
+    expect(host.querySelector(".kb-est")!.textContent).toBe("1h 30m");
   });
 });
