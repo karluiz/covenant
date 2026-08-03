@@ -100,8 +100,10 @@ describe("mountInlineNotch", () => {
     const body = host.querySelector(".rail-body");
     expect(body?.textContent).toContain("thinking");
     expect(body?.textContent).toContain("pi 1");
-    // Combined view composes "<agent> · <message>" into the rail name.
-    expect(body?.querySelector(".rail-name")?.textContent).toContain("Pi");
+    // Combined view composes "<brand icon> · <message>" into the rail name;
+    // the agent's name moves to the tooltip.
+    expect(body?.querySelector(".rail-name .rail-brand svg")).toBeTruthy();
+    expect(body?.querySelector<HTMLElement>(".rail-row")?.dataset.tipTag).toContain("Pi");
   });
 
   it("keeps the activity stream anchored while new rows arrive", () => {
