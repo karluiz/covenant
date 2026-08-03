@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.21 — Persistent eval progress panel
+
+### Added
+
+- **Persistent eval progress panel**: Run evals now opens a fixed
+  bottom-right panel instead of narrating a minutes-long run through
+  transient toasts. One row per authored eval (enumerated up front via the
+  new `canon_list_evals` command), each moving pending → running →
+  pass/fail/skipped/error with the judge's reason inline; a live tally
+  flips to pass-rate once the run settles, rows the run never reached are
+  marked skipped — never fake-green — and the panel persists after the run
+  until dismissed. `crates/app/src/canon_eval.rs`, `ui/src/canon/evals.ts`,
+  `ui/src/canon/styles.css`.
+
 ## v0.11.20 — Canon eval authoring pipeline + SpecScore badges
 
 ### Added
