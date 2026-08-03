@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.16 — Runloop metronome vs the deferred-wakeup switch freeze
+
+### Fixed
+
+- **100ms main-runloop metronome**: 0.11.15's forensics showed every
+  idle-cold switch stalling in `kCFRunLoopDefaultMode` at full priority 47
+  with tao posts AND GCD main-queue blocks both undelivered — the wake-port
+  message delivery itself is deferred on an unattended app (macOS Tahoe's
+  UpdateCycle runloop tap is the prime suspect). `CFRunLoopTimer` rides
+  `mk_timer`, a different kernel path, so a repeating 100ms no-op timer in
+  common modes now forces a runloop iteration per fire, draining deferred
+  sources — tao closures, GCD blocks, and WebKit's display-link relay. If
+  timers are exempt from the deferral, the post-idle repaint collapses to
+  ~350ms; the timer's own lateness ships as `detail.timerLagMs` on the
+  `repaint` vital (1ms steady-state in dev) so the next data set names the
+  mechanism either way. `crates/app/src/main_lag.rs`,
+  `ui/src/vitals/switch-vital.ts`.
+
+
 ## v0.11.15 — Runloop-mode + thread-priority forensics on the switch vital
 
 ### Added
