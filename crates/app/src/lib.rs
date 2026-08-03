@@ -3237,8 +3237,17 @@ async fn canon_publish(
                 .await
                 .map_err(|e| format!("canon_publish join: {e}"))?
                 .map_err(|e| e.to_string())?;
-        return canon_registry::publish(&org, &sm.name, &sm.version, "", &toml_s, &md_s, "skill")
-            .await;
+        let desc = karl_canon::parse_frontmatter_str(&md_s, "description").unwrap_or_default();
+        return canon_registry::publish(
+            &org,
+            &sm.name,
+            &sm.version,
+            &desc,
+            &toml_s,
+            &md_s,
+            "skill",
+        )
+        .await;
     }
     let k = parse_unit_kind(&kind)?;
     if matches!(
@@ -3265,7 +3274,8 @@ async fn canon_publish(
         content
     };
     let version = karl_canon::content_version(&content);
-    canon_registry::publish(&org, &name, &version, "", "", &content, &kind).await
+    let desc = karl_canon::parse_frontmatter_str(&content, "description").unwrap_or_default();
+    canon_registry::publish(&org, &name, &version, &desc, "", &content, &kind).await
 }
 
 /// Install a non-skill registry unit: fetch, write into .covenant/canon, re-project.

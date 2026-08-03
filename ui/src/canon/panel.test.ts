@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, type Mock } from "vitest";
-import { CanonPanel, asDoc, liftBadgeEl, slugify } from "./panel";
+import { CanonPanel, asDoc, cleanDescription, liftBadgeEl, slugify } from "./panel";
 import { liftClass } from "./cockpit/lift";
 import type { Operator } from "../api";
 
@@ -414,6 +414,21 @@ describe("liftBadgeEl", () => {
     const el = liftBadgeEl(liftClass({ kind: "skill", name: "x", passed: 8, total: 10, baseline_passed: 6, baseline_total: 10 }));
     expect(el.className).toContain("lift-earning");
     expect(el.textContent).toContain("+20");
+  });
+});
+
+describe("cleanDescription", () => {
+  it("drops a lone block-scalar marker stored by legacy publishes", () => {
+    expect(cleanDescription(">")).toBe("");
+    expect(cleanDescription("|-")).toBe("");
+  });
+  it("strips a wrapping/leading double quote", () => {
+    expect(cleanDescription('"All animation knowledge"')).toBe("All animation knowledge");
+    expect(cleanDescription('"truncated without closing')).toBe("truncated without closing");
+  });
+  it("passes normal descriptions through", () => {
+    expect(cleanDescription(" Use for motion tasks. ")).toBe("Use for motion tasks.");
+    expect(cleanDescription(undefined)).toBe("");
   });
 });
 

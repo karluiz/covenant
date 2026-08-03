@@ -2,8 +2,9 @@
 //!
 //! Only supports the flat `key: value` shape used by SKILL.md / command markdown
 //! across Claude Code, opencode, and the shared ~/.agents standard. Values are
-//! trimmed; multiline values, lists, nested maps, and quoted forms beyond simple
-//! double-quotes are out of scope for v0.
+//! trimmed. Block scalars (`key: >` / `key: |`) fold their indented lines into
+//! one value; lists, nested maps, and quoted forms beyond simple double-quotes
+//! are out of scope for v0.
 
 use std::collections::HashMap;
 
@@ -55,15 +56,41 @@ pub fn parse(input: &str) -> Frontmatter {
     let body = rest.get(body_start..).unwrap_or("").to_string();
 
     let mut fields = HashMap::new();
-    for line in yaml.lines() {
+    let lines: Vec<&str> = yaml.lines().collect();
+    let mut i = 0usize;
+    while i < lines.len() {
+        let line = lines[i];
+        i += 1;
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // Indented lines are continuations/nested values, never top-level keys.
+        if line.starts_with([' ', '\t']) {
             continue;
         }
         if let Some((k, v)) = trimmed.split_once(':') {
             let key = k.trim().to_string();
             let raw = v.trim();
-            let val = strip_quotes(raw).to_string();
+            let val = if matches!(raw, ">" | ">-" | ">+" | "|" | "|-" | "|+") {
+                // Block scalar: fold the indented continuation lines.
+                let sep = if raw.starts_with('|') { "\n" } else { " " };
+                let mut parts: Vec<&str> = Vec::new();
+                while i < lines.len() {
+                    let l = lines[i];
+                    if !l.trim().is_empty() && !l.starts_with([' ', '\t']) {
+                        break;
+                    }
+                    let t = l.trim();
+                    if !t.is_empty() {
+                        parts.push(t);
+                    }
+                    i += 1;
+                }
+                parts.join(sep)
+            } else {
+                strip_quotes(raw).to_string()
+            };
             fields.insert(key, val);
         }
     }
@@ -149,6 +176,37 @@ mod tests {
         let fm = parse(input);
         assert_eq!(fm.name(), Some("x"));
         assert_eq!(fm.description(), Some("y"));
+    }
+
+    #[test]
+    fn folded_block_scalar_joins_lines() {
+        let input =
+            "---\nname: kf\ndescription: >\n  Use when a composition needs\n  seek-safe keyframes.\nversion: 1.0.0\n---\nbody\n";
+        let fm = parse(input);
+        assert_eq!(
+            fm.description(),
+            Some("Use when a composition needs seek-safe keyframes.")
+        );
+        assert_eq!(fm.get("version"), Some("1.0.0"));
+    }
+
+    #[test]
+    fn literal_block_scalar_keeps_newlines() {
+        let input = "---\ndescription: |\n  line one\n  line two\n---\n";
+        let fm = parse(input);
+        assert_eq!(fm.description(), Some("line one\nline two"));
+    }
+
+    #[test]
+    fn indented_continuation_lines_are_not_fields() {
+        let input = "---\ndescription: >\n  motion is the message: kinetic typography\nname: mg\n---\n";
+        let fm = parse(input);
+        assert_eq!(fm.name(), Some("mg"));
+        assert!(!fm.fields.contains_key("message"));
+        assert_eq!(
+            fm.description(),
+            Some("motion is the message: kinetic typography")
+        );
     }
 
     #[test]

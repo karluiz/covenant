@@ -25,7 +25,8 @@ pub use manifest::{canon_dir, read_manifest, write_manifest};
 pub use mcp::{blank_mcp_secrets, McpServer};
 pub use new_unit::new_unit;
 pub use project::{
-    project, project_with_active, projection_status, ExecutorStatus, ProjState, ProjectionStatus,
+    parse_frontmatter_str, project, project_with_active, projection_status, ExecutorStatus,
+    ProjState, ProjectionStatus,
 };
 pub use types::{CanonManifest, InstalledRef, SkillManifest};
 
