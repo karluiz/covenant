@@ -43,8 +43,13 @@ vi.mock("../../api", () => ({
 // surface; mock it so we can capture and drive its onCreated callback.
 vi.mock("../create-org/view", () => ({ openCreateOrgExperience: vi.fn() }));
 
+// Identity source for the members "you" badge.
+vi.mock("../../score/api", () => ({
+  scoreCurrentUser: vi.fn(async () => ({ github_id: 1, login: "karluiz", avatar_url: "", connected_at_ms: 0 })),
+}));
+
 import {
-  canonMyOrgs, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
+  canonMyOrgs, canonOrgMembers, canonSearch, canonInstallRegistryUnit, scoreSummaryFiltered, canonEvalSummary, canonLocalStatus,
   operatorList, canonPublish, canonUninstallSkill,
   canonOrgDefaults, canonOrgDefaultSet, canonUnitInstalled,
   canonNewUnit, canonImportSkill, canonUnitPath, canonDeleteUnit, scoreSkillUsage,
@@ -99,6 +104,32 @@ describe("CanonCockpitView Members section", () => {
     const ownerV = new CanonCockpitView(opts); // opts active org is owner
     ownerV.open(); ownerV.showSection("members");
     expect(ownerV.element.querySelector(".canon-cockpit-add-member")).toBeTruthy();
+  });
+
+  it("renders rows with avatar, role chip, you-badge and header count", async () => {
+    vi.mocked(canonOrgMembers).mockResolvedValue([
+      { login: "karluiz", role: "owner" },
+      { login: "steuvv", role: "member" },
+    ]);
+    const v = new CanonCockpitView(opts);
+    v.open(); v.showSection("members");
+    await vi.waitFor(() => {
+      expect(v.element.querySelectorAll(".canon-cockpit-member-row")).toHaveLength(2);
+    });
+    const avatars = v.element.querySelectorAll<HTMLImageElement>(".canon-cockpit-member-avatar");
+    expect(avatars[0].src).toContain("github.com/karluiz.png");
+    expect(avatars[0].classList.contains("is-owner")).toBe(true);
+    expect(v.element.querySelector(".canon-cockpit-member-role.is-owner")?.textContent).toBe("owner");
+    expect(v.element.querySelector(".canon-cockpit-member-role.is-member")?.textContent).toBe("member");
+    // "you" badge only on the signed-in user's row (scoreCurrentUser → karluiz)
+    const rows = v.element.querySelectorAll(".canon-cockpit-member-row");
+    expect(rows[0].querySelector(".canon-cockpit-member-you")).toBeTruthy();
+    expect(rows[1].querySelector(".canon-cockpit-member-you")).toBeNull();
+    expect(v.element.querySelector(".canon-cockpit-sec-count")?.textContent).toBe("2 people");
+    // add field: @-prefixed input
+    expect(v.element.querySelector(".canon-cockpit-add-at")?.textContent).toBe("@");
+    v.close();
+    vi.mocked(canonOrgMembers).mockResolvedValue([]);
   });
 });
 

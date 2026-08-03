@@ -455,42 +455,170 @@ body.tabbar-left .canon-cockpit {
 
 /* ── Members section ────────────────────────────────────────────────── */
 
+/* "N people" stamped onto the sticky section title once the roster loads. */
+.canon-cockpit-sec-title .canon-cockpit-sec-count {
+  margin-left: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 .canon-cockpit-add-member {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+/* The @-prefixed field owns the box chrome; the input inside is bare.
+   Selector carries two classes so it outspecifies both the shared
+   `.canon-cockpit-section input` rule and light theme's `body.theme-light
+   input` reset. */
+.canon-cockpit-add-field {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 16px;
+  min-width: 320px;
+  padding: 0 10px;
+  background: rgb(var(--ink-rgb, 245 246 247) / 0.04);
+  border: 1px solid rgb(var(--ink-rgb, 245 246 247) / 0.14);
 }
-.canon-cockpit-add-member input {
-  min-width: 220px;
+.canon-cockpit-add-field:focus-within {
+  border-color: var(--accent);
+}
+.canon-cockpit-add-at {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-tertiary, var(--fg-dim));
+}
+.canon-cockpit-section .canon-cockpit-add-field input {
+  flex: 1;
+  min-width: 140px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-primary, var(--fg));
+}
+.canon-cockpit-add-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.canon-cockpit-add-preview.is-missing {
+  color: var(--running, #e0af68);
+}
+.canon-cockpit-add-preview-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: block;
+  object-fit: cover;
 }
 
 .canon-cockpit-members-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 .canon-cockpit-member-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 30px;
-  padding: 0 4px;
+  gap: 12px;
+  height: 42px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--border);
 }
-.canon-cockpit-member-login {
+.canon-cockpit-member-row:hover {
+  background: rgb(var(--ink-rgb, 245 246 247) / 0.04);
+}
+.canon-cockpit-member-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex: none;
+  display: block;
+  object-fit: cover;
+}
+.canon-cockpit-member-avatar.is-owner {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1.5px;
+}
+.canon-cockpit-member-avatar.is-fallback {
+  display: grid;
+  place-items: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgb(255 255 255 / 0.92);
+}
+.canon-cockpit-member-id {
   flex: 1;
-  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.canon-cockpit-member-login {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  color: var(--text-primary, var(--fg));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canon-cockpit-member-you {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  padding: 1px 5px;
 }
 .canon-cockpit-member-role {
-  color: var(--fg-dim);
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
+  padding: 3px 8px;
 }
-.canon-cockpit-member-remove {
-  height: 22px;
-  padding: 0 8px;
+.canon-cockpit-member-role.is-owner {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.canon-cockpit-member-role.is-member {
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+}
+/* Destructive action revealed on row hover; danger color only on direct
+   hover of the button itself. */
+.canon-cockpit-section .canon-cockpit-member-remove {
+  height: 24px;
+  padding: 0 10px;
+  border-color: transparent;
+  color: var(--text-tertiary, var(--fg-dim));
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.canon-cockpit-member-row:hover .canon-cockpit-member-remove,
+.canon-cockpit-section .canon-cockpit-member-remove:focus-visible {
+  opacity: 1;
+}
+.canon-cockpit-section .canon-cockpit-member-remove:hover {
+  color: var(--danger, #e85a5a);
+  background: none;
+  border-color: color-mix(in srgb, var(--danger, #e85a5a) 40%, transparent);
 }
 
 /* ── Skills section ─────────────────────────────────────────────────── */

@@ -41,6 +41,7 @@ import {
   operatorList,
   operatorDelete,
 } from "../../api";
+import { scoreCurrentUser } from "../../score/api";
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
@@ -1393,10 +1394,18 @@ export class CanonCockpitView {
     errorEl.className = "canon-cockpit-error";
     errorEl.hidden = true;
 
+    // Score sign-in shares the GitHub identity — used only for the "you"
+    // badge, so a null (signed out) simply shows no badge.
+    const me: Promise<string | null> = scoreCurrentUser()
+      .then((u) => u?.login ?? null)
+      .catch(() => null);
+
     const load = (): void => {
-      void canonOrgMembers(orgSlug)
-        .then((members) => {
+      void Promise.all([canonOrgMembers(orgSlug), me])
+        .then(([members, myLogin]) => {
+          if (this.current !== "members") return;
           list.replaceChildren();
+          this.stampMemberCount(members.length);
           if (members.length === 0) {
             list.appendChild(this.emptyState({
               icon: Icons.github({ size: 28 }),
@@ -1408,7 +1417,7 @@ export class CanonCockpitView {
             return;
           }
           for (const m of members) {
-            list.appendChild(this.renderMemberRow(m, orgSlug, isOwner, load, errorEl));
+            list.appendChild(this.renderMemberRow(m, orgSlug, isOwner, load, errorEl, myLogin));
           }
         })
         .catch((e) => {
@@ -1425,22 +1434,66 @@ export class CanonCockpitView {
     return el;
   }
 
+  /** "N people" count appended to the sticky section title after the roster
+   *  loads. Idempotent — reload() replaces any previous stamp. */
+  private stampMemberCount(n: number): void {
+    const title = this.content.querySelector(".canon-cockpit-sec-title");
+    if (!title) return;
+    title.querySelector(".canon-cockpit-sec-count")?.remove();
+    const c = document.createElement("span");
+    c.className = "canon-cockpit-sec-count";
+    c.textContent = n === 1 ? "1 person" : `${n} people`;
+    title.appendChild(c);
+  }
+
+  /** GitHub avatar via the public `github.com/<login>.png` redirect — no API,
+   *  no token, no rate limit. Falls back to a deterministic initial dot
+   *  (hue hashed from the login) when the image can't load. */
+  private memberAvatar(login: string, isOwner: boolean): HTMLElement {
+    const img = document.createElement("img");
+    img.className = "canon-cockpit-member-avatar" + (isOwner ? " is-owner" : "");
+    img.alt = "";
+    img.loading = "lazy";
+    img.referrerPolicy = "no-referrer";
+    img.addEventListener("error", () => {
+      const dot = document.createElement("span");
+      dot.className = img.className + " is-fallback";
+      dot.style.background = `hsl(${orgHue(login)} 32% 34%)`;
+      dot.textContent = (login[0] ?? "?").toUpperCase();
+      img.replaceWith(dot);
+    }, { once: true });
+    img.src = `https://github.com/${encodeURIComponent(login)}.png?size=56`;
+    return img;
+  }
+
   private renderMemberRow(
     m: Member,
     orgSlug: string,
     isOwner: boolean,
     reload: () => void,
     errorEl: HTMLElement,
+    myLogin: string | null,
   ): HTMLElement {
     const row = document.createElement("div");
     row.className = "canon-cockpit-member-row";
+
+    const id = document.createElement("div");
+    id.className = "canon-cockpit-member-id";
     const login = document.createElement("span");
     login.className = "canon-cockpit-member-login";
     login.textContent = m.login;
+    id.appendChild(login);
+    if (myLogin && m.login.toLowerCase() === myLogin.toLowerCase()) {
+      const you = document.createElement("span");
+      you.className = "canon-cockpit-member-you";
+      you.textContent = "you";
+      id.appendChild(you);
+    }
+
     const role = document.createElement("span");
-    role.className = "canon-cockpit-member-role";
+    role.className = `canon-cockpit-member-role ${m.role === "owner" ? "is-owner" : "is-member"}`;
     role.textContent = m.role;
-    row.append(login, role);
+    row.append(this.memberAvatar(m.login, m.role === "owner"), id, role);
 
     if (isOwner && m.role !== "owner") {
       const rm = document.createElement("button");
@@ -1468,9 +1521,45 @@ export class CanonCockpitView {
     const row = document.createElement("div");
     row.className = "canon-cockpit-add-member";
 
+    const field = document.createElement("div");
+    field.className = "canon-cockpit-add-field";
+    const at = document.createElement("span");
+    at.className = "canon-cockpit-add-at";
+    at.textContent = "@";
+
     const input = document.createElement("input");
     input.type = "text";
-    input.placeholder = "GitHub login";
+    input.placeholder = "github login";
+
+    // Live preview: the same public avatar redirect used by the rows doubles
+    // as an existence check — onload = found, onerror = not found. Purely
+    // informational; it never gates the submit (offline must still work).
+    const preview = document.createElement("span");
+    preview.className = "canon-cockpit-add-preview";
+    let previewTimer: number | undefined;
+    input.addEventListener("input", () => {
+      window.clearTimeout(previewTimer);
+      preview.replaceChildren();
+      preview.classList.remove("is-missing");
+      const login = input.value.trim();
+      if (!login) return;
+      previewTimer = window.setTimeout(() => {
+        const img = new Image();
+        img.className = "canon-cockpit-add-preview-avatar";
+        img.referrerPolicy = "no-referrer";
+        const done = (found: boolean): void => {
+          if (input.value.trim() !== login) return; // stale response
+          preview.classList.toggle("is-missing", !found);
+          const label = document.createElement("span");
+          label.textContent = found ? "found" : "not found";
+          preview.replaceChildren(...(found ? [img, label] : [label]));
+        };
+        img.onload = () => done(true);
+        img.onerror = () => done(false);
+        img.src = `https://github.com/${encodeURIComponent(login)}.png?size=36`;
+      }, 400);
+    });
+    field.append(at, input, preview);
 
     const add = document.createElement("button");
     add.type = "button";
@@ -1484,6 +1573,8 @@ export class CanonCockpitView {
       void canonAddMember(orgSlug, login)
         .then(() => {
           input.value = "";
+          preview.replaceChildren();
+          preview.classList.remove("is-missing");
           reload();
         })
         .catch((e) => {
@@ -1495,7 +1586,7 @@ export class CanonCockpitView {
     add.addEventListener("click", submit);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
 
-    row.append(input, add);
+    row.append(field, add);
     return row;
   }
 
