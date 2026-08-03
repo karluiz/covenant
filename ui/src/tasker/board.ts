@@ -47,6 +47,12 @@ export function formatMinutes(min: number): string {
   return `${m}m`;
 }
 
+/** Logged minutes including the running timer, if any. */
+export function loggedMinutes(task: Task): number {
+  const run = task.timerStartedAt ? Math.round((Date.now() - task.timerStartedAt) / 60000) : 0;
+  return (task.spentMinutes ?? 0) + run;
+}
+
 /** "2h 30m" | "1.5h" | "45m" | bare "90" (minutes) → minutes, or null. */
 export function parseDuration(raw: string): number | null {
   const s = raw.trim().toLowerCase();
@@ -116,8 +122,15 @@ export class BoardView {
     const sel = this.deps.isSelected(projectId, task.id) ? " kb-card-selected" : "";
     const done = task.status === "done";
     const due = task.dueDate ? `<span class="kb-badge kb-due">${fmtDue(task.dueDate)}</span>` : "";
-    const est = task.estimatedMinutes
-      ? `<span class="kb-badge kb-est" aria-label="Time estimate">${formatMinutes(task.estimatedMinutes)}</span>`
+    const estMin = task.estimatedMinutes;
+    const logged = loggedMinutes(task);
+    const running = !!task.timerStartedAt;
+    // One time chip: "1h 10m / 2h" once work is logged, bare estimate before.
+    const timeLabel = logged || running
+      ? formatMinutes(logged) + (estMin ? ` / ${formatMinutes(estMin)}` : "")
+      : estMin ? formatMinutes(estMin) : "";
+    const est = timeLabel
+      ? `<span class="kb-badge kb-est${running ? " kb-timing" : ""}" aria-label="Time">${timeLabel}</span>`
       : "";
     const tags = (task.tags ?? [])
       .slice(0, 2)

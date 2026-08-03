@@ -22,7 +22,8 @@ export interface Task {
   recurrence?: RecurrenceType;
   recurrenceEndDate?: number;
   estimatedMinutes?: number; // Time estimate
-  spentMinutes?: number; // Time tracked
+  spentMinutes?: number; // Time tracked (banked; excludes a running timer)
+  timerStartedAt?: number; // Unix ms while the work timer is running
   subtasks?: SubTask[];
 }
 

@@ -541,6 +541,30 @@ body.theme-light .tasker-detail-title:focus { border-bottom-color: var(--accent)
 .tasker-est-input:focus { border-color: var(--accent); }
 .tasker-est-input::placeholder { color: var(--text-tertiary); }
 
+/* Start/stop work-timer button beside the Logged input. */
+.tasker-timer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 4px 10px;
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms, color 120ms;
+}
+.tasker-timer-btn:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.tasker-timer-btn.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
 .tasker-chip {
   display: inline-flex;
   align-items: center;

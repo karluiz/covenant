@@ -124,6 +124,7 @@ body.theme-true-dark .kb-card { background: #141416; }
 }
 .kb-due { color: #f0a868; border-color: color-mix(in srgb, #f0a868 30%, transparent); }
 .kb-est { color: var(--muted); }
+.kb-est.kb-timing { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 .kb-subs { color: var(--muted); }
 .kb-subs.all { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
 .kb-tag { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }

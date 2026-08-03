@@ -3,7 +3,7 @@
 import type { Task, Project, SubTask, TaskStatus, TaskPriority } from "./types";
 import { TaskStorage, generateId } from "./storage";
 import { Icons } from "../icons";
-import { BoardView, renderSubsFraction, formatMinutes, parseDuration } from "./board";
+import { BoardView, renderSubsFraction, formatMinutes, parseDuration, loggedMinutes } from "./board";
 import { MarkdownEditor } from "../ui/markdown-editor";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
@@ -132,6 +132,8 @@ export class TaskerPanel {
   // Flushed + destroyed on every render so Milkdown instances don't leak.
   private noteEditors: Array<{ editor: MarkdownEditor; projectId: string; taskId: string }> = [];
   private noteSaveTimer: number | null = null;
+  // Once-a-minute repaint while a work timer runs, so logged time stays live.
+  private timerTick: number | null = null;
 
   constructor(host: HTMLElement, opts?: { onClose?: () => void }) {
     this.host = host;
@@ -363,6 +365,16 @@ export class TaskerPanel {
 
     this.setupEventListeners();
 
+    if (this.timerTick !== null) {
+      clearInterval(this.timerTick);
+      this.timerTick = null;
+    }
+    if (this.storage.getAllTasks({ showCompleted: true }).some((t) => t.timerStartedAt)) {
+      this.timerTick = window.setInterval(() => {
+        if (!this.isTypingInPanel()) this.render();
+      }, 60_000);
+    }
+
     // Preserve the existing list-mode composer autofocus.
     if (this.viewMode === "list") {
       queueMicrotask(() => {
@@ -508,6 +520,11 @@ export class TaskerPanel {
         <div class="tasker-kv">
           <span class="tasker-kv-key">Estimate</span>
           <input class="tasker-est-input" type="text" value="${task.estimatedMinutes ? formatMinutes(task.estimatedMinutes) : ""}" placeholder="2h 30m" autocomplete="off" aria-label="Time estimate" />
+        </div>
+        <div class="tasker-kv">
+          <span class="tasker-kv-key">Logged</span>
+          <input class="tasker-est-input tasker-spent-input" type="text" value="${task.spentMinutes ? formatMinutes(task.spentMinutes) : ""}" placeholder="0m" autocomplete="off" aria-label="Time logged" />
+          <button class="tasker-timer-btn${task.timerStartedAt ? " on" : ""}" type="button">${task.timerStartedAt ? `${Icons.square({ size: 9 })} Stop · ${escapeHtml(formatMinutes(loggedMinutes(task)))}` : `${Icons.play({ size: 10 })} Start timer`}</button>
         </div>
         ${this.renderSubtasks(task)}
         <div class="tasker-kv tasker-kv-notes">
@@ -1172,35 +1189,52 @@ export class TaskerPanel {
         });
       }
 
-      const estInput = edit.querySelector<HTMLInputElement>(".tasker-est-input");
-      if (estInput) {
+      // Estimate + Logged share the duration grammar; only the field differs.
+      const bindDuration = (
+        input: HTMLInputElement | null,
+        field: "estimatedMinutes" | "spentMinutes",
+      ): void => {
+        if (!input) return;
+        const stored = (): string => {
+          const v = this.storage.getTask(projectId, taskId)?.[field];
+          return v ? formatMinutes(v) : "";
+        };
         const commit = (): void => {
           const task = this.storage.getTask(projectId, taskId);
           if (!task) return;
-          const raw = estInput.value.trim();
+          const raw = input.value.trim();
           const minutes = raw ? parseDuration(raw) : null;
           if (raw && minutes === null) {
             // Unparseable: restore the stored value instead of guessing.
-            estInput.value = task.estimatedMinutes ? formatMinutes(task.estimatedMinutes) : "";
+            input.value = stored();
             return;
           }
-          if ((minutes ?? undefined) === task.estimatedMinutes) return;
-          this.storage.updateTask(projectId, taskId, { estimatedMinutes: minutes ?? undefined });
+          if ((minutes ?? undefined) === task[field]) return;
+          this.storage.updateTask(projectId, taskId, { [field]: minutes ?? undefined } as Partial<Task>);
           this.render();
         };
-        estInput.addEventListener("blur", commit);
-        estInput.addEventListener("keydown", (e) => {
+        input.addEventListener("blur", commit);
+        input.addEventListener("keydown", (e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            estInput.blur();
+            input.blur();
           } else if (e.key === "Escape") {
             e.preventDefault();
-            const task = this.storage.getTask(projectId, taskId);
-            estInput.value = task?.estimatedMinutes ? formatMinutes(task.estimatedMinutes) : "";
-            estInput.blur();
+            input.value = stored();
+            input.blur();
           }
         });
-      }
+      };
+      bindDuration(edit.querySelector<HTMLInputElement>(".tasker-est-input:not(.tasker-spent-input)"), "estimatedMinutes");
+      bindDuration(edit.querySelector<HTMLInputElement>(".tasker-spent-input"), "spentMinutes");
+
+      edit.querySelector<HTMLButtonElement>(".tasker-timer-btn")?.addEventListener("click", () => {
+        const task = this.storage.getTask(projectId, taskId);
+        if (!task) return;
+        if (task.timerStartedAt) this.storage.stopTimer(projectId, taskId);
+        else this.storage.startTimer(projectId, taskId);
+        this.render();
+      });
 
       edit.querySelectorAll<HTMLButtonElement>(".tasker-seg-status .tasker-seg-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -1348,6 +1382,10 @@ export class TaskerPanel {
     this.host.classList.add("hidden");
     this.isOpen = false;
     document.body.classList.remove("tasker-board");
+    if (this.timerTick !== null) {
+      clearInterval(this.timerTick);
+      this.timerTick = null;
+    }
     if (this.boardKeyHandler) {
       document.removeEventListener("keydown", this.boardKeyHandler);
       this.boardKeyHandler = null;

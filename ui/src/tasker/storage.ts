@@ -142,6 +142,8 @@ export class TaskStorage {
   ): Task | null {
     const task = this.getTask(projectId, taskId);
     if (!task) return null;
+    // Completing a task stops its running timer and banks the elapsed time.
+    if (updates.status === "done" && task.timerStartedAt) this.accrueTimer(task);
     Object.assign(task, updates, { updatedAt: Date.now() });
     const project = this.getProject(projectId);
     if (project) project.updatedAt = Date.now();
@@ -221,6 +223,39 @@ export class TaskStorage {
 
       return true;
     });
+  }
+
+  // Work timer. One timer runs at a time: starting one banks and stops any
+  // other. Elapsed time lives in timerStartedAt until banked into spentMinutes.
+  startTimer(projectId: string, taskId: string): void {
+    for (const p of this.getProjects()) {
+      for (const t of p.tasks) {
+        if (t.timerStartedAt && !(p.id === projectId && t.id === taskId)) {
+          this.accrueTimer(t);
+        }
+      }
+    }
+    const task = this.getTask(projectId, taskId);
+    if (!task || task.timerStartedAt) return;
+    task.timerStartedAt = Date.now();
+    task.updatedAt = Date.now();
+    this.saveStore();
+  }
+
+  stopTimer(projectId: string, taskId: string): void {
+    const task = this.getTask(projectId, taskId);
+    if (!task?.timerStartedAt) return;
+    this.accrueTimer(task);
+    this.saveStore();
+  }
+
+  private accrueTimer(task: Task): void {
+    if (!task.timerStartedAt) return;
+    const mins = Math.round((Date.now() - task.timerStartedAt) / 60000);
+    const total = (task.spentMinutes ?? 0) + mins;
+    task.spentMinutes = total > 0 ? total : undefined;
+    task.timerStartedAt = undefined;
+    task.updatedAt = Date.now();
   }
 
   // Utility
