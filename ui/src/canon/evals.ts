@@ -8,12 +8,14 @@
 
 import {
   canonDraftEvals,
+  canonListEvals,
   canonRunEvals,
   canonWriteEvals,
   onCanonEvalProgress,
   type CanonEvalDraft,
   type CanonEvalProgress,
 } from "../api";
+import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
 import { openConfirmPrompt } from "../workspaces/confirm-prompt";
 
@@ -44,33 +46,133 @@ async function execute(
 ): Promise<void> {
   btn.disabled = true;
   let unlisten: (() => void) | undefined;
-  let doneReason = "";
+  let panel: EvalProgressPanel | undefined;
   try {
+    const ids = (await canonListEvals(cwd, kind, name).catch(() => [])).map((e) => e.id);
+    if (ids.length === 0) {
+      pushInfoToast({
+        message: `No evals for ${name} — use Draft evals, or add .toml files under .covenant/canon/evals/${kind}/${name}/`,
+      });
+      return;
+    }
+    // The panel replaces the old per-eval toast stream: a minutes-long run
+    // narrated by transient toasts loses its story the moment you look away.
+    panel = openEvalProgressPanel(name, ids);
     unlisten = await onCanonEvalProgress((e: CanonEvalProgress) => {
       if (e.kind !== kind || e.name !== name) return;
-      if (e.status === "running") pushInfoToast({ message: `Eval ${e.eval_id}: running…` });
-      else if (e.status === "pass") pushInfoToast({ message: `Eval ${e.eval_id}: PASS` });
-      else if (e.status === "fail") pushInfoToast({ message: `Eval ${e.eval_id}: FAIL — ${e.reason}` });
-      else if (e.status === "skipped") pushInfoToast({ message: `Evals skipped: ${e.reason}` });
-      else if (e.status === "error") pushInfoToast({ message: `Eval ${e.eval_id}: error — ${e.reason}` });
-      else if (e.status === "done") doneReason = e.reason;
+      if (e.status === "done") panel?.finish();
+      else if (e.eval_id === "") panel?.finishAll("skipped", e.reason);
+      else panel?.setStatus(e.eval_id, e.status, e.reason);
     });
     await canonRunEvals(cwd, kind, name);
-    // The backend signals an empty run via the done note — don't claim
-    // "finished" when nothing actually ran.
-    pushInfoToast({
-      message:
-        doneReason === "no evals found"
-          ? `No evals for ${name} — use Draft evals, or add .toml files under .covenant/canon/evals/${kind}/${name}/`
-          : `Evals finished for ${name}`,
-    });
+    panel.finish();
     await onDone();
   } catch (e) {
+    panel?.finishAll("error", String(e));
     pushInfoToast({ message: `Run evals failed: ${String(e)}` });
   } finally {
     unlisten?.();
     btn.disabled = false;
   }
+}
+
+type EvalRowStatus = "pending" | "running" | "pass" | "fail" | "skipped" | "error";
+
+export interface EvalProgressPanel {
+  element: HTMLElement;
+  setStatus(id: string, status: string, reason: string): void;
+  finishAll(status: EvalRowStatus, reason: string): void;
+  finish(): void;
+}
+
+/** Fixed bottom-right, non-modal, one panel at a time. Survives the whole run
+ *  and stays after it until dismissed — the persistent record toasts weren't.
+ *  ponytail: single global panel; per-unit stacking if parallel runs ever ship. */
+export function openEvalProgressPanel(name: string, ids: string[]): EvalProgressPanel {
+  document.querySelector(".canon-eval-progress")?.remove();
+
+  const el = document.createElement("div");
+  el.className = "canon-eval-progress";
+  const head = document.createElement("div");
+  head.className = "canon-eval-progress-head";
+  const title = document.createElement("span");
+  title.className = "canon-eval-progress-title";
+  title.textContent = `Evals — ${name}`;
+  const tally = document.createElement("span");
+  tally.className = "canon-eval-progress-tally";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "canon-eval-progress-close";
+  closeBtn.setAttribute("aria-label", "Dismiss");
+  closeBtn.innerHTML = Icons.x({ size: 13 });
+  closeBtn.addEventListener("click", () => el.remove());
+  head.append(title, tally, closeBtn);
+  el.appendChild(head);
+
+  const rows = new Map<string, { row: HTMLElement; dot: HTMLElement; note: HTMLElement; status: EvalRowStatus }>();
+  const list = document.createElement("div");
+  list.className = "canon-eval-progress-list";
+  for (const id of ids) {
+    const row = document.createElement("div");
+    row.className = "canon-eval-progress-row is-pending";
+    const dot = document.createElement("span");
+    dot.className = "canon-eval-progress-dot";
+    const label = document.createElement("span");
+    label.className = "canon-eval-progress-id";
+    label.textContent = id;
+    const note = document.createElement("span");
+    note.className = "canon-eval-progress-note";
+    row.append(dot, label, note);
+    list.appendChild(row);
+    rows.set(id, { row, dot, note, status: "pending" });
+  }
+  el.appendChild(list);
+  document.body.appendChild(el);
+
+  const syncTally = (): void => {
+    const all = [...rows.values()];
+    const settled = all.filter((r) => r.status !== "pending" && r.status !== "running").length;
+    const passed = all.filter((r) => r.status === "pass").length;
+    tally.textContent = settled < all.length
+      ? `${settled}/${all.length}`
+      : `${passed}/${all.length} pass`;
+  };
+  syncTally();
+
+  const set = (id: string, status: EvalRowStatus, reason: string): void => {
+    const r = rows.get(id);
+    if (!r) return;
+    r.status = status;
+    r.row.className = `canon-eval-progress-row is-${status}`;
+    r.note.textContent = reason;
+    syncTally();
+  };
+
+  return {
+    element: el,
+    setStatus(id, status, reason) {
+      const s: EvalRowStatus =
+        status === "running" || status === "pass" || status === "fail" ||
+        status === "skipped" || status === "error"
+          ? status
+          : "pending";
+      set(id, s, reason);
+    },
+    finishAll(status, reason) {
+      for (const [id, r] of rows) {
+        if (r.status === "pending" || r.status === "running") set(id, status, reason);
+      }
+      el.classList.add("is-done");
+    },
+    finish() {
+      // Anything the run never reached stays visibly unresolved, not fake-green.
+      for (const [id, r] of rows) {
+        if (r.status === "pending" || r.status === "running") set(id, "skipped", "not reached");
+      }
+      el.classList.add("is-done");
+      syncTally();
+    },
+  };
 }
 
 /** Confirm, then draft evals and open the review drawer. Files are written

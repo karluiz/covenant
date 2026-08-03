@@ -16,6 +16,7 @@ vi.mock("../api", () => ({
   canonReadSource: vi.fn().mockResolvedValue(""),
   canonExport: vi.fn().mockResolvedValue(undefined),
   canonRunEvals: vi.fn().mockResolvedValue(undefined),
+  canonListEvals: vi.fn().mockResolvedValue([]),
   canonEvalSummary: vi.fn().mockResolvedValue([]),
   onCanonEvalProgress: vi.fn().mockResolvedValue(() => {}),
   operatorList: vi.fn(async () => []),
