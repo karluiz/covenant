@@ -625,6 +625,104 @@ pub async fn canon_run_evals(
     Ok(())
 }
 
+const DRAFT_SYSTEM: &str = "You write behavior evals for an AI agent's context unit (a skill, \
+command, agent, context doc, or memory). Given the unit's source, produce 3-5 evals. Each eval is a \
+scenario that would tempt an agent WITHOUT this unit to do the wrong thing, plus a rubric stating \
+the observable behavior the unit should force. The scenario is 1-3 sentences addressed to the agent \
+as a user request; the rubric is 1-2 sentences of pass criteria a judge can verify from a transcript \
+alone. Reply with ONLY a JSON array, no prose and no code fences: \
+[{\"id\": \"kebab-case-slug\", \"scenario\": \"...\", \"rubric\": \"...\"}, ...]";
+
+/// Extract the drafter's JSON array, tolerating prose or fences around it.
+fn parse_drafts(text: &str) -> Result<Vec<karl_canon::Eval>, String> {
+    let start = text.find('[').ok_or("draft output had no JSON array")?;
+    let end = text.rfind(']').ok_or("draft output had no JSON array")?;
+    if end < start {
+        return Err("draft output had no JSON array".into());
+    }
+    serde_json::from_str(&text[start..=end]).map_err(|e| format!("draft output unparseable: {e}"))
+}
+
+/// Force a model-chosen id into the filename charset `valid_pkg_name` accepts.
+fn draft_slug(id: &str) -> String {
+    let mut out = String::new();
+    for c in id.to_lowercase().chars() {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            out.push(c);
+        } else if !out.ends_with('-') && !out.is_empty() {
+            out.push('-');
+        }
+    }
+    out.trim_end_matches('-').to_string()
+}
+
+/// Draft 3-5 evals for a unit: read its source, ask the Summary-role model for
+/// scenario/rubric pairs, write each as `.covenant/canon/evals/<kind>/<name>/
+/// <id>.toml` for the user to review, edit, and then run. Never overwrites an
+/// existing eval file. Returns the ids written.
+#[tauri::command]
+pub async fn canon_draft_evals(
+    state: State<'_, crate::AppState>,
+    cwd: String,
+    kind: String,
+    name: String,
+) -> Result<Vec<String>, String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    let repo_root = std::path::PathBuf::from(&cwd);
+    let body = {
+        let repo = repo_root.clone();
+        let n = name.clone();
+        tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, unit_kind, &n))
+            .await
+            .map_err(|e| format!("read_source join: {e}"))?
+            .map_err(|e| e.to_string())?
+    };
+    let resolved = {
+        let s = state.settings.lock().await;
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(ResolveError::NoRoute(_)) => {
+                return Err("no LLM route configured for drafting".into())
+            }
+            Err(e) => return Err(format!("draft provider unavailable: {e}")),
+        }
+    };
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: DRAFT_SYSTEM.to_string(),
+        user_message: format!("## UNIT ({kind} \"{name}\")\n\n{body}"),
+        max_tokens: 4096,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut written = Vec::new();
+    for mut d in parse_drafts(&resp.text)? {
+        d.id = draft_slug(&d.id);
+        if !karl_canon::valid_pkg_name(&d.id)
+            || d.scenario.trim().is_empty()
+            || d.rubric.trim().is_empty()
+        {
+            continue; // a malformed draft is dropped, never written
+        }
+        match karl_canon::write_eval(&repo_root, unit_kind, &name, &d) {
+            Ok(_) => written.push(d.id),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("writing eval {}: {e}", d.id)),
+        }
+    }
+    if written.is_empty() {
+        return Err("model drafted no usable new evals — try again".into());
+    }
+    Ok(written)
+}
+
 /// Per-unit `(passed,total)` for the Impact section, read from eval-results.json.
 #[tauri::command]
 pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, String> {
@@ -729,6 +827,28 @@ mod tests {
             ("skill", "kyc-peru")
         );
         assert_eq!((out[1].passed, out[1].total), (0, 1));
+    }
+
+    #[test]
+    fn parse_drafts_tolerates_fences_and_prose() {
+        let wrapped = "Here you go:\n```json\n[{\"id\":\"refuses-x\",\"scenario\":\"s\",\"rubric\":\"r\"}]\n```\nEnjoy!";
+        let out = parse_drafts(wrapped).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "refuses-x");
+
+        assert!(parse_drafts("no array here").is_err());
+        assert!(parse_drafts("[{\"id\": broken").is_err());
+    }
+
+    #[test]
+    fn draft_slug_forces_the_pkg_name_charset() {
+        assert_eq!(draft_slug("Refuses A Dirty Tree!"), "refuses-a-dirty-tree");
+        assert_eq!(draft_slug("--weird__id--"), "weird-id");
+        for s in ["Refuses A Dirty Tree!", "ok-already", "UPPER"] {
+            assert!(karl_canon::valid_pkg_name(&draft_slug(s)), "{s:?}");
+        }
+        // Degenerate input slugs to empty — the caller drops it, never writes.
+        assert_eq!(draft_slug("!!!"), "");
     }
 
     #[test]

@@ -6,7 +6,7 @@
 // so it is always gated by the in-app confirm card — never a native dialog,
 // which Tauri's capability set doesn't allow anyway.
 
-import { canonRunEvals, onCanonEvalProgress, type CanonEvalProgress } from "../api";
+import { canonDraftEvals, canonRunEvals, onCanonEvalProgress, type CanonEvalProgress } from "../api";
 import { pushInfoToast } from "../notifications/toast";
 import { openConfirmPrompt } from "../workspaces/confirm-prompt";
 
@@ -54,7 +54,7 @@ async function execute(
     pushInfoToast({
       message:
         doneReason === "no evals found"
-          ? `No evals for ${name} — add .toml files under .covenant/canon/evals/${kind}/${name}/`
+          ? `No evals for ${name} — use Draft evals, or add .toml files under .covenant/canon/evals/${kind}/${name}/`
           : `Evals finished for ${name}`,
     });
     await onDone();
@@ -62,6 +62,46 @@ async function execute(
     pushInfoToast({ message: `Run evals failed: ${String(e)}` });
   } finally {
     unlisten?.();
+    btn.disabled = false;
+  }
+}
+
+/** Confirm, then draft eval .toml files from the unit's source for review. */
+export function draftEvals(
+  cwd: string,
+  kind: string,
+  name: string,
+  btn: HTMLButtonElement,
+  onDone: () => void | Promise<void>,
+): void {
+  openConfirmPrompt({
+    label: "Draft evals",
+    message:
+      `Draft evals for "${name}"? An LLM reads the unit and writes 3–5 eval .toml files under ` +
+      `.covenant/canon/evals/${kind}/${name}/ for you to review and edit before running. ` +
+      `Existing evals are never overwritten.`,
+    confirmText: "Draft",
+    onConfirm: () => { void executeDraft(cwd, kind, name, btn, onDone); },
+  });
+}
+
+async function executeDraft(
+  cwd: string,
+  kind: string,
+  name: string,
+  btn: HTMLButtonElement,
+  onDone: () => void | Promise<void>,
+): Promise<void> {
+  btn.disabled = true;
+  try {
+    const ids = await canonDraftEvals(cwd, kind, name);
+    pushInfoToast({
+      message: `Drafted ${ids.length} eval${ids.length === 1 ? "" : "s"} for ${name}: ${ids.join(", ")} — review, then Run evals`,
+    });
+    await onDone();
+  } catch (e) {
+    pushInfoToast({ message: `Draft evals failed: ${String(e)}` });
+  } finally {
     btn.disabled = false;
   }
 }

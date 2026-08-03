@@ -2073,6 +2073,11 @@ export async function canonRunEvals(cwd: string, kind: string, name: string): Pr
   return invoke<void>("canon_run_evals", { cwd, kind, name });
 }
 
+/** Draft 3-5 eval .toml files for a unit via the Summary-role model; returns the ids written. */
+export async function canonDraftEvals(cwd: string, kind: string, name: string): Promise<string[]> {
+  return invoke<string[]>("canon_draft_evals", { cwd, kind, name });
+}
+
 export async function canonEvalSummary(cwd: string): Promise<EvalUnitSummary[]> {
   return invoke<EvalUnitSummary[]>("canon_eval_summary", { cwd });
 }

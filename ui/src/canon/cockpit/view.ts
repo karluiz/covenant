@@ -53,7 +53,7 @@ import { pushInfoToast } from "../../notifications/toast";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { liftRow, groupVerdict } from "./lift";
-import { runEvals } from "../evals";
+import { draftEvals, runEvals } from "../evals";
 
 export type SectionKey = "overview" | "org" | "members" | "operators" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
 
@@ -1662,6 +1662,10 @@ export class CanonCockpitView {
             if (publish) actions.push(publish);
           }
           if (spec.evaluable && !detected) {
+            const draftBtn = iconButton(Icons.sparkles({ size: 15 }), "Draft evals", () => {
+              draftEvals(cwd, spec.kind, u.name, draftBtn, () => {});
+            });
+            actions.push(draftBtn);
             const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
               runEvals(cwd, spec.kind, u.name, runBtn, () => {
                 this.invalidateStatus();
@@ -1884,6 +1888,10 @@ export class CanonCockpitView {
               });
               actions.push(pub);
             }
+            const draftBtn = iconButton(Icons.sparkles({ size: 15 }), "Draft evals", () => {
+              draftEvals(cwd, "skill", i.name, draftBtn, () => {});
+            });
+            actions.push(draftBtn);
             const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
               runEvals(cwd, "skill", i.name, runBtn, () => { this.invalidateStatus(); load(); });
             });
@@ -2224,6 +2232,10 @@ export class CanonCockpitView {
           if (open) actions.push(open);
           const pub = this.unitPublishAction(cwd, "context", c.name);
           if (pub) actions.push(pub);
+          const draftBtn = iconButton(Icons.sparkles({ size: 15 }), "Draft evals", () => {
+            draftEvals(cwd, "context", c.name, draftBtn, () => {});
+          });
+          actions.push(draftBtn);
           const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
             runEvals(cwd, "context", c.name, runBtn, () => {
               this.invalidateStatus();
