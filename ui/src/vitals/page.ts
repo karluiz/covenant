@@ -292,6 +292,13 @@ export class VitalsSurface {
     hr.appendChild(th("Hidden output", "vt-num"));
     hr.appendChild(th("Cols Δ", "vt-num"));
     hr.appendChild(th("Fit ms", "vt-num"));
+    const lag = th("Main lag", "vt-num");
+    attachTooltip(
+      lag,
+      "Worst native main-thread stall during the switch (Rust probe). " +
+        "≈ the total means the app process was blocked; ≈0 points at WebKit's compositor.",
+    );
+    hr.appendChild(lag);
     thead.appendChild(hr);
 
     const tbody = document.createElement("tbody");
@@ -306,6 +313,7 @@ export class VitalsSurface {
       tr.appendChild(td(formatBytesField(detail["hiddenOutputBytes"]), "vt-num"));
       tr.appendChild(td(formatNumberField(detail["colsDelta"]), "vt-num"));
       tr.appendChild(td(formatNumberField(detail["fitMs"]), "vt-num"));
+      tr.appendChild(td(formatNumberField(detail["mainLagMs"]), "vt-num"));
       tbody.appendChild(tr);
     }
     table.append(thead, tbody);
