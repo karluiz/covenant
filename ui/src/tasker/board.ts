@@ -51,6 +51,7 @@ export function renderSubsFraction(task: Task, cls: string): string {
 export class BoardView {
   private host: HTMLElement | null = null;
   private addingStatus: TaskStatus | null = null;
+  private editingTaskId: string | null = null;
   private suppressClick = false;
 
   constructor(private deps: BoardViewDeps) {}
@@ -110,7 +111,9 @@ export class BoardView {
         data-project-id="${projectId}" data-task-id="${task.id}">
         <button class="kb-check${done ? " kb-check-done" : ""}" type="button" aria-label="Toggle done"></button>
         <div class="kb-card-body">
-          <div class="kb-card-title">${escapeHtml(task.title)}</div>
+          ${this.editingTaskId === task.id
+            ? `<input class="kb-title-input" type="text" value="${escapeHtml(task.title)}" autocomplete="off" aria-label="Edit title" />`
+            : `<div class="kb-card-title">${escapeHtml(task.title)}</div>`}
           ${meta}
         </div>
       </article>`;
@@ -153,6 +156,49 @@ export class BoardView {
       card.addEventListener("pointerdown", (e) => this.beginDrag(e, projectId, card));
     });
 
+    // Double-click on the title edits it inline — same gesture as the list
+    // view's project rename.
+    this.host.querySelectorAll<HTMLElement>(".kb-card-title").forEach((title) => {
+      title.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        const taskId = title.closest<HTMLElement>(".kb-card")?.dataset.taskId;
+        if (!taskId || !this.host) return;
+        this.editingTaskId = taskId;
+        this.render(this.host);
+        const input = this.host.querySelector<HTMLInputElement>(".kb-title-input");
+        input?.focus();
+        input?.select();
+      });
+    });
+
+    this.host.querySelectorAll<HTMLInputElement>(".kb-title-input").forEach((input) => {
+      let settled = false;
+      const commit = (): void => {
+        if (settled) return;
+        settled = true;
+        const taskId = input.closest<HTMLElement>(".kb-card")?.dataset.taskId;
+        const title = input.value.trim();
+        this.editingTaskId = null;
+        if (taskId && title.length > 0) {
+          this.deps.storage.updateTask(projectId, taskId, { title });
+        }
+        this.deps.onChange();
+      };
+      input.addEventListener("click", (e) => e.stopPropagation());
+      input.addEventListener("blur", commit);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          settled = true;
+          this.editingTaskId = null;
+          this.deps.onChange();
+        }
+      });
+    });
+
     // "+ Add task" reveals the inline input.
     this.host.querySelectorAll<HTMLButtonElement>(".kb-add").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -193,7 +239,7 @@ export class BoardView {
 
   private beginDrag(e: PointerEvent, projectId: string, card: HTMLElement): void {
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest(".kb-check")) return; // checkbox is not a drag handle
+    if ((e.target as HTMLElement).closest(".kb-check, .kb-title-input")) return; // checkbox/title edit are not drag handles
     const taskId = card.dataset.taskId;
     if (!taskId || !this.host) return;
 

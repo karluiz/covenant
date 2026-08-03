@@ -226,6 +226,47 @@ describe("board inline add", () => {
   });
 });
 
+describe("board inline title edit", () => {
+  it("dblclick on the title swaps in an input and Enter commits the rename", () => {
+    const h = boardHarness();
+    const t = h.storage.createTask(h.project.id, "Old title", { status: "pending" })!;
+    h.view.render(h.host);
+    h.host.querySelector<HTMLElement>(`.kb-card[data-task-id="${t.id}"] .kb-card-title`)!
+      .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const input = h.host.querySelector<HTMLInputElement>(".kb-title-input")!;
+    expect(input).toBeTruthy();
+    expect(input.value).toBe("Old title");
+    input.value = "New title";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(h.storage.getTask(h.project.id, t.id)!.title).toBe("New title");
+    expect(h.getChanges()).toBeGreaterThan(0);
+  });
+
+  it("Escape cancels without saving", () => {
+    const h = boardHarness();
+    const t = h.storage.createTask(h.project.id, "Keep me", { status: "pending" })!;
+    h.view.render(h.host);
+    h.host.querySelector<HTMLElement>(`.kb-card[data-task-id="${t.id}"] .kb-card-title`)!
+      .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const input = h.host.querySelector<HTMLInputElement>(".kb-title-input")!;
+    input.value = "Discarded";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(h.storage.getTask(h.project.id, t.id)!.title).toBe("Keep me");
+  });
+
+  it("an emptied title is not committed", () => {
+    const h = boardHarness();
+    const t = h.storage.createTask(h.project.id, "Not empty", { status: "pending" })!;
+    h.view.render(h.host);
+    h.host.querySelector<HTMLElement>(`.kb-card[data-task-id="${t.id}"] .kb-card-title`)!
+      .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const input = h.host.querySelector<HTMLInputElement>(".kb-title-input")!;
+    input.value = "   ";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(h.storage.getTask(h.project.id, t.id)!.title).toBe("Not empty");
+  });
+});
+
 describe("board project switcher", () => {
   function mountBoardPanel() {
     document.body.innerHTML = `<div id="tasker-panel"></div>`;
