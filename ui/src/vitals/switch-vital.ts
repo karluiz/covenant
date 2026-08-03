@@ -80,6 +80,12 @@ export interface SwitchVitalInput {
   /// land on the same thread: both high → the thread itself is throttled;
   /// mainLag high + gcdLag low → tao's wake path is the bottleneck.
   gcdLagMs: number | null;
+  /// Runloop-mode histogram across the span — arbitrates "wrong mode" vs
+  /// "loop not iterating" once lag is high on both posting paths.
+  runloopModes: { default: number; tracking: number; notRunning: number; other: number } | null;
+  /// Lowest main-thread scheduling priority in the span (healthy UI: 46-47).
+  /// A decayed value during the stall names kernel priority decay.
+  mainPriMin: number | null;
 }
 
 export interface BuiltVital {
@@ -101,6 +107,8 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
   if (input.frame1Ms !== null) shared.frame1Ms = r1(input.frame1Ms);
   if (input.mainLagMs !== null) shared.mainLagMs = Math.round(input.mainLagMs);
   if (input.gcdLagMs !== null) shared.gcdLagMs = Math.round(input.gcdLagMs);
+  if (input.runloopModes) shared.runloopModes = input.runloopModes;
+  if (input.mainPriMin !== null) shared.mainPriMin = input.mainPriMin;
   if (input.gapStarvedMs !== null) shared.gapStarvedMs = Math.round(input.gapStarvedMs);
   if (input.grid) {
     shared.cols = input.grid.cols;
