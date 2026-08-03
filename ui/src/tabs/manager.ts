@@ -7667,6 +7667,8 @@ export class TabManager {
                 focusedThroughout,
                 mainLagMs: lag?.main ?? null,
                 gcdLagMs: lag?.gcd ?? null,
+                runloopModes: lag?.modes ?? null,
+                mainPriMin: lag?.min_pri ?? null,
               })) {
                 this.vitals?.record(v.metric, v.value, v.aux, v.detail);
               }

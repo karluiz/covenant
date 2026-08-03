@@ -3890,6 +3890,10 @@ export async function vitalsRecord(events: VitalEvent[]): Promise<void> {
 export interface MainLagWindow {
   main: number | null;
   gcd: number | null;
+  /// Runloop-mode histogram over the span (10Hz probe samples).
+  modes: { default: number; tracking: number; notRunning: number; other: number } | null;
+  /// Lowest main-thread scheduling priority seen in the span (healthy: 46-47).
+  min_pri: number | null;
 }
 
 export async function mainLagWindow(startMs: number, endMs: number): Promise<MainLagWindow> {

@@ -25,6 +25,8 @@ const base = {
   focusedThroughout: true,
   mainLagMs: 12.6,
   gcdLagMs: 4.2,
+  runloopModes: { default: 20, tracking: 1, notRunning: 0, other: 0 },
+  mainPriMin: 46,
 };
 
 describe("buildSwitchVitals", () => {
@@ -119,9 +121,25 @@ describe("buildSwitchVitals", () => {
   });
 
   it("omits the main lag when the probe had no sample for the span", () => {
-    const out = buildSwitchVitals({ ...base, mainLagMs: null, gcdLagMs: null });
+    const out = buildSwitchVitals({
+      ...base,
+      mainLagMs: null,
+      gcdLagMs: null,
+      runloopModes: null,
+      mainPriMin: null,
+    });
     expect(out[0].detail).not.toHaveProperty("mainLagMs");
     expect(out[0].detail).not.toHaveProperty("gcdLagMs");
+    expect(out[0].detail).not.toHaveProperty("runloopModes");
+    expect(out[0].detail).not.toHaveProperty("mainPriMin");
+  });
+
+  it("carries the runloop-mode histogram and min main-thread priority", () => {
+    const out = buildSwitchVitals(base);
+    for (const e of out) {
+      expect(e.detail.runloopModes).toEqual({ default: 20, tracking: 1, notRunning: 0, other: 0 });
+      expect(e.detail.mainPriMin).toBe(46);
+    }
   });
 
   it("omits pressure when it was not measured", () => {
