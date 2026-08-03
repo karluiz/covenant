@@ -86,6 +86,10 @@ export interface SwitchVitalInput {
   /// Lowest main-thread scheduling priority in the span (healthy UI: 46-47).
   /// A decayed value during the stall names kernel priority decay.
   mainPriMin: number | null;
+  /// Worst lateness of the 100ms native runloop-metronome timer across the
+  /// span. Punctual while posts lag → timers are exempt from the wakeup
+  /// deferral (and the metronome doubles as the fix); late → loop fully gated.
+  timerLagMs: number | null;
 }
 
 export interface BuiltVital {
@@ -109,6 +113,7 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
   if (input.gcdLagMs !== null) shared.gcdLagMs = Math.round(input.gcdLagMs);
   if (input.runloopModes) shared.runloopModes = input.runloopModes;
   if (input.mainPriMin !== null) shared.mainPriMin = input.mainPriMin;
+  if (input.timerLagMs !== null) shared.timerLagMs = Math.round(input.timerLagMs);
   if (input.gapStarvedMs !== null) shared.gapStarvedMs = Math.round(input.gapStarvedMs);
   if (input.grid) {
     shared.cols = input.grid.cols;

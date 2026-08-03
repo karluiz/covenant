@@ -7669,6 +7669,7 @@ export class TabManager {
                 gcdLagMs: lag?.gcd ?? null,
                 runloopModes: lag?.modes ?? null,
                 mainPriMin: lag?.min_pri ?? null,
+                timerLagMs: lag?.timer ?? null,
               })) {
                 this.vitals?.record(v.metric, v.value, v.aux, v.detail);
               }

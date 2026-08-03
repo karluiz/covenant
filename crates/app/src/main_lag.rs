@@ -194,6 +194,12 @@ fn pri_ring() -> &'static Mutex<SampleRing<i32>> {
     RING.get_or_init(|| Mutex::new(SampleRing::new()))
 }
 
+/// Inter-fire lateness of the main-runloop metronome timer (see `metro`).
+fn timer_ring() -> &'static Mutex<LagRing> {
+    static RING: OnceLock<Mutex<LagRing>> = OnceLock::new();
+    RING.get_or_init(|| Mutex::new(LagRing::new()))
+}
+
 #[cfg(target_os = "macos")]
 mod gcd {
     use std::ffi::c_void;
@@ -252,11 +258,83 @@ mod cf {
 
 static MAIN_RUNLOOP: AtomicUsize = AtomicUsize::new(0);
 static MAIN_THREAD_PORT: AtomicUsize = AtomicUsize::new(0);
+static LAST_METRO_FIRE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// The runloop metronome — fix candidate AND discriminator in one.
+///
+/// 0.11.15 field data closed the matrix's first two branches: every idle-cold
+/// stall runs in 100% kCFRunLoopDefaultMode at priority 47, with tao posts
+/// and GCD main-queue blocks both undelivered for 1-2s. The wake-port
+/// message delivery itself is being deferred (macOS Tahoe's UpdateCycle taps
+/// the runloop and is the prime suspect). CFRunLoopTimers ride a DIFFERENT
+/// kernel mechanism (mk_timer), so a 100ms repeating no-op timer in common
+/// modes bets that timers are exempt: each fire forces a full runloop
+/// iteration, draining whatever sources sat deferred — tao closures, GCD
+/// blocks, and WebKit's display-link relay alike. If the bet is right, the
+/// post-idle repaint collapses to ~350ms. Either way `timerLagMs` (the
+/// timer's own inter-fire lateness) lands on the vital: punctual timers +
+/// fixed switch → mechanism named; late timers → the whole loop is gated
+/// and the timer is not the lever.
+///
+/// ponytail: 10 no-op fires/s on the main thread. If the next release's
+/// vitals show it neither fixed nor discriminated, it comes out.
+#[cfg(target_os = "macos")]
+mod metro {
+    use std::ffi::c_void;
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        pub fn CFRunLoopTimerCreate(
+            alloc: *const c_void,
+            fire_date: f64,
+            interval: f64,
+            flags: u64,
+            order: i64,
+            callout: extern "C" fn(*mut c_void, *mut c_void),
+            context: *mut c_void,
+        ) -> *mut c_void;
+        pub fn CFRunLoopAddTimer(rl: *mut c_void, timer: *mut c_void, mode: *const c_void);
+        pub static kCFRunLoopCommonModes: *const c_void;
+        pub fn CFAbsoluteTimeGetCurrent() -> f64;
+    }
+}
+
+const METRO_MS: i64 = 100;
+
+#[cfg(target_os = "macos")]
+extern "C" fn metronome_fire(_timer: *mut std::ffi::c_void, _info: *mut std::ffi::c_void) {
+    let now = now_ms();
+    let prev = LAST_METRO_FIRE.swap(now, Ordering::Relaxed);
+    if prev != 0 {
+        // Missed fires coalesce, so the inter-fire gap minus the interval is
+        // how long the loop went without an iteration.
+        let lag = ((now - prev - METRO_MS) as f64).max(0.0);
+        if let Ok(mut r) = timer_ring().lock() {
+            // Store span-aligned like the other rings: blocked [now-lag, now].
+            r.push(now - lag as i64, lag);
+        }
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn capture_main_runloop() {
-    MAIN_RUNLOOP.store(unsafe { cf::CFRunLoopGetCurrent() } as usize, Ordering::Relaxed);
+    let rl = unsafe { cf::CFRunLoopGetCurrent() };
+    MAIN_RUNLOOP.store(rl as usize, Ordering::Relaxed);
     MAIN_THREAD_PORT.store(unsafe { mach::mach_thread_self() } as usize, Ordering::Relaxed);
+    unsafe {
+        let timer = metro::CFRunLoopTimerCreate(
+            std::ptr::null(),
+            metro::CFAbsoluteTimeGetCurrent() + 0.1,
+            METRO_MS as f64 / 1000.0,
+            0,
+            0,
+            metronome_fire,
+            std::ptr::null_mut(),
+        );
+        if !timer.is_null() {
+            metro::CFRunLoopAddTimer(rl, timer, metro::kCFRunLoopCommonModes);
+            // Never released — lives as long as the main runloop does.
+        }
+    }
 }
 
 /// Reads the main thread's CURRENT scheduling priority (pth_curpri). A
@@ -387,9 +465,14 @@ pub fn spawn_probe(app: tauri::AppHandle) {
                         .lock()
                         .ok()
                         .and_then(|r| r.in_window(cutoff, now_ms()).into_iter().min());
+                    let (_, _, tim_max) = timer_ring()
+                        .lock()
+                        .map(|r| r.stats_since(cutoff))
+                        .unwrap_or((0, 0.0, 0.0));
                     tracing::info!(
                         ?modes,
                         pri_min,
+                        tim_max,
                         tao_n,
                         tao_p50,
                         tao_max,
@@ -423,6 +506,11 @@ pub struct MainLagWindow {
     /// UI main thread is 46-47; a decayed value during the stall names the
     /// scheduler as the mechanism.
     pub min_pri: Option<i32>,
+    /// Worst inter-fire lateness of the 100ms main-runloop metronome timer
+    /// across the span. Punctual (near-zero) while main/gcd lag → timers are
+    /// exempt from the wakeup deferral and the metronome is the fix; late →
+    /// the whole loop is gated regardless of wake mechanism.
+    pub timer: Option<f64>,
 }
 
 /// Worst native main-thread lag (ms) observed across [start_ms, end_ms]
@@ -455,6 +543,10 @@ pub async fn main_lag_window(start_ms: i64, end_ms: i64) -> Result<MainLagWindow
             .in_window(start_ms, end_ms)
             .into_iter()
             .min(),
+        timer: timer_ring()
+            .lock()
+            .map_err(|e| e.to_string())?
+            .max_in(start_ms, end_ms),
     })
 }
 

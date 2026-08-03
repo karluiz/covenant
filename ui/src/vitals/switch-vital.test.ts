@@ -27,6 +27,7 @@ const base = {
   gcdLagMs: 4.2,
   runloopModes: { default: 20, tracking: 1, notRunning: 0, other: 0 },
   mainPriMin: 46,
+  timerLagMs: 7.8,
 };
 
 describe("buildSwitchVitals", () => {
@@ -139,6 +140,7 @@ describe("buildSwitchVitals", () => {
     for (const e of out) {
       expect(e.detail.runloopModes).toEqual({ default: 20, tracking: 1, notRunning: 0, other: 0 });
       expect(e.detail.mainPriMin).toBe(46);
+      expect(e.detail.timerLagMs).toBe(8);
     }
   });
 
