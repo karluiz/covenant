@@ -1,0 +1,170 @@
+---
+title: "CDLC — your agents' context needs a lifecycle"
+description: "Code got the SDLC. The context you feed your coding agents got a folder of markdown. CDLC is the fix: generate, evaluate, distribute, observe — one loop."
+date: 2026-08-03
+---
+
+Every prompt you send a coding agent ships a payload you probably never look
+at: skills, agent definitions, slash commands, MCP configs, instruction files.
+That payload is injected into **every single inference call**. In one of our
+own project groups it adds up to **35.4M tokens** across **2,194 prompts** —
+and until recently we couldn't answer the only question that matters about it:
+
+> Is any of this context actually earning its keep?
+
+We version code, test it, review it, measure it in production, and delete it
+when it's dead. Context — the thing that increasingly *determines what the
+code looks like* — gets none of that. It's written once from memory, pasted
+into a repo, and billed to you on every prompt forever, whether it changes the
+agent's behavior or not.
+
+**CDLC** — the *Context Development Life Cycle* — is the fix: apply the same
+lifecycle discipline to context that the SDLC applied to code. Four phases,
+one loop.
+
+## The loop
+
+```text
+        ┌────────────────────────────────────────────────────────┐
+        │                                                        │
+        ▼                                                        │
+  ┌───────────┐     ┌───────────┐     ┌────────────┐     ┌───────────┐
+  │ GENERATE  │────▶│ EVALUATE  │────▶│ DISTRIBUTE │────▶│ OBSERVE   │
+  └───────────┘     └───────────┘     └────────────┘     └───────────┘
+   author it         prove it          version it          measure it
+   from the          changes           publish it          in production
+   repo, not         behavior          install it          every day
+   from memory       (context-TDD)     everywhere
+```
+
+The loop is the point. *Observe* is not a dashboard at the end — its output is
+the input to the next *Generate*: what to author next, what to promote
+org-wide, and what to delete because nobody uses it.
+
+## Generate — mine it, don't remember it
+
+Most context files are written the worst possible way: a senior engineer sits
+down and types what they *think* the conventions are. The repo already knows.
+The git history already knows. The incident channel already knows.
+
+So generation is a *mining* job: a read-only agent walks the repository —
+code, history, configs — and streams out candidate findings ("this repo pins
+sqlx to runtime queries, never macros", "PTY reads must never block"). A human
+curates: accept, edit, discard. Accepted findings compile into a packaged,
+versioned unit of context.
+
+```text
+  repo ──▶ mining agent ──▶ findings ──▶ human curates ──▶ packaged skill
+           (read-only)      (streamed)    accept/edit/drop    name@version
+```
+
+The unit that comes out isn't prose — it's a package: a skill, an agent
+definition, a command, a context file, or an MCP config. Five kinds, one
+pipeline.
+
+## Evaluate — TDD for context
+
+Here's the uncomfortable question nobody asks about their CLAUDE.md: *does it
+do anything?* If you deleted half of it, would the agent behave any
+differently?
+
+Context-TDD answers it the same way code-TDD does — red, then green:
+
+```text
+  eval = { scenario , rubric }
+
+  ┌─ run WITHOUT the skill ─┐        ┌─ run WITH the skill ────┐
+  │  real agent, sandboxed  │        │  real agent, sandboxed  │
+  │  transcript ──▶ judge   │        │  transcript ──▶ judge   │
+  │            FAIL         │        │            PASS         │
+  └─────────────────────────┘        └─────────────────────────┘
+              red                              green
+
+                     Δ  =  context lift
+```
+
+An eval is a scenario plus a rubric. The runner spawns a *real* agent run
+(`claude -p`, read-only tools, sandboxed, timeboxed) and an LLM judge scores
+the transcript against the rubric. Pass-rate with the skill minus pass-rate
+without it is the **context lift** — the number that tells you a skill is
+load-bearing, not decorative. No lift, no ship.
+
+## Distribute — a registry, not a paste
+
+Context today spreads by copy-paste: someone shares a gist, five repos
+diverge, nobody knows which version anyone runs. Code solved this decades ago
+with package registries. Context gets the same treatment:
+
+```text
+  publish                     org registry                   install
+  name@version  ──────▶   ┌────────────────┐   ──────▶   any repo, any member
+  sha-addressed           │  skills        │
+  secrets masked          │  agents        │             installs counted
+                          │  commands      │             evals ride along
+                          │  contexts      │
+                          │  mcp configs   │
+                          └────────────────┘
+```
+
+Packages are immutable per version, content-addressed, and secret-masked on
+publish. The org is the trust boundary: any member publishes, any member
+installs. And every install is an event — which is what makes the fourth phase
+possible.
+
+The subtle part is **projection**. Teams don't run one agent — they run Claude
+Code, Codex, Copilot, and whatever ships next quarter. Each reads context from
+a different native location. So an installed package is the canonical source,
+and it *projects* into each executor's dialect:
+
+```text
+                          ┌──▶ claude    ▸ .claude/skills/<name>/SKILL.md
+  canonical package ──────┼──▶ codex     ▸ AGENTS.md            (managed block)
+  (one source of truth)   ├──▶ copilot   ▸ .github/copilot-instructions.md
+                          └──▶ pi/hermes ▸ managed blocks
+```
+
+Uninstall the package and the projections are cleaned up too. No drift, no
+orphaned instruction files.
+
+## Observe — did it earn its keep?
+
+This is the phase that makes CDLC a lifecycle instead of a pipeline.
+Observability for context needs a measurement instrument, and it turns out the
+terminal is the perfect one — it's the substrate every agent already runs on.
+Four primitives get captured at the terminal layer:
+
+```text
+  spec      ─┐
+  prompt    ─┤                      ┌─ adoption     installs × uses per unit
+  commit    ─┼──▶  telemetry  ──▶───┼─ dead weight  installed, projected, 0 uses
+  llm call  ─┘    (local-first,     ├─ footprint    tokens · prompts · specs · commits
+                  metadata only)    └─ eval lift    pass-rate with vs without
+```
+
+| signal | the question it answers |
+| --- | --- |
+| **adoption** | Who installed this unit, and does anyone actually *use* it? |
+| **dead weight** | What's injected into every prompt with zero recorded uses — pure token tax? |
+| **footprint** | What does this group's inference actually cost — and what does it produce (specs, commits)? |
+| **eval lift** | Does the context still change behavior, or has the model outgrown it? |
+
+That 35.4M-token group from the intro? Its Impact panel shows a huge
+footprint, zero governed context installed, zero evals. That's not a broken
+dashboard — that's the diagnosis: *all spend, no governance*. Which is exactly
+the state most teams are in right now, minus the panel that tells them.
+
+## Why this matters now
+
+Context is becoming the highest-leverage artifact in a codebase. A good skill
+quietly upgrades every agent run in the org; a stale one quietly degrades them
+— and both bill you identically, on every prompt. Dev-productivity tooling
+measures pull requests and cycle time; it's structurally blind to the
+context/inference layer, because it doesn't sit where inference happens. A
+terminal does.
+
+> Unmeasured context rots exactly like unmeasured code — except it charges you
+> per token while it rots.
+
+CDLC is the discipline: **generate** from the repo, **evaluate** with real
+runs, **distribute** through a versioned registry, **observe** until the
+numbers tell you what to write next — and what to delete.
