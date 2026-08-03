@@ -6,6 +6,29 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.17 — Registry skill descriptions: YAML block scalars parsed
+
+### Fixed
+
+- **Skill cards no longer render a literal `>` as the description**: skills
+  authored with a YAML block-scalar description (`description: >` / `|`)
+  surfaced the marker character instead of the text. Both minimal frontmatter
+  parsers — `crates/canon/src/project.rs::parse_frontmatter_str` and
+  `crates/capabilities/src/frontmatter.rs` — now fold the indented
+  continuation lines into the value (space-joined for `>`, newline-kept for
+  `|`), and indented continuation lines are no longer misparsed as top-level
+  frontmatter fields.
+
+- **Registry publishes carry a real description**: `canon_publish` in
+  `crates/app/src/lib.rs` always sent an empty description to the registry;
+  it now sends the parsed frontmatter `description` for skills and
+  non-skill units alike, so org registry cards get proper one-liners.
+
+- **Legacy registry rows sanitized at render**: `skillCard` in
+  `ui/src/canon/panel.ts` drops a stored description that is just a lone
+  block-scalar marker and strips stray wrapping quotes, fixing rows already
+  published with broken descriptions without requiring a republish.
+
 ## v0.11.16 — Runloop metronome vs the deferred-wakeup switch freeze
 
 ### Fixed
