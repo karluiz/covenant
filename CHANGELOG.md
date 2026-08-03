@@ -6,6 +6,42 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.20 — Canon eval authoring pipeline + SpecScore badges
+
+### Added
+
+- **Draft evals with review drawer**: a sparkles button beside every Run
+  evals button asks the Summary-role model for 3–5 scenario/rubric pairs
+  from the unit's source; drafts land in a review drawer as editable cards
+  with include-checkboxes, and only the approved set is written to
+  `.covenant/canon/evals/<kind>/<name>/<id>.toml` (never overwriting a
+  hand-tuned eval), then chains into the existing cost-gated run confirm.
+  `crates/app/src/canon_eval.rs`, `crates/canon/src/eval.rs`,
+  `ui/src/canon/cockpit/view.ts`.
+- **Eval-count chips on unit rows**: `canon_eval_summary` unions the
+  results store with the evals tree, so rows across skills, contexts, and
+  the generic evaluable sections show "no evals", "N evals · not run", or
+  "N evals · P/T pass"; the Loop dashboard filters never-run rows so they
+  can't render as fake 0% lifts. `crates/app/src/canon_eval.rs`.
+- **SpecScore badge on cockpit spec rows**: each spec in Canon → Specs
+  shows its score + grade with the shared hover-breakdown badge; content
+  is read lazily per row. `ui/src/canon/cockpit/view.ts`.
+- **Members section redesign**: GitHub avatars via the public
+  `github.com/<login>.png` redirect with an initial-dot fallback, owner
+  ring + accent role chips, a "you" badge, hover-revealed Remove, and an
+  @-prefixed add field whose avatar preview doubles as an existence check.
+  `ui/src/canon/cockpit/view.ts`.
+
+### Changed
+
+- **Modals homologated onto the palette-card standard**: mind-loss, the
+  spec-link session picker, and the updater release-notes modal drop their
+  parallel skins for `command-palette-overlay/card`; `openConfirmPrompt`
+  gains title/detail/warn rows and `focusCancel`, the `.modal*` CSS family
+  is deleted, and pickers close with the shared `esc` pill per DESIGN.md
+  rule 10. `ui/src/workspaces/confirm-prompt.ts`, `ui/src/styles.css`,
+  `ui/src/aom/spec-link-menu.ts`.
+
 ## v0.11.19 — Idle switch freeze: the WindowServer donation keepalive
 
 ### Added
