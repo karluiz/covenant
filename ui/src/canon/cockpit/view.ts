@@ -54,6 +54,8 @@ import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { liftRow, groupVerdict } from "./lift";
 import { runEvals } from "../evals";
+import { makeSpecScoreHoverBadge } from "../../spec-score/badge";
+import { scoreSpec } from "../../spec-score/engine";
 
 export type SectionKey = "overview" | "org" | "members" | "operators" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
 
@@ -1725,7 +1727,7 @@ export class CanonCockpitView {
         }
         for (const sp of sortSpecs(status.specs)) {
           const id = /^[\d.]+(?=-)/.exec(sp.name)?.[0] ?? "";
-          list.appendChild(skillCard({
+          const card = skillCard({
             // Numbered specs put the index in the shared leading slot; a
             // slug without a number falls back to a file glyph + its name.
             ...(id ? { idx: id } : { name: sp.name, leadIcon: Icons.fileText({ size: 15 }) }),
@@ -1736,7 +1738,16 @@ export class CanonCockpitView {
             fetchPreview: () => canonReadSource(cwd, "spec", sp.name),
             readerTitle: sp.name,
             actions: [],
-          }));
+          });
+          // SpecScore badge (hover reveals the 7-dim breakdown) — same
+          // component the doc viewer header uses.
+          const badge = makeSpecScoreHoverBadge();
+          card.querySelector(".canon-card-head")
+            ?.insertBefore(badge.el, card.querySelector(".canon-preview-btn"));
+          void canonReadSource(cwd, "spec", sp.name)
+            .then((md) => badge.update(scoreSpec(md)))
+            .catch(() => { /* unscored row is fine */ });
+          list.appendChild(card);
         }
         toolbar.reveal();
       })
