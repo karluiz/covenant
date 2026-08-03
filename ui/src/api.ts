@@ -2087,6 +2087,11 @@ export async function canonDraftEvals(cwd: string, kind: string, name: string): 
   return invoke<CanonEvalDraft[]>("canon_draft_evals", { cwd, kind, name });
 }
 
+/** The authored evals for one unit, sorted by id. */
+export async function canonListEvals(cwd: string, kind: string, name: string): Promise<CanonEvalDraft[]> {
+  return invoke<CanonEvalDraft[]>("canon_list_evals", { cwd, kind, name });
+}
+
 /** Persist the approved drafts as .toml files; skips existing ids, returns the ids written. */
 export async function canonWriteEvals(
   cwd: string,

@@ -22,6 +22,7 @@ vi.mock("../../api", () => ({
   canonProjectionStatus: vi.fn(async () => ({ executors: [], source_edited_unix: null })),
   canonExport: vi.fn(async () => undefined),
   canonRunEvals: vi.fn(async () => undefined),
+  canonListEvals: vi.fn(async () => [{ id: "e1", scenario: "s", rubric: "r" }]),
   onCanonEvalProgress: vi.fn(async () => () => {}),
   canonUnitPath: vi.fn(async () => "/x/.covenant/canon/agents/reviewer.md"),
   canonDeleteUnit: vi.fn(async () => undefined),

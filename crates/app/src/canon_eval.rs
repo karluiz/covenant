@@ -760,6 +760,24 @@ pub async fn canon_write_evals(
     Ok(written)
 }
 
+/// The authored evals for one unit, sorted by id — lets the progress panel
+/// show every eval as pending before the first event arrives.
+#[tauri::command]
+pub async fn canon_list_evals(
+    cwd: String,
+    kind: String,
+    name: String,
+) -> Result<Vec<karl_canon::Eval>, String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    // Same traversal guard as canon_run_evals — read_evals joins the name
+    // into a path unchecked.
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    let repo_root = std::path::PathBuf::from(&cwd);
+    Ok(karl_canon::read_evals(&repo_root, unit_kind, &name))
+}
+
 /// Per-unit `(passed,total)` for the Impact section, read from eval-results.json.
 #[tauri::command]
 pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, String> {
@@ -899,6 +917,40 @@ mod tests {
             ("skill", "kyc-peru")
         );
         assert_eq!((out[2].passed, out[2].total, out[2].authored), (0, 1, 0));
+    }
+
+    #[tokio::test]
+    async fn canon_list_evals_returns_sorted_and_guards_the_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().into_owned();
+        for id in ["b-second", "a-first"] {
+            karl_canon::write_eval(
+                tmp.path(),
+                karl_canon::ContextKind::Skill,
+                "horizon",
+                &karl_canon::Eval {
+                    id: id.into(),
+                    scenario: "s".into(),
+                    rubric: "r".into(),
+                },
+            )
+            .unwrap();
+        }
+        let out = canon_list_evals(cwd.clone(), "skill".into(), "horizon".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            out.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            vec!["a-first", "b-second"]
+        );
+        assert!(
+            canon_list_evals(cwd.clone(), "skill".into(), "../../etc".into())
+                .await
+                .is_err()
+        );
+        assert!(canon_list_evals(cwd, "mcp".into(), "horizon".into())
+            .await
+            .is_err());
     }
 
     #[tokio::test]

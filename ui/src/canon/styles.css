@@ -1250,3 +1250,103 @@ body.theme-light .canon-stat.is-hero .canon-stat-val {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Eval progress panel ───────────────────────────────────────────────
+   Fixed bottom-right record of a run: one row per eval, pending → running
+   → verdict. Persists after the run until dismissed — the story toasts
+   couldn't keep. Same slot precedent as .drafts-toast (z-index 150). */
+.canon-eval-progress {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 150;
+  width: min(360px, calc(100vw - 32px));
+  background: var(--bg-overlay, #16181d);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 0;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  color: var(--fg, #d6d8db);
+}
+.canon-eval-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+.canon-eval-progress-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.canon-eval-progress-tally {
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+.canon-eval-progress.is-done .canon-eval-progress-tally { color: var(--fg, #d6d8db); }
+.canon-eval-progress-close {
+  appearance: none;
+  border: none;
+  background: none;
+  border-radius: 0;
+  padding: 2px;
+  display: inline-flex;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+.canon-eval-progress-close:hover { color: var(--fg, #d6d8db); }
+.canon-eval-progress-close:focus-visible { outline: 1px solid var(--accent, #6ea8ff); }
+.canon-eval-progress-list {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.canon-eval-progress-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 10px;
+  min-width: 0;
+}
+.canon-eval-progress-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  align-self: center;
+  background: var(--fg-dim);
+  opacity: 0.5;
+}
+.canon-eval-progress-row.is-running .canon-eval-progress-dot {
+  background: var(--accent, #6ea8ff);
+  opacity: 1;
+  animation: cep-pulse 1.2s ease-in-out infinite;
+}
+@keyframes cep-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .canon-eval-progress-row.is-running .canon-eval-progress-dot { animation: none; }
+}
+.canon-eval-progress-row.is-pass .canon-eval-progress-dot { background: var(--ok, #3fb950); opacity: 1; }
+.canon-eval-progress-row.is-fail .canon-eval-progress-dot,
+.canon-eval-progress-row.is-error .canon-eval-progress-dot { background: var(--fail, #e5534b); opacity: 1; }
+.canon-eval-progress-row.is-skipped .canon-eval-progress-dot { background: var(--fg-dim); opacity: 0.8; }
+.canon-eval-progress-id {
+  font-family: var(--mono, ui-monospace, monospace);
+  flex: none;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canon-eval-progress-note {
+  color: var(--fg-dim);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canon-eval-progress-row.is-fail .canon-eval-progress-note { color: var(--fail, #e5534b); }
