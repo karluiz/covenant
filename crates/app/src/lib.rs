@@ -43,8 +43,8 @@ mod git_tools;
 mod group_supervision;
 mod history_import;
 mod lsp_commands;
-mod mac_render;
 mod mac_activity;
+mod mac_render;
 mod mac_wake;
 mod main_lag;
 mod mcp_server;
@@ -6000,6 +6000,8 @@ pub fn run() {
             somnus::somnus_env_delete,
             somnus::somnus_env_activate,
             canon_eval::canon_run_evals,
+            canon_eval::canon_draft_evals,
+            canon_eval::canon_write_evals,
             canon_eval::canon_eval_summary,
             canon_local_status,
             canon_install_local,

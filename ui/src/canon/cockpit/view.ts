@@ -53,8 +53,8 @@ import { pullOrgOperators } from "../../operator/org-sync";
 import { pushInfoToast } from "../../notifications/toast";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
-import { liftRow, groupVerdict } from "./lift";
-import { runEvals } from "../evals";
+import { evalCountLabel, liftRow, groupVerdict } from "./lift";
+import { draftEvals, runEvals } from "../evals";
 
 export type SectionKey = "overview" | "org" | "members" | "operators" | "agents" | "commands" | "mcp" | "spec" | "memory" | "skills" | "registry" | "context" | "loop";
 
@@ -1724,8 +1724,12 @@ export class CanonCockpitView {
     const create = this.newUnitBar(cwd, spec.kind, headBtn, () => this.showSection(key));
     el.append(create.element, toolbar.element, list);
 
-    void this.status(cwd)
-      .then((status) => {
+    void Promise.all([
+      this.status(cwd),
+      spec.evaluable ? canonEvalSummary(cwd).catch(() => []) : Promise.resolve([]),
+    ])
+      .then(([status, evals]) => {
+        const sums = new Map(evals.map((e) => [`${e.kind}/${e.name}`, e]));
         const units = spec.list(status);
         list.replaceChildren();
         if (units.length === 0) {
@@ -1753,6 +1757,10 @@ export class CanonCockpitView {
             if (publish) actions.push(publish);
           }
           if (spec.evaluable && !detected) {
+            const draftBtn = iconButton(Icons.sparkles({ size: 15 }), "Draft evals", () => {
+              draftEvals(cwd, spec.kind, u.name, draftBtn, () => {});
+            });
+            actions.push(draftBtn);
             const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
               runEvals(cwd, spec.kind, u.name, runBtn, () => {
                 this.invalidateStatus();
@@ -1762,9 +1770,14 @@ export class CanonCockpitView {
             actions.push(runBtn);
           }
           if (!detected && this.canCreate()) actions.push(this.unitDeleteAction(cwd, spec.kind, u.name));
+          const evalBit = spec.evaluable && !detected
+            ? evalCountLabel(sums.get(`${spec.kind}/${u.name}`))
+            : "";
           list.appendChild(skillCard({
             name: u.name,
-            meta: detected ? `detected · ${u.detectedIn}` : (u.description ?? u.transport ?? ""),
+            meta: detected
+              ? `detected · ${u.detectedIn}`
+              : [u.description ?? u.transport ?? "", evalBit].filter(Boolean).join(" · "),
             className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
             leadIcon: spec.icon(15),
             fetchPreview: () => canonReadSource(cwd, spec.kind, u.name),
@@ -1941,7 +1954,12 @@ export class CanonCockpitView {
           // Keyed by kind/name, not name alone — this repo can carry a
           // command named "green" as well as a skill named "green"; a
           // name-only map would let one's lift render on the other's card.
-          const lifts = new Map(evals.map((e) => [`${e.kind}/${e.name}`, liftRow(e)]));
+          // Authored-but-never-run units (total 0) have no lift to show —
+          // without the filter they'd render a bogus "run baseline" chip.
+          const lifts = new Map(
+            evals.filter((e) => e.total > 0).map((e) => [`${e.kind}/${e.name}`, liftRow(e)]),
+          );
+          const sums = new Map(evals.map((e) => [`${e.kind}/${e.name}`, e]));
           list.replaceChildren();
           if (status.installed.length === 0 && status.detectedSkills.length === 0) {
             list.appendChild(this.emptyState({
@@ -1975,6 +1993,10 @@ export class CanonCockpitView {
               });
               actions.push(pub);
             }
+            const draftBtn = iconButton(Icons.sparkles({ size: 15 }), "Draft evals", () => {
+              draftEvals(cwd, "skill", i.name, draftBtn, () => {});
+            });
+            actions.push(draftBtn);
             const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
               runEvals(cwd, "skill", i.name, runBtn, () => { this.invalidateStatus(); load(); });
             });
@@ -1982,12 +2004,13 @@ export class CanonCockpitView {
             actions.push(this.skillUninstallAction(cwd, i.name, reload));
             const currency = skillCurrency(i, latest.get(i.name), status.modifiedSkills ?? []);
             const lift = lifts.get(`skill/${i.name}`);
-            const stats = [`v${i.version}`, i.source];
+            const evalBit = evalCountLabel(sums.get(`skill/${i.name}`));
+            const stats = [`v${i.version}`, i.source, evalBit];
             if (currency) stats.push(currency);
             if (lift) stats.push(`lift ${lift.label}`);
             list.appendChild(skillCard({
               name: i.name,
-              meta: [currency, lift ? `lift ${lift.label}` : "", `${i.version} · ${i.source}`]
+              meta: [currency, evalBit, lift ? `lift ${lift.label}` : "", `${i.version} · ${i.source}`]
                 .filter(Boolean).join(" · "),
               className: "canon-skill-row",
               leadIcon: Icons.packageBox({ size: 15 }),
@@ -2294,8 +2317,9 @@ export class CanonCockpitView {
     list.appendChild(this.note("Loading…"));
     el.appendChild(list);
 
-    void this.status(cwd)
-      .then((status) => {
+    void Promise.all([this.status(cwd), canonEvalSummary(cwd).catch(() => [])])
+      .then(([status, evals]) => {
+        const sums = new Map(evals.map((e) => [`${e.kind}/${e.name}`, e]));
         list.replaceChildren();
         if (status.contexts.length === 0) {
           list.appendChild(this.emptyState({
@@ -2315,6 +2339,10 @@ export class CanonCockpitView {
           if (open) actions.push(open);
           const pub = this.unitPublishAction(cwd, "context", c.name);
           if (pub) actions.push(pub);
+          const draftBtn = iconButton(Icons.sparkles({ size: 15 }), "Draft evals", () => {
+            draftEvals(cwd, "context", c.name, draftBtn, () => {});
+          });
+          actions.push(draftBtn);
           const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
             runEvals(cwd, "context", c.name, runBtn, () => {
               this.invalidateStatus();
@@ -2325,7 +2353,7 @@ export class CanonCockpitView {
           if (this.canCreate()) actions.push(this.unitDeleteAction(cwd, "context", c.name));
           list.appendChild(skillCard({
             name: c.name,
-            meta: c.summary ?? "context",
+            meta: [c.summary ?? "context", evalCountLabel(sums.get(`context/${c.name}`))].join(" · "),
             className: "canon-skill-row",
             fetchPreview: () => canonReadSource(cwd, "context", c.name),
             actions,
@@ -2451,7 +2479,10 @@ export class CanonCockpitView {
     el.appendChild(evalBox);
     if (cwd) {
       void canonEvalSummary(cwd)
-        .then((evalSummary) => {
+        .then((allSummary) => {
+          // Loop is a results dashboard — authored-but-never-run rows (total
+          // 0) belong on the unit lists as "not run", not here as fake 0%s.
+          const evalSummary = allSummary.filter((r) => r.total > 0);
           if (evalSummary.length === 0) {
             evalBox.appendChild(this.note("Run evals on a skill to measure its context-lift (with vs without)."));
             return;

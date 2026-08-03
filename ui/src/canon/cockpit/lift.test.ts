@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { liftRow, liftClass, groupVerdict } from "./lift";
+import { evalCountLabel, liftRow, liftClass, groupVerdict } from "./lift";
 
 describe("liftRow", () => {
   it("computes a positive lift for a clean A/B", () => {
@@ -21,6 +21,19 @@ describe("liftRow", () => {
     const r = liftRow({ kind: "skill", name: "x", passed: 8, total: 10, baseline_passed: 0, baseline_total: 0 });
     expect(r.sign).toBe("none");
     expect(r.label).toContain("80%"); // absolute only, no lift
+  });
+});
+
+describe("evalCountLabel", () => {
+  const s = (authored: number, passed: number, total: number) =>
+    ({ kind: "skill", name: "x", passed, total, baseline_passed: 0, baseline_total: 0, authored });
+
+  it("distinguishes no evals / not run / pass-rate", () => {
+    expect(evalCountLabel(undefined)).toBe("no evals");
+    expect(evalCountLabel(s(0, 0, 0))).toBe("no evals");
+    expect(evalCountLabel(s(1, 0, 0))).toBe("1 eval · not run");
+    expect(evalCountLabel(s(3, 0, 0))).toBe("3 evals · not run");
+    expect(evalCountLabel(s(3, 2, 3))).toBe("3 evals · 2/3 pass");
   });
 });
 

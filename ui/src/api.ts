@@ -2059,6 +2059,9 @@ export interface EvalUnitSummary {
   total: number;
   baseline_passed: number;
   baseline_total: number;
+  /** Eval .toml files on disk — nonzero even before any run. Optional only
+   *  for older test fixtures; the backend always sends it. */
+  authored?: number;
 }
 
 export interface CanonEvalProgress {
@@ -2071,6 +2074,27 @@ export interface CanonEvalProgress {
 
 export async function canonRunEvals(cwd: string, kind: string, name: string): Promise<void> {
   return invoke<void>("canon_run_evals", { cwd, kind, name });
+}
+
+export interface CanonEvalDraft {
+  id: string;
+  scenario: string;
+  rubric: string;
+}
+
+/** Draft 3-5 evals for a unit via the Summary-role model. Returns the drafts for review — nothing is written. */
+export async function canonDraftEvals(cwd: string, kind: string, name: string): Promise<CanonEvalDraft[]> {
+  return invoke<CanonEvalDraft[]>("canon_draft_evals", { cwd, kind, name });
+}
+
+/** Persist the approved drafts as .toml files; skips existing ids, returns the ids written. */
+export async function canonWriteEvals(
+  cwd: string,
+  kind: string,
+  name: string,
+  evals: CanonEvalDraft[],
+): Promise<string[]> {
+  return invoke<string[]>("canon_write_evals", { cwd, kind, name, evals });
 }
 
 export async function canonEvalSummary(cwd: string): Promise<EvalUnitSummary[]> {

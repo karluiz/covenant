@@ -433,6 +433,9 @@ pub struct EvalUnitSummary {
     pub total: usize,
     pub baseline_passed: usize,
     pub baseline_total: usize,
+    /// Eval .toml files on disk for this unit — nonzero even before any run,
+    /// so rows can show "3 evals · not run" instead of looking eval-less.
+    pub authored: usize,
 }
 
 fn emit_progress(
@@ -625,12 +628,148 @@ pub async fn canon_run_evals(
     Ok(())
 }
 
+const DRAFT_SYSTEM: &str = "You write behavior evals for an AI agent's context unit (a skill, \
+command, agent, context doc, or memory). Given the unit's source, produce 3-5 evals. Each eval is a \
+scenario that would tempt an agent WITHOUT this unit to do the wrong thing, plus a rubric stating \
+the observable behavior the unit should force. The scenario is 1-3 sentences addressed to the agent \
+as a user request; the rubric is 1-2 sentences of pass criteria a judge can verify from a transcript \
+alone. Reply with ONLY a JSON array, no prose and no code fences: \
+[{\"id\": \"kebab-case-slug\", \"scenario\": \"...\", \"rubric\": \"...\"}, ...]";
+
+/// Extract the drafter's JSON array, tolerating prose or fences around it.
+fn parse_drafts(text: &str) -> Result<Vec<karl_canon::Eval>, String> {
+    let start = text.find('[').ok_or("draft output had no JSON array")?;
+    let end = text.rfind(']').ok_or("draft output had no JSON array")?;
+    if end < start {
+        return Err("draft output had no JSON array".into());
+    }
+    serde_json::from_str(&text[start..=end]).map_err(|e| format!("draft output unparseable: {e}"))
+}
+
+/// Force a model-chosen id into the filename charset `valid_pkg_name` accepts.
+fn draft_slug(id: &str) -> String {
+    let mut out = String::new();
+    for c in id.to_lowercase().chars() {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            out.push(c);
+        } else if !out.ends_with('-') && !out.is_empty() {
+            out.push('-');
+        }
+    }
+    out.trim_end_matches('-').to_string()
+}
+
+/// Draft 3-5 evals for a unit: read its source, ask the Summary-role model
+/// for scenario/rubric pairs, and return them for review in the drawer.
+/// Nothing touches disk here — `canon_write_evals` persists the approved set.
+#[tauri::command]
+pub async fn canon_draft_evals(
+    state: State<'_, crate::AppState>,
+    cwd: String,
+    kind: String,
+    name: String,
+) -> Result<Vec<karl_canon::Eval>, String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    let repo_root = std::path::PathBuf::from(&cwd);
+    let body = {
+        let repo = repo_root.clone();
+        let n = name.clone();
+        tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, unit_kind, &n))
+            .await
+            .map_err(|e| format!("read_source join: {e}"))?
+            .map_err(|e| e.to_string())?
+    };
+    let resolved = {
+        let s = state.settings.lock().await;
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(ResolveError::NoRoute(_)) => {
+                return Err("no LLM route configured for drafting".into())
+            }
+            Err(e) => return Err(format!("draft provider unavailable: {e}")),
+        }
+    };
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: DRAFT_SYSTEM.to_string(),
+        user_message: format!("## UNIT ({kind} \"{name}\")\n\n{body}"),
+        max_tokens: 4096,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?;
+    let drafts: Vec<karl_canon::Eval> = parse_drafts(&resp.text)?
+        .into_iter()
+        .map(|mut d| {
+            d.id = draft_slug(&d.id);
+            d
+        })
+        .filter(|d| {
+            // a malformed draft is dropped, never surfaced
+            karl_canon::valid_pkg_name(&d.id)
+                && !d.scenario.trim().is_empty()
+                && !d.rubric.trim().is_empty()
+        })
+        .collect();
+    if drafts.is_empty() {
+        return Err("model drafted no usable evals — try again".into());
+    }
+    Ok(drafts)
+}
+
+/// Persist the user-approved drafts as `.covenant/canon/evals/<kind>/<name>/
+/// <id>.toml`. Re-validates every draft (the frontend is not trusted with
+/// filenames), silently skips ids whose file already exists — never
+/// overwrites — and returns the ids actually written.
+#[tauri::command]
+pub async fn canon_write_evals(
+    cwd: String,
+    kind: String,
+    name: String,
+    evals: Vec<karl_canon::Eval>,
+) -> Result<Vec<String>, String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    let repo_root = std::path::PathBuf::from(&cwd);
+    let mut written = Vec::new();
+    for mut d in evals {
+        d.id = draft_slug(&d.id);
+        if !karl_canon::valid_pkg_name(&d.id)
+            || d.scenario.trim().is_empty()
+            || d.rubric.trim().is_empty()
+        {
+            continue;
+        }
+        match karl_canon::write_eval(&repo_root, unit_kind, &name, &d) {
+            Ok(_) => written.push(d.id),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("writing eval {}: {e}", d.id)),
+        }
+    }
+    if written.is_empty() {
+        return Err("no new evals written — all were empty, invalid, or already exist".into());
+    }
+    Ok(written)
+}
+
 /// Per-unit `(passed,total)` for the Impact section, read from eval-results.json.
 #[tauri::command]
 pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, String> {
     let repo_root = std::path::PathBuf::from(&cwd);
     let all = karl_canon::read_results(&repo_root);
-    Ok(all
+    // Union of both trees: results rows pick up their authored file count,
+    // and units with evals authored but never run still get a row — that is
+    // what lets a list say "3 evals · not run" instead of nothing.
+    let mut authored = karl_canon::authored_counts(&repo_root);
+    let mut out: Vec<EvalUnitSummary> = all
         .into_iter()
         .map(|(key, inner)| {
             // Keys are "<kind>/<name>"; a legacy bare key is a skill.
@@ -645,6 +784,7 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 .filter(|r| r.baseline_pass == Some(true))
                 .count();
             EvalUnitSummary {
+                authored: authored.remove(&format!("{kind}/{name}")).unwrap_or(0),
                 kind,
                 name,
                 passed,
@@ -653,7 +793,22 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 baseline_total,
             }
         })
-        .collect())
+        .collect();
+    for (key, n) in authored {
+        let Some((kind, name)) = key.split_once('/') else {
+            continue;
+        };
+        out.push(EvalUnitSummary {
+            kind: kind.to_string(),
+            name: name.to_string(),
+            passed: 0,
+            total: 0,
+            baseline_passed: 0,
+            baseline_total: 0,
+            authored: n,
+        });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -712,23 +867,111 @@ mod tests {
         };
         karl_canon::write_result(root, ContextKind::Command, "horizon", &r(true)).unwrap();
         karl_canon::write_result(root, ContextKind::Skill, "kyc-peru", &r(false)).unwrap();
+        // Authored files: two for a unit with results, one for a unit with
+        // none — the latter must still surface as a row ("not run").
+        let ev = |id: &str| karl_canon::Eval {
+            id: id.into(),
+            scenario: "s".into(),
+            rubric: "r".into(),
+        };
+        karl_canon::write_eval(root, ContextKind::Command, "horizon", &ev("e1")).unwrap();
+        karl_canon::write_eval(root, ContextKind::Command, "horizon", &ev("e2")).unwrap();
+        karl_canon::write_eval(root, ContextKind::Skill, "drafted-only", &ev("e1")).unwrap();
 
         let mut out = canon_eval_summary(root.to_string_lossy().into_owned())
             .await
             .unwrap();
         out.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
 
-        assert_eq!(out.len(), 2);
+        assert_eq!(out.len(), 3);
         assert_eq!(
             (out[0].kind.as_str(), out[0].name.as_str()),
             ("command", "horizon")
         );
-        assert_eq!((out[0].passed, out[0].total), (1, 1));
+        assert_eq!((out[0].passed, out[0].total, out[0].authored), (1, 1, 2));
         assert_eq!(
             (out[1].kind.as_str(), out[1].name.as_str()),
+            ("skill", "drafted-only")
+        );
+        assert_eq!((out[1].passed, out[1].total, out[1].authored), (0, 0, 1));
+        assert_eq!(
+            (out[2].kind.as_str(), out[2].name.as_str()),
             ("skill", "kyc-peru")
         );
-        assert_eq!((out[1].passed, out[1].total), (0, 1));
+        assert_eq!((out[2].passed, out[2].total, out[2].authored), (0, 1, 0));
+    }
+
+    #[tokio::test]
+    async fn canon_write_evals_writes_valid_skips_junk_and_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().into_owned();
+        let ev = |id: &str, s: &str, r: &str| karl_canon::Eval {
+            id: id.into(),
+            scenario: s.into(),
+            rubric: r.into(),
+        };
+        // Pre-existing hand-tuned eval must survive untouched.
+        karl_canon::write_eval(
+            tmp.path(),
+            karl_canon::ContextKind::Skill,
+            "horizon",
+            &ev("kept", "original", "original"),
+        )
+        .unwrap();
+
+        let written = canon_write_evals(
+            cwd.clone(),
+            "skill".into(),
+            "horizon".into(),
+            vec![
+                ev("Refuses A Dirty Tree", "s", "r"), // slugged then written
+                ev("kept", "clobber attempt", "x"),   // exists → skipped
+                ev("no-rubric", "s", "  "),           // empty rubric → dropped
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(written, vec!["refuses-a-dirty-tree"]);
+
+        let on_disk = karl_canon::read_evals(tmp.path(), karl_canon::ContextKind::Skill, "horizon");
+        assert_eq!(on_disk.len(), 2);
+        let kept = on_disk.iter().find(|e| e.id == "kept").unwrap();
+        assert_eq!(
+            kept.scenario, "original",
+            "existing eval must not be clobbered"
+        );
+
+        // Nothing usable → a hard error, not a silent empty success.
+        assert!(canon_write_evals(
+            cwd,
+            "skill".into(),
+            "horizon".into(),
+            vec![ev("kept", "s", "r")]
+        )
+        .await
+        .is_err());
+    }
+
+    #[test]
+    fn parse_drafts_tolerates_fences_and_prose() {
+        let wrapped = "Here you go:\n```json\n[{\"id\":\"refuses-x\",\"scenario\":\"s\",\"rubric\":\"r\"}]\n```\nEnjoy!";
+        let out = parse_drafts(wrapped).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "refuses-x");
+
+        assert!(parse_drafts("no array here").is_err());
+        assert!(parse_drafts("[{\"id\": broken").is_err());
+    }
+
+    #[test]
+    fn draft_slug_forces_the_pkg_name_charset() {
+        assert_eq!(draft_slug("Refuses A Dirty Tree!"), "refuses-a-dirty-tree");
+        assert_eq!(draft_slug("--weird__id--"), "weird-id");
+        for s in ["Refuses A Dirty Tree!", "ok-already", "UPPER"] {
+            assert!(karl_canon::valid_pkg_name(&draft_slug(s)), "{s:?}");
+        }
+        // Degenerate input slugs to empty — the caller drops it, never writes.
+        assert_eq!(draft_slug("!!!"), "");
     }
 
     #[test]

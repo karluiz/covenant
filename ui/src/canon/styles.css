@@ -1165,3 +1165,88 @@ body.theme-light .canon-stat.is-hero .canon-stat-val {
   border-color: color-mix(in srgb, var(--fail, #e5534b) 40%, transparent);
 }
 .canon-lift-badge.lift-unmeasured { color: var(--fg-dim); }
+
+/* ── Draft-evals review drawer ─────────────────────────────────────────
+   Drafts come back from the model as editable cards; nothing is written
+   until "Write N evals". Sharp corners throughout (Tasker rule). */
+.canon-draft-card {
+  width: min(680px, 92vw);
+  padding: 14px;
+  gap: 12px;
+}
+.canon-draft-card .command-palette-label { align-self: flex-start; }
+.canon-draft-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+}
+.canon-draft-item {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+.canon-draft-item:last-child { border-bottom: none; }
+.canon-draft-item > input[type="checkbox"] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 3px 0 0;
+  border: 1px solid var(--fg-dim);
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+}
+.canon-draft-item > input[type="checkbox"]:checked {
+  background: var(--accent, #6ea8ff);
+  border-color: var(--accent, #6ea8ff);
+}
+.canon-draft-item > input[type="checkbox"]:focus-visible {
+  outline: 1px solid var(--accent, #6ea8ff);
+  outline-offset: 1px;
+}
+.canon-draft-item-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.canon-draft-item-id {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg, #d6d8db);
+}
+.canon-draft-field { display: flex; flex-direction: column; gap: 3px; }
+.canon-draft-field > span {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.canon-draft-field > textarea {
+  appearance: none;
+  border-radius: 0;
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 6px 8px;
+  color: var(--text-primary, #f5f6f7);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+}
+.canon-draft-field > textarea:focus-visible { outline: 1px solid var(--accent, #6ea8ff); }
+.canon-draft-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.canon-draft-note {
+  flex: 1;
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
