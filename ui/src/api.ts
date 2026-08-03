@@ -3883,6 +3883,12 @@ export async function vitalsRecord(events: VitalEvent[]): Promise<void> {
   await invoke<void>("vitals_record", { events });
 }
 
+/// Worst native main-thread lag (ms) across [startMs, endMs] epoch-ms window,
+/// from the Rust probe (crates/app/src/main_lag.rs). Null when unsampled.
+export async function mainLagWindow(startMs: number, endMs: number): Promise<number | null> {
+  return await invoke<number | null>("main_lag_window", { startMs, endMs });
+}
+
 export async function vitalsSummary(days: number): Promise<VitalsSummaryRow[]> {
   return await invoke<VitalsSummaryRow[]>("vitals_summary", { days });
 }

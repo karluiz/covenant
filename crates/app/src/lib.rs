@@ -44,6 +44,7 @@ mod group_supervision;
 mod history_import;
 mod lsp_commands;
 mod mac_render;
+mod main_lag;
 mod mcp_server;
 mod memory;
 mod mission_pair;
@@ -5654,6 +5655,11 @@ pub fn run() {
                 mac_render::keep_rendering_while_occluded(&main_win);
             }
 
+            // Native main-thread lag probe — feeds `detail.mainLagMs` on the
+            // repaint vital so the next release's data can tell a blocked UI
+            // process from a cold WebKit compositor. See main_lag.rs.
+            main_lag::spawn_probe(app.handle().clone());
+
             // Fullscreen-aware notch: when the main Covenant window
             // enters fullscreen the floating overlay is intrusive, so
             // we hide it and ask the main UI to render an inline pill
@@ -5871,6 +5877,7 @@ pub fn run() {
             spawn_session,
             replay_scrollback,
             delete_scrollback,
+            main_lag::main_lag_window,
             ui_vitals::vitals_record,
             ui_vitals::vitals_summary,
             ui_vitals::vitals_worst,

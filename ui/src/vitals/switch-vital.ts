@@ -70,6 +70,12 @@ export interface SwitchVitalInput {
   /// the repaint frame. WebKit suspends rAF while occluded, so `repaintMs`
   /// then measures how long the user looked away — not a slow repaint.
   spannedHidden: boolean;
+  /// Worst NATIVE main-thread lag (Rust probe, see crates/app/src/main_lag.rs)
+  /// across the activation→repaint span. The discriminator for the idle-cold
+  /// switch: ≈frame1Ms means the UI process was blocked (rAF relays through
+  /// it), ≈0 means the stall is WebKit's compositor. Null when the probe has
+  /// no sample for the span or the query failed.
+  mainLagMs: number | null;
 }
 
 export interface BuiltVital {
@@ -89,6 +95,7 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
     tabCount: input.tabCount,
   };
   if (input.frame1Ms !== null) shared.frame1Ms = r1(input.frame1Ms);
+  if (input.mainLagMs !== null) shared.mainLagMs = Math.round(input.mainLagMs);
   if (input.gapStarvedMs !== null) shared.gapStarvedMs = Math.round(input.gapStarvedMs);
   if (input.grid) {
     shared.cols = input.grid.cols;

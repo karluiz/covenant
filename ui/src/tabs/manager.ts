@@ -65,6 +65,7 @@ import {
   isAomExcluded,
   isOperatorEnabled,
   isOperatorLive,
+  mainLagWindow,
   operatorLevelFromXp,
   operatorList,
   resizeSession,
@@ -7575,6 +7576,9 @@ export class TabManager {
     fit: SwitchFitBreadcrumb | null;
   }): void {
     const { tab, activationStartedAt, syncMs, queuedMs, hiddenOutputBytes, hiddenOutputChunks, fit } = args;
+    // Epoch-clock twin of activationStartedAt, for the native main-thread lag
+    // probe (Rust samples are stamped with SystemTime — same wall clock).
+    const epochStart = Date.now() - (performance.now() - activationStartedAt);
     // WebKit suspends rAF entirely while the window is occluded, so a switch
     // followed by an alt-tab yields a huge repaint with healthy starvation —
     // indistinguishable from a real stall unless we watch visibility across
@@ -7605,6 +7609,7 @@ export class TabManager {
       const frame1Ms = performance.now() - activationStartedAt;
       requestAnimationFrame(() => {
         const repaintMs = performance.now() - activationStartedAt;
+        const epochEnd = Date.now();
         const gapStarvedMs = gap.stop().starvedMs;
         document.removeEventListener("visibilitychange", onVisibility);
         window.removeEventListener("blur", onBlur);
@@ -7635,25 +7640,36 @@ export class TabManager {
             bytesLast5s: writePressure.bytesInLast(5000),
             writersLast5s: writePressure.writersInLast(5000),
           };
-          for (const v of buildSwitchVitals({
-            kind: tab.kind,
-            elapsedMs: syncMs,
-            repaintMs,
-            queuedMs,
-            starvedMs: postRevealStarvedMs,
-            hiddenOutputBytes,
-            hiddenOutputChunks,
-            tabCount: this.tabs.length,
-            fit,
-            spannedHidden,
-            frame1Ms,
-            gapStarvedMs,
-            grid,
-            pressure,
-            focusedThroughout,
-          })) {
-            this.vitals?.record(v.metric, v.value, v.aux, v.detail);
-          }
+          // Ask the Rust probe how late the NATIVE main thread ran across the
+          // gap before recording — a blocked UI process stalls the display-link
+          // relay (rAF dead, JS timers fine), which is exactly the slow-switch
+          // shape. Recording is buffered anyway, so the extra round-trip costs
+          // nothing user-visible. By this frame the block (if any) has
+          // released, so its queued probe samples are already in the ring.
+          void mainLagWindow(Math.floor(epochStart), Math.ceil(epochEnd))
+            .catch(() => null)
+            .then((mainLagMs) => {
+              for (const v of buildSwitchVitals({
+                kind: tab.kind,
+                elapsedMs: syncMs,
+                repaintMs,
+                queuedMs,
+                starvedMs: postRevealStarvedMs,
+                hiddenOutputBytes,
+                hiddenOutputChunks,
+                tabCount: this.tabs.length,
+                fit,
+                spannedHidden,
+                frame1Ms,
+                gapStarvedMs,
+                grid,
+                pressure,
+                focusedThroughout,
+                mainLagMs: mainLagMs ?? null,
+              })) {
+                this.vitals?.record(v.metric, v.value, v.aux, v.detail);
+              }
+            });
         });
       });
     });
