@@ -6001,6 +6001,7 @@ pub fn run() {
             somnus::somnus_env_activate,
             canon_eval::canon_run_evals,
             canon_eval::canon_draft_evals,
+            canon_eval::canon_write_evals,
             canon_eval::canon_eval_summary,
             canon_local_status,
             canon_install_local,
