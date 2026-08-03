@@ -24,6 +24,7 @@ const base = {
   pressure: { bytesLast5s: 1_500_000, writersLast5s: 4 },
   focusedThroughout: true,
   mainLagMs: 12.6,
+  gcdLagMs: 4.2,
 };
 
 describe("buildSwitchVitals", () => {
@@ -111,12 +112,16 @@ describe("buildSwitchVitals", () => {
 
   it("carries the native main-thread lag on both events — the A/B discriminator", () => {
     const out = buildSwitchVitals(base);
-    for (const e of out) expect(e.detail.mainLagMs).toBe(13);
+    for (const e of out) {
+      expect(e.detail.mainLagMs).toBe(13);
+      expect(e.detail.gcdLagMs).toBe(4);
+    }
   });
 
   it("omits the main lag when the probe had no sample for the span", () => {
-    const out = buildSwitchVitals({ ...base, mainLagMs: null });
+    const out = buildSwitchVitals({ ...base, mainLagMs: null, gcdLagMs: null });
     expect(out[0].detail).not.toHaveProperty("mainLagMs");
+    expect(out[0].detail).not.toHaveProperty("gcdLagMs");
   });
 
   it("omits pressure when it was not measured", () => {

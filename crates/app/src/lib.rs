@@ -44,6 +44,7 @@ mod group_supervision;
 mod history_import;
 mod lsp_commands;
 mod mac_render;
+mod mac_activity;
 mod main_lag;
 mod mcp_server;
 mod memory;
@@ -5659,6 +5660,11 @@ pub fn run() {
             // repaint vital so the next release's data can tell a blocked UI
             // process from a cold WebKit compositor. See main_lag.rs.
             main_lag::spawn_probe(app.handle().clone());
+
+            // Kernel-level throttle opt-out — the 0.11.13 probe pinned the
+            // idle-cold switch on the native main thread servicing posted
+            // work 1-2s late. See mac_activity.rs for the evidence chain.
+            mac_activity::begin_latency_critical_activity();
 
             // Fullscreen-aware notch: when the main Covenant window
             // enters fullscreen the floating overlay is intrusive, so

@@ -7648,7 +7648,7 @@ export class TabManager {
           // released, so its queued probe samples are already in the ring.
           void mainLagWindow(Math.floor(epochStart), Math.ceil(epochEnd))
             .catch(() => null)
-            .then((mainLagMs) => {
+            .then((lag) => {
               for (const v of buildSwitchVitals({
                 kind: tab.kind,
                 elapsedMs: syncMs,
@@ -7665,7 +7665,8 @@ export class TabManager {
                 grid,
                 pressure,
                 focusedThroughout,
-                mainLagMs: mainLagMs ?? null,
+                mainLagMs: lag?.main ?? null,
+                gcdLagMs: lag?.gcd ?? null,
               })) {
                 this.vitals?.record(v.metric, v.value, v.aux, v.detail);
               }

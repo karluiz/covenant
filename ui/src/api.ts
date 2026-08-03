@@ -3884,9 +3884,16 @@ export async function vitalsRecord(events: VitalEvent[]): Promise<void> {
 }
 
 /// Worst native main-thread lag (ms) across [startMs, endMs] epoch-ms window,
-/// from the Rust probe (crates/app/src/main_lag.rs). Null when unsampled.
-export async function mainLagWindow(startMs: number, endMs: number): Promise<number | null> {
-  return await invoke<number | null>("main_lag_window", { startMs, endMs });
+/// from the Rust probe (crates/app/src/main_lag.rs), via both posting paths:
+/// tao's run_on_main_thread (`main`) and GCD's main queue (`gcd`). Fields are
+/// null when unsampled (gcd is always null off-macOS).
+export interface MainLagWindow {
+  main: number | null;
+  gcd: number | null;
+}
+
+export async function mainLagWindow(startMs: number, endMs: number): Promise<MainLagWindow> {
+  return await invoke<MainLagWindow>("main_lag_window", { startMs, endMs });
 }
 
 export async function vitalsSummary(days: number): Promise<VitalsSummaryRow[]> {

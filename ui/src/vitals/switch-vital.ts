@@ -76,6 +76,10 @@ export interface SwitchVitalInput {
   /// it), ≈0 means the stall is WebKit's compositor. Null when the probe has
   /// no sample for the span or the query failed.
   mainLagMs: number | null;
+  /// Same span measured via dispatch_async on the GCD main queue. Both paths
+  /// land on the same thread: both high → the thread itself is throttled;
+  /// mainLag high + gcdLag low → tao's wake path is the bottleneck.
+  gcdLagMs: number | null;
 }
 
 export interface BuiltVital {
@@ -96,6 +100,7 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
   };
   if (input.frame1Ms !== null) shared.frame1Ms = r1(input.frame1Ms);
   if (input.mainLagMs !== null) shared.mainLagMs = Math.round(input.mainLagMs);
+  if (input.gcdLagMs !== null) shared.gcdLagMs = Math.round(input.gcdLagMs);
   if (input.gapStarvedMs !== null) shared.gapStarvedMs = Math.round(input.gapStarvedMs);
   if (input.grid) {
     shared.cols = input.grid.cols;
