@@ -194,9 +194,10 @@ fn project_context_skills(
 }
 
 /// First top-level `<key>:` value inside the leading frontmatter, trimmed and
-/// dequoted. `None` if there is no frontmatter or no non-empty value.
-/// ponytail: single-line values only; add block-scalar support if needed.
-pub(crate) fn parse_frontmatter_str(md: &str, key: &str) -> Option<String> {
+/// dequoted. Block scalars (`key: >` / `key: |`, with optional chomping
+/// indicator) fold their indented continuation lines into one string —
+/// otherwise skills authored with `description: >` surface a literal `>`.
+pub fn parse_frontmatter_str(md: &str, key: &str) -> Option<String> {
     let lines: Vec<&str> = md.lines().collect();
     let open = lines.iter().position(|l| l.trim() == "---")?;
     let close = open
@@ -206,12 +207,25 @@ pub(crate) fn parse_frontmatter_str(md: &str, key: &str) -> Option<String> {
             .skip(open + 1)
             .position(|l| l.trim() == "---")?;
     let prefix = format!("{key}:");
-    for l in &lines[open + 1..close] {
-        if let Some(rest) = l.strip_prefix(&prefix) {
-            let v = rest.trim().trim_matches('"').trim();
-            if !v.is_empty() {
-                return Some(v.to_string());
-            }
+    for (i, l) in lines[open + 1..close].iter().enumerate() {
+        let Some(rest) = l.strip_prefix(&prefix) else {
+            continue;
+        };
+        let raw = rest.trim();
+        if matches!(raw, ">" | ">-" | ">+" | "|" | "|-" | "|+") {
+            let sep = if raw.starts_with('|') { "\n" } else { " " };
+            let parts: Vec<&str> = lines[open + 1 + i + 1..close]
+                .iter()
+                .take_while(|l2| l2.trim().is_empty() || l2.starts_with([' ', '\t']))
+                .map(|l2| l2.trim())
+                .filter(|t| !t.is_empty())
+                .collect();
+            let joined = parts.join(sep);
+            return (!joined.is_empty()).then_some(joined);
+        }
+        let v = raw.trim_matches('"').trim();
+        if !v.is_empty() {
+            return Some(v.to_string());
         }
     }
     None
@@ -719,6 +733,25 @@ fn upsert_block(existing: &str, body: &str) -> String {
 mod tests {
     use super::*;
     use crate::{write_manifest, CanonManifest, InstalledRef};
+
+    #[test]
+    fn parse_frontmatter_folds_block_scalar() {
+        let md = "---\nname: kf\ndescription: >\n  Use when a composition needs\n  seek-safe keyframes.\n---\nbody\n";
+        assert_eq!(
+            parse_frontmatter_str(md, "description").as_deref(),
+            Some("Use when a composition needs seek-safe keyframes.")
+        );
+        assert_eq!(parse_frontmatter_str(md, "name").as_deref(), Some("kf"));
+    }
+
+    #[test]
+    fn parse_frontmatter_literal_block_keeps_newlines() {
+        let md = "---\ndescription: |-\n  line one\n  line two\n---\n";
+        assert_eq!(
+            parse_frontmatter_str(md, "description").as_deref(),
+            Some("line one\nline two")
+        );
+    }
 
     #[test]
     fn strip_covenant_removes_block_keeps_standard_keys() {

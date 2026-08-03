@@ -133,6 +133,19 @@ export function openMarkdownReader(
     .catch((e) => { body.textContent = `Failed to load: ${String(e)}`; });
 }
 
+/** Legacy registry rows stored raw YAML artifacts as descriptions: a lone
+ *  block-scalar marker (`>`, `|`) from `description: >` frontmatter, or a
+ *  wrapping double quote. Drop/strip them so cards never render YAML syntax. */
+export function cleanDescription(d: string | null | undefined): string {
+  let s = (d ?? "").trim();
+  if (/^[>|][+-]?$/.test(s)) return "";
+  if (s.startsWith('"')) {
+    s = s.slice(1);
+    if (s.endsWith('"')) s = s.slice(0, -1);
+  }
+  return s.trim();
+}
+
 /** A skill/package card: name + meta + actions, a one-line description,
  *  and a Preview toggle that lazy-loads the full SKILL.md (rendered as
  *  plain text — registry content is untrusted, never innerHTML). Shared by
@@ -211,10 +224,11 @@ export function skillCard(opts: {
   head.append(prev, expand, ...opts.actions);
   card.appendChild(head);
 
-  if (opts.description?.trim()) {
+  const descText = cleanDescription(opts.description);
+  if (descText) {
     const desc = document.createElement("p");
     desc.className = "canon-result-desc";
-    desc.textContent = opts.description;
+    desc.textContent = descText;
     card.appendChild(desc);
   }
   card.appendChild(pre);
