@@ -1952,18 +1952,21 @@ export class CanonCockpitView {
     // so the row is scannable by glyph before you read a word; active state is
     // the shared accent underline. Every kind is a /cdlc/packages search;
     // operators are shared via the org roster sync, not a public registry.
-    type RegTab = { key: string; label: string; wire: CanonPkgKind; icon: string };
+    type RegTab = { key: SectionKey; label: string; wire: CanonPkgKind; icon: string; icon28: string };
     const REG_TABS: RegTab[] = [
-      { key: "skills", label: "Skills", wire: "skill", icon: Icons.sparkles({ size: 15 }) },
-      { key: "agents", label: "Subagents", wire: "agent", icon: Icons.bot({ size: 15 }) },
-      { key: "commands", label: "Commands", wire: "command", icon: Icons.terminalSquare({ size: 15 }) },
-      { key: "context", label: "Context", wire: "context", icon: Icons.fileText({ size: 15 }) },
-      { key: "mcp", label: "MCP", wire: "mcp", icon: Icons.radioTower({ size: 15 }) },
+      { key: "skills", label: "Skills", wire: "skill", icon: Icons.sparkles({ size: 15 }), icon28: Icons.sparkles({ size: 28 }) },
+      { key: "agents", label: "Subagents", wire: "agent", icon: Icons.bot({ size: 15 }), icon28: Icons.bot({ size: 28 }) },
+      { key: "commands", label: "Commands", wire: "command", icon: Icons.terminalSquare({ size: 15 }), icon28: Icons.terminalSquare({ size: 28 }) },
+      { key: "context", label: "Context", wire: "context", icon: Icons.fileText({ size: 15 }), icon28: Icons.fileText({ size: 28 }) },
+      { key: "mcp", label: "MCP", wire: "mcp", icon: Icons.radioTower({ size: 15 }), icon28: Icons.radioTower({ size: 28 }) },
     ];
     let tab: RegTab = REG_TABS[0];
     // Flips on the first explicit search or tab click so the async census
     // seed below never clobbers results the user asked for.
     let userSearched = false;
+    // Empty-query rows per kind, filled by the seed fan-out and by browse
+    // fetches — tab switches render from here instantly, then revalidate.
+    const census = new Map<CanonPkgKind, PkgMeta[]>();
     // Org defaults keyed `${kind}/${name}` — owners pin/unpin from the cards.
     const defaults = new Set<string>();
     void canonOrgDefaults(initialActive.slug)
@@ -2013,7 +2016,15 @@ export class CanonCockpitView {
     const renderRows = (active: Org, wire: CanonPkgKind, rows: PkgMeta[]): void => {
       results.replaceChildren();
       if (rows.length === 0) {
-        results.appendChild(this.note("No packages found."));
+        const q = input.value.trim();
+        results.appendChild(q
+          ? this.note(`No matches for “${q}”.`)
+          : this.emptyState({
+              icon: tab.icon28,
+              title: `No ${tab.key === "mcp" ? "MCP packages" : tab.label.toLowerCase()} in ${active.slug} yet`,
+              hint: `Publish one from this repo's ${tab.label} section.`,
+              action: { label: `Go to ${tab.label}`, onClick: () => this.showSection(tab.key) },
+            }));
         return;
       }
       for (const r of rows) {
@@ -2080,11 +2091,21 @@ export class CanonCockpitView {
     };
 
     const runPkgSearch = (active: Org, wire: CanonPkgKind): void => {
-      results.replaceChildren(this.note("Searching…"));
-      void canonSearch(active.slug, input.value.trim() || null, wire)
-        .then((rows: PkgMeta[]) => renderRows(active, wire, rows))
+      const query = input.value.trim() || null;
+      // Browsing (empty query) paints from the census instantly and
+      // revalidates in the background; typed searches always hit the network.
+      const cached = query === null ? census.get(wire) : undefined;
+      if (cached) renderRows(active, wire, cached);
+      else results.replaceChildren(this.note("Searching…"));
+      void canonSearch(active.slug, query, wire)
+        .then((rows: PkgMeta[]) => {
+          if (query === null) census.set(wire, rows);
+          if (wire !== tab.wire) return; // user switched tabs mid-flight
+          renderRows(active, wire, rows);
+        })
         .catch((e) => {
-          results.replaceChildren();
+          if (wire !== tab.wire) return;
+          if (!cached) results.replaceChildren();
           errorEl.hidden = false;
           errorEl.textContent = this.friendlyError(e);
         });
@@ -2126,6 +2147,7 @@ export class CanonCockpitView {
       if (!ct) continue;
       void canonSearch(initialActive.slug, null, t.wire)
         .then((rows) => {
+          census.set(t.wire, rows);
           ct.textContent = String(rows.length);
           ct.hidden = false;
           if (t.wire === tab.wire && !userSearched) renderRows(initialActive, t.wire, rows);
