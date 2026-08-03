@@ -124,6 +124,7 @@ import { WorktreesSurface } from "./worktrees/index";
 import "./worktrees/worktrees.css";
 import { VitalsSurface } from "./vitals/page";
 import { VitalsCollector } from "./vitals/collector";
+import { startRenderHeartbeat } from "./render-heartbeat";
 import { vitalsDaily, vitalsRecord, vitalsSummary, vitalsWorst } from "./api";
 import { gitRepoSummary } from "./api";
 import { handleHandoffRouted, type HandoffRoutedEvent } from "./teammate/handoff-spawn";
@@ -2169,6 +2170,11 @@ async function boot(): Promise<void> {
     } catch { /* not a git repo — no-op */ }
   };
   window.addEventListener("covenant:open-worktrees", () => { void openWorktrees(); });
+
+  // Keep WebKit's rendering cycle warm — the measured cause of the 2s
+  // first-switch-after-idle freeze. See render-heartbeat.ts for the
+  // evidence chain and the take-it-out contract.
+  startRenderHeartbeat();
 
   // UI Vitals — terminal-speed metrics. Collector feeds every capture
   // point in the TabManager; the surface is the ⌘⌥V dashboard.
