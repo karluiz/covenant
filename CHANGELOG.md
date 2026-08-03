@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.14 — Kernel throttle opt-out for the idle switch freeze
+
+### Fixed
+
+- **Idle tab-switch freeze, round two**: 0.11.13's `mainLagMs` probe showed
+  work posted to the native main thread running 1–2.3s late on every
+  idle-cold switch while live process sampling found all six processes idle
+  and the render heartbeat's commits still flowing — the signature of kernel
+  timer coalescing on a process macOS considers inactive, not of anything
+  being busy. The app now holds an `NSProcessInfo` activity assertion
+  (`UserInitiatedAllowingIdleSystemSleep | LatencyCritical`, the iTerm2
+  approach — idle system sleep stays allowed) for the process lifetime.
+  `crates/app/src/mac_activity.rs`.
+- **Probe discriminates tao vs kernel**: the main-lag probe now also posts
+  through GCD's main queue and records `detail.gcdLagMs` beside
+  `detail.mainLagMs` on the `repaint` vital — if the assertion is not the
+  fix, the pair separates a throttled thread (both high) from a slow tao
+  wake path (main high, gcd low). `crates/app/src/main_lag.rs`,
+  `ui/src/vitals/switch-vital.ts`.
+
 ## v0.11.13 — Idle tab-switch freeze fixed + kind-generic evals
 
 ### Added
