@@ -24,18 +24,30 @@ one loop.
 
 ## The loop
 
-```text
-        ┌────────────────────────────────────────────────────────┐
-        │                                                        │
-        ▼                                                        │
-  ┌───────────┐     ┌───────────┐     ┌────────────┐     ┌───────────┐
-  │ GENERATE  │────▶│ EVALUATE  │────▶│ DISTRIBUTE │────▶│ OBSERVE   │
-  └───────────┘     └───────────┘     └────────────┘     └───────────┘
-   author it         prove it          version it          measure it
-   from the          changes           publish it          in production
-   repo, not         behavior          install it          every day
-   from memory       (context-TDD)     everywhere
-```
+<figure class="dg">
+  <div class="dg-flow">
+    <div class="dg-node">
+      <span class="dg-node-label">Generate</span>
+      <span class="dg-node-sub">author it from the repo, not from memory</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node">
+      <span class="dg-node-label">Evaluate</span>
+      <span class="dg-node-sub">prove it changes behavior (context&#8209;TDD)</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node">
+      <span class="dg-node-label">Distribute</span>
+      <span class="dg-node-sub">version it, publish it, install it everywhere</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node">
+      <span class="dg-node-label">Observe</span>
+      <span class="dg-node-sub">measure it in production, every day</span>
+    </div>
+  </div>
+  <div class="dg-return"><span>observe feeds the next generate</span></div>
+</figure>
 
 The loop is the point. *Observe* is not a dashboard at the end — its output is
 the input to the next *Generate*: what to author next, what to promote
@@ -53,10 +65,34 @@ sqlx to runtime queries, never macros", "PTY reads must never block"). A human
 curates: accept, edit, discard. Accepted findings compile into a packaged,
 versioned unit of context.
 
-```text
-  repo ──▶ mining agent ──▶ findings ──▶ human curates ──▶ packaged skill
-           (read-only)      (streamed)    accept/edit/drop    name@version
-```
+<figure class="dg">
+  <div class="dg-flow">
+    <div class="dg-node">
+      <span class="dg-node-label">repo</span>
+      <span class="dg-node-sub">code, history, configs</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node">
+      <span class="dg-node-label">mining agent</span>
+      <span class="dg-node-sub">read-only</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node">
+      <span class="dg-node-label">findings</span>
+      <span class="dg-node-sub">streamed</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node">
+      <span class="dg-node-label">human curates</span>
+      <span class="dg-node-sub">accept · edit · drop</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node dg-node--accent">
+      <span class="dg-node-label">packaged skill</span>
+      <span class="dg-node-sub">name@version</span>
+    </div>
+  </div>
+</figure>
 
 The unit that comes out isn't prose — it's a package: a skill, an agent
 definition, a command, a context file, or an MCP config. Five kinds, one
@@ -70,18 +106,24 @@ differently?
 
 Context-TDD answers it the same way code-TDD does — red, then green:
 
-```text
-  eval = { scenario , rubric }
-
-  ┌─ run WITHOUT the skill ─┐        ┌─ run WITH the skill ────┐
-  │  real agent, sandboxed  │        │  real agent, sandboxed  │
-  │  transcript ──▶ judge   │        │  transcript ──▶ judge   │
-  │            FAIL         │        │            PASS         │
-  └─────────────────────────┘        └─────────────────────────┘
-              red                              green
-
-                     Δ  =  context lift
-```
+<figure class="dg">
+  <p class="dg-eq">eval = &#123; scenario , rubric &#125;</p>
+  <div class="dg-split">
+    <div class="dg-panel">
+      <span class="dg-node-label">run without the skill</span>
+      <span class="dg-node-sub">real agent, sandboxed<br />transcript ▶ judge</span>
+      <span class="dg-verdict dg-verdict--fail">fail</span>
+      <span class="dg-tag">red</span>
+    </div>
+    <div class="dg-panel">
+      <span class="dg-node-label">run with the skill</span>
+      <span class="dg-node-sub">real agent, sandboxed<br />transcript ▶ judge</span>
+      <span class="dg-verdict dg-verdict--pass">pass</span>
+      <span class="dg-tag">green</span>
+    </div>
+  </div>
+  <p class="dg-delta">Δ = context lift</p>
+</figure>
 
 An eval is a scenario plus a rubric. The runner spawns a *real* agent run
 (`claude -p`, read-only tools, sandboxed, timeboxed) and an LLM judge scores
@@ -95,16 +137,24 @@ Context today spreads by copy-paste: someone shares a gist, five repos
 diverge, nobody knows which version anyone runs. Code solved this decades ago
 with package registries. Context gets the same treatment:
 
-```text
-  publish                     org registry                   install
-  name@version  ──────▶   ┌────────────────┐   ──────▶   any repo, any member
-  sha-addressed           │  skills        │
-  secrets masked          │  agents        │             installs counted
-                          │  commands      │             evals ride along
-                          │  contexts      │
-                          │  mcp configs   │
-                          └────────────────┘
-```
+<figure class="dg">
+  <div class="dg-flow">
+    <div class="dg-node">
+      <span class="dg-node-label">publish</span>
+      <span class="dg-node-sub">name@version<br />sha-addressed<br />secrets masked</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node dg-node--accent">
+      <span class="dg-node-label">org registry</span>
+      <span class="dg-node-sub">skills · agents · commands · contexts · mcp configs</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node">
+      <span class="dg-node-label">install</span>
+      <span class="dg-node-sub">any repo, any member<br />installs counted<br />evals ride along</span>
+    </div>
+  </div>
+</figure>
 
 Packages are immutable per version, content-addressed, and secret-masked on
 publish. The org is the trust boundary: any member publishes, any member
@@ -116,12 +166,21 @@ Code, Codex, Copilot, and whatever ships next quarter. Each reads context from
 a different native location. So an installed package is the canonical source,
 and it *projects* into each executor's dialect:
 
-```text
-                          ┌──▶ claude    ▸ .claude/skills/<name>/SKILL.md
-  canonical package ──────┼──▶ codex     ▸ AGENTS.md            (managed block)
-  (one source of truth)   ├──▶ copilot   ▸ .github/copilot-instructions.md
-                          └──▶ pi/hermes ▸ managed blocks
-```
+<figure class="dg">
+  <div class="dg-branch">
+    <div class="dg-node dg-node--accent">
+      <span class="dg-node-label">canonical package</span>
+      <span class="dg-node-sub">one source of truth</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-branch-targets">
+      <div><span class="dg-exec">claude</span><code>.claude/skills/&lt;name&gt;/SKILL.md</code></div>
+      <div><span class="dg-exec">codex</span><code>AGENTS.md</code> (managed block)</div>
+      <div><span class="dg-exec">copilot</span><code>.github/copilot-instructions.md</code></div>
+      <div><span class="dg-exec">pi/hermes</span>managed blocks</div>
+    </div>
+  </div>
+</figure>
 
 Uninstall the package and the projections are cleaned up too. No drift, no
 orphaned instruction files.
@@ -133,13 +192,28 @@ Observability for context needs a measurement instrument, and it turns out the
 terminal is the perfect one — it's the substrate every agent already runs on.
 Four primitives get captured at the terminal layer:
 
-```text
-  spec      ─┐
-  prompt    ─┤                      ┌─ adoption     installs × uses per unit
-  commit    ─┼──▶  telemetry  ──▶───┼─ dead weight  installed, projected, 0 uses
-  llm call  ─┘    (local-first,     ├─ footprint    tokens · prompts · specs · commits
-                  metadata only)    └─ eval lift    pass-rate with vs without
-```
+<figure class="dg">
+  <div class="dg-flow">
+    <div class="dg-stack">
+      <div>spec</div>
+      <div>prompt</div>
+      <div>commit</div>
+      <div>llm call</div>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-node dg-node--accent dg-node--core">
+      <span class="dg-node-label">telemetry</span>
+      <span class="dg-node-sub">local-first, metadata only</span>
+    </div>
+    <span class="dg-arrow">▶</span>
+    <div class="dg-stack">
+      <div>adoption</div>
+      <div>dead weight</div>
+      <div>footprint</div>
+      <div>eval lift</div>
+    </div>
+  </div>
+</figure>
 
 | signal | the question it answers |
 | --- | --- |
