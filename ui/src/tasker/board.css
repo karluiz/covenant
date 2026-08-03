@@ -113,6 +113,19 @@ body.theme-true-dark .kb-card { background: #141416; }
 }
 .kb-card-body { min-width: 0; }
 .kb-card-title { font-size: 12.5px; line-height: 1.35; color: var(--text-primary); }
+.kb-title-input {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  font-size: 12.5px;
+  padding: 2px 4px;
+  border-radius: 0;
+  border: 1px solid var(--accent);
+  background: var(--bg);
+  color: var(--text-primary);
+  user-select: text;
+  -webkit-user-select: text;
+}
 .kb-card-done .kb-card-title { color: var(--muted); text-decoration: line-through; }
 .kb-card-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; align-items: center; }
 .kb-badge {
