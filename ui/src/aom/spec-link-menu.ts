@@ -100,8 +100,11 @@ async function pickTab(
     overlay.className = "command-palette-overlay spec-link-modal-overlay";
     overlay.innerHTML = `
       <div class="command-palette-card spec-link-modal">
-        <span class="command-palette-label">Spec</span>
-        <div class="spec-link-modal-title">Assign to another session</div>
+        <div class="spec-link-modal-head">
+          <span class="command-palette-label">Spec</span>
+          <div class="spec-link-modal-title">Assign to another session</div>
+          <button type="button" class="spec-link-modal-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
+        </div>
         <div class="spec-link-modal-body">
           ${tabs.length === 0
             ? `<div class="spec-link-modal-empty">No other eligible sessions.</div>`
@@ -110,9 +113,6 @@ async function pickTab(
                 <div class="spec-link-modal-tab-label">${escapeHtml(t.label)}${t.hasMission ? " (has spec)" : ""}</div>
                 <div class="spec-link-modal-tab-cwd">${escapeHtml(t.cwd)}</div>
               </button>`).join("")}
-        </div>
-        <div class="spec-link-modal-actions">
-          <button type="button" class="workspace-confirm-cancel spec-link-modal-cancel">Cancel</button>
         </div>
       </div>
     `;
@@ -130,7 +130,7 @@ async function pickTab(
       resolve(val);
     };
     document.addEventListener("keydown", onKey, true);
-    overlay.querySelector(".spec-link-modal-cancel")!.addEventListener("click", () => cleanup(null));
+    overlay.querySelector(".spec-link-modal-close")!.addEventListener("click", () => cleanup(null));
     overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(null); });
     overlay.querySelectorAll<HTMLElement>(".spec-link-modal-tab").forEach((b) => {
       b.addEventListener("click", () => cleanup(b.dataset.id ?? null));
