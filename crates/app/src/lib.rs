@@ -5677,11 +5677,13 @@ pub fn run() {
             // work 1-2s late. See mac_activity.rs for the evidence chain.
             mac_activity::begin_latency_critical_activity();
 
-            // User-event wake burst — the endgame fix for the idle switch
-            // freeze: every wakeup path except user input is deferred on an
-            // unattended app, so any real user event opens a 3s window of
-            // synthetic event-port wakes. See mac_wake.rs. Setup runs on the
-            // main thread, which the NSEvent monitor install requires.
+            // WindowServer donation keepalive — the spindump-licensed fix for
+            // the idle switch freeze: the kernel gates ALL receives of an
+            // idle-classified process until a WindowServer importance
+            // donation arrives (even the user's click waits). Subscribing to
+            // session-wide mouse events keeps donations flowing so the gate
+            // never closes. See mac_wake.rs. Setup runs on the main thread,
+            // which the NSEvent monitor install requires.
             mac_wake::install();
 
             // Fullscreen-aware notch: when the main Covenant window
