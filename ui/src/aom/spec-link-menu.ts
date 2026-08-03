@@ -45,10 +45,10 @@ function showMenu(x: number, y: number, path: string, host: SpecLinkMenuHost) {
   const menu = document.createElement("div");
   menu.className = "spec-link-menu";
   menu.innerHTML = `
-    <button type="button" data-act="open">Abrir spec</button>
-    <button type="button" data-act="assign-active">Asignar a esta sesión</button>
-    <button type="button" data-act="assign-other">Asignar a otra sesión…</button>
-    <button type="button" data-act="reveal">Revelar en Finder</button>
+    <button type="button" data-act="open">Open spec</button>
+    <button type="button" data-act="assign-active">Assign to this session</button>
+    <button type="button" data-act="assign-other">Assign to another session…</button>
+    <button type="button" data-act="reveal">Reveal in Finder</button>
   `;
   menu.style.position = "fixed";
   menu.style.top = `${y}px`;
@@ -97,10 +97,11 @@ async function pickTab(
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
-    overlay.className = "spec-link-modal-overlay";
+    overlay.className = "command-palette-overlay spec-link-modal-overlay";
     overlay.innerHTML = `
-      <div class="spec-link-modal">
-        <div class="spec-link-modal-title">Asignar a otra sesión</div>
+      <div class="command-palette-card spec-link-modal">
+        <span class="command-palette-label">Spec</span>
+        <div class="spec-link-modal-title">Assign to another session</div>
         <div class="spec-link-modal-body">
           ${tabs.length === 0
             ? `<div class="spec-link-modal-empty">No other eligible sessions.</div>`
@@ -111,12 +112,24 @@ async function pickTab(
               </button>`).join("")}
         </div>
         <div class="spec-link-modal-actions">
-          <button type="button" class="spec-link-modal-cancel">Cancelar</button>
+          <button type="button" class="workspace-confirm-cancel spec-link-modal-cancel">Cancel</button>
         </div>
       </div>
     `;
     document.body.appendChild(overlay);
-    const cleanup = (val: string | null) => { overlay.remove(); resolve(val); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        cleanup(null);
+      }
+    };
+    const cleanup = (val: string | null) => {
+      document.removeEventListener("keydown", onKey, true);
+      overlay.remove();
+      resolve(val);
+    };
+    document.addEventListener("keydown", onKey, true);
     overlay.querySelector(".spec-link-modal-cancel")!.addEventListener("click", () => cleanup(null));
     overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(null); });
     overlay.querySelectorAll<HTMLElement>(".spec-link-modal-tab").forEach((b) => {
