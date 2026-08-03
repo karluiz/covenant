@@ -45,6 +45,7 @@ mod history_import;
 mod lsp_commands;
 mod mac_render;
 mod mac_activity;
+mod mac_wake;
 mod main_lag;
 mod mcp_server;
 mod memory;
@@ -5675,6 +5676,13 @@ pub fn run() {
             // idle-cold switch on the native main thread servicing posted
             // work 1-2s late. See mac_activity.rs for the evidence chain.
             mac_activity::begin_latency_critical_activity();
+
+            // User-event wake burst — the endgame fix for the idle switch
+            // freeze: every wakeup path except user input is deferred on an
+            // unattended app, so any real user event opens a 3s window of
+            // synthetic event-port wakes. See mac_wake.rs. Setup runs on the
+            // main thread, which the NSEvent monitor install requires.
+            mac_wake::install();
 
             // Fullscreen-aware notch: when the main Covenant window
             // enters fullscreen the floating overlay is intrusive, so
