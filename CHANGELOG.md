@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.15 — Runloop-mode + thread-priority forensics on the switch vital
+
+### Added
+
+- **Runloop-mode histogram and main-thread priority on the lag probe**: the
+  0.11.14 data showed both posting paths (tao and GCD) starving equally
+  during the idle-cold switch, so the probe thread now samples
+  `CFRunLoopCopyCurrentMode` and the main thread's scheduling priority
+  (`pth_curpri` via `thread_info`) at 10Hz; the activation span's mode
+  histogram and minimum priority ship on the `repaint` vital as
+  `detail.runloopModes` / `detail.mainPriMin`. A 30-minute unattended
+  dev-build control run never degraded (p50 0.05ms, 98% default mode,
+  priority 46), so the instrument rides the installed app, where the bug
+  lives. `crates/app/src/main_lag.rs`, `ui/src/vitals/switch-vital.ts`.
+- **Activity rows show the executor brand icon**: inline-notch activity rows
+  render the executor's brand icon instead of its name.
+  `ui/src/inline-notch.ts`, `ui/src/styles.css`.
+
+
 ## v0.11.14 — Kernel throttle opt-out for the idle switch freeze
 
 ### Fixed
