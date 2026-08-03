@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.19 — Idle switch freeze: the WindowServer donation keepalive
+
+### Added
+
+- **Tasker work timer + estimates**: tasks track worked hours with a
+  per-task timer, carry a time estimate, and board cards support inline
+  title edit via double-click; the dock gets a top border and
+  rename-in-dock titles. `ui/src/tasker/`.
+- **Blog: CDLC — your agents' context needs a lifecycle**: published, with
+  ASCII diagrams replaced by styled HTML figures.
+
+### Fixed
+
+- **Idle tab-switch freeze — WindowServer donation keepalive**: a sudo
+  spindump of a live 2221ms stall showed the kernel withholding ALL mach
+  receives from the idle-classified process — main thread and NSEventThread
+  blocked 4.9s at priority 47 with the process frontmost, woken only by an
+  importance donation from WindowServer, after which the user's click is
+  finally pulled off the connection. The fix keeps the gate from ever
+  closing: a global NSEvent mouse monitor (no TCC needed) subscribes to
+  session-wide activity, so every event the user produces in any app
+  arrives carrying a donation and Covenant stays interactive-classified.
+  Replaces 0.11.18's synthetic wake burst, which field data showed rides
+  the same gated path. `crates/app/src/mac_wake.rs`.
+
+
 ## v0.11.18 — Idle tab-switch freeze: the user-event wake burst
 
 ### Added
