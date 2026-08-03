@@ -41,6 +41,16 @@ export function liftRow(s: EvalUnitSummary): LiftView {
   };
 }
 
+/** Short row chip for any evaluable unit: authored count + latest verdict.
+ *  "no evals" nudges toward Draft evals; "not run" toward Run evals. */
+export function evalCountLabel(s: EvalUnitSummary | undefined): string {
+  const n = s?.authored ?? 0;
+  if (n === 0) return "no evals";
+  const evals = `${n} eval${n === 1 ? "" : "s"}`;
+  if (!s || s.total === 0) return `${evals} · not run`;
+  return `${evals} · ${s.passed}/${s.total} pass`;
+}
+
 /** Actionable class + short badge text for a skill row (rail + Loop). */
 export function liftClass(s: EvalUnitSummary): LiftBadge {
   if (!isCleanAB(s)) return { kind: "unmeasured", text: "no baseline" };

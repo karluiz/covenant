@@ -14,7 +14,8 @@ pub mod types;
 
 pub use detect::scan_detected;
 pub use eval::{
-    pass_rate, read_evals, read_results, unit_key, write_eval, write_result, Eval, EvalResult,
+    authored_counts, pass_rate, read_evals, read_results, unit_key, write_eval, write_result, Eval,
+    EvalResult,
 };
 pub use install::{
     adopt, adopt_new_skills, content_version, delete_unit, install_from_dir, install_local,

@@ -171,6 +171,38 @@ pub fn write_eval(
     Ok(path)
 }
 
+/// Count authored eval files per unit, keyed like `unit_key` ("skill/horizon").
+/// File count, not parse count — a malformed toml still shows as authored so
+/// the gap is visible in the UI rather than silently ignored.
+pub fn authored_counts(repo_root: &Path) -> BTreeMap<String, usize> {
+    let mut out = BTreeMap::new();
+    let Ok(kinds) = std::fs::read_dir(canon_dir(repo_root).join("evals")) else {
+        return out;
+    };
+    for kind in kinds.flatten() {
+        let Ok(units) = std::fs::read_dir(kind.path()) else {
+            continue;
+        };
+        let kind_slug = kind.file_name().to_string_lossy().into_owned();
+        for unit in units.flatten() {
+            let Ok(files) = std::fs::read_dir(unit.path()) else {
+                continue;
+            };
+            let n = files
+                .flatten()
+                .filter(|f| f.path().extension().and_then(|e| e.to_str()) == Some("toml"))
+                .count();
+            if n > 0 {
+                out.insert(
+                    format!("{kind_slug}/{}", unit.file_name().to_string_lossy()),
+                    n,
+                );
+            }
+        }
+    }
+    out
+}
+
 /// `(passed, total)` over stored results for a unit; `None` if none yet.
 pub fn pass_rate(repo_root: &Path, kind: ContextKind, name: &str) -> Option<(usize, usize)> {
     let all = read_results(repo_root);
@@ -323,6 +355,32 @@ mod tests {
             "an MCP server is a connection, not context"
         );
         assert!(!Spec.evaluable(), "specs are never projected");
+    }
+
+    #[test]
+    fn authored_counts_scans_the_whole_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let ev = |id: &str| Eval {
+            id: id.into(),
+            scenario: "s".into(),
+            rubric: "r".into(),
+        };
+        super::write_eval(root, crate::ContextKind::Skill, "horizon", &ev("a")).unwrap();
+        super::write_eval(root, crate::ContextKind::Skill, "horizon", &ev("b")).unwrap();
+        super::write_eval(root, crate::ContextKind::Command, "green", &ev("a")).unwrap();
+        // A stray non-toml file must not count.
+        std::fs::write(
+            root.join(".covenant/canon/evals/skill/horizon/notes.md"),
+            "x",
+        )
+        .unwrap();
+
+        let counts = authored_counts(root);
+        assert_eq!(counts.get("skill/horizon"), Some(&2));
+        assert_eq!(counts.get("command/green"), Some(&1));
+        assert_eq!(counts.len(), 2);
+        assert!(authored_counts(tempfile::tempdir().unwrap().path()).is_empty());
     }
 
     #[test]

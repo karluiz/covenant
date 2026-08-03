@@ -433,6 +433,9 @@ pub struct EvalUnitSummary {
     pub total: usize,
     pub baseline_passed: usize,
     pub baseline_total: usize,
+    /// Eval .toml files on disk for this unit — nonzero even before any run,
+    /// so rows can show "3 evals · not run" instead of looking eval-less.
+    pub authored: usize,
 }
 
 fn emit_progress(
@@ -762,7 +765,11 @@ pub async fn canon_write_evals(
 pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, String> {
     let repo_root = std::path::PathBuf::from(&cwd);
     let all = karl_canon::read_results(&repo_root);
-    Ok(all
+    // Union of both trees: results rows pick up their authored file count,
+    // and units with evals authored but never run still get a row — that is
+    // what lets a list say "3 evals · not run" instead of nothing.
+    let mut authored = karl_canon::authored_counts(&repo_root);
+    let mut out: Vec<EvalUnitSummary> = all
         .into_iter()
         .map(|(key, inner)| {
             // Keys are "<kind>/<name>"; a legacy bare key is a skill.
@@ -777,6 +784,7 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 .filter(|r| r.baseline_pass == Some(true))
                 .count();
             EvalUnitSummary {
+                authored: authored.remove(&format!("{kind}/{name}")).unwrap_or(0),
                 kind,
                 name,
                 passed,
@@ -785,7 +793,22 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 baseline_total,
             }
         })
-        .collect())
+        .collect();
+    for (key, n) in authored {
+        let Some((kind, name)) = key.split_once('/') else {
+            continue;
+        };
+        out.push(EvalUnitSummary {
+            kind: kind.to_string(),
+            name: name.to_string(),
+            passed: 0,
+            total: 0,
+            baseline_passed: 0,
+            baseline_total: 0,
+            authored: n,
+        });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -844,23 +867,38 @@ mod tests {
         };
         karl_canon::write_result(root, ContextKind::Command, "horizon", &r(true)).unwrap();
         karl_canon::write_result(root, ContextKind::Skill, "kyc-peru", &r(false)).unwrap();
+        // Authored files: two for a unit with results, one for a unit with
+        // none — the latter must still surface as a row ("not run").
+        let ev = |id: &str| karl_canon::Eval {
+            id: id.into(),
+            scenario: "s".into(),
+            rubric: "r".into(),
+        };
+        karl_canon::write_eval(root, ContextKind::Command, "horizon", &ev("e1")).unwrap();
+        karl_canon::write_eval(root, ContextKind::Command, "horizon", &ev("e2")).unwrap();
+        karl_canon::write_eval(root, ContextKind::Skill, "drafted-only", &ev("e1")).unwrap();
 
         let mut out = canon_eval_summary(root.to_string_lossy().into_owned())
             .await
             .unwrap();
         out.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
 
-        assert_eq!(out.len(), 2);
+        assert_eq!(out.len(), 3);
         assert_eq!(
             (out[0].kind.as_str(), out[0].name.as_str()),
             ("command", "horizon")
         );
-        assert_eq!((out[0].passed, out[0].total), (1, 1));
+        assert_eq!((out[0].passed, out[0].total, out[0].authored), (1, 1, 2));
         assert_eq!(
             (out[1].kind.as_str(), out[1].name.as_str()),
+            ("skill", "drafted-only")
+        );
+        assert_eq!((out[1].passed, out[1].total, out[1].authored), (0, 0, 1));
+        assert_eq!(
+            (out[2].kind.as_str(), out[2].name.as_str()),
             ("skill", "kyc-peru")
         );
-        assert_eq!((out[1].passed, out[1].total), (0, 1));
+        assert_eq!((out[2].passed, out[2].total, out[2].authored), (0, 1, 0));
     }
 
     #[tokio::test]

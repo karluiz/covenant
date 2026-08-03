@@ -2059,6 +2059,9 @@ export interface EvalUnitSummary {
   total: number;
   baseline_passed: number;
   baseline_total: number;
+  /** Eval .toml files on disk — nonzero even before any run. Optional only
+   *  for older test fixtures; the backend always sends it. */
+  authored?: number;
 }
 
 export interface CanonEvalProgress {
