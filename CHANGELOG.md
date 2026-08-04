@@ -6,6 +6,42 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.27 — Evals cockpit (⌘⌥E): durable runs, pill + status chip
+
+### Added
+
+- **Eval runs are durable backend entities**: every run gets a Ulid
+  `run_id` and lives in a process-global registry (unit, cwd, per-case
+  status/reason/arm/duration/started-at). Progress events and the registry
+  update through one choke point, so any view can mount late — reload,
+  cockpit opened mid-run — and agree with the event stream. New
+  `canon_list_eval_runs` command returns live runs per repo plus the
+  on-disk `eval-history.jsonl` for hydration
+  (`crates/app/src/canon_eval.rs`).
+
+- **Evals cockpit (⌘⌥E / Ctrl+Alt+E)**: full-screen three-column module —
+  runs rail (Running + History), case list with live elapsed timers, and
+  transcript tabs (Transcript / Baseline / Judge / Scenario) with a
+  verdict strip (pass/fail, baseline, models, duration). Stop and Manage
+  live in the cases header; live events stream in while open. ⌥E is a
+  dead key on macOS, so the shortcut matches `e.code`
+  (`ui/src/canon/evals-cockpit.ts`, `ui/src/canon/evals-cockpit.css`).
+
+- **Progress pill replaces the floating eval panel**: one line — pulsing
+  dot, unit name, progress bar, n/m tally, ticking elapsed, Stop, Expand
+  (opens the cockpit), ×. The × only hides the pill (a first-time toast
+  says the run continues); a dismissed run's finish still surfaces as a
+  toast, and finished pills auto-dismiss after 15s. Fixes the
+  detached-panel bug where closing mid-run made progress invisible
+  (`ui/src/canon/evals.ts`, `ui/src/canon/styles.css`).
+
+- **Status-bar "Evals" chip**: a self-updating green chip (×N when several
+  units run) appears while runs are live — the permanent door back to the
+  cockpit after the pill is dismissed. Opening the cockpit also closes any
+  other active full-screen surface (Worktrees, Pulse, Vitals, Changes,
+  Canon cockpit) so stacked Escape-capturing overlays never fight
+  (`ui/src/status/bar.ts`, `ui/src/main.ts`).
+
 ## v0.11.26 — Evals overhaul: cancel, transcripts, manager + PATH fix
 
 ### Added
