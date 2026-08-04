@@ -1906,17 +1906,16 @@ export class TabManager {
     } catch {
       /* omit prompts section */
     }
-    // Best-effort: is this pane's cwd already a linked (non-main) worktree?
-    // Gates "Start agent here" below — outside a repo, or on the main
-    // checkout, that item just doesn't apply.
-    let inLinkedWorktree = false;
+    // Best-effort: is this pane's cwd inside a git repo? Gates the explicit
+    // "Start agent here / in worktree" pair below — outside a repo there is
+    // no worktree to cut, so the single ambiguity-free "Start agent" stays.
+    let inGitRepo = false;
     if (sessionId && pane?.cwd && this.runAgentHere) {
       try {
-        const summary = await gitRepoSummary(pane.cwd);
-        const here = summary.worktrees.find((w) => w.current);
-        inLinkedWorktree = !!here && !here.is_main;
+        await gitRepoSummary(pane.cwd);
+        inGitRepo = true;
       } catch {
-        /* not a git repo, or summary failed — no extra item */
+        /* not a git repo, or summary failed — single item */
       }
     }
 
@@ -2124,13 +2123,19 @@ export class TabManager {
     // pane (pane.executor is the detected foreground executor, null if idle).
     if (sessionId && !pane?.executor && this.runDefaultAgent) {
       const run = this.runDefaultAgent;
-      addItem("Start agent", () => run(sessionId), this.defaultAgentIcon?.() ?? Icons.sparkles());
-      // Already sitting in a linked worktree — offer to launch right here
-      // instead of cutting a nested one.
-      if (inLinkedWorktree && this.runAgentHere && pane?.cwd) {
+      if (inGitRepo && this.runAgentHere && pane?.cwd) {
+        // In a repo, be explicit: launch on this checkout (main included)
+        // vs. cut a fresh worktree.
         const runHere = this.runAgentHere;
         const cwd = pane.cwd;
+        addItem(
+          "Start agent in worktree",
+          () => run(sessionId),
+          this.defaultAgentIcon?.() ?? Icons.sparkles(),
+        );
         addItem("Start agent here", () => runHere(sessionId, cwd), Icons.pin());
+      } else {
+        addItem("Start agent", () => run(sessionId), this.defaultAgentIcon?.() ?? Icons.sparkles());
       }
     }
 
@@ -2305,15 +2310,15 @@ export class TabManager {
 
   /// Launches the default agent/executor in the given session. Wired from
   /// main.ts (which owns spawn specs + theme resolution); used by the pane
-  /// context menu's "Start agent" item.
+  /// context menu's "Start agent" / "Start agent in worktree" items.
   public runDefaultAgent: ((sessionId: SessionId) => void) | null = null;
 
   /// Launches the default agent in the given session, at the given cwd,
-  /// WITHOUT cutting a worktree — for when that cwd is already a linked
-  /// worktree the pane is sitting in. Wired from main.ts; used by the pane
+  /// WITHOUT cutting a worktree — work directly on the checkout the pane is
+  /// sitting in, main included. Wired from main.ts; used by the pane
   /// context menu's "Start agent here" item. Mirrors the git popover's
   /// "Agent" row (status/bar.ts onResumeWorktreeAgent), which skips
-  /// resolveLaunch for the same reason: don't nest a worktree inside one.
+  /// resolveLaunch for the same reason: launch where you already are.
   public runAgentHere: ((sessionId: SessionId, cwd: string) => void) | null = null;
 
   /// Launches the default agent scoped to a group — always in a NEW tab

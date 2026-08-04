@@ -1488,9 +1488,9 @@ async function boot(): Promise<void> {
         if (spec) runSpawn(spec.id, sid);
       })();
     };
-    // Pane context menu → "Start agent here": same default spawn, but the
-    // pane's cwd is already a linked worktree (checked before the item is
-    // shown) — skip resolveLaunch entirely and reuse it, same as
+    // Pane context menu → "Start agent here": same default spawn, but launch
+    // on the checkout the pane is already sitting in (main or a linked
+    // worktree) — skip resolveLaunch entirely, same as
     // onResumeWorktreeAgent's git-popover "Agent" row.
     manager.runAgentHere = (sid: SessionId, cwd: string): void => {
       void (async () => {
