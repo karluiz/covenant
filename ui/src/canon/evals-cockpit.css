@@ -107,6 +107,7 @@ body.tabbar-left .evc-frame { left: var(--tabbar-w); }
   padding: 1px 8px; font-size: 11px;
   color: inherit; cursor: pointer;
   display: inline-flex; align-items: center; gap: 5px;
+  align-self: center;
 }
 .evc-stop:hover { border-color: var(--fail, #e5534b); color: var(--fail, #e5534b); }
 .evc-stop:disabled { opacity: 0.55; cursor: default; }

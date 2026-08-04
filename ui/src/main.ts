@@ -2183,7 +2183,11 @@ async function boot(): Promise<void> {
   document.body.appendChild(evalsHost);
   const evalsCockpit = new EvalsCockpit(evalsHost);
   const openEvals = (focus?: { kind: string; name: string }, cwd?: string): void => {
-    const dir = cwd ?? manager.activeCwd();
+    // Group root, not the tab's live cwd: runs + eval-history.jsonl are keyed
+    // by the repo root Canon launches with — a tab cd'd elsewhere (or sitting
+    // in a worktree) would hydrate an empty cockpit.
+    const g = manager.activeGroup();
+    const dir = cwd ?? (g ? manager.groupRootDirFor(g.id) : null) ?? manager.activeCwd();
     if (!dir) return;
     // Raise above whatever full-screen surface is active: stacked overlays
     // each capture Escape, so one keypress would close both. Close the
