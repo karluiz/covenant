@@ -6,6 +6,39 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.22 — Silent-audio keepalive vs the idle switch freeze + canon usage credit
+
+### Added
+
+- **keepaliveGapMs on the switch vital**: the repaint vital records how long
+  the donation keepalive had gone without seeing a session event at
+  activation — the discriminator between coverage gaps and total failure of
+  the event-based keepalive. `crates/app/src/main_lag.rs`,
+  `ui/src/vitals/switch-vital.ts`.
+- **Slash-command usage detection**: skill/command usage is now credited
+  from `SlashCommand(...)` tool calls and user-typed `/cmd is running`
+  transcript echoes (keystroke redraws excluded), and Score strips the
+  `canon-` projection prefix so installed units get the credit.
+  `crates/blocks/src/executor_phase.rs`, `crates/score/`.
+- **Canon cockpit uninstall actions + registry polish**: labeled and icon
+  uninstall variants in the cockpit rows. `ui/src/canon/cockpit/`.
+- **Explicit Start agent pane-menu pair**: "Start agent here / in worktree"
+  always shown, git probe dropped. `ui/src/tabs/manager.ts`.
+
+### Fixed
+
+- **Idle tab-switch freeze — silent-audio classification keepalive**: the
+  kernel wake gate (FB24145989, filed with Apple with a full spindump)
+  cannot touch a process in the audio path, so a 1s in-memory silent WAV
+  loops via AVAudioPlayer for the app's lifetime, covering the case no
+  event keepalive can — reading quietly for minutes, then clicking. Fenced
+  three ways: runtime kill switch (`defaults write com.karluiz.covenant
+  AudioKeepaliveDisabled -bool YES`), an absence guard that pauses the
+  player after 10 minutes without session input so the Mac can sleep
+  normally (an active audio context holds PreventUserIdleSystemSleep), and
+  two-line removal. `crates/app/src/mac_audio_keepalive.rs`.
+
+
 ## v0.11.21 — Persistent eval progress panel
 
 ### Added
