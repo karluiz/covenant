@@ -823,15 +823,35 @@ body.theme-true-dark.canon-cockpit-open {
 }
 
 /* Unified rows: head actions (Preview/expand/Publish/Adopt/Uninstall) stay
-   hidden until the row is hovered or focused, so the list scans as name +
-   meta and only reveals controls on the row you're pointing at. */
-.canon-cockpit-section .canon-skill-row .canon-card-head button {
+   hidden until the row is hovered or focused. They float over the row's
+   right edge instead of reserving inline width, so the meta line keeps its
+   full run; on hover they fade in ABOVE the text on an opaque pad that
+   matches the hovered card surface (lift-2 composited over the cockpit
+   overlay bg — the lift tokens are alpha-based, so a plain lift-2
+   background would let the text bleed through). */
+.canon-cockpit-section .canon-skill-row .canon-card-head {
+  position: relative;
+}
+.canon-cockpit-section .canon-skill-row .canon-card-actions {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 3px 2px 28px;
+  background: linear-gradient(90deg,
+    transparent 0,
+    color-mix(in srgb, rgb(var(--ink-rgb, 255 255 255)) 5%, var(--bg-overlay, #11141a)) 26px);
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms;
 }
-.canon-cockpit-section .canon-skill-row:hover .canon-card-head button,
-.canon-cockpit-section .canon-skill-row:focus-within .canon-card-head button {
+body.theme-true-dark .canon-cockpit-section .canon-skill-row .canon-card-actions {
+  background: linear-gradient(90deg, transparent 0, var(--canon-lift-2) 26px);
+}
+.canon-cockpit-section .canon-skill-row:hover .canon-card-actions,
+.canon-cockpit-section .canon-skill-row:focus-within .canon-card-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* Specs share the row skeleton; a spec title is a sentence, not a token —

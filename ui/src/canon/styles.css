@@ -638,8 +638,12 @@ body.theme-true-dark .canon-row .rail-row-actions { background: #000; }
   gap: 8px;
   min-width: 0;
 }
-.canon-card-head .canon-preview-btn {
+.canon-card-actions {
   margin-left: auto; /* push the action cluster to the right edge */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .canon-result-desc {
   margin: 0;

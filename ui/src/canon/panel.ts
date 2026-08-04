@@ -147,6 +147,28 @@ export function cleanDescription(d: string | null | undefined): string {
   return s.trim();
 }
 
+/** Extract the frontmatter `description:` from a SKILL.md body — the client-side
+ *  fallback for legacy registry rows whose stored description is a bare block
+ *  scalar marker (published before the folding fix). Mirrors the Rust parser's
+ *  block-scalar folding: `>` joins with spaces, `|` with newlines. */
+export function descriptionFromMd(md: string): string {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(md);
+  if (!fm) return "";
+  const lines = fm[1].split(/\r?\n/);
+  const at = lines.findIndex((l) => l.startsWith("description:"));
+  if (at === -1) return "";
+  const raw = lines[at].slice("description:".length).trim();
+  if (!/^[>|][+-]?$/.test(raw)) return cleanDescription(raw);
+  const sep = raw.startsWith("|") ? "\n" : " ";
+  const parts: string[] = [];
+  for (let i = at + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.trim() !== "" && !/^[ \t]/.test(l)) break;
+    if (l.trim()) parts.push(l.trim());
+  }
+  return parts.join(sep).trim();
+}
+
 /** A skill/package card: name + meta + actions, a one-line description,
  *  and a Preview toggle that lazy-loads the full SKILL.md (rendered as
  *  plain text — registry content is untrusted, never innerHTML). Shared by
@@ -222,15 +244,31 @@ export function skillCard(opts: {
     "Open full screen",
     () => openMarkdownReader(opts.readerTitle ?? opts.name ?? opts.idx ?? "", opts.fetchPreview, opts.stats),
   );
-  head.append(prev, expand, ...opts.actions);
+  const actionsBox = document.createElement("div");
+  actionsBox.className = "canon-card-actions";
+  actionsBox.append(prev, expand, ...opts.actions);
+  head.append(actionsBox);
   card.appendChild(head);
 
   const descText = cleanDescription(opts.description);
+  const desc = document.createElement("p");
+  desc.className = "canon-result-desc";
   if (descText) {
-    const desc = document.createElement("p");
-    desc.className = "canon-result-desc";
     desc.textContent = descText;
     card.appendChild(desc);
+  } else if (opts.description !== undefined) {
+    // The caller says this row HAS a description but it cleaned to empty —
+    // a legacy registry row that stored only the block-scalar marker.
+    // Recover it from the SKILL.md itself so cards always show one.
+    void opts.fetchPreview()
+      .then((md) => {
+        const d = descriptionFromMd(md);
+        if (d) {
+          desc.textContent = d;
+          card.insertBefore(desc, pre);
+        }
+      })
+      .catch(() => { /* no description is better than an error blob */ });
   }
   card.appendChild(pre);
   return card;

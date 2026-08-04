@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, type Mock } from "vitest";
-import { CanonPanel, asDoc, cleanDescription, liftBadgeEl, slugify } from "./panel";
+import { CanonPanel, asDoc, cleanDescription, descriptionFromMd, liftBadgeEl, slugify } from "./panel";
 import { liftClass } from "./cockpit/lift";
 import type { Operator } from "../api";
 
@@ -429,6 +429,29 @@ describe("cleanDescription", () => {
   it("passes normal descriptions through", () => {
     expect(cleanDescription(" Use for motion tasks. ")).toBe("Use for motion tasks.");
     expect(cleanDescription(undefined)).toBe("");
+  });
+});
+
+describe("descriptionFromMd", () => {
+  it("folds a > block scalar with spaces", () => {
+    const md = "---\nname: sdd-bian\ndescription: >-\n  Spec-Driven Development\n  para procesos BIAN.\n---\n# Body\n";
+    expect(descriptionFromMd(md)).toBe("Spec-Driven Development para procesos BIAN.");
+  });
+  it("keeps newlines for | block scalars", () => {
+    const md = "---\ndescription: |\n  line one\n  line two\n---\nbody";
+    expect(descriptionFromMd(md)).toBe("line one\nline two");
+  });
+  it("reads inline values, stripping quotes", () => {
+    const md = '---\ndescription: "All animation knowledge"\n---\nbody';
+    expect(descriptionFromMd(md)).toBe("All animation knowledge");
+  });
+  it("stops folding at the next top-level key", () => {
+    const md = "---\ndescription: >\n  folded text\nmetadata:\n  type: skill\n---\nbody";
+    expect(descriptionFromMd(md)).toBe("folded text");
+  });
+  it("returns empty without frontmatter or description", () => {
+    expect(descriptionFromMd("# Just a body")).toBe("");
+    expect(descriptionFromMd("---\nname: x\n---\nbody")).toBe("");
   });
 });
 
