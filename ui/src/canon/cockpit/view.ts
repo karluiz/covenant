@@ -2047,6 +2047,10 @@ export class CanonCockpitView {
               name: i.name,
               meta: [currency, evalBit, lift ? `lift ${lift.label}` : "", `${i.version} · ${i.source}`]
                 .filter(Boolean).join(" · "),
+              // Local installs don't carry a description field — the empty
+              // string opts into skillCard's SKILL.md frontmatter fallback,
+              // matching the registry cards' always-visible description.
+              description: "",
               className: "canon-skill-row",
               leadIcon: Icons.packageBox({ size: 15 }),
               fetchPreview: () => canonReadLocal(cwd, i.name),
@@ -2058,6 +2062,7 @@ export class CanonCockpitView {
             list.appendChild(skillCard({
               name: d.name,
               meta: `detected · ${d.detectedIn}`,
+              description: "",
               className: "canon-skill-row is-detected",
               leadIcon: Icons.packageBox({ size: 15 }),
               // Not adopted yet → no `.covenant/canon` source; read_source

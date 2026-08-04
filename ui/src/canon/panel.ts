@@ -244,7 +244,10 @@ export function skillCard(opts: {
     "Open full screen",
     () => openMarkdownReader(opts.readerTitle ?? opts.name ?? opts.idx ?? "", opts.fetchPreview, opts.stats),
   );
-  head.append(prev, expand, ...opts.actions);
+  const actionsBox = document.createElement("div");
+  actionsBox.className = "canon-card-actions";
+  actionsBox.append(prev, expand, ...opts.actions);
+  head.append(actionsBox);
   card.appendChild(head);
 
   const descText = cleanDescription(opts.description);
