@@ -15342,10 +15342,14 @@ body.theme-light #workspace-switch-name {
     white-space: nowrap;
 }
 /* Hide the decorative wordmark before window-center collides with the right
-   icon cluster (~380px) + half the wordmark. The brand span itself stays so
-   an adopted RC presence dot survives; the update capsule collapses its own
-   labels above. */
-@media (max-width: 880px) {
+   icon cluster + half the wordmark. Queried against the real gap between the
+   icon clusters (the titlebar-center container), not a viewport breakpoint —
+   the icon clusters grow/shrink with gated features, so a fixed px width
+   goes stale. Collision gap ≈ rightCluster + wordmark − leftCluster; 480px
+   covers the widest cluster config with margin. The brand span itself stays
+   so an adopted RC presence dot survives; the update capsule collapses its
+   own labels above. */
+@container titlebar-center (max-width: 480px) {
     #app-titlebar-brand-word { display: none; }
 }
 /* Only macOS hides its native title for us (hiddenTitle + Overlay) and
