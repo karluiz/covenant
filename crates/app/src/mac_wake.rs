@@ -39,7 +39,10 @@
 
 #[cfg(target_os = "macos")]
 mod imp {
+    use std::collections::VecDeque;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use objc2::class;
     use objc2::msg_send;
@@ -52,12 +55,49 @@ mod imp {
 
     static SAW_FIRST_EVENT: AtomicBool = AtomicBool::new(false);
 
+    /// Timestamps of handler runs, ~2 min of history. 0.11.21 field data:
+    /// the keepalive rescued one 1-hour-idle switch (520ms) but most
+    /// post-idle switches stayed gated. Whether those are COVERAGE gaps (no
+    /// mouse events in the session before the switch — keyboard-only
+    /// stretches are invisible to this mask) or TOTAL failure (events flowed
+    /// and the gate closed anyway) decides the next move; the gap between
+    /// the last handler run and the activation, attached to the vital as
+    /// keepaliveGapMs, is that discriminator. Caveat recorded knowingly: the
+    /// handler runs on the (gateable) main thread, so a huge gap can also
+    /// mean \"handler starved\" — but a SMALL gap on a slow switch is
+    /// unambiguous proof of total failure.
+    fn event_ring() -> &'static Mutex<VecDeque<i64>> {
+        static RING: OnceLock<Mutex<VecDeque<i64>>> = OnceLock::new();
+        RING.get_or_init(|| Mutex::new(VecDeque::new()))
+    }
+
+    fn now_ms() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+
+    /// Most recent handler-run timestamp at or before `ts_ms`.
+    pub fn last_event_before(ts_ms: i64) -> Option<i64> {
+        let ring = event_ring().lock().ok()?;
+        ring.iter().rev().find(|&&t| t <= ts_ms).copied()
+    }
+
     /// Install the global monitor. Must run on the main thread.
     pub fn install() {
         unsafe {
             let handler = block2::RcBlock::new(|_event: *mut AnyObject| {
-                // No-op on purpose: the WindowServer message that delivered
-                // this event already donated importance — that's the fix.
+                // The WindowServer message that delivered this event already
+                // donated importance — that's the fix. Record the run time
+                // for the keepaliveGapMs discriminator.
+                let now = now_ms();
+                if let Ok(mut r) = event_ring().lock() {
+                    r.push_back(now);
+                    while r.front().is_some_and(|&t| now - t > 120_000) {
+                        r.pop_front();
+                    }
+                }
                 if !SAW_FIRST_EVENT.swap(true, Ordering::Relaxed) {
                     tracing::info!("donation keepalive: first global event received");
                 }
@@ -78,7 +118,12 @@ mod imp {
 }
 
 #[cfg(target_os = "macos")]
-pub use imp::install;
+pub use imp::{install, last_event_before};
 
 #[cfg(not(target_os = "macos"))]
 pub fn install() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn last_event_before(_ts_ms: i64) -> Option<i64> {
+    None
+}
