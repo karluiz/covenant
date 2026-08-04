@@ -6,6 +6,41 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.29 — Evals history per run + markdown transcripts
+
+### Added
+
+- **Per-run eval history**: history records in `eval-history.jsonl` now embed
+  each run's per-case verdicts (`EvalCaseRecord`: eval id, pass/fail, judge
+  reason, duration — `crates/canon/src/eval.rs`), so every Evals cockpit
+  history row shows *its* run instead of all rows collapsing to the unit's
+  last recorded state. Superseded runs show the recorded judge reason with a
+  "Transcript not retained" note (the on-disk detail store is last-run-wins);
+  only the newest run opens the full transcript. Legacy records (written
+  before this field) fall back to the old unit-level view.
+  `ui/src/canon/evals-cockpit.ts`, `crates/app/src/canon_eval.rs`.
+
+- **Markdown transcript preview**: the cockpit's Transcript and Baseline tabs
+  render the agent transcript as markdown by default via the unified renderer
+  (`ui/src/ui/markdown.ts`), with a Preview / Source toggle to flip back to
+  the raw text. `ui/src/canon/evals-cockpit.ts`.
+
+- **Skill rows show descriptions + floating hover actions**: installed and
+  detected skill rows in Canon render the same always-visible description as
+  registry cards (falling back to SKILL.md frontmatter), and head actions move
+  into a `.canon-card-actions` cluster that floats over the row's right edge
+  on hover instead of truncating the meta line. `ui/src/canon/panel.ts`,
+  `ui/src/canon/cockpit/view.ts`, `ui/src/canon/cockpit/cockpit.css`.
+
+### Fixed
+
+- **Registry cards with empty descriptions**: rows published before the
+  frontmatter block-scalar fix stored only the `>-` marker as their
+  description and rendered bare. When a provided description cleans to empty,
+  the card now lazily fetches the package's SKILL.md and extracts the
+  frontmatter description client-side, mirroring the Rust parser's folding
+  rules. `ui/src/canon/panel.ts`.
+
 ## v0.11.28 — Evals cockpit empty-history fix (group-root hydration)
 
 ### Fixed
