@@ -400,13 +400,15 @@ function errorState(
     `<div class="rail-empty-title"></div>` +
     `<div class="rail-empty-hint"></div>`;
   el.querySelector(".rail-empty-title")!.textContent = title;
-  el.querySelector(".rail-empty-hint")!.textContent = hint;
+  // No remedy → drop the node; an empty div still eats a grid row.
+  if (hint) el.querySelector(".rail-empty-hint")!.textContent = hint;
+  else el.querySelector(".rail-empty-hint")!.remove();
 
   const act = document.createElement("div");
   act.className = "rail-empty-actions";
   if (needsAuth && actions?.onReconnect) {
     const b = document.createElement("button");
-    b.className = "rail-empty-btn";
+    b.className = "rail-empty-btn is-primary";
     b.textContent = "Reconnect GitHub";
     b.addEventListener("click", actions.onReconnect);
     act.append(b);
