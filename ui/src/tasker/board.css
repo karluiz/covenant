@@ -296,6 +296,27 @@ body.theme-true-dark .kb-card { background: #141416; }
 .kb-project-switch .ui-select__button:hover { background: rgb(var(--ink-rgb) / 0.08); }
 .kb-project-switch .ui-select__button[aria-expanded="true"] { border-color: var(--accent); }
 
+/* Toolbar icon buttons: rename (pencil) + new bucket (plus) — same bordered
+   capsule as the toolbar share button. */
+.tasker-board-toolbar .kb-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 27px;
+  width: 29px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.tasker-board-toolbar .kb-tool-btn:hover {
+  background: rgb(var(--ink-rgb) / 0.08);
+  color: var(--text-primary);
+}
+
 /* Toolbar variants of the list view's rename input + new-bucket composer. */
 .tasker-board-toolbar .tasker-project-rename-input {
   flex: 0 1 220px;

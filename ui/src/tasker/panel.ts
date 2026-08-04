@@ -351,12 +351,16 @@ export class TaskerPanel {
       ${renaming
         ? `<input class="tasker-project-rename-input kb-project-rename" data-project-id="${boardProject.id}" type="text" value="${escapeAttr(boardProject.name)}" autocomplete="off" aria-label="Rename bucket" />`
         : this.renderProjectSwitcher()}
+      ${boardProject && !renaming && boardProject.name !== "Inbox"
+        ? `<button class="kb-tool-btn kb-bucket-rename" type="button" aria-label="Rename bucket">${Icons.pencil({ size: 13 })}</button>`
+        : ""}
       ${boardProject && !renaming ? this.renderShareButton(boardProject, "toolbar") : ""}
       ${this.composingList ? `
         <form class="tasker-newlist kb-newlist">
           <input class="tasker-newlist-input" type="text" autocomplete="off" placeholder="New bucket name…" />
           <button class="tasker-newlist-cancel" type="button" aria-label="Cancel">${Icons.x({ size: 12 })}</button>
-        </form>` : ""}
+        </form>`
+        : `<button class="kb-tool-btn kb-bucket-new" type="button" aria-label="New bucket">${Icons.plus({ size: 13 })}</button>`}
     </div>
     <div class="tasker-board-layout">
       <div class="kb-columns-host"></div>
@@ -649,8 +653,12 @@ export class TaskerPanel {
     const r = anchor.getBoundingClientRect();
     el.style.position = "fixed";
     el.style.top = `${r.bottom + 4}px`;
-    el.style.left = `${r.left}px`;
     el.style.minWidth = "160px";
+    // In rail mode the share button hugs the rail's right edge — left-aligning
+    // to the anchor would spill the menu outside the panel. Prefer hanging it
+    // leftward from the anchor's right edge, clamped to the viewport.
+    const w = el.getBoundingClientRect().width;
+    el.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
 
     el.querySelector<HTMLButtonElement>('[data-action="copy"]')?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -821,6 +829,16 @@ export class TaskerPanel {
     if (this.viewMode === "board") {
       this.host.querySelector<HTMLElement>(".kb-project-name")
         ?.addEventListener("dblclick", () => this.beginBoardRename());
+      const renameBtn = this.host.querySelector<HTMLButtonElement>(".kb-bucket-rename");
+      if (renameBtn) {
+        attachTooltip(renameBtn, "Rename bucket");
+        renameBtn.addEventListener("click", () => this.beginBoardRename());
+      }
+      const newBucketBtn = this.host.querySelector<HTMLButtonElement>(".kb-bucket-new");
+      if (newBucketBtn) {
+        attachTooltip(newBucketBtn, "New bucket");
+        newBucketBtn.addEventListener("click", () => this.showNewProjectDialog());
+      }
       this.mountBoard();
     }
 
