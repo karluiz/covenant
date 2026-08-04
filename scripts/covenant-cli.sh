@@ -23,15 +23,16 @@ if [ ! -x "$app_binary" ]; then
   app_binary="/Applications/Covenant.app/Contents/MacOS/Covenant"
 fi
 
-# `covenant mcp-config` is a CLI subcommand, not a path — hand it straight to
-# the app binary's early-arg handler (crates/app/src/lib.rs) in the
-# foreground so stdout/stderr and the exit code reach the caller. This must
-# run before the path-existence check below, otherwise a file literally
-# named `mcp-config` in cwd would shadow the subcommand. `covenant
-# ./mcp-config` still opens the file.
-if [ "${1:-}" = "mcp-config" ]; then
-  exec "$app_binary" mcp-config
-fi
+# `mcp-config` / `mcp-stdio` are CLI subcommands, not paths — hand them
+# straight to the app binary's early-arg handler (crates/app/src/lib.rs) in
+# the foreground so stdin/stdout/stderr and the exit code reach the caller
+# (`mcp-stdio` speaks JSON-RPC over exactly that pipe). This must run before
+# the path-existence check below, otherwise a file literally named
+# `mcp-config` in cwd would shadow the subcommand. `covenant ./mcp-config`
+# still opens the file.
+case "${1:-}" in
+  mcp-config | mcp-stdio) exec "$app_binary" "$1" ;;
+esac
 
 target="${1:-.}"
 if [ ! -e "$target" ]; then

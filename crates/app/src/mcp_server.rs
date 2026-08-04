@@ -79,6 +79,15 @@ pub(crate) fn discovery_path(app: &tauri::AppHandle) -> Result<PathBuf, String> 
     Ok(dir.join("mcp.json"))
 }
 
+/// Same file as [`discovery_path`], resolved without an `AppHandle` — the CLI
+/// subcommands (`mcp-config`, `mcp-stdio`) run before Tauri exists.
+/// ponytail: hardcodes the release bundle id, so it points at the installed
+/// app even when a dev build is running. Thread the id through if the dev
+/// build ever needs to be reachable from a bare harness.
+pub(crate) fn discovery_path_cli() -> Option<PathBuf> {
+    dirs::data_dir().map(|d| d.join("com.karluiz.covenant").join("mcp.json"))
+}
+
 /// Best-effort cleanup, called from the ExitRequested handler in lib.rs.
 pub fn remove_discovery_file(app: &tauri::AppHandle) {
     if let Ok(p) = discovery_path(app) {
