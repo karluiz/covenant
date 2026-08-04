@@ -90,6 +90,10 @@ export interface SwitchVitalInput {
   /// span. Punctual while posts lag → timers are exempt from the wakeup
   /// deferral (and the metronome doubles as the fix); late → loop fully gated.
   timerLagMs: number | null;
+  /// ms since the donation keepalive last saw a session event, at activation.
+  /// Small + slow switch → keepalive fails even with events; huge → coverage
+  /// hole (no mouse activity / handler starved).
+  keepaliveGapMs: number | null;
 }
 
 export interface BuiltVital {
@@ -114,6 +118,7 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
   if (input.runloopModes) shared.runloopModes = input.runloopModes;
   if (input.mainPriMin !== null) shared.mainPriMin = input.mainPriMin;
   if (input.timerLagMs !== null) shared.timerLagMs = Math.round(input.timerLagMs);
+  if (input.keepaliveGapMs !== null) shared.keepaliveGapMs = Math.round(input.keepaliveGapMs);
   if (input.gapStarvedMs !== null) shared.gapStarvedMs = Math.round(input.gapStarvedMs);
   if (input.grid) {
     shared.cols = input.grid.cols;

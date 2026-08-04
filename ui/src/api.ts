@@ -3925,6 +3925,8 @@ export interface MainLagWindow {
   min_pri: number | null;
   /// Worst inter-fire lateness of the 100ms main-runloop metronome timer.
   timer: number | null;
+  /// ms between the keepalive's last observed global event and span start.
+  keepalive_gap: number | null;
 }
 
 export async function mainLagWindow(startMs: number, endMs: number): Promise<MainLagWindow> {

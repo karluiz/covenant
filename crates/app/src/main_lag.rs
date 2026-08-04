@@ -511,6 +511,12 @@ pub struct MainLagWindow {
     /// exempt from the wakeup deferral and the metronome is the fix; late →
     /// the whole loop is gated regardless of wake mechanism.
     pub timer: Option<f64>,
+    /// Milliseconds between the keepalive's last observed global event and
+    /// the span start. Small gap + slow switch = the donation keepalive
+    /// fails even with events flowing; huge gap = coverage hole (no session
+    /// mouse activity, or handler starved). None when no event was ever
+    /// seen. See mac_wake.rs.
+    pub keepalive_gap: Option<i64>,
 }
 
 /// Worst native main-thread lag (ms) observed across [start_ms, end_ms]
@@ -547,6 +553,7 @@ pub async fn main_lag_window(start_ms: i64, end_ms: i64) -> Result<MainLagWindow
             .lock()
             .map_err(|e| e.to_string())?
             .max_in(start_ms, end_ms),
+        keepalive_gap: crate::mac_wake::last_event_before(start_ms).map(|t| start_ms - t),
     })
 }
 
