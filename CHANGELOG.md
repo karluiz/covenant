@@ -6,6 +6,44 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.24 — Tasker board bucket controls + dropdown stability
+
+### Added
+
+- **Rename + new-bucket from the board**: the board toolbar now carries
+  explicit icon buttons — a pencil that opens the list view's inline rename
+  (Inbox stays locked, dblclick on the switcher works too) and a plus that
+  opens the new-bucket composer in place, landing the board on the bucket it
+  just created. Previously the header's New-project button set state the
+  board never rendered, so nothing appeared (`ui/src/tasker/panel.ts`,
+  `ui/src/tasker/board.css`).
+
+### Changed
+
+- **Board project switcher is a `CustomSelect`**: the bespoke
+  `.kb-project-select` button + `.kb-project-menu` listbox became the
+  standard select per DESIGN.md rule 14 — keyboard navigation, drop-up and
+  scroll repositioning for free; the toolbar's uppercase-mono chip layers on
+  `.ui-select__button`. The share action menu keeps the shared popover
+  chrome (`ui/src/tasker/panel.ts`, `ui/src/tasker/board.css`).
+
+### Fixed
+
+- **Dropdowns no longer vanish on shared boards**: the board auto-push fires
+  `BOARD_SHARES_EVENT` twice ~2s after any edit, and the panel's full
+  re-render closed whatever popover was open — project switcher, share menu,
+  date picker. The rebuild now skips while a menu is open, same as the
+  existing mid-typing guard (`ui/src/tasker/panel.ts`).
+
+- **Fullscreen board top border**: `body.tasker-board #tasker-panel` drew no
+  top rule, sitting flush against the tab bar; it now matches the Changes /
+  Worktrees fullscreen treatment (`ui/src/styles.css`).
+
+- **Rail share menu placement**: the "Copy link / Stop sharing" popover
+  left-aligned to its anchor at the rail's right edge and spilled outside
+  the panel; it now hangs leftward from the anchor's right edge, clamped to
+  the viewport (`ui/src/tasker/panel.ts`).
+
 ## v0.11.23 — Idle-freeze patch cleanup: keep what measures, drop what failed
 
 ### Changed
