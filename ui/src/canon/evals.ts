@@ -44,6 +44,25 @@ interface RunEntry {
 /** Live + finished-but-not-dismissed runs, keyed `kind/name`. */
 const runs = new Map<string, RunEntry>();
 
+// Ambient chrome (the status-bar chip) subscribes to the live-run count so a
+// dismissed pill always leaves a door back to the cockpit.
+const runsListeners = new Set<() => void>();
+
+function notifyRunsChanged(): void {
+  for (const l of runsListeners) l();
+}
+
+/** Runs currently executing (dismissed pills included). */
+export function liveEvalRunCount(): number {
+  return [...runs.values()].filter((r) => !r.done).length;
+}
+
+/** Subscribe to live-run count changes; returns the unsubscribe. */
+export function onEvalRunsChanged(cb: () => void): () => void {
+  runsListeners.add(cb);
+  return () => runsListeners.delete(cb);
+}
+
 let relayReady: Promise<void> | undefined;
 
 /** One global `canon-eval-progress` listener for the app's lifetime. Routes
@@ -66,10 +85,12 @@ function handleProgress(e: CanonEvalProgress): void {
     // A backend run with no pill (window reloaded mid-run): rebuild one.
     run = { kind: e.kind, name: e.name, pill: openEvalPill(key, e.name, 0), done: false, dismissed: false };
     runs.set(key, run);
+    notifyRunsChanged();
   }
   if (e.run_id) run.runId = e.run_id;
   if (e.status === "done") {
     run.done = true;
+    notifyRunsChanged();
     if (run.dismissed) {
       // The pill was closed mid-run; the finish still deserves one line.
       const t = run.pill.tallyText();
@@ -151,6 +172,7 @@ async function execute(
   // run is inspected. The pill is just the signal that something is running.
   const pill = openEvalPill(key, name, total, cwd);
   runs.set(key, { kind, name, cwd, pill, done: false, dismissed: false });
+  notifyRunsChanged();
   try {
     await initEvalProgressRelay();
     await canonRunEvals(cwd, kind, name, opts);
@@ -162,6 +184,7 @@ async function execute(
   } finally {
     const run = runs.get(key);
     if (run) run.done = true;
+    notifyRunsChanged();
     btn.disabled = false;
   }
 }

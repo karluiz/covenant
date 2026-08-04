@@ -2185,6 +2185,15 @@ async function boot(): Promise<void> {
   const openEvals = (focus?: { kind: string; name: string }, cwd?: string): void => {
     const dir = cwd ?? manager.activeCwd();
     if (!dir) return;
+    // Raise above whatever full-screen surface is active: stacked overlays
+    // each capture Escape, so one keypress would close both. Close the
+    // competitor instead of painting over it.
+    if (worktreesSurface.isOpen) worktreesSurface.close();
+    if (pulseSurface.isOpen) pulseSurface.close();
+    if (vitalsSurface.isOpen()) vitalsSurface.close();
+    if (changesSurface.isOpen) changesSurface.close();
+    document.querySelector<HTMLElement>(".canon-cockpit")
+      ?.querySelector<HTMLButtonElement>(".canon-cockpit-close")?.click();
     void evalsCockpit.open(dir, focus);
   };
   window.addEventListener("covenant:open-evals", (e) => {

@@ -51,6 +51,7 @@ import { highlightMatches, clearMarks } from "./find-highlight";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { draftsApi } from "../drafts/api";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
+import { liveEvalRunCount, onEvalRunsChanged } from "../canon/evals";
 import { makeSpecScoreHoverBadge } from "../spec-score/badge";
 import { scoreSpec } from "../spec-score/engine";
 import { attachTooltip } from "../tooltip/tooltip";
@@ -153,6 +154,7 @@ export class StatusBar {
   /// Last polled Telegram status. Drives the .tg-status pill class.
   private currentTgStatus: TelegramStatus = "disabled";
   private scoreChip: ScoreChip | null = null;
+  private evalsChip: HTMLElement | null = null;
   private vitals: VitalsCluster | null = null;
   /// Network connectivity. Mirrors navigator.onLine via the AOM
   /// connectivity bridge. When false, the executor chip dims and
@@ -846,6 +848,10 @@ export class StatusBar {
     } else if (!this.online) {
       right.appendChild(offlineSegment());
     }
+    // Live eval runs — the way back to the cockpit once the pill is gone.
+    // Self-updating (subscribes to the run count), created once like scoreChip.
+    if (!this.evalsChip) this.evalsChip = makeEvalsChip();
+    right.appendChild(this.evalsChip);
     right.appendChild(telegramSegment(this.currentTgStatus));
     if (!this.scoreChip) {
       this.scoreChip = makeScoreChip();
@@ -1679,6 +1685,37 @@ function formatElapsed(ms: number): string {
 
 /// Red attention chip — sessions blocked on the human. Click opens
 /// Convergence (⌘⇧M). Never rendered at zero.
+/** Status-bar chip for live eval runs. Hidden at zero; subscribes to the run
+ *  count so it tracks without a bar re-render. Click reopens the cockpit —
+ *  the permanent door back once the progress pill is dismissed. */
+function makeEvalsChip(): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "status-segment status-evals";
+  const dot = document.createElement("span");
+  dot.className = "status-evals__dot";
+  const text = document.createElement("span");
+  el.append(dot, text);
+  attachTooltip(el, "Eval run in progress. Click to open the Evals cockpit (⌘⌥E).");
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent("covenant:open-evals"));
+  });
+  const sync = (): void => {
+    const n = liveEvalRunCount();
+    el.style.display = n > 0 ? "" : "none";
+    text.textContent = n > 1 ? `Evals ×${n}` : "Evals";
+    el.setAttribute(
+      "aria-label",
+      n === 1 ? "1 eval run in progress" : `${n} eval runs in progress`,
+    );
+  };
+  onEvalRunsChanged(sync);
+  sync();
+  return el;
+}
+
 function needsYouSegment(count: number, onClick: () => void): HTMLElement {
   const el = document.createElement("button");
   el.type = "button";
