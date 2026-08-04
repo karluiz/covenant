@@ -45,6 +45,7 @@ mod history_import;
 mod lsp_commands;
 mod mac_activity;
 mod mac_render;
+mod mac_audio_keepalive;
 mod mac_wake;
 mod main_lag;
 mod mcp_server;
@@ -5685,6 +5686,13 @@ pub fn run() {
             // never closes. See mac_wake.rs. Setup runs on the main thread,
             // which the NSEvent monitor install requires.
             mac_wake::install();
+
+            // Silent-audio classification keepalive — the last workaround
+            // lever for the kernel wake gate (FB24145989). Fully fenced:
+            // kill-switch via `defaults write com.karluiz.covenant
+            // AudioKeepaliveDisabled -bool YES`, module removal is two
+            // lines. See mac_audio_keepalive.rs for the exit contract.
+            mac_audio_keepalive::install();
 
             // Fullscreen-aware notch: when the main Covenant window
             // enters fullscreen the floating overlay is intrusive, so
