@@ -66,6 +66,16 @@ pub struct EvalRunDetail {
     pub baseline_transcript: Option<String>,
 }
 
+/// One case's verdict inside a history record — enough to reconstruct that
+/// run's case list even though the detail store only keeps the last run.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvalCaseRecord {
+    pub eval_id: String,
+    pub pass: bool,
+    pub reason: String,
+    pub duration_ms: u64,
+}
+
 /// One line of the append-only run log: a completed suite run's aggregate.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EvalRunRecord {
@@ -74,6 +84,10 @@ pub struct EvalRunRecord {
     pub passed: usize,
     pub total: usize,
     pub at_ms: i64,
+    /// Per-case verdicts of THIS run. Empty on records written before this
+    /// field existed — the UI falls back to unit-level (last-run) state.
+    #[serde(default)]
+    pub cases: Vec<EvalCaseRecord>,
 }
 
 /// `.covenant/canon/evals/<kind>/<name>/` — one tree for every evaluable kind,
@@ -869,12 +883,33 @@ mod tests {
             passed,
             total: 8,
             at_ms: at,
+            cases: vec![EvalCaseRecord {
+                eval_id: "e1".into(),
+                pass: true,
+                reason: "refused".into(),
+                duration_ms: 41_000,
+            }],
         };
         append_history(root, &rec(3, 1)).unwrap();
         append_history(root, &rec(7, 2)).unwrap();
+        // A pre-`cases` line must still deserialize (field defaults to empty).
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(crate::manifest::canon_dir(root).join("eval-history.jsonl"))
+                .unwrap();
+            writeln!(
+                f,
+                r#"{{"kind":"skill","name":"horizon","passed":1,"total":8,"at_ms":3}}"#
+            )
+            .unwrap();
+        }
         let all = read_history(root);
-        assert_eq!(all.len(), 2);
+        assert_eq!(all.len(), 3);
         assert_eq!((all[0].passed, all[1].passed), (3, 7), "oldest first");
+        assert_eq!(all[0].cases.len(), 1);
+        assert!(all[2].cases.is_empty(), "legacy line reads with no cases");
         assert!(read_history(tempfile::tempdir().unwrap().path()).is_empty());
     }
 

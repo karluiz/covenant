@@ -2107,6 +2107,14 @@ export interface EvalRunSnapshot {
   cases: EvalRunCase[];
 }
 
+/** One case verdict embedded in a history record. */
+export interface EvalCaseRecord {
+  eval_id: string;
+  pass: boolean;
+  reason: string;
+  duration_ms: number;
+}
+
 /** Aggregate of a past completed run (from eval-history.jsonl). */
 export interface EvalHistoryRecord {
   kind: string;
@@ -2114,6 +2122,8 @@ export interface EvalHistoryRecord {
   passed: number;
   total: number;
   at_ms: number;
+  /** Per-case verdicts of this run; empty on records written before v0.11.29. */
+  cases: EvalCaseRecord[];
 }
 
 export interface EvalRunsList {

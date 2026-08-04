@@ -1087,6 +1087,15 @@ pub async fn canon_run_evals(
             passed: fresh_results.iter().filter(|r| r.pass).count(),
             total: fresh_results.len(),
             at_ms: chrono::Utc::now().timestamp_millis(),
+            cases: fresh_results
+                .iter()
+                .map(|r| karl_canon::EvalCaseRecord {
+                    eval_id: r.eval_id.clone(),
+                    pass: r.pass,
+                    reason: r.reason.clone(),
+                    duration_ms: r.duration_ms,
+                })
+                .collect(),
         };
         if let Err(e) = karl_canon::append_history(&repo_root, &record) {
             tracing::warn!(target: "canon", error = %e, "append_history failed");
@@ -2030,6 +2039,7 @@ mod tests {
                     passed: p,
                     total: 2,
                     at_ms: at,
+                    cases: vec![],
                 },
             )
             .unwrap();

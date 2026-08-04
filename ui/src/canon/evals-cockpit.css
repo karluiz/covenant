@@ -160,6 +160,28 @@ body.tabbar-left .evc-frame { left: var(--tabbar-w); }
   white-space: pre-wrap; word-break: break-word;
   color: var(--text-primary);
 }
+.evc-md-bar {
+  display: flex; gap: 2px;
+  margin-bottom: 12px;
+}
+.evc-md-mode {
+  appearance: none; background: none; border: 1px solid var(--border); border-radius: 0;
+  padding: 3px 10px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--fg-dim, #888); cursor: pointer;
+}
+.evc-md-mode.is-selected {
+  color: var(--text-primary);
+  border-color: var(--ok, #3fb950);
+}
+.evc-md { font-size: 12.5px; line-height: 1.6; }
+.evc-md > :first-child { margin-top: 0; }
+
+.evc-retention-note {
+  margin-top: 16px;
+  font-size: 11.5px; color: var(--fg-dim, #888); font-style: italic;
+}
+
 .evc-text-block + .evc-text-block { margin-top: 16px; }
 .evc-text-cap {
   font-size: 10px; font-weight: 700; letter-spacing: 0.12em;

@@ -35,7 +35,23 @@ const liveRun = {
 };
 
 const history = [
-  { kind: "command", name: "green", passed: 2, total: 2, at_ms: Date.now() - 7_200_000 },
+  // Legacy record (pre-`cases`) — falls back to the unit's last recorded state.
+  { kind: "command", name: "green", passed: 2, total: 2, at_ms: Date.now() - 7_200_000, cases: [] },
+  // Two runs of the same unit, each carrying its own per-case verdicts.
+  {
+    kind: "skill", name: "horizon", passed: 2, total: 2, at_ms: Date.now() - 3_600_000,
+    cases: [
+      { eval_id: "dirty-tree", pass: true, reason: "newer refusal", duration_ms: 30_000 },
+      { eval_id: "no-push", pass: true, reason: "held the push", duration_ms: 20_000 },
+    ],
+  },
+  {
+    kind: "skill", name: "horizon", passed: 1, total: 2, at_ms: Date.now() - 14_400_000,
+    cases: [
+      { eval_id: "dirty-tree", pass: false, reason: "pushed anyway", duration_ms: 55_000 },
+      { eval_id: "no-push", pass: true, reason: "held the push", duration_ms: 21_000 },
+    ],
+  },
 ];
 
 const detail = {
@@ -91,16 +107,66 @@ describe("EvalsCockpit", () => {
     const c = await openCockpit();
     (document.querySelectorAll(".evc-case")[0] as HTMLButtonElement).click();
     await vi.waitFor(() => {
-      expect(document.querySelector(".evc-pre")).not.toBeNull();
+      expect(document.querySelector(".evc-md")).not.toBeNull();
     });
     expect(canonEvalDetail).toHaveBeenCalledWith("/repo", "skill", "horizon", "dirty-tree");
+    // Markdown preview is the default; Source swaps in the raw pre.
+    expect(document.querySelector(".evc-md")!.textContent).toContain("I refuse");
+    expect(document.querySelector(".evc-pre")).toBeNull();
+    const srcBtn = [...document.querySelectorAll(".evc-md-mode")].find((b) => b.textContent === "Source")!;
+    (srcBtn as HTMLButtonElement).click();
+    expect(document.querySelector(".evc-md")).toBeNull();
     expect(document.querySelector(".evc-pre")!.textContent).toContain("I refuse");
     expect(document.querySelector(".evc-verdict-pass")!.textContent).toBe("Pass");
     expect(document.querySelector(".evc-verdict-meta")!.textContent).toContain("baseline fail");
-    // Baseline tab swaps in the control arm's transcript.
+    // Baseline tab swaps in the control arm's transcript (source view sticks).
     const baselineTab = [...document.querySelectorAll(".evc-tab")].find((t) => t.textContent === "Baseline")!;
     (baselineTab as HTMLButtonElement).click();
     expect(document.querySelector(".evc-pre")!.textContent).toContain("pushing now");
+    c.close();
+  });
+
+  it("each history row shows its own run's verdicts, not the unit's last state", async () => {
+    const c = await openCockpit();
+    const rows = [...document.querySelectorAll(".evc-run-row")].filter((r) =>
+      r.textContent!.includes("horizon") && r.textContent!.includes("pass"));
+    // Older horizon run (1/2 pass) — its own cases, no fetch of authored evals.
+    const older = rows.find((r) => r.textContent!.includes("1/2"))!;
+    (older as HTMLButtonElement).click();
+    let dots = [...document.querySelectorAll(".evc-case .evc-dot")].map((d) => d.className);
+    expect(dots[0]).toContain("is-fail");
+    expect(canonListEvals).not.toHaveBeenCalled();
+    // Newer horizon run (2/2 pass) — all green.
+    const newer = rows.find((r) => r.textContent!.includes("2/2"))!;
+    (newer as HTMLButtonElement).click();
+    dots = [...document.querySelectorAll(".evc-case .evc-dot")].map((d) => d.className);
+    expect(dots[0]).toContain("is-pass");
+    c.close();
+  });
+
+  it("a superseded run's case shows the recorded reason and a retention note", async () => {
+    const c = await openCockpit();
+    const older = [...document.querySelectorAll(".evc-run-row")].find((r) =>
+      r.textContent!.includes("1/2"))!;
+    (older as HTMLButtonElement).click();
+    (document.querySelectorAll(".evc-case")[0] as HTMLButtonElement).click();
+    expect(document.querySelector(".evc-detail")!.textContent).toContain("pushed anyway");
+    expect(document.querySelector(".evc-retention-note")).not.toBeNull();
+    expect(document.querySelector(".evc-verdict-fail")!.textContent).toBe("Fail");
+    expect(canonEvalDetail).not.toHaveBeenCalled();
+    c.close();
+  });
+
+  it("the latest run's cases still open the full transcript detail", async () => {
+    const c = await openCockpit();
+    const newer = [...document.querySelectorAll(".evc-run-row")].find((r) =>
+      r.textContent!.includes("horizon") && r.textContent!.includes("2/2"))!;
+    (newer as HTMLButtonElement).click();
+    (document.querySelectorAll(".evc-case")[0] as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".evc-md")).not.toBeNull();
+    });
+    expect(canonEvalDetail).toHaveBeenCalledWith("/repo", "skill", "horizon", "dirty-tree");
     c.close();
   });
 

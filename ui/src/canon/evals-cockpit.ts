@@ -22,14 +22,16 @@ import {
 } from "../api";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { Icons } from "../icons";
+import { renderMarkdown } from "../ui/markdown";
 import { pushInfoToast } from "../notifications/toast";
 import { openEvalManager } from "./evals";
 
-/** What the rail selects: a live registry run, or a unit's last recorded state
- *  (history rows collapse to the unit — retention on disk is one run per eval). */
+/** What the rail selects: a live registry run, or one history record (a past
+ *  run, pinned by `atMs`). `atMs: null` = unit focus with no specific run —
+ *  the unit's last recorded state. */
 type Sel =
   | { type: "live"; runId: string }
-  | { type: "unit"; kind: string; name: string };
+  | { type: "unit"; kind: string; name: string; atMs: number | null };
 
 type DetailTab = "transcript" | "baseline" | "judge" | "scenario";
 
@@ -61,6 +63,7 @@ export class EvalsCockpit {
   private sel: Sel | null = null;
   private selCase: string | null = null;
   private tab: DetailTab = "transcript";
+  private mdView: "preview" | "source" = "preview";
   /** Authored eval ids per unit key — the case list for a unit selection. */
   private unitCases = new Map<string, string[]>();
   /** Last-run detail per `<kind>/<name>/<eval_id>`; null = fetched, none. */
@@ -123,7 +126,7 @@ export class EvalsCockpit {
     if (focus) {
       const run = live.find((r) => !r.done && r.kind === focus.kind && r.name === focus.name)
         ?? live.find((r) => r.kind === focus.kind && r.name === focus.name);
-      this.sel = run ? { type: "live", runId: run.run_id } : { type: "unit", ...focus };
+      this.sel = run ? { type: "live", runId: run.run_id } : { type: "unit", ...focus, atMs: null };
       this.selCase = null;
     } else if (!this.sel) {
       const first = live[0];
@@ -131,7 +134,7 @@ export class EvalsCockpit {
         this.sel = { type: "live", runId: first.run_id };
       } else {
         const h = this.data.history[0];
-        this.sel = h ? { type: "unit", kind: h.kind, name: h.name } : null;
+        this.sel = h ? { type: "unit", kind: h.kind, name: h.name, atMs: h.at_ms } : null;
       }
     }
     this.render();
@@ -237,6 +240,21 @@ export class EvalsCockpit {
     return run ? { kind: run.kind, name: run.name } : null;
   }
 
+  /** The history record the selection pins, if any. */
+  private selectedRecord(): EvalHistoryRecord | null {
+    if (!this.data || this.sel?.type !== "unit" || this.sel.atMs === null) return null;
+    const { kind, name, atMs } = this.sel;
+    return this.data.history.find((h) =>
+      h.kind === kind && h.name === name && h.at_ms === atMs) ?? null;
+  }
+
+  /** True when no newer record exists for this unit — the on-disk detail
+   *  store (last-run-wins) still holds THIS run's transcripts. */
+  private isLatestRecord(rec: EvalHistoryRecord): boolean {
+    return !this.data!.history.some((h) =>
+      h.kind === rec.kind && h.name === rec.name && h.at_ms > rec.at_ms);
+  }
+
   // --- rail ---------------------------------------------------------------
 
   private renderRail(): void {
@@ -299,7 +317,8 @@ export class EvalsCockpit {
   private railHistoryRow(h: EvalHistoryRecord): HTMLElement {
     const row = el("button", "evc-run-row") as HTMLButtonElement;
     row.type = "button";
-    const selected = this.sel?.type === "unit" && this.sel.kind === h.kind && this.sel.name === h.name;
+    const selected = this.sel?.type === "unit" && this.sel.kind === h.kind
+      && this.sel.name === h.name && this.sel.atMs === h.at_ms;
     row.classList.toggle("is-selected", selected);
     const dot = el("span", `evc-dot ${h.passed === h.total ? "is-pass" : "is-fail"}`);
     const name = el("span", "evc-run-name");
@@ -308,7 +327,7 @@ export class EvalsCockpit {
     meta.textContent = `${h.kind} · ${h.passed}/${h.total} pass · ${timeAgo(h.at_ms)}`;
     row.append(dot, name, meta);
     row.addEventListener("click", () => {
-      this.sel = { type: "unit", kind: h.kind, name: h.name };
+      this.sel = { type: "unit", kind: h.kind, name: h.name, atMs: h.at_ms };
       this.selCase = null;
       this.render();
     });
@@ -325,11 +344,15 @@ export class EvalsCockpit {
     if (!unit) return;
     const run = this.selectedRun();
 
+    const rec = this.selectedRecord();
+
     const head = el("div", "evc-cases-head");
     const title = el("span", "evc-cases-title");
     title.textContent = unit.name;
     const sub = el("span", "evc-cases-sub");
-    sub.textContent = run && !run.done ? `${unit.kind} · running` : unit.kind;
+    sub.textContent = run && !run.done
+      ? `${unit.kind} · running`
+      : rec ? `${unit.kind} · ${timeAgo(rec.at_ms)}` : unit.kind;
     head.append(title, sub);
 
     if (run && !run.done) {
@@ -361,6 +384,21 @@ export class EvalsCockpit {
 
     if (run) {
       for (const c of run.cases) list.appendChild(this.caseRow(c.eval_id, c));
+      return;
+    }
+    // A pinned history record carries its own per-case verdicts — render THAT
+    // run, not the unit's last recorded state.
+    if (rec && rec.cases.length > 0) {
+      for (const c of rec.cases) {
+        list.appendChild(this.caseRow(c.eval_id, {
+          eval_id: c.eval_id,
+          status: c.pass ? "pass" : "fail",
+          reason: c.reason,
+          arm: "",
+          duration_ms: c.duration_ms,
+          started_at_ms: null,
+        }));
+      }
       return;
     }
     // Unit (history) selection: authored ids now, verdicts lazily per case.
@@ -469,6 +507,35 @@ export class EvalsCockpit {
       return;
     }
 
+    // A superseded history record: the detail store is last-run-wins, so its
+    // transcripts belong to a NEWER run. Show what the record itself kept.
+    const rec = this.selectedRecord();
+    if (rec && rec.cases.length > 0 && !this.isLatestRecord(rec)) {
+      const c = rec.cases.find((x) => x.eval_id === id);
+      const body = el("div", "evc-detail-body");
+      if (!c) {
+        const empty = el("div", "evc-empty");
+        empty.textContent = "This eval was not part of that run.";
+        host.appendChild(empty);
+        return;
+      }
+      body.appendChild(textBlock("Judge reason", c.reason || "(no reason recorded)"));
+      const note = el("div", "evc-retention-note");
+      note.textContent =
+        "Transcript not retained — only the latest run's transcripts are kept on disk.";
+      body.appendChild(note);
+      host.appendChild(body);
+      const verdict = el("div", "evc-verdict");
+      const v = el("span", c.pass ? "evc-verdict-pass" : "evc-verdict-fail");
+      v.textContent = c.pass ? "Pass" : "Fail";
+      const meta = el("span", "evc-verdict-meta");
+      meta.textContent =
+        `${Math.round(c.duration_ms / 1000)}s · ${new Date(rec.at_ms).toLocaleString()}`;
+      verdict.append(v, meta);
+      host.appendChild(verdict);
+      return;
+    }
+
     const key = this.detailKey(unit.kind, unit.name, id);
     const d = this.details.get(key);
     if (d === undefined) {
@@ -508,9 +575,9 @@ export class EvalsCockpit {
 
     const body = el("div", "evc-detail-body");
     if (this.tab === "transcript") {
-      body.appendChild(pre(d.transcript || "(empty transcript)"));
+      body.appendChild(this.markdownBlock(d.transcript || "(empty transcript)"));
     } else if (this.tab === "baseline") {
-      body.appendChild(pre(d.baseline_transcript ?? ""));
+      body.appendChild(this.markdownBlock(d.baseline_transcript ?? ""));
     } else if (this.tab === "judge") {
       body.appendChild(textBlock("Rubric", d.rubric));
       body.appendChild(textBlock("Judge reason", d.reason));
@@ -533,6 +600,29 @@ export class EvalsCockpit {
     meta.textContent = bits.join(" · ");
     verdict.appendChild(meta);
     host.appendChild(verdict);
+  }
+
+  /** Transcript body with a Preview (rendered markdown) / Source (raw) toggle. */
+  private markdownBlock(text: string): HTMLElement {
+    const wrap = el("div", "evc-md-wrap");
+    const bar = el("div", "evc-md-bar");
+    for (const v of ["preview", "source"] as const) {
+      const b = el("button", "evc-md-mode") as HTMLButtonElement;
+      b.type = "button";
+      b.textContent = v === "preview" ? "Preview" : "Source";
+      b.classList.toggle("is-selected", this.mdView === v);
+      b.addEventListener("click", () => { this.mdView = v; this.render(); });
+      bar.appendChild(b);
+    }
+    wrap.appendChild(bar);
+    if (this.mdView === "preview") {
+      const doc = el("article", "evc-md markdown-body markdown-doc");
+      doc.innerHTML = renderMarkdown(text);
+      wrap.appendChild(doc);
+    } else {
+      wrap.appendChild(pre(text));
+    }
+    return wrap;
   }
 }
 
