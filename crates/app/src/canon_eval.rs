@@ -11,7 +11,46 @@ use std::time::{Duration, Instant};
 use crate::provider_resolve::{resolve_route, ResolveError};
 use crate::settings::{Role, Settings};
 
-const HARNESS_TIMEOUT_SECS: u64 = 120;
+/// Default harness timeout; overridable via `settings.eval.harness_timeout_secs`.
+pub(crate) const HARNESS_TIMEOUT_SECS: u64 = 120;
+/// Judge LLM call ceiling (covers the retry) — a hung provider must not hang the run.
+const JUDGE_TIMEOUT_SECS: u64 = 90;
+/// Model alias pinned on every harness run so results are comparable across
+/// `claude` CLI upgrades, and recorded as provenance in each result.
+const EXECUTOR_MODEL: &str = "sonnet";
+/// Concurrent harness runs. The sandboxes are independent temp dirs, so the
+/// only shared state is the results file (already behind a write lock).
+const EVAL_CONCURRENCY: usize = 2;
+
+/// Cancel flags, keyed by `unit_key` ("skill/horizon"). Set by
+/// `canon_cancel_evals`, polled by the run loop and by in-flight harness
+/// spawns (which kill the child via `kill_on_drop` when their future drops).
+fn cancels() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static C: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
+fn request_cancel(key: &str) {
+    cancels()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key.to_string());
+}
+
+fn is_cancelled(key: &str) -> bool {
+    cancels()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(key)
+}
+
+fn clear_cancel(key: &str) {
+    cancels()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(key);
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HarnessStatus {
@@ -195,6 +234,8 @@ fn harness_args(scenario: &str) -> Vec<String> {
     vec![
         "-p".to_string(),
         scenario.to_string(),
+        "--model".to_string(),
+        EXECUTOR_MODEL.to_string(),
         "--allowedTools".to_string(),
         "Read".to_string(),
         "Grep".to_string(),
@@ -222,8 +263,25 @@ fn classify_output(success: bool, stdout: &str, stderr: &str) -> HarnessStatus {
     }
 }
 
+/// Waits until the unit's cancel flag is set. Paired with `kill_on_drop` in
+/// `run_scenario_in`: when select! drops the spawn future, the child dies.
+async fn wait_cancelled(key: &str) {
+    loop {
+        if is_cancelled(key) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
 /// Run `claude -p <scenario>` inside an already-prepared sandbox dir.
-async fn run_scenario_in(sbox_path: &Path, scenario: &str, started: Instant) -> HarnessOutcome {
+async fn run_scenario_in(
+    sbox_path: &Path,
+    scenario: &str,
+    started: Instant,
+    timeout: Duration,
+    cancel_key: &str,
+) -> HarnessOutcome {
     let mut cmd = tokio::process::Command::new("claude");
     cmd.args(harness_args(scenario))
         .current_dir(sbox_path)
@@ -233,8 +291,11 @@ async fn run_scenario_in(sbox_path: &Path, scenario: &str, started: Instant) -> 
     if let Some(p) = harness_path() {
         cmd.env("PATH", p);
     }
-    let (transcript, status) =
-        match tokio::time::timeout(Duration::from_secs(HARNESS_TIMEOUT_SECS), cmd.output()).await {
+    let (transcript, status) = tokio::select! {
+        _ = wait_cancelled(cancel_key) => {
+            (String::new(), HarnessStatus::Skipped("cancelled".into()))
+        }
+        run = tokio::time::timeout(timeout, cmd.output()) => match run {
             Err(_) => (String::new(), HarnessStatus::TimedOut),
             Ok(Err(e)) => (
                 String::new(),
@@ -246,7 +307,8 @@ async fn run_scenario_in(sbox_path: &Path, scenario: &str, started: Instant) -> 
                 let status = classify_output(out.status.success(), &stdout, &stderr);
                 (stdout, status)
             }
-        };
+        },
+    };
     HarnessOutcome {
         transcript,
         status,
@@ -262,6 +324,8 @@ pub async fn run_harness(
     kind: karl_canon::ContextKind,
     name: &str,
     scenario: &str,
+    timeout: Duration,
+    cancel_key: &str,
 ) -> HarnessOutcome {
     let started = Instant::now();
     let available = tokio::task::spawn_blocking(claude_available)
@@ -284,11 +348,16 @@ pub async fn run_harness(
             }
         }
     };
-    run_scenario_in(sbox.path(), scenario, started).await
+    run_scenario_in(sbox.path(), scenario, started, timeout, cancel_key).await
 }
 
 /// The baseline (no-skill) arm: same scenario in `prepare_sandbox_bare`.
-pub async fn run_baseline(repo_root: &Path, scenario: &str) -> HarnessOutcome {
+pub async fn run_baseline(
+    repo_root: &Path,
+    scenario: &str,
+    timeout: Duration,
+    cancel_key: &str,
+) -> HarnessOutcome {
     let started = Instant::now();
     let sbox = match prepare_sandbox_bare(repo_root) {
         Ok(s) => s,
@@ -300,7 +369,7 @@ pub async fn run_baseline(repo_root: &Path, scenario: &str) -> HarnessOutcome {
             }
         }
     };
-    run_scenario_in(sbox.path(), scenario, started).await
+    run_scenario_in(sbox.path(), scenario, started, timeout, cancel_key).await
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -420,6 +489,21 @@ pub async fn judge(
     Err("judge did not return a PASS/FAIL verdict".into())
 }
 
+/// `judge` with a hard ceiling — a hung provider call must not hang the run.
+async fn judge_with_timeout(
+    settings: &std::sync::Arc<tokio::sync::Mutex<Settings>>,
+    scenario: &str,
+    rubric: &str,
+    transcript: &str,
+) -> Result<Verdict, String> {
+    tokio::time::timeout(
+        Duration::from_secs(JUDGE_TIMEOUT_SECS),
+        judge(settings, scenario, rubric, transcript),
+    )
+    .await
+    .map_err(|_| format!("judge timed out after {JUDGE_TIMEOUT_SECS}s"))?
+}
+
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -450,6 +534,14 @@ pub struct EvalUnitSummary {
     /// Eval .toml files on disk for this unit — nonzero even before any run,
     /// so rows can show "3 evals · not run" instead of looking eval-less.
     pub authored: usize,
+    /// Stored verdicts whose latest run timed out / errored — from a PRIOR
+    /// run, excluded from `passed`.
+    pub stale: usize,
+    /// Most recent `ran_at_ms` across this unit's results.
+    pub last_ran_at_ms: Option<i64>,
+    /// The previous completed run's aggregate, for a pass-rate delta.
+    pub prev_passed: Option<usize>,
+    pub prev_total: Option<usize>,
 }
 
 fn emit_progress(
@@ -460,6 +552,20 @@ fn emit_progress(
     status: &str,
     reason: &str,
 ) {
+    emit_progress_full(app, kind, name, eval_id, status, reason, "", None);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_progress_full(
+    app: &AppHandle,
+    kind: &str,
+    name: &str,
+    eval_id: &str,
+    status: &str,
+    reason: &str,
+    arm: &str,
+    duration_ms: Option<u64>,
+) {
     let _ = app.emit(
         "canon-eval-progress",
         serde_json::json!({
@@ -468,6 +574,8 @@ fn emit_progress(
             "eval_id": eval_id,
             "status": status,
             "reason": reason,
+            "arm": arm,
+            "duration_ms": duration_ms,
         }),
     );
 }
@@ -487,6 +595,7 @@ fn emit_progress(
 /// already run and are already on disk — a push problem must never surface as
 /// an error for a side effect the user did not ask for.
 async fn push_results_for(
+    app: &AppHandle,
     repo_root: &std::path::Path,
     kind: karl_canon::ContextKind,
     name: &str,
@@ -511,22 +620,202 @@ async fn push_results_for(
     };
     // Resolve the PINNED version, never `latest` — results belong to the row
     // the user actually installed.
-    let pkg = match crate::canon_registry::resolve(&org, &pkg_name, &version, "skill").await {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!(target: "canon", name, error = %e, "eval push: resolve failed");
-            return;
-        }
+    let push_err = match crate::canon_registry::resolve(&org, &pkg_name, &version, "skill").await {
+        Ok(pkg) => crate::canon_registry::push_evals(pkg.id, results)
+            .await
+            .err()
+            .map(|e| e.to_string()),
+        Err(e) => Some(format!("resolve failed: {e}")),
     };
-    if let Err(e) = crate::canon_registry::push_evals(pkg.id, results).await {
+    if let Some(e) = push_err {
+        // The confirm card promised sharing — a failed push must be visible,
+        // not a tracing::warn the user never sees. Results are on disk either
+        // way; this is informational, never an error for the run itself.
         tracing::warn!(target: "canon", name, error = %e, "eval push failed");
+        emit_progress(
+            app,
+            kind.slug(),
+            name,
+            "",
+            "push_failed",
+            &format!("results saved locally, registry push failed: {e}"),
+        );
     }
 }
 
-/// Run every eval for `name`: harness → judge → persist → emit. Sequential
-/// (each eval is a full agent run + a judge call — slow and expensive on
-/// purpose). Aborts the whole run only if claude is not installed; a per-eval
-/// transient failure (non-zero exit, empty stdout) skips that eval and continues.
+/// Everything one eval task needs, cloned per task for the bounded fan-out.
+#[derive(Clone)]
+struct RunCtx {
+    app: AppHandle,
+    settings: std::sync::Arc<tokio::sync::Mutex<Settings>>,
+    repo_root: std::path::PathBuf,
+    unit_kind: karl_canon::ContextKind,
+    kind: String,
+    name: String,
+    cancel_key: String,
+    timeout: Duration,
+    with_baseline: bool,
+    judge_model: Option<String>,
+}
+
+/// Run one eval end-to-end: harness → judge → baseline (cached) → persist →
+/// emit. Returns the fresh result, or None on skip/timeout/error/cancel.
+async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon::EvalResult> {
+    let RunCtx {
+        app,
+        settings,
+        repo_root,
+        unit_kind,
+        kind,
+        name,
+        cancel_key,
+        timeout,
+        with_baseline,
+        judge_model,
+    } = ctx;
+    if is_cancelled(cancel_key) {
+        emit_progress(app, kind, name, &ev.id, "skipped", "cancelled");
+        return None;
+    }
+    // A prior verdict that a failed re-run would otherwise leave looking
+    // current. Cancels don't stale it — the eval was never attempted.
+    let stale_out = |why: &str, status: &str| {
+        let _ = karl_canon::mark_result_stale(repo_root, *unit_kind, name, &ev.id);
+        emit_progress(app, kind, name, &ev.id, status, why);
+    };
+    emit_progress_full(app, kind, name, &ev.id, "running", "", "unit", None);
+    let outcome = run_harness(
+        repo_root,
+        *unit_kind,
+        name,
+        &ev.scenario,
+        *timeout,
+        cancel_key,
+    )
+    .await;
+    match outcome.status {
+        HarnessStatus::Skipped(reason) if reason == "cancelled" => {
+            emit_progress(app, kind, name, &ev.id, "skipped", "cancelled");
+            return None;
+        }
+        HarnessStatus::Skipped(reason) => {
+            stale_out(&reason, "skipped");
+            return None;
+        }
+        HarnessStatus::TimedOut => {
+            stale_out(
+                &format!("harness timed out after {}s", timeout.as_secs()),
+                "error",
+            );
+            return None;
+        }
+        HarnessStatus::Ran => {}
+    }
+    let v = match judge_with_timeout(settings, &ev.scenario, &ev.rubric, &outcome.transcript).await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            stale_out(&e, "error");
+            return None;
+        }
+    };
+
+    // Baseline arm: same scenario/rubric, no unit projected. The bare sandbox
+    // is identical for a given scenario, so its verdict is cached by hash.
+    let mut baseline_transcript: Option<String> = None;
+    let baseline_pass = if !with_baseline || is_cancelled(cancel_key) {
+        None
+    } else {
+        let hash = karl_canon::scenario_hash(&ev.scenario);
+        match karl_canon::read_baseline_cache(repo_root).get(&hash) {
+            Some(cached) => Some(cached.pass),
+            None => {
+                emit_progress_full(app, kind, name, &ev.id, "running", "", "baseline", None);
+                let base = run_baseline(repo_root, &ev.scenario, *timeout, cancel_key).await;
+                match base.status {
+                    HarnessStatus::Ran => {
+                        match judge_with_timeout(
+                            settings,
+                            &ev.scenario,
+                            &ev.rubric,
+                            &base.transcript,
+                        )
+                        .await
+                        {
+                            Ok(bv) => {
+                                let _ = karl_canon::write_baseline_verdict(
+                                    repo_root,
+                                    &hash,
+                                    &karl_canon::BaselineVerdict {
+                                        pass: bv.pass,
+                                        judged_at_ms: chrono::Utc::now().timestamp_millis(),
+                                    },
+                                );
+                                baseline_transcript = Some(base.transcript);
+                                Some(bv.pass)
+                            }
+                            Err(_) => None, // baseline judge failed → lift not measurable
+                        }
+                    }
+                    _ => None, // baseline run skipped/timed out/cancelled → no baseline
+                }
+            }
+        }
+    };
+
+    let result = karl_canon::EvalResult {
+        eval_id: ev.id.clone(),
+        pass: v.pass,
+        reason: v.reason.clone(),
+        ran_at_ms: chrono::Utc::now().timestamp_millis(),
+        duration_ms: outcome.duration_ms,
+        baseline_pass,
+        stale: false,
+        executor_model: Some(EXECUTOR_MODEL.to_string()),
+        judge_model: judge_model.clone(),
+    };
+    if let Err(e) = karl_canon::write_result(repo_root, *unit_kind, name, &result) {
+        tracing::warn!(target: "canon", error = %e, "write_result failed");
+    }
+    // Full detail (transcripts included) for the per-eval detail view.
+    // Secret-masked: sandboxed agent output can still echo tokens from the
+    // unit body or the environment.
+    let detail = karl_canon::EvalRunDetail {
+        eval_id: ev.id.clone(),
+        scenario: ev.scenario.clone(),
+        rubric: ev.rubric.clone(),
+        pass: v.pass,
+        reason: v.reason.clone(),
+        ran_at_ms: result.ran_at_ms,
+        duration_ms: outcome.duration_ms,
+        baseline_pass,
+        executor_model: result.executor_model.clone(),
+        judge_model: result.judge_model.clone(),
+        transcript: crate::safety::mask_secrets(&outcome.transcript),
+        baseline_transcript: baseline_transcript
+            .as_deref()
+            .map(crate::safety::mask_secrets),
+    };
+    if let Err(e) = karl_canon::write_run_detail(repo_root, *unit_kind, name, &detail) {
+        tracing::warn!(target: "canon", error = %e, "write_run_detail failed");
+    }
+    emit_progress_full(
+        app,
+        kind,
+        name,
+        &ev.id,
+        if v.pass { "pass" } else { "fail" },
+        &v.reason,
+        "",
+        Some(outcome.duration_ms),
+    );
+    Some(result)
+}
+
+/// Run evals for `name` — all of them, or one via `only`. Bounded fan-out
+/// (EVAL_CONCURRENCY sandboxes at a time); `baseline: Some(false)` skips the
+/// control arm for quick iteration. Aborts the whole run only if claude is
+/// not installed; a per-eval transient failure skips that eval and continues.
 #[tauri::command]
 pub async fn canon_run_evals(
     app: AppHandle,
@@ -534,6 +823,8 @@ pub async fn canon_run_evals(
     cwd: String,
     kind: String,
     name: String,
+    baseline: Option<bool>,
+    only: Option<String>,
 ) -> Result<(), String> {
     let unit_kind = parse_evaluable_kind(&kind)?;
     // `read_evals` below does a plain path join with no traversal guard —
@@ -549,7 +840,10 @@ pub async fn canon_run_evals(
         return Err(format!("{name:?} is not a valid unit name"));
     }
     let repo_root = std::path::PathBuf::from(&cwd);
-    let evals = karl_canon::read_evals(&repo_root, unit_kind, &name);
+    let mut evals = karl_canon::read_evals(&repo_root, unit_kind, &name);
+    if let Some(only_id) = &only {
+        evals.retain(|e| &e.id == only_id);
+    }
     if evals.is_empty() {
         emit_progress(&app, &kind, &name, "", "done", "no evals found");
         return Ok(());
@@ -571,75 +865,138 @@ pub async fn canon_run_evals(
         emit_progress(&app, &kind, &name, "", "done", "");
         return Ok(());
     }
+    let cancel_key = karl_canon::unit_key(unit_kind, &name);
+    clear_cancel(&cancel_key); // a stale flag from a prior stop must not kill this run
     let settings = state.settings.clone();
+    let (timeout, judge_model) = {
+        let s = settings.lock().await;
+        (
+            Duration::from_secs(s.eval.harness_timeout_secs.max(10)),
+            resolve_route(&s, Role::Summary).ok().map(|r| r.model),
+        )
+    };
+    let ctx = RunCtx {
+        app: app.clone(),
+        settings,
+        repo_root: repo_root.clone(),
+        unit_kind,
+        kind: kind.clone(),
+        name: name.clone(),
+        cancel_key: cancel_key.clone(),
+        timeout,
+        with_baseline: baseline.unwrap_or(true),
+        judge_model,
+    };
     // Results this run actually produced — the only ones pushed to the
     // registry. Deliberately NOT a re-read of eval-results.json: that file
     // can hold stale/mis-versioned entries from prior runs (see
     // `push_results_for`).
-    let mut fresh_results: Vec<karl_canon::EvalResult> = Vec::new();
-    for ev in evals {
-        emit_progress(&app, &kind, &name, &ev.id, "running", "");
-        let outcome = run_harness(&repo_root, unit_kind, &name, &ev.scenario).await;
-        match outcome.status {
-            HarnessStatus::Skipped(reason) => {
-                // Per-eval transient (non-zero exit, empty stdout, sandbox failure):
-                // skip this one eval and continue with the rest.
-                emit_progress(&app, &kind, &name, &ev.id, "skipped", &reason);
-                continue;
-            }
-            HarnessStatus::TimedOut => {
-                emit_progress(&app, &kind, &name, &ev.id, "error", "harness timed out");
-                continue;
-            }
-            HarnessStatus::Ran => {}
-        }
-        match judge(&settings, &ev.scenario, &ev.rubric, &outcome.transcript).await {
-            Ok(v) => {
-                // Baseline arm: same scenario/rubric, no skill projected.
-                let base_outcome = run_baseline(&repo_root, &ev.scenario).await;
-                let baseline_pass = match base_outcome.status {
-                    HarnessStatus::Ran => {
-                        match judge(
-                            &settings,
-                            &ev.scenario,
-                            &ev.rubric,
-                            &base_outcome.transcript,
-                        )
-                        .await
-                        {
-                            Ok(bv) => Some(bv.pass),
-                            Err(_) => None, // baseline judge failed → lift not measurable for this eval
-                        }
-                    }
-                    _ => None, // baseline run skipped/timed out → no baseline for this eval
-                };
-                let result = karl_canon::EvalResult {
-                    eval_id: ev.id.clone(),
-                    pass: v.pass,
-                    reason: v.reason.clone(),
-                    ran_at_ms: chrono::Utc::now().timestamp_millis(),
-                    duration_ms: outcome.duration_ms,
-                    baseline_pass,
-                };
-                if let Err(e) = karl_canon::write_result(&repo_root, unit_kind, &name, &result) {
-                    tracing::warn!(target: "canon", error = %e, "write_result failed");
-                }
-                emit_progress(
-                    &app,
-                    &kind,
-                    &name,
-                    &ev.id,
-                    if v.pass { "pass" } else { "fail" },
-                    &v.reason,
-                );
-                fresh_results.push(result);
-            }
-            Err(e) => emit_progress(&app, &kind, &name, &ev.id, "error", &e),
+    use futures_util::StreamExt;
+    let fresh_results: Vec<karl_canon::EvalResult> = futures_util::stream::iter(evals)
+        .map(|ev| {
+            let ctx = ctx.clone();
+            async move { run_one_eval(&ctx, &ev).await }
+        })
+        .buffer_unordered(EVAL_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
+    let was_cancelled = is_cancelled(&cancel_key);
+    clear_cancel(&cancel_key);
+    if !fresh_results.is_empty() {
+        let record = karl_canon::EvalRunRecord {
+            kind: kind.clone(),
+            name: name.clone(),
+            passed: fresh_results.iter().filter(|r| r.pass).count(),
+            total: fresh_results.len(),
+            at_ms: chrono::Utc::now().timestamp_millis(),
+        };
+        if let Err(e) = karl_canon::append_history(&repo_root, &record) {
+            tracing::warn!(target: "canon", error = %e, "append_history failed");
         }
     }
-    push_results_for(&repo_root, unit_kind, &name, &fresh_results).await;
-    emit_progress(&app, &kind, &name, "", "done", "");
+    push_results_for(&app, &repo_root, unit_kind, &name, &fresh_results).await;
+    emit_progress(
+        &app,
+        &kind,
+        &name,
+        "",
+        "done",
+        if was_cancelled { "cancelled" } else { "" },
+    );
     Ok(())
+}
+
+/// Stop a running suite. The run loop skips unstarted evals and in-flight
+/// harness spawns are killed (`kill_on_drop`) within ~300ms.
+#[tauri::command]
+pub async fn canon_cancel_evals(kind: String, name: String) -> Result<(), String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    request_cancel(&karl_canon::unit_key(unit_kind, &name));
+    Ok(())
+}
+
+/// One eval's last run detail (transcripts included). Err if never run.
+#[tauri::command]
+pub async fn canon_eval_detail(
+    cwd: String,
+    kind: String,
+    name: String,
+    eval_id: String,
+) -> Result<karl_canon::EvalRunDetail, String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) || !karl_canon::valid_pkg_name(&eval_id) {
+        return Err("invalid unit or eval name".into());
+    }
+    karl_canon::read_run_detail(&std::path::PathBuf::from(&cwd), unit_kind, &name, &eval_id)
+        .ok_or_else(|| format!("no run recorded for {eval_id} — run it first"))
+}
+
+/// Overwrite one eval's scenario/rubric — the manager's Save. The id names an
+/// existing or new file; content is validated like `canon_write_evals`.
+#[tauri::command]
+pub async fn canon_update_eval(
+    cwd: String,
+    kind: String,
+    name: String,
+    eval: karl_canon::Eval,
+) -> Result<(), String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    let mut eval = eval;
+    eval.id = draft_slug(&eval.id);
+    if !karl_canon::valid_pkg_name(&eval.id)
+        || eval.scenario.trim().is_empty()
+        || eval.rubric.trim().is_empty()
+    {
+        return Err("eval needs a valid id and non-empty scenario + rubric".into());
+    }
+    karl_canon::overwrite_eval(&std::path::PathBuf::from(&cwd), unit_kind, &name, &eval)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Delete one authored eval (file + stored verdict + run detail).
+#[tauri::command]
+pub async fn canon_delete_eval(
+    cwd: String,
+    kind: String,
+    name: String,
+    eval_id: String,
+) -> Result<(), String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) || !karl_canon::valid_pkg_name(&eval_id) {
+        return Err("invalid unit or eval name".into());
+    }
+    karl_canon::delete_eval(&std::path::PathBuf::from(&cwd), unit_kind, &name, &eval_id)
+        .map_err(|e| e.to_string())
 }
 
 const DRAFT_SYSTEM: &str = "You write behavior evals for an AI agent's context unit (a skill, \
@@ -739,20 +1096,23 @@ pub async fn canon_draft_evals(
 
 /// Persist the user-approved drafts as `.covenant/canon/evals/<kind>/<name>/
 /// <id>.toml`. Re-validates every draft (the frontend is not trusted with
-/// filenames), silently skips ids whose file already exists — never
-/// overwrites — and returns the ids actually written.
+/// filenames). By default ids whose file already exists are silently skipped
+/// — never overwritten; `overwrite: Some(true)` is the explicit opt-in that
+/// clobbers them. Returns the ids actually written.
 #[tauri::command]
 pub async fn canon_write_evals(
     cwd: String,
     kind: String,
     name: String,
     evals: Vec<karl_canon::Eval>,
+    overwrite: Option<bool>,
 ) -> Result<Vec<String>, String> {
     let unit_kind = parse_evaluable_kind(&kind)?;
     if !karl_canon::valid_pkg_name(&name) {
         return Err(format!("{name:?} is not a valid unit name"));
     }
     let repo_root = std::path::PathBuf::from(&cwd);
+    let overwrite = overwrite.unwrap_or(false);
     let mut written = Vec::new();
     for mut d in evals {
         d.id = draft_slug(&d.id);
@@ -762,7 +1122,12 @@ pub async fn canon_write_evals(
         {
             continue;
         }
-        match karl_canon::write_eval(&repo_root, unit_kind, &name, &d) {
+        let res = if overwrite {
+            karl_canon::overwrite_eval(&repo_root, unit_kind, &name, &d)
+        } else {
+            karl_canon::write_eval(&repo_root, unit_kind, &name, &d)
+        };
+        match res {
             Ok(_) => written.push(d.id),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(format!("writing eval {}: {e}", d.id)),
@@ -801,6 +1166,19 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
     // and units with evals authored but never run still get a row — that is
     // what lets a list say "3 evals · not run" instead of nothing.
     let mut authored = karl_canon::authored_counts(&repo_root);
+    // Previous completed run per unit key, for the pass-rate delta: the
+    // second-to-last history record (the last one IS the current state).
+    let history = karl_canon::read_history(&repo_root);
+    let prev_of = |kind: &str, name: &str| -> Option<(usize, usize)> {
+        let mine: Vec<_> = history
+            .iter()
+            .filter(|r| r.kind == kind && r.name == name)
+            .collect();
+        (mine.len() >= 2).then(|| {
+            let p = mine[mine.len() - 2];
+            (p.passed, p.total)
+        })
+    };
     let mut out: Vec<EvalUnitSummary> = all
         .into_iter()
         .map(|(key, inner)| {
@@ -809,12 +1187,19 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 Some((k, n)) => (k.to_string(), n.to_string()),
                 None => ("skill".to_string(), key.clone()),
             };
-            let passed = inner.values().filter(|r| r.pass).count();
+            // A stale verdict is from a prior run — never counted as a pass.
+            let passed = inner.values().filter(|r| r.pass && !r.stale).count();
+            let stale = inner.values().filter(|r| r.stale).count();
+            let last_ran_at_ms = inner.values().map(|r| r.ran_at_ms).max();
             let baseline_total = inner.values().filter(|r| r.baseline_pass.is_some()).count();
             let baseline_passed = inner
                 .values()
                 .filter(|r| r.baseline_pass == Some(true))
                 .count();
+            let (prev_passed, prev_total) = match prev_of(&kind, &name) {
+                Some((p, t)) => (Some(p), Some(t)),
+                None => (None, None),
+            };
             EvalUnitSummary {
                 authored: authored.remove(&format!("{kind}/{name}")).unwrap_or(0),
                 kind,
@@ -823,6 +1208,10 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 total: inner.len(),
                 baseline_passed,
                 baseline_total,
+                stale,
+                last_ran_at_ms,
+                prev_passed,
+                prev_total,
             }
         })
         .collect();
@@ -838,6 +1227,10 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
             baseline_passed: 0,
             baseline_total: 0,
             authored: n,
+            stale: 0,
+            last_ran_at_ms: None,
+            prev_passed: None,
+            prev_total: None,
         });
     }
     Ok(out)
@@ -896,6 +1289,7 @@ mod tests {
             ran_at_ms: 0,
             duration_ms: 0,
             baseline_pass: None,
+            ..Default::default()
         };
         karl_canon::write_result(root, ContextKind::Command, "horizon", &r(true)).unwrap();
         karl_canon::write_result(root, ContextKind::Skill, "kyc-peru", &r(false)).unwrap();
@@ -994,6 +1388,7 @@ mod tests {
                 ev("kept", "clobber attempt", "x"),   // exists → skipped
                 ev("no-rubric", "s", "  "),           // empty rubric → dropped
             ],
+            None,
         )
         .await
         .unwrap();
@@ -1009,13 +1404,31 @@ mod tests {
 
         // Nothing usable → a hard error, not a silent empty success.
         assert!(canon_write_evals(
-            cwd,
+            cwd.clone(),
             "skill".into(),
             "horizon".into(),
-            vec![ev("kept", "s", "r")]
+            vec![ev("kept", "s", "r")],
+            None,
         )
         .await
         .is_err());
+
+        // Explicit overwrite is the one path that clobbers.
+        let overwritten = canon_write_evals(
+            cwd,
+            "skill".into(),
+            "horizon".into(),
+            vec![ev("kept", "replaced scenario", "r")],
+            Some(true),
+        )
+        .await
+        .unwrap();
+        assert_eq!(overwritten, vec!["kept"]);
+        let after = karl_canon::read_evals(tmp.path(), karl_canon::ContextKind::Skill, "horizon");
+        assert_eq!(
+            after.iter().find(|e| e.id == "kept").unwrap().scenario,
+            "replaced scenario"
+        );
     }
 
     #[test]
@@ -1306,6 +1719,131 @@ mod tests {
             a.contains(&"do the thing".to_string()),
             "scenario passed through"
         );
+        // Model pinned for provenance/reproducibility across CLI upgrades.
+        let model_at = a.iter().position(|s| s == "--model").expect("--model");
+        assert_eq!(a[model_at + 1], EXECUTOR_MODEL);
+    }
+
+    #[test]
+    fn cancel_registry_sets_reads_and_clears_per_unit() {
+        let key = "skill/cancel-test-unit";
+        assert!(!is_cancelled(key));
+        request_cancel(key);
+        assert!(is_cancelled(key));
+        assert!(!is_cancelled("skill/other-unit"), "flags are per unit");
+        clear_cancel(key);
+        assert!(!is_cancelled(key));
+    }
+
+    #[tokio::test]
+    async fn canon_cancel_evals_guards_kind_and_name() {
+        assert!(canon_cancel_evals("mcp".into(), "x".into()).await.is_err());
+        assert!(canon_cancel_evals("skill".into(), "../../etc".into())
+            .await
+            .is_err());
+        canon_cancel_evals("skill".into(), "fine".into())
+            .await
+            .unwrap();
+        assert!(is_cancelled("skill/fine"));
+        clear_cancel("skill/fine");
+    }
+
+    #[tokio::test]
+    async fn canon_update_and_delete_eval_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().into_owned();
+        let ev = karl_canon::Eval {
+            id: "Refuses Something".into(), // slugged on save
+            scenario: "s".into(),
+            rubric: "r".into(),
+        };
+        canon_update_eval(cwd.clone(), "skill".into(), "horizon".into(), ev.clone())
+            .await
+            .unwrap();
+        let on_disk = karl_canon::read_evals(tmp.path(), karl_canon::ContextKind::Skill, "horizon");
+        assert_eq!(on_disk[0].id, "refuses-something");
+        // Update overwrites in place (that's the point of Save).
+        let mut edited = ev.clone();
+        edited.scenario = "tightened".into();
+        canon_update_eval(cwd.clone(), "skill".into(), "horizon".into(), edited)
+            .await
+            .unwrap();
+        assert_eq!(
+            karl_canon::read_evals(tmp.path(), karl_canon::ContextKind::Skill, "horizon")[0]
+                .scenario,
+            "tightened"
+        );
+        // Junk is rejected, not silently dropped.
+        assert!(canon_update_eval(
+            cwd.clone(),
+            "skill".into(),
+            "horizon".into(),
+            karl_canon::Eval {
+                id: "ok".into(),
+                scenario: "  ".into(),
+                rubric: "r".into()
+            }
+        )
+        .await
+        .is_err());
+        canon_delete_eval(
+            cwd.clone(),
+            "skill".into(),
+            "horizon".into(),
+            "refuses-something".into(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            karl_canon::read_evals(tmp.path(), karl_canon::ContextKind::Skill, "horizon")
+                .is_empty()
+        );
+        assert!(
+            canon_delete_eval(cwd, "skill".into(), "horizon".into(), "../../etc".into())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn canon_eval_summary_excludes_stale_from_passed_and_carries_prev() {
+        use karl_canon::{ContextKind, EvalResult};
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let mk = |id: &str, pass: bool, at: i64| EvalResult {
+            eval_id: id.into(),
+            pass,
+            ran_at_ms: at,
+            ..Default::default()
+        };
+        karl_canon::write_result(root, ContextKind::Skill, "kyc", &mk("e1", true, 10)).unwrap();
+        karl_canon::write_result(root, ContextKind::Skill, "kyc", &mk("e2", true, 20)).unwrap();
+        karl_canon::mark_result_stale(root, ContextKind::Skill, "kyc", "e2").unwrap();
+        // Two completed runs in history → prev is the first.
+        for (p, at) in [(0usize, 1i64), (2, 20)] {
+            karl_canon::append_history(
+                root,
+                &karl_canon::EvalRunRecord {
+                    kind: "skill".into(),
+                    name: "kyc".into(),
+                    passed: p,
+                    total: 2,
+                    at_ms: at,
+                },
+            )
+            .unwrap();
+        }
+        let out = canon_eval_summary(root.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        let s = out.iter().find(|s| s.name == "kyc").unwrap();
+        assert_eq!(
+            (s.passed, s.total, s.stale),
+            (1, 2, 1),
+            "a stale pass is not a current pass"
+        );
+        assert_eq!(s.last_ran_at_ms, Some(20));
+        assert_eq!((s.prev_passed, s.prev_total), (Some(0), Some(2)));
     }
 
     #[test]

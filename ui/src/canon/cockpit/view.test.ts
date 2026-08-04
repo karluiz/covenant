@@ -895,9 +895,14 @@ describe("CanonCockpitView eval from the row", () => {
       expect(v.element.querySelector(".canon-skill-row [aria-label='Run evals']")).toBeTruthy();
     });
     v.element.querySelector<HTMLButtonElement>("[aria-label='Run evals']")!.click();
+    // The confirm card appears only after the eval list resolves — its
+    // message now carries the real run arithmetic.
+    await vi.waitFor(() => {
+      expect(document.querySelector(".workspace-confirm-confirm")).toBeTruthy();
+    });
     document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
     await vi.waitFor(() => {
-      expect(canonRunEvals).toHaveBeenCalledWith("/x", "skill", "kyc");
+      expect(canonRunEvals).toHaveBeenCalledWith("/x", "skill", "kyc", undefined);
     });
   });
 

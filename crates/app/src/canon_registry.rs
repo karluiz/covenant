@@ -317,6 +317,7 @@ mod tests {
             ran_at_ms: 1_700_000_000_000,
             duration_ms: 4_321,
             baseline_pass: Some(false),
+            ..Default::default()
         };
         let row = eval_wire_row(&r);
 

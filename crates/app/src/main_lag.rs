@@ -319,7 +319,10 @@ extern "C" fn metronome_fire(_timer: *mut std::ffi::c_void, _info: *mut std::ffi
 fn capture_main_runloop() {
     let rl = unsafe { cf::CFRunLoopGetCurrent() };
     MAIN_RUNLOOP.store(rl as usize, Ordering::Relaxed);
-    MAIN_THREAD_PORT.store(unsafe { mach::mach_thread_self() } as usize, Ordering::Relaxed);
+    MAIN_THREAD_PORT.store(
+        unsafe { mach::mach_thread_self() } as usize,
+        Ordering::Relaxed,
+    );
     unsafe {
         let timer = metro::CFRunLoopTimerCreate(
             std::ptr::null(),
@@ -364,7 +367,12 @@ fn main_thread_priority() -> Option<i32> {
         let mut info = [0i32; mach::THREAD_EXTENDED_INFO_COUNT as usize];
         let mut cnt = mach::THREAD_EXTENDED_INFO_COUNT;
         let kr = unsafe {
-            mach::thread_info(port, mach::THREAD_EXTENDED_INFO, info.as_mut_ptr(), &mut cnt)
+            mach::thread_info(
+                port,
+                mach::THREAD_EXTENDED_INFO,
+                info.as_mut_ptr(),
+                &mut cnt,
+            )
         };
         if kr != 0 {
             return None;

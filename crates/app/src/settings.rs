@@ -294,6 +294,10 @@ pub struct Settings {
     #[serde(default)]
     pub notifications: NotificationConfig,
 
+    /// Eval harness knobs (3.27). Edited via config.json; no UI yet.
+    #[serde(default)]
+    pub eval: EvalConfig,
+
     /// 3.7 status bar — when false, the bar isn't rendered and no
     /// detection runs. Default true; controlled by a single toggle in
     /// the Settings → Appearance section.
@@ -593,6 +597,26 @@ fn default_aom_budget_usd() -> f64 {
     10.0
 }
 
+/// 3.27 eval harness knobs. No UI yet — edited via config.json.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvalConfig {
+    /// Hard ceiling per harness spawn (each arm of each eval), seconds.
+    #[serde(default = "default_eval_harness_timeout_secs")]
+    pub harness_timeout_secs: u64,
+}
+
+fn default_eval_harness_timeout_secs() -> u64 {
+    crate::canon_eval::HARNESS_TIMEOUT_SECS
+}
+
+impl Default for EvalConfig {
+    fn default() -> Self {
+        Self {
+            harness_timeout_secs: default_eval_harness_timeout_secs(),
+        }
+    }
+}
+
 /// 3.6 OS notifications. Three per-trigger toggles + a global focus
 /// suppressor. All default `true` — notifications are on out of the
 /// box; the user opts out per trigger from Settings.
@@ -793,6 +817,7 @@ impl Default for Settings {
             aom: AomConfig::default(),
             experimental: ExperimentalConfig::default(),
             notifications: NotificationConfig::default(),
+            eval: EvalConfig::default(),
             status_bar_enabled: default_status_bar_enabled(),
             notch_enabled: default_notch_enabled(),
             notch_corner: NotchCorner::default(),

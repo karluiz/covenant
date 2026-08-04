@@ -41,14 +41,44 @@ export function liftRow(s: EvalUnitSummary): LiftView {
   };
 }
 
+/** Compact "how long ago" for a unit's last eval run. */
+export function agoLabel(atMs: number | null | undefined): string {
+  if (!atMs) return "";
+  const mins = Math.floor((Date.now() - atMs) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/** Pass-rate delta vs the previous completed run, in points. "" when there is
+ *  no previous run or nothing moved. */
+export function deltaLabel(s: EvalUnitSummary): string {
+  const pt = s.prev_total ?? 0;
+  if (pt === 0 || s.total === 0) return "";
+  const now = Math.round((s.passed / s.total) * 100);
+  const prev = Math.round(((s.prev_passed ?? 0) / pt) * 100);
+  const d = now - prev;
+  if (d === 0) return "";
+  return `${d > 0 ? "+" : ""}${d} pts vs prev`;
+}
+
 /** Short row chip for any evaluable unit: authored count + latest verdict.
- *  "no evals" nudges toward Draft evals; "not run" toward Run evals. */
+ *  "no evals" nudges toward Draft evals; "not run" toward Run evals. A stale
+ *  count flags verdicts whose latest run timed out or errored. */
 export function evalCountLabel(s: EvalUnitSummary | undefined): string {
   const n = s?.authored ?? 0;
   if (n === 0) return "no evals";
   const evals = `${n} eval${n === 1 ? "" : "s"}`;
   if (!s || s.total === 0) return `${evals} · not run`;
-  return `${evals} · ${s.passed}/${s.total} pass`;
+  const bits = [evals, `${s.passed}/${s.total} pass`];
+  if ((s.stale ?? 0) > 0) bits.push(`${s.stale} stale`);
+  const delta = deltaLabel(s);
+  if (delta) bits.push(delta);
+  const ago = agoLabel(s.last_ran_at_ms);
+  if (ago) bits.push(ago);
+  return bits.join(" · ");
 }
 
 /** Actionable class + short badge text for a skill row (rail + Loop). */

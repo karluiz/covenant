@@ -127,6 +127,7 @@ import { VitalsCollector } from "./vitals/collector";
 import { vitalsDaily, vitalsRecord, vitalsSummary, vitalsWorst } from "./api";
 import { gitRepoSummary } from "./api";
 import { handleHandoffRouted, type HandoffRoutedEvent } from "./teammate/handoff-spawn";
+import { initEvalProgressRelay } from "./canon/evals";
 import type { TabPlacement } from "./tabs/manager";
 
 type LastCallChoice = "use" | "without" | "cancel";
@@ -2071,6 +2072,10 @@ async function boot(): Promise<void> {
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
   settingsRef.panel = settings;
+  // Eval progress relay: routes canon-eval-progress events to their panel and
+  // rebuilds one after a mid-run window reload — without this a running suite
+  // keeps burning tokens with no listener attached.
+  void initEvalProgressRelay();
   const capabilitiesPage = requireEl<HTMLElement>("capabilities-page");
   const capabilities = new CapabilitiesPanel(capabilitiesPage, workspace);
   capabilities.onClosed = () => manager.refitActive();

@@ -2062,18 +2062,95 @@ export interface EvalUnitSummary {
   /** Eval .toml files on disk — nonzero even before any run. Optional only
    *  for older test fixtures; the backend always sends it. */
   authored?: number;
+  /** Verdicts whose latest run timed out/errored — excluded from `passed`. */
+  stale?: number;
+  /** Most recent ran_at_ms across this unit's results. */
+  last_ran_at_ms?: number | null;
+  /** Previous completed run's aggregate, for a pass-rate delta. */
+  prev_passed?: number | null;
+  prev_total?: number | null;
 }
 
 export interface CanonEvalProgress {
   kind: string;
   name: string;
   eval_id: string;
-  status: "running" | "pass" | "fail" | "skipped" | "error" | "done";
+  status: "running" | "pass" | "fail" | "skipped" | "error" | "done" | "push_failed";
   reason: string;
+  /** Which arm is running: "unit" | "baseline" | "" (verdict/global events). */
+  arm?: string;
+  /** With-unit arm duration, present on pass/fail events. */
+  duration_ms?: number | null;
 }
 
-export async function canonRunEvals(cwd: string, kind: string, name: string): Promise<void> {
-  return invoke<void>("canon_run_evals", { cwd, kind, name });
+export interface CanonRunEvalsOpts {
+  /** false skips the baseline (control) arm — quick iteration, no lift. */
+  baseline?: boolean;
+  /** Run just this eval id. */
+  only?: string;
+}
+
+export async function canonRunEvals(
+  cwd: string,
+  kind: string,
+  name: string,
+  opts?: CanonRunEvalsOpts,
+): Promise<void> {
+  return invoke<void>("canon_run_evals", {
+    cwd, kind, name,
+    baseline: opts?.baseline ?? null,
+    only: opts?.only ?? null,
+  });
+}
+
+/** Stop a running suite — unstarted evals skip, in-flight spawns are killed. */
+export async function canonCancelEvals(kind: string, name: string): Promise<void> {
+  return invoke<void>("canon_cancel_evals", { kind, name });
+}
+
+/** One eval's last run detail (transcripts included). Rejects if never run. */
+export interface CanonEvalRunDetail {
+  eval_id: string;
+  scenario: string;
+  rubric: string;
+  pass: boolean;
+  reason: string;
+  ran_at_ms: number;
+  duration_ms: number;
+  baseline_pass: boolean | null;
+  executor_model: string | null;
+  judge_model: string | null;
+  transcript: string;
+  baseline_transcript: string | null;
+}
+
+export async function canonEvalDetail(
+  cwd: string,
+  kind: string,
+  name: string,
+  evalId: string,
+): Promise<CanonEvalRunDetail> {
+  return invoke<CanonEvalRunDetail>("canon_eval_detail", { cwd, kind, name, evalId });
+}
+
+/** Overwrite one eval's scenario/rubric (the manager's Save). */
+export async function canonUpdateEval(
+  cwd: string,
+  kind: string,
+  name: string,
+  ev: CanonEvalDraft,
+): Promise<void> {
+  return invoke<void>("canon_update_eval", { cwd, kind, name, eval: ev });
+}
+
+/** Delete one authored eval (file + stored verdict + run detail). */
+export async function canonDeleteEval(
+  cwd: string,
+  kind: string,
+  name: string,
+  evalId: string,
+): Promise<void> {
+  return invoke<void>("canon_delete_eval", { cwd, kind, name, evalId });
 }
 
 export interface CanonEvalDraft {
@@ -2092,14 +2169,16 @@ export async function canonListEvals(cwd: string, kind: string, name: string): P
   return invoke<CanonEvalDraft[]>("canon_list_evals", { cwd, kind, name });
 }
 
-/** Persist the approved drafts as .toml files; skips existing ids, returns the ids written. */
+/** Persist the approved drafts as .toml files; skips existing ids unless
+ *  `overwrite`, returns the ids written. */
 export async function canonWriteEvals(
   cwd: string,
   kind: string,
   name: string,
   evals: CanonEvalDraft[],
+  overwrite?: boolean,
 ): Promise<string[]> {
-  return invoke<string[]>("canon_write_evals", { cwd, kind, name, evals });
+  return invoke<string[]>("canon_write_evals", { cwd, kind, name, evals, overwrite: overwrite ?? null });
 }
 
 export async function canonEvalSummary(cwd: string): Promise<EvalUnitSummary[]> {

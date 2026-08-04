@@ -187,9 +187,8 @@ describe("CanonPanel", () => {
     const panel = new CanonPanel({ groupId: "g-no-evals", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo" });
     await panel.refresh();
     panel.element.querySelector<HTMLButtonElement>('button[aria-label="Run evals"]')!.click();
-    // Evals cost tokens, so the run is gated by the in-app confirm card
-    // (window.confirm is unavailable under Tauri's capability set).
-    document.querySelector<HTMLButtonElement>(".workspace-confirm-confirm")!.click();
+    // No evals → the helpful toast fires straight away; the confirm card
+    // never appears (it now shows real cost arithmetic, which needs ≥1 eval).
     await vi.waitFor(() => {
       const msgs = (pushInfoToast as Mock).mock.calls.map((c) => c[0].message as string);
       expect(msgs.some((m) => m.startsWith("No evals for kyc-peru"))).toBe(true);

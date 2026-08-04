@@ -14,8 +14,10 @@ pub mod types;
 
 pub use detect::scan_detected;
 pub use eval::{
-    authored_counts, pass_rate, read_evals, read_results, unit_key, write_eval, write_result, Eval,
-    EvalResult,
+    append_history, authored_counts, delete_eval, mark_result_stale, overwrite_eval, pass_rate,
+    read_baseline_cache, read_evals, read_history, read_results, read_run_detail, scenario_hash,
+    unit_key, write_baseline_verdict, write_eval, write_result, write_run_detail, BaselineVerdict,
+    Eval, EvalResult, EvalRunDetail, EvalRunRecord,
 };
 pub use install::{
     adopt, adopt_new_skills, content_version, delete_unit, install_from_dir, install_local,

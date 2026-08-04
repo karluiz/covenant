@@ -19,7 +19,7 @@ pub struct Eval {
     pub rubric: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct EvalResult {
     pub eval_id: String,
     pub pass: bool,
@@ -28,6 +28,52 @@ pub struct EvalResult {
     pub duration_ms: u64,
     #[serde(default)]
     pub baseline_pass: Option<bool>,
+    /// A later run of this eval timed out or errored — this verdict is from a
+    /// PRIOR run and must never be presented as current.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
+    /// Model the harness ran the scenario with (provenance).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor_model: Option<String>,
+    /// Model that judged the transcript (provenance).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judge_model: Option<String>,
+}
+
+/// Full record of one eval run — everything needed to understand a verdict.
+/// One file per eval id, last run wins (bounded by construction: re-runs
+/// overwrite, so the store never grows past one file per authored eval).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvalRunDetail {
+    pub eval_id: String,
+    pub scenario: String,
+    pub rubric: String,
+    pub pass: bool,
+    pub reason: String,
+    pub ran_at_ms: i64,
+    pub duration_ms: u64,
+    #[serde(default)]
+    pub baseline_pass: Option<bool>,
+    #[serde(default)]
+    pub executor_model: Option<String>,
+    #[serde(default)]
+    pub judge_model: Option<String>,
+    /// Agent transcript, with-unit arm. Secret-masked by the caller.
+    pub transcript: String,
+    /// Agent transcript, baseline arm. None when the baseline was skipped,
+    /// cached, or opted out.
+    #[serde(default)]
+    pub baseline_transcript: Option<String>,
+}
+
+/// One line of the append-only run log: a completed suite run's aggregate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvalRunRecord {
+    pub kind: String,
+    pub name: String,
+    pub passed: usize,
+    pub total: usize,
+    pub at_ms: i64,
 }
 
 /// `.covenant/canon/evals/<kind>/<name>/` — one tree for every evaluable kind,
@@ -104,6 +150,35 @@ pub fn write_result(
     name: &str,
     result: &EvalResult,
 ) -> std::io::Result<()> {
+    update_results(repo_root, |all| {
+        all.entry(unit_key(kind, name))
+            .or_default()
+            .insert(result.eval_id.clone(), result.clone());
+    })
+}
+
+/// Mark a stored verdict stale — a newer run of this eval timed out or
+/// errored, so the stored PASS/FAIL is from a prior run and must not be
+/// presented as current. No-op if the eval has no stored result.
+pub fn mark_result_stale(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+    eval_id: &str,
+) -> std::io::Result<()> {
+    update_results(repo_root, |all| {
+        if let Some(r) = all
+            .get_mut(&unit_key(kind, name))
+            .and_then(|m| m.get_mut(eval_id))
+        {
+            r.stale = true;
+        }
+    })
+}
+
+/// Read-modify-write of `eval-results.json` behind `WRITE_LOCK`, with the
+/// corrupt-file backup and atomic tmp+rename shared by every mutation.
+fn update_results(repo_root: &Path, mutate: impl FnOnce(&mut ResultMap)) -> std::io::Result<()> {
     let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let path = results_path(repo_root);
@@ -131,9 +206,7 @@ pub fn write_result(
         }
     }
 
-    all.entry(unit_key(kind, name))
-        .or_default()
-        .insert(result.eval_id.clone(), result.clone());
+    mutate(&mut all);
 
     let json = serde_json::to_string_pretty(&all)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -146,6 +219,169 @@ pub fn write_result(
         let _ = std::fs::remove_file(&tmp_path);
         e
     })
+}
+
+// --- run details (transcripts) ------------------------------------------
+
+/// `.covenant/canon/eval-runs/<kind>/<name>/<eval_id>.json`
+fn run_detail_path(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+    eval_id: &str,
+) -> std::path::PathBuf {
+    canon_dir(repo_root)
+        .join("eval-runs")
+        .join(kind.slug())
+        .join(name)
+        .join(format!("{eval_id}.json"))
+}
+
+/// Persist one run's full detail (transcripts included). Overwrites the prior
+/// run's file — retention is exactly one run per eval id.
+pub fn write_run_detail(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+    detail: &EvalRunDetail,
+) -> std::io::Result<()> {
+    let path = run_detail_path(repo_root, kind, name, &detail.eval_id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(detail)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&path, json)
+}
+
+/// Read one eval's last run detail. None if never run (or predates details).
+pub fn read_run_detail(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+    eval_id: &str,
+) -> Option<EvalRunDetail> {
+    std::fs::read_to_string(run_detail_path(repo_root, kind, name, eval_id))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+/// Delete one eval's authored `.toml` (and its stored run detail, if any).
+/// The stored verdict in `eval-results.json` is removed too so summaries
+/// don't keep counting a deleted eval.
+pub fn delete_eval(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+    eval_id: &str,
+) -> std::io::Result<()> {
+    std::fs::remove_file(evals_dir(repo_root, kind, name).join(format!("{eval_id}.toml")))?;
+    let _ = std::fs::remove_file(run_detail_path(repo_root, kind, name, eval_id));
+    update_results(repo_root, |all| {
+        if let Some(m) = all.get_mut(&unit_key(kind, name)) {
+            m.remove(eval_id);
+        }
+    })
+}
+
+/// Write one eval unconditionally — the explicit-overwrite path behind the
+/// UI's "overwrite existing" choice. `write_eval` stays the safe default.
+pub fn overwrite_eval(
+    repo_root: &Path,
+    kind: ContextKind,
+    name: &str,
+    eval: &Eval,
+) -> std::io::Result<std::path::PathBuf> {
+    let dir = evals_dir(repo_root, kind, name);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{}.toml", eval.id));
+    let body = toml::to_string_pretty(eval)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    std::fs::write(&path, body)?;
+    Ok(path)
+}
+
+// --- baseline cache ------------------------------------------------------
+
+/// The bare-sandbox arm is identical for a given scenario text across runs
+/// and units, so its verdict is cached by scenario hash — re-runs cost half.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BaselineVerdict {
+    pub pass: bool,
+    pub judged_at_ms: i64,
+}
+
+fn baseline_cache_path(repo_root: &Path) -> std::path::PathBuf {
+    canon_dir(repo_root).join("eval-baseline-cache.json")
+}
+
+/// Stable key for a scenario's baseline verdict.
+pub fn scenario_hash(scenario: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(scenario.as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+pub fn read_baseline_cache(repo_root: &Path) -> BTreeMap<String, BaselineVerdict> {
+    std::fs::read_to_string(baseline_cache_path(repo_root))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Upsert one baseline verdict. Shares `WRITE_LOCK` with the results file —
+/// both are small read-modify-write JSON stores mutated from the same run.
+pub fn write_baseline_verdict(
+    repo_root: &Path,
+    hash: &str,
+    verdict: &BaselineVerdict,
+) -> std::io::Result<()> {
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let path = baseline_cache_path(repo_root);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut all = read_baseline_cache(repo_root);
+    all.insert(hash.to_string(), verdict.clone());
+    let json = serde_json::to_string_pretty(&all)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &json)?;
+    std::fs::rename(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e
+    })
+}
+
+// --- run history ----------------------------------------------------------
+
+fn history_path(repo_root: &Path) -> std::path::PathBuf {
+    canon_dir(repo_root).join("eval-history.jsonl")
+}
+
+/// Append one completed run's aggregate to the run log (JSONL, append-only).
+pub fn append_history(repo_root: &Path, record: &EvalRunRecord) -> std::io::Result<()> {
+    use std::io::Write;
+    let path = history_path(repo_root);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let line = serde_json::to_string(record)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    writeln!(f, "{line}")
+}
+
+/// All run records, oldest first. Unparseable lines are skipped.
+pub fn read_history(repo_root: &Path) -> Vec<EvalRunRecord> {
+    std::fs::read_to_string(history_path(repo_root))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
 }
 
 /// Write one eval as `<id>.toml` under the unit's evals dir. Refuses to
@@ -285,6 +521,7 @@ mod tests {
             ran_at_ms: 1,
             duration_ms: 10,
             baseline_pass: None,
+            ..Default::default()
         };
         write_result(tmp.path(), ContextKind::Skill, "kyc-peru", &mk("e1", true)).unwrap();
         write_result(tmp.path(), ContextKind::Skill, "kyc-peru", &mk("e2", false)).unwrap();
@@ -310,6 +547,7 @@ mod tests {
             ran_at_ms: 1,
             duration_ms: 1,
             baseline_pass: None,
+            ..Default::default()
         };
         write_result(tmp.path(), ContextKind::Skill, "skill-a", &mk("e1", true)).unwrap();
         write_result(tmp.path(), ContextKind::Skill, "skill-b", &mk("e1", false)).unwrap();
@@ -437,6 +675,7 @@ mod tests {
             ran_at_ms: 0,
             duration_ms: 0,
             baseline_pass: None,
+            ..Default::default()
         };
         write_result(root, crate::ContextKind::Command, "green", &mk(true)).unwrap();
         write_result(root, crate::ContextKind::Skill, "green", &mk(false)).unwrap();
@@ -478,6 +717,168 @@ mod tests {
     }
 
     #[test]
+    fn overwrite_eval_replaces_and_delete_eval_removes_everything() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let k = crate::ContextKind::Skill;
+        let ev = |s: &str| Eval {
+            id: "e1".into(),
+            scenario: s.into(),
+            rubric: "r".into(),
+        };
+        super::write_eval(root, k, "horizon", &ev("original")).unwrap();
+        // Explicit overwrite replaces where write_eval refuses.
+        overwrite_eval(root, k, "horizon", &ev("replaced")).unwrap();
+        assert_eq!(read_evals(root, k, "horizon")[0].scenario, "replaced");
+
+        // Seed a verdict + detail, then delete: file, verdict and detail all go.
+        write_result(
+            root,
+            k,
+            "horizon",
+            &EvalResult {
+                eval_id: "e1".into(),
+                pass: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        write_run_detail(
+            root,
+            k,
+            "horizon",
+            &EvalRunDetail {
+                eval_id: "e1".into(),
+                scenario: "s".into(),
+                rubric: "r".into(),
+                pass: true,
+                reason: "ok".into(),
+                ran_at_ms: 1,
+                duration_ms: 2,
+                baseline_pass: None,
+                executor_model: None,
+                judge_model: None,
+                transcript: "t".into(),
+                baseline_transcript: None,
+            },
+        )
+        .unwrap();
+        delete_eval(root, k, "horizon", "e1").unwrap();
+        assert!(read_evals(root, k, "horizon").is_empty());
+        assert!(read_run_detail(root, k, "horizon", "e1").is_none());
+        assert!(
+            read_results(root)
+                .get("skill/horizon")
+                .map(|m| m.is_empty())
+                .unwrap_or(true),
+            "stored verdict removed with the eval"
+        );
+        // Deleting a missing eval errors instead of pretending.
+        assert!(delete_eval(root, k, "horizon", "ghost").is_err());
+    }
+
+    #[test]
+    fn mark_result_stale_flags_existing_and_old_json_defaults_to_fresh() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let k = crate::ContextKind::Command;
+        write_result(
+            root,
+            k,
+            "horizon",
+            &EvalResult {
+                eval_id: "e1".into(),
+                pass: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        mark_result_stale(root, k, "horizon", "e1").unwrap();
+        assert!(read_results(root)["command/horizon"]["e1"].stale);
+        // Missing eval → no-op, not an error, and nothing invented.
+        mark_result_stale(root, k, "horizon", "ghost").unwrap();
+        assert!(!read_results(root)["command/horizon"].contains_key("ghost"));
+
+        // Old JSON without the field parses as not-stale.
+        let old = r#"{"eval_id":"e1","pass":true,"reason":"ok","ran_at_ms":1,"duration_ms":2}"#;
+        let r: EvalResult = serde_json::from_str(old).unwrap();
+        assert!(!r.stale);
+        assert_eq!(r.executor_model, None);
+    }
+
+    #[test]
+    fn run_detail_roundtrips() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let d = EvalRunDetail {
+            eval_id: "e1".into(),
+            scenario: "s".into(),
+            rubric: "r".into(),
+            pass: false,
+            reason: "approved without KYC".into(),
+            ran_at_ms: 42,
+            duration_ms: 7,
+            baseline_pass: Some(false),
+            executor_model: Some("sonnet".into()),
+            judge_model: Some("claude-sonnet-4-6".into()),
+            transcript: "the agent said things".into(),
+            baseline_transcript: Some("bare arm".into()),
+        };
+        write_run_detail(root, crate::ContextKind::Skill, "kyc", &d).unwrap();
+        assert_eq!(
+            read_run_detail(root, crate::ContextKind::Skill, "kyc", "e1"),
+            Some(d)
+        );
+        assert!(read_run_detail(root, crate::ContextKind::Skill, "kyc", "never").is_none());
+    }
+
+    #[test]
+    fn baseline_cache_roundtrips_and_hash_is_stable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let h = scenario_hash("do the thing");
+        assert_eq!(h, scenario_hash("do the thing"), "same text, same key");
+        assert_ne!(h, scenario_hash("do another thing"));
+
+        assert!(read_baseline_cache(root).is_empty());
+        write_baseline_verdict(
+            root,
+            &h,
+            &BaselineVerdict {
+                pass: true,
+                judged_at_ms: 9,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            read_baseline_cache(root).get(&h),
+            Some(&BaselineVerdict {
+                pass: true,
+                judged_at_ms: 9
+            })
+        );
+    }
+
+    #[test]
+    fn history_appends_and_reads_in_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let rec = |passed: usize, at: i64| EvalRunRecord {
+            kind: "skill".into(),
+            name: "horizon".into(),
+            passed,
+            total: 8,
+            at_ms: at,
+        };
+        append_history(root, &rec(3, 1)).unwrap();
+        append_history(root, &rec(7, 2)).unwrap();
+        let all = read_history(root);
+        assert_eq!(all.len(), 2);
+        assert_eq!((all[0].passed, all[1].passed), (3, 7), "oldest first");
+        assert!(read_history(tempfile::tempdir().unwrap().path()).is_empty());
+    }
+
+    #[test]
     fn write_result_backs_up_corrupt_file_instead_of_losing_it() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join(".covenant/canon");
@@ -490,6 +891,7 @@ mod tests {
             ran_at_ms: 1,
             duration_ms: 1,
             baseline_pass: None,
+            ..Default::default()
         };
         write_result(tmp.path(), ContextKind::Skill, "skill-a", &r).unwrap();
         assert!(

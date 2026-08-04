@@ -54,7 +54,7 @@ import { pushInfoToast } from "../../notifications/toast";
 import { Icons } from "../../icons";
 import { attachTooltip } from "../../tooltip/tooltip";
 import { evalCountLabel, liftRow, groupVerdict } from "./lift";
-import { draftEvals, runEvals } from "../evals";
+import { draftEvals, openEvalManager, runEvals } from "../evals";
 import { makeSpecScoreHoverBadge } from "../../spec-score/badge";
 import { scoreSpec } from "../../spec-score/engine";
 
@@ -1776,6 +1776,13 @@ export class CanonCockpitView {
               draftEvals(cwd, spec.kind, u.name, draftBtn, () => {});
             });
             actions.push(draftBtn);
+            const manageBtn = iconButton(Icons.checklist({ size: 15 }), "Manage evals", () => {
+              void openEvalManager(cwd, spec.kind, u.name, () => {
+                this.invalidateStatus();
+                this.showSection(key);
+              });
+            });
+            actions.push(manageBtn);
             const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
               runEvals(cwd, spec.kind, u.name, runBtn, () => {
                 this.invalidateStatus();
@@ -2021,6 +2028,10 @@ export class CanonCockpitView {
               draftEvals(cwd, "skill", i.name, draftBtn, () => {});
             });
             actions.push(draftBtn);
+            const manageBtn = iconButton(Icons.checklist({ size: 15 }), "Manage evals", () => {
+              void openEvalManager(cwd, "skill", i.name, () => { this.invalidateStatus(); load(); });
+            });
+            actions.push(manageBtn);
             const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
               runEvals(cwd, "skill", i.name, runBtn, () => { this.invalidateStatus(); load(); });
             });
@@ -2367,6 +2378,13 @@ export class CanonCockpitView {
             draftEvals(cwd, "context", c.name, draftBtn, () => {});
           });
           actions.push(draftBtn);
+          const manageBtn = iconButton(Icons.checklist({ size: 15 }), "Manage evals", () => {
+            void openEvalManager(cwd, "context", c.name, () => {
+              this.invalidateStatus();
+              this.showSection("context");
+            });
+          });
+          actions.push(manageBtn);
           const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => {
             runEvals(cwd, "context", c.name, runBtn, () => {
               this.invalidateStatus();

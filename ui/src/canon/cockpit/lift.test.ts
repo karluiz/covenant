@@ -35,6 +35,22 @@ describe("evalCountLabel", () => {
     expect(evalCountLabel(s(3, 0, 0))).toBe("3 evals · not run");
     expect(evalCountLabel(s(3, 2, 3))).toBe("3 evals · 2/3 pass");
   });
+
+  it("flags stale verdicts and the delta vs the previous run", () => {
+    expect(evalCountLabel({ ...s(3, 1, 3), stale: 2 })).toBe("3 evals · 1/3 pass · 2 stale");
+    expect(
+      evalCountLabel({ ...s(3, 3, 3), prev_passed: 1, prev_total: 3 }),
+    ).toBe("3 evals · 3/3 pass · +67 pts vs prev");
+    // No previous run or no movement → no delta noise.
+    expect(evalCountLabel({ ...s(3, 2, 3), prev_passed: 2, prev_total: 3 })).toBe("3 evals · 2/3 pass");
+  });
+
+  it("appends how long ago the unit last ran", () => {
+    const twoDays = Date.now() - 2 * 24 * 60 * 60_000;
+    expect(evalCountLabel({ ...s(3, 2, 3), last_ran_at_ms: twoDays })).toBe(
+      "3 evals · 2/3 pass · 2d ago",
+    );
+  });
 });
 
 describe("groupVerdict", () => {

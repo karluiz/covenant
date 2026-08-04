@@ -199,7 +199,8 @@ mod tests {
 
     #[test]
     fn indented_continuation_lines_are_not_fields() {
-        let input = "---\ndescription: >\n  motion is the message: kinetic typography\nname: mg\n---\n";
+        let input =
+            "---\ndescription: >\n  motion is the message: kinetic typography\nname: mg\n---\n";
         let fm = parse(input);
         assert_eq!(fm.name(), Some("mg"));
         assert!(!fm.fields.contains_key("message"));

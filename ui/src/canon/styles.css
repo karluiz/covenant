@@ -1258,12 +1258,21 @@ body.theme-light .canon-stat.is-hero .canon-stat-val {
 /* ── Eval progress panel ───────────────────────────────────────────────
    Fixed bottom-right record of a run: one row per eval, pending → running
    → verdict. Persists after the run until dismissed — the story toasts
-   couldn't keep. Same slot precedent as .drafts-toast (z-index 150). */
-.canon-eval-progress {
+   couldn't keep. Panels stack per unit inside one fixed column. Same slot
+   precedent as .drafts-toast (z-index 150). */
+.canon-eval-progress-stack {
   position: fixed;
   right: 16px;
   bottom: 16px;
   z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+  pointer-events: none;
+}
+.canon-eval-progress {
+  pointer-events: auto;
   width: min(360px, calc(100vw - 32px));
   background: var(--bg-overlay, #16181d);
   border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
@@ -1354,3 +1363,127 @@ body.theme-light .canon-stat.is-hero .canon-stat-val {
   white-space: nowrap;
 }
 .canon-eval-progress-row.is-fail .canon-eval-progress-note { color: var(--fail, #e5534b); }
+
+/* Stop cancels the backend run; removed once the run settles. */
+.canon-eval-progress-stop {
+  appearance: none;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  background: none;
+  border-radius: 0;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--fg, #d6d8db);
+  cursor: pointer;
+}
+.canon-eval-progress-stop:hover { border-color: var(--fail, #e5534b); color: var(--fail, #e5534b); }
+.canon-eval-progress-stop:disabled { opacity: 0.55; cursor: default; }
+.canon-eval-progress-stop:focus-visible { outline: 1px solid var(--accent, #6ea8ff); }
+
+.canon-eval-progress-dur {
+  flex: none;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.canon-eval-progress-row { cursor: pointer; flex-wrap: wrap; }
+.canon-eval-progress-row.is-open .canon-eval-progress-note {
+  flex-basis: 100%;
+  order: 10;
+  white-space: normal;
+  overflow: visible;
+  padding: 2px 0 2px 15px;
+}
+.canon-eval-progress-view {
+  display: none;
+  appearance: none;
+  border: none;
+  background: none;
+  border-radius: 0;
+  padding: 0 0 0 15px;
+  font-size: 11px;
+  color: var(--accent, #6ea8ff);
+  cursor: pointer;
+  order: 11;
+  flex-basis: 100%;
+  text-align: left;
+}
+.canon-eval-progress-row.is-open.has-verdict .canon-eval-progress-view { display: block; }
+.canon-eval-progress-view:focus-visible { outline: 1px solid var(--accent, #6ea8ff); }
+
+/* ── Eval manager + detail overlays ──────────────────────────────────── */
+.canon-eval-manage-item { grid-template-columns: 1fr; }
+.canon-eval-manage-actions { display: flex; gap: 6px; }
+.canon-eval-manage-actions > button { font-size: 11px; padding: 2px 8px; }
+.canon-eval-manage-delete:hover { border-color: var(--fail, #e5534b); color: var(--fail, #e5534b); }
+.canon-eval-manager-empty { padding: 14px 2px; color: var(--fg-dim); font-size: 12px; }
+.canon-eval-manage-baseline,
+.canon-draft-overwrite {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.canon-eval-manage-baseline > input[type="checkbox"],
+.canon-draft-overwrite > input[type="checkbox"] {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border: 1px solid var(--fg-dim);
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+}
+.canon-eval-manage-baseline > input[type="checkbox"]:checked,
+.canon-draft-overwrite > input[type="checkbox"]:checked {
+  background: var(--accent, #6ea8ff);
+  border-color: var(--accent, #6ea8ff);
+}
+.canon-draft-item-id-input {
+  appearance: none;
+  border-radius: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  width: 100%;
+  color: var(--fg, #d6d8db);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+}
+.canon-draft-item-id-input:focus-visible { outline: 1px solid var(--accent, #6ea8ff); }
+
+.canon-eval-detail-card { width: min(760px, 94vw); }
+.canon-eval-detail-meta { font-size: 11px; color: var(--fg-dim); }
+.canon-eval-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.canon-eval-detail-cap {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-top: 6px;
+}
+.canon-eval-detail-text { font-size: 12.5px; line-height: 1.5; }
+.canon-eval-detail-pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 32vh;
+  overflow: auto;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg, #d6d8db);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+}
