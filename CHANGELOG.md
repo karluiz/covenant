@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.25 — Cold switches take the single-commit reveal
+
+### Fixed
+
+- **Cold switches skip the deferred reveal**: post-idle, macOS's kernel wake
+  gate (FB24145989) delivers wakes in sparse donation pulses, so every
+  render round-trip the reveal needs can cost a pulse — and 0.11.22 data
+  shows the first frame taking 1.6s AFTER the click already arrived. A
+  switch landing more than 30s after the previous one now takes the
+  existing synchronous single-commit path even when the incoming pane is
+  stale, skipping the rAF-deferred drift pass and the 45ms crossfade; the
+  flash those exist to hide is invisible on a screen that was frozen
+  anyway. Warm switches keep today's anti-flicker behavior. Samples carry
+  `detail.coldSyncReveal` so the vitals judge the experiment; kill switch
+  without a release: localStorage `covenant-cold-reveal-off` = `"1"`.
+  `ui/src/tabs/manager.ts`.
+
+
 ## v0.11.24 — Tasker board bucket controls + dropdown stability
 
 ### Added
