@@ -6,6 +6,60 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.26 — Evals overhaul: cancel, transcripts, manager + PATH fix
+
+### Added
+
+- **Stoppable, inspectable eval runs**: the progress panel gains a Stop
+  button (`canon_cancel_evals` — unstarted evals skip, the in-flight
+  `claude -p` is killed within ~300ms via `kill_on_drop`), per-unit stacking,
+  expandable rows with the full judge reason and duration, a baseline-arm
+  indicator, and a global relay that rebuilds the panel after a mid-run
+  window reload. Both arms' transcripts persist secret-masked to
+  `.covenant/canon/eval-runs/<kind>/<name>/<id>.json` and open from the row
+  or the manager (`crates/app/src/canon_eval.rs`, `ui/src/canon/evals.ts`).
+
+- **Evals manager**: a Manage-evals button on every evaluable row opens a
+  modal to view, edit, delete, hand-author, and run single evals — the
+  missing middle between "LLM drafts them" and hand-editing TOML. The draft
+  drawer gains editable ids and an explicit overwrite-existing checkbox
+  (`canon_update_eval`, `canon_delete_eval`, `canon_eval_detail`;
+  `ui/src/canon/cockpit/view.ts`).
+
+- **Run history + provenance**: completed runs append to
+  `eval-history.jsonl`, feeding a pass-rate delta ("+67 pts vs prev") and
+  last-run age on unit chips; every result records the pinned executor model
+  (`--model sonnet`) and the judge model (`crates/canon/src/eval.rs`,
+  `ui/src/canon/cockpit/lift.ts`).
+
+### Changed
+
+- **Runs are twice as fast, re-runs half the cost**: harness runs fan out
+  with bounded concurrency (2 sandboxes at a time) and bare-baseline
+  verdicts are cached by scenario hash in `eval-baseline-cache.json`. The
+  confirm card now shows the real arithmetic (N evals × arms + judge calls),
+  a per-kind sharing sentence, and the baseline arm is opt-out from the
+  manager. Harness timeout became `settings.eval.harness_timeout_secs`;
+  judge calls get a 90s ceiling (`crates/app/src/canon_eval.rs`,
+  `crates/app/src/settings.rs`).
+
+### Fixed
+
+- **"claude CLI not found on PATH" in the installed app**: the harness
+  spawned `claude` with launchd's minimal PATH, so Finder-launched builds
+  skipped every eval (0/8). The login-shell PATH (`login_shell_path()`,
+  already used by skill import) is now injected into the availability probe
+  and every harness spawn, cached in a `OnceLock`
+  (`crates/app/src/canon_eval.rs`).
+
+- **Timeouts no longer resurrect old verdicts**: a timed-out or errored eval
+  used to write nothing, leaving the previous run's PASS displayed as
+  current. The stored verdict is now marked `stale`, excluded from pass
+  counts, and surfaced as "N stale" on unit chips. Registry push failures
+  surface as a toast instead of a silent `tracing::warn`
+  (`crates/canon/src/eval.rs`, `ui/src/canon/evals.ts`).
+
+
 ## v0.11.25 — Cold switches take the single-commit reveal
 
 ### Fixed
