@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.23 — Idle-freeze patch cleanup: keep what measures, drop what failed
+
+### Changed
+
+- **Removed the three disproved idle-freeze patches**: each shipped as a
+  candidate with an explicit exit contract, and each contract triggered —
+  the WKWebView occlusion opt-out (`mac_render.rs`, 0.11.10, tail never
+  flattened), the 1px render heartbeat (`ui/src/render-heartbeat.ts`,
+  0.11.13, commits verified flowing yet the stall unchanged), the
+  LatencyCritical activity assertion (`mac_activity.rs`, 0.11.14, no
+  effect), and the silent-audio keepalive (`mac_audio_keepalive.rs`,
+  0.11.22, failed its targeted test with the coreaudiod assertion verified
+  active — the audio exemption is per-thread, not per-process). The freeze
+  is macOS's kernel wake gate, filed as FB24145989 with a full spindump.
+  What stays: the `main_lag.rs` forensics suite on the repaint vital and
+  the `mac_wake.rs` WindowServer donation keepalive, the one workaround
+  with a measured win. Net −459 lines.
+
+
 ## v0.11.22 — Silent-audio keepalive vs the idle switch freeze + canon usage credit
 
 ### Added
