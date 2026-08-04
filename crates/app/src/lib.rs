@@ -5996,6 +5996,7 @@ pub fn run() {
             canon_eval::canon_list_evals,
             canon_eval::canon_eval_detail,
             canon_eval::canon_eval_summary,
+            canon_eval::canon_list_eval_runs,
             canon_local_status,
             canon_install_local,
             canon_my_orgs,

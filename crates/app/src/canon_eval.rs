@@ -52,6 +52,127 @@ fn clear_cancel(key: &str) {
         .remove(key);
 }
 
+// --- run registry ---------------------------------------------------------
+//
+// The durable identity of a run. The frontend's pill/cockpit are viewports
+// over this state: closing them loses nothing, and `canon_list_eval_runs`
+// rehydrates any view that mounts late (reload, cockpit opened mid-run).
+
+/// One eval's state within a run, mirrored from the progress events.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EvalRunCase {
+    pub eval_id: String,
+    /// pending | running | pass | fail | skipped | error
+    pub status: String,
+    pub reason: String,
+    /// Which arm is running: "unit" | "baseline" | "".
+    pub arm: String,
+    pub duration_ms: Option<u64>,
+    /// Set when the case first goes `running` — feeds the live elapsed cell.
+    pub started_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EvalRunSnapshot {
+    pub run_id: String,
+    pub kind: String,
+    pub name: String,
+    pub cwd: String,
+    pub started_at_ms: i64,
+    pub done: bool,
+    pub cancelled: bool,
+    pub cases: Vec<EvalRunCase>,
+}
+
+/// Finished runs kept for the session's RUNNING→just-finished continuity;
+/// disk history (`eval-history.jsonl`) is the durable record.
+const REGISTRY_DONE_CAP: usize = 20;
+
+fn registry() -> &'static std::sync::Mutex<Vec<EvalRunSnapshot>> {
+    static R: std::sync::OnceLock<std::sync::Mutex<Vec<EvalRunSnapshot>>> =
+        std::sync::OnceLock::new();
+    R.get_or_init(Default::default)
+}
+
+fn registry_insert(snapshot: EvalRunSnapshot) {
+    let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+    reg.push(snapshot);
+    // Prune oldest finished runs; live ones are never dropped.
+    let done = reg.iter().filter(|r| r.done).count();
+    if done > REGISTRY_DONE_CAP {
+        let mut to_drop = done - REGISTRY_DONE_CAP;
+        reg.retain(|r| {
+            if r.done && to_drop > 0 {
+                to_drop -= 1;
+                false
+            } else {
+                true
+            }
+        });
+    }
+}
+
+fn registry_update(run_id: &str, mutate: impl FnOnce(&mut EvalRunSnapshot)) {
+    let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(r) = reg.iter_mut().find(|r| r.run_id == run_id) {
+        mutate(r);
+    }
+}
+
+fn registry_record_case(
+    run_id: &str,
+    eval_id: &str,
+    status: &str,
+    reason: &str,
+    arm: &str,
+    duration_ms: Option<u64>,
+) {
+    registry_update(run_id, |run| {
+        let case = match run.cases.iter_mut().find(|c| c.eval_id == eval_id) {
+            Some(c) => c,
+            None => {
+                // `only`-runs and reload paths can see ids the insert missed.
+                run.cases.push(EvalRunCase {
+                    eval_id: eval_id.to_string(),
+                    status: "pending".into(),
+                    reason: String::new(),
+                    arm: String::new(),
+                    duration_ms: None,
+                    started_at_ms: None,
+                });
+                run.cases.last_mut().expect("just pushed")
+            }
+        };
+        case.status = status.to_string();
+        case.reason = reason.to_string();
+        case.arm = arm.to_string();
+        if duration_ms.is_some() {
+            case.duration_ms = duration_ms;
+        }
+        if status == "running" && case.started_at_ms.is_none() {
+            case.started_at_ms = Some(chrono::Utc::now().timestamp_millis());
+        }
+    });
+}
+
+fn registry_finish(run_id: &str, cancelled: bool) {
+    registry_update(run_id, |run| {
+        run.done = true;
+        run.cancelled = cancelled;
+        // Anything the run never reached stays visibly unresolved.
+        for c in &mut run.cases {
+            if c.status == "pending" || c.status == "running" {
+                c.status = "skipped".into();
+                c.reason = if cancelled {
+                    "cancelled".into()
+                } else {
+                    "not reached".into()
+                };
+            }
+        }
+    });
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum HarnessStatus {
     Ran,
@@ -546,18 +667,23 @@ pub struct EvalUnitSummary {
 
 fn emit_progress(
     app: &AppHandle,
+    run_id: &str,
     kind: &str,
     name: &str,
     eval_id: &str,
     status: &str,
     reason: &str,
 ) {
-    emit_progress_full(app, kind, name, eval_id, status, reason, "", None);
+    emit_progress_full(app, run_id, kind, name, eval_id, status, reason, "", None);
 }
 
+/// The single choke point for progress: updates the run registry AND emits the
+/// event, so a view rebuilt from `canon_list_eval_runs` can never disagree
+/// with one that followed the event stream.
 #[allow(clippy::too_many_arguments)]
 fn emit_progress_full(
     app: &AppHandle,
+    run_id: &str,
     kind: &str,
     name: &str,
     eval_id: &str,
@@ -566,9 +692,26 @@ fn emit_progress_full(
     arm: &str,
     duration_ms: Option<u64>,
 ) {
+    if !eval_id.is_empty() {
+        registry_record_case(run_id, eval_id, status, reason, arm, duration_ms);
+    } else if status == "done" {
+        registry_finish(run_id, reason == "cancelled");
+    } else if status == "skipped" || status == "error" {
+        // Run-wide abort (e.g. claude CLI missing): every unstarted case
+        // carries the reason instead of a generic "not reached".
+        registry_update(run_id, |run| {
+            for c in &mut run.cases {
+                if c.status == "pending" || c.status == "running" {
+                    c.status = status.to_string();
+                    c.reason = reason.to_string();
+                }
+            }
+        });
+    }
     let _ = app.emit(
         "canon-eval-progress",
         serde_json::json!({
+            "run_id": run_id,
             "kind": kind,
             "name": name,
             "eval_id": eval_id,
@@ -596,6 +739,7 @@ fn emit_progress_full(
 /// an error for a side effect the user did not ask for.
 async fn push_results_for(
     app: &AppHandle,
+    run_id: &str,
     repo_root: &std::path::Path,
     kind: karl_canon::ContextKind,
     name: &str,
@@ -634,6 +778,7 @@ async fn push_results_for(
         tracing::warn!(target: "canon", name, error = %e, "eval push failed");
         emit_progress(
             app,
+            run_id,
             kind.slug(),
             name,
             "",
@@ -650,6 +795,7 @@ struct RunCtx {
     settings: std::sync::Arc<tokio::sync::Mutex<Settings>>,
     repo_root: std::path::PathBuf,
     unit_kind: karl_canon::ContextKind,
+    run_id: String,
     kind: String,
     name: String,
     cancel_key: String,
@@ -666,6 +812,7 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         settings,
         repo_root,
         unit_kind,
+        run_id,
         kind,
         name,
         cancel_key,
@@ -674,16 +821,16 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         judge_model,
     } = ctx;
     if is_cancelled(cancel_key) {
-        emit_progress(app, kind, name, &ev.id, "skipped", "cancelled");
+        emit_progress(app, run_id, kind, name, &ev.id, "skipped", "cancelled");
         return None;
     }
     // A prior verdict that a failed re-run would otherwise leave looking
     // current. Cancels don't stale it — the eval was never attempted.
     let stale_out = |why: &str, status: &str| {
         let _ = karl_canon::mark_result_stale(repo_root, *unit_kind, name, &ev.id);
-        emit_progress(app, kind, name, &ev.id, status, why);
+        emit_progress(app, run_id, kind, name, &ev.id, status, why);
     };
-    emit_progress_full(app, kind, name, &ev.id, "running", "", "unit", None);
+    emit_progress_full(app, run_id, kind, name, &ev.id, "running", "", "unit", None);
     let outcome = run_harness(
         repo_root,
         *unit_kind,
@@ -695,7 +842,7 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
     .await;
     match outcome.status {
         HarnessStatus::Skipped(reason) if reason == "cancelled" => {
-            emit_progress(app, kind, name, &ev.id, "skipped", "cancelled");
+            emit_progress(app, run_id, kind, name, &ev.id, "skipped", "cancelled");
             return None;
         }
         HarnessStatus::Skipped(reason) => {
@@ -730,7 +877,9 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         match karl_canon::read_baseline_cache(repo_root).get(&hash) {
             Some(cached) => Some(cached.pass),
             None => {
-                emit_progress_full(app, kind, name, &ev.id, "running", "", "baseline", None);
+                emit_progress_full(
+                    app, run_id, kind, name, &ev.id, "running", "", "baseline", None,
+                );
                 let base = run_baseline(repo_root, &ev.scenario, *timeout, cancel_key).await;
                 match base.status {
                     HarnessStatus::Ran => {
@@ -801,6 +950,7 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
     }
     emit_progress_full(
         app,
+        run_id,
         kind,
         name,
         &ev.id,
@@ -840,14 +990,37 @@ pub async fn canon_run_evals(
         return Err(format!("{name:?} is not a valid unit name"));
     }
     let repo_root = std::path::PathBuf::from(&cwd);
+    let run_id = ulid::Ulid::new().to_string();
     let mut evals = karl_canon::read_evals(&repo_root, unit_kind, &name);
     if let Some(only_id) = &only {
         evals.retain(|e| &e.id == only_id);
     }
     if evals.is_empty() {
-        emit_progress(&app, &kind, &name, "", "done", "no evals found");
+        emit_progress(&app, &run_id, &kind, &name, "", "done", "no evals found");
         return Ok(());
     }
+    // The run exists in the registry from this point on — every view is a
+    // viewport over this entry, rehydratable via canon_list_eval_runs.
+    registry_insert(EvalRunSnapshot {
+        run_id: run_id.clone(),
+        kind: kind.clone(),
+        name: name.clone(),
+        cwd: cwd.clone(),
+        started_at_ms: chrono::Utc::now().timestamp_millis(),
+        done: false,
+        cancelled: false,
+        cases: evals
+            .iter()
+            .map(|e| EvalRunCase {
+                eval_id: e.id.clone(),
+                status: "pending".into(),
+                reason: String::new(),
+                arm: String::new(),
+                duration_ms: None,
+                started_at_ms: None,
+            })
+            .collect(),
+    });
     // Global precondition: claude must be on PATH. Check once so a missing CLI
     // gives a single clean abort instead of N per-eval skips.
     let available = tokio::task::spawn_blocking(claude_available)
@@ -856,13 +1029,14 @@ pub async fn canon_run_evals(
     if !available {
         emit_progress(
             &app,
+            &run_id,
             &kind,
             &name,
             "",
             "skipped",
             "claude CLI not found on PATH",
         );
-        emit_progress(&app, &kind, &name, "", "done", "");
+        emit_progress(&app, &run_id, &kind, &name, "", "done", "");
         return Ok(());
     }
     let cancel_key = karl_canon::unit_key(unit_kind, &name);
@@ -880,6 +1054,7 @@ pub async fn canon_run_evals(
         settings,
         repo_root: repo_root.clone(),
         unit_kind,
+        run_id: run_id.clone(),
         kind: kind.clone(),
         name: name.clone(),
         cancel_key: cancel_key.clone(),
@@ -917,9 +1092,10 @@ pub async fn canon_run_evals(
             tracing::warn!(target: "canon", error = %e, "append_history failed");
         }
     }
-    push_results_for(&app, &repo_root, unit_kind, &name, &fresh_results).await;
+    push_results_for(&app, &run_id, &repo_root, unit_kind, &name, &fresh_results).await;
     emit_progress(
         &app,
+        &run_id,
         &kind,
         &name,
         "",
@@ -927,6 +1103,31 @@ pub async fn canon_run_evals(
         if was_cancelled { "cancelled" } else { "" },
     );
     Ok(())
+}
+
+/// Snapshot of the run registry + the on-disk run history for one repo — the
+/// cockpit's hydration source. Live runs first (newest first), then history
+/// (newest first).
+#[derive(Debug, Clone, Serialize)]
+pub struct EvalRunsList {
+    pub live: Vec<EvalRunSnapshot>,
+    pub history: Vec<karl_canon::EvalRunRecord>,
+}
+
+#[tauri::command]
+pub async fn canon_list_eval_runs(cwd: String) -> Result<EvalRunsList, String> {
+    let mut live: Vec<EvalRunSnapshot> = registry()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .filter(|r| r.cwd == cwd)
+        .cloned()
+        .collect();
+    live.sort_by_key(|r| std::cmp::Reverse(r.started_at_ms));
+    let mut history = karl_canon::read_history(&std::path::PathBuf::from(&cwd));
+    history.reverse();
+    history.truncate(100);
+    Ok(EvalRunsList { live, history })
 }
 
 /// Stop a running suite. The run loop skips unstarted evals and in-flight
@@ -1860,6 +2061,72 @@ mod tests {
             matches!(classify_output(true, "   ", ""), HarnessStatus::Skipped(_)),
             "empty stdout = non-result"
         );
+    }
+
+    /// The registry is the durable identity of a run: cases update through
+    /// the same choke point the events go through, finish resolves stragglers,
+    /// and `canon_list_eval_runs` filters by repo.
+    #[tokio::test]
+    async fn run_registry_records_finishes_and_lists_per_repo() {
+        let mk = |run_id: &str, cwd: &str| EvalRunSnapshot {
+            run_id: run_id.into(),
+            kind: "skill".into(),
+            name: "horizon".into(),
+            cwd: cwd.into(),
+            started_at_ms: 1,
+            done: false,
+            cancelled: false,
+            cases: vec![EvalRunCase {
+                eval_id: "e1".into(),
+                status: "pending".into(),
+                reason: String::new(),
+                arm: String::new(),
+                duration_ms: None,
+                started_at_ms: None,
+            }],
+        };
+        registry_insert(mk("reg-test-a", "/repo-reg-test"));
+        registry_insert(mk("reg-test-b", "/other-reg-test"));
+
+        registry_record_case("reg-test-a", "e1", "running", "", "unit", None);
+        // A case the insert didn't know about (only-run / reload) is created.
+        registry_record_case("reg-test-a", "e2", "pass", "ok", "", Some(1500));
+        registry_finish("reg-test-a", false);
+
+        let out = canon_list_eval_runs("/repo-reg-test".into()).await.unwrap();
+        let run = out
+            .live
+            .iter()
+            .find(|r| r.run_id == "reg-test-a")
+            .expect("run listed for its repo");
+        assert!(run.done && !run.cancelled);
+        let e1 = run.cases.iter().find(|c| c.eval_id == "e1").unwrap();
+        assert_eq!(e1.status, "skipped", "unreached case resolved on finish");
+        assert_eq!(e1.reason, "not reached");
+        assert!(
+            e1.started_at_ms.is_some(),
+            "running set the case start time"
+        );
+        let e2 = run.cases.iter().find(|c| c.eval_id == "e2").unwrap();
+        assert_eq!((e2.status.as_str(), e2.duration_ms), ("pass", Some(1500)));
+        assert!(
+            !out.live.iter().any(|r| r.run_id == "reg-test-b"),
+            "other repo's run not listed"
+        );
+
+        // A cancelled finish marks stragglers cancelled, not "not reached".
+        registry_record_case("reg-test-b", "e1", "running", "", "unit", None);
+        registry_finish("reg-test-b", true);
+        let other = canon_list_eval_runs("/other-reg-test".into())
+            .await
+            .unwrap();
+        let run_b = other
+            .live
+            .iter()
+            .find(|r| r.run_id == "reg-test-b")
+            .unwrap();
+        assert!(run_b.cancelled);
+        assert_eq!(run_b.cases[0].reason, "cancelled");
     }
 
     #[test]

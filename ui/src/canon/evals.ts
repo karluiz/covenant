@@ -25,13 +25,20 @@ import { pushInfoToast } from "../notifications/toast";
 import { openConfirmPrompt } from "../workspaces/confirm-prompt";
 
 // --- run registry + global event relay ------------------------------------
+//
+// The BACKEND owns run state (its registry, hydrated via canon_list_eval_runs);
+// this map only tracks which runs currently have a pill on screen. Dismissing
+// a pill loses nothing — the cockpit (⌘⌥E) shows every run either way.
 
 interface RunEntry {
   kind: string;
   name: string;
   cwd?: string;
-  panel: EvalProgressPanel;
+  runId?: string;
+  pill: EvalPill;
   done: boolean;
+  /** The user closed the pill mid-run — keep tracking silently, toast on done. */
+  dismissed: boolean;
 }
 
 /** Live + finished-but-not-dismissed runs, keyed `kind/name`. */
@@ -40,7 +47,7 @@ const runs = new Map<string, RunEntry>();
 let relayReady: Promise<void> | undefined;
 
 /** One global `canon-eval-progress` listener for the app's lifetime. Routes
- *  events to the right panel — and (the reload case) recreates a panel for a
+ *  events to the right pill — and (the reload case) recreates a pill for a
  *  backend run that lost its window, so a mid-run reload isn't a silent orphan. */
 export function initEvalProgressRelay(): Promise<void> {
   relayReady ??= onCanonEvalProgress((e) => handleProgress(e)).then(() => {});
@@ -56,20 +63,27 @@ function handleProgress(e: CanonEvalProgress): void {
   let run = runs.get(key);
   if (!run) {
     if (e.status === "done") return; // nothing to show for a finished stranger
-    // A backend run with no panel (window reloaded mid-run): rebuild one.
-    // Rows appear lazily as events arrive; cwd is unknown so detail links
-    // are unavailable until the next explicit run.
-    const panel = openEvalProgressPanel(e.kind, e.name, []);
-    run = { kind: e.kind, name: e.name, panel, done: false };
+    // A backend run with no pill (window reloaded mid-run): rebuild one.
+    run = { kind: e.kind, name: e.name, pill: openEvalPill(key, e.name, 0), done: false, dismissed: false };
     runs.set(key, run);
   }
+  if (e.run_id) run.runId = e.run_id;
   if (e.status === "done") {
     run.done = true;
-    run.panel.finish(e.reason === "cancelled" ? "stopped" : "");
+    if (run.dismissed) {
+      // The pill was closed mid-run; the finish still deserves one line.
+      const t = run.pill.tallyText();
+      pushInfoToast({
+        message: `Evals — ${run.name}: ${e.reason === "cancelled" ? "stopped" : t}`,
+      });
+      runs.delete(key);
+    } else {
+      run.pill.finish(e.reason === "cancelled" ? "stopped" : "");
+    }
   } else if (e.eval_id === "") {
-    run.panel.finishAll("skipped", e.reason);
+    run.pill.finishAll(e.status === "error" ? "error" : "skipped", e.reason);
   } else {
-    run.panel.setStatus(e.eval_id, e.status, e.reason, e.arm, e.duration_ms ?? undefined);
+    run.pill.setStatus(e.eval_id, e.status, e.reason, e.arm, e.duration_ms ?? undefined);
   }
 }
 
@@ -89,8 +103,9 @@ export function runEvals(
   const key = `${kind}/${name}`;
   const live = runs.get(key);
   if (live && !live.done) {
-    // Already running: surface the panel instead of stacking a second run.
-    reattachPanel(live.panel);
+    // Already running: surface the pill instead of stacking a second run.
+    live.dismissed = false;
+    reattachPill(live.pill);
     pushInfoToast({ message: `Evals for ${name} are already running.` });
     return;
   }
@@ -114,9 +129,9 @@ export function runEvals(
         `Run ${n} eval${n === 1 ? "" : "s"} for "${name}"? ` +
         `That's ${n * arms} sandboxed agent run${n * arms === 1 ? "" : "s"} (≤2 min each` +
         `${arms === 2 ? ", incl. the no-context baseline" : ", baseline skipped"}) ` +
-        `plus up to ${n * arms} judge calls. You can stop it from the progress panel. ${sharing}`,
+        `plus up to ${n * arms} judge calls. You can stop it from the progress pill, and watch it in the Evals cockpit (⌘⌥E). ${sharing}`,
       confirmText: "Run",
-      onConfirm: () => { void execute(cwd, kind, name, ids, btn, onDone, opts); },
+      onConfirm: () => { void execute(cwd, kind, name, ids.length, btn, onDone, opts); },
     });
   })();
 }
@@ -125,24 +140,24 @@ async function execute(
   cwd: string,
   kind: string,
   name: string,
-  ids: string[],
+  total: number,
   btn: HTMLButtonElement,
   onDone: () => void | Promise<void>,
   opts?: CanonRunEvalsOpts,
 ): Promise<void> {
   btn.disabled = true;
   const key = `${kind}/${name}`;
-  // The panel replaces the old per-eval toast stream: a minutes-long run
-  // narrated by transient toasts loses its story the moment you look away.
-  const panel = openEvalProgressPanel(kind, name, ids, cwd);
-  runs.set(key, { kind, name, cwd, panel, done: false });
+  // A one-line ambient pill, not a case list — the cockpit (⌘⌥E) is where a
+  // run is inspected. The pill is just the signal that something is running.
+  const pill = openEvalPill(key, name, total, cwd);
+  runs.set(key, { kind, name, cwd, pill, done: false, dismissed: false });
   try {
     await initEvalProgressRelay();
     await canonRunEvals(cwd, kind, name, opts);
-    panel.finish();
+    pill.finish();
     await onDone();
   } catch (e) {
-    panel.finishAll("error", String(e));
+    pill.finishAll("error", String(e));
     pushInfoToast({ message: `Run evals failed: ${String(e)}` });
   } finally {
     const run = runs.get(key);
@@ -151,183 +166,199 @@ async function execute(
   }
 }
 
-// --- progress panel --------------------------------------------------------
+// --- progress pill ---------------------------------------------------------
 
-type EvalRowStatus = "pending" | "running" | "pass" | "fail" | "skipped" | "error";
+type EvalCaseStatus = "pending" | "running" | "pass" | "fail" | "skipped" | "error";
 
-export interface EvalProgressPanel {
+export interface EvalPill {
   element: HTMLElement;
   setStatus(id: string, status: string, reason: string, arm?: string, durationMs?: number): void;
-  finishAll(status: EvalRowStatus, reason: string): void;
+  finishAll(status: EvalCaseStatus, reason: string): void;
   finish(note?: string): void;
+  /** Current tally line, e.g. "3/5 pass" — used for the dismissed-run toast. */
+  tallyText(): string;
 }
 
-/** Panels stack in one fixed bottom-right column, one per unit. */
-function panelStack(): HTMLElement {
-  let stack = document.querySelector<HTMLElement>(".canon-eval-progress-stack");
+/** Auto-dismiss delay for a finished pill; the chip on the unit's row is the
+ *  permanent record, the cockpit the detailed one. */
+const PILL_LINGER_MS = 15_000;
+
+/** Pills stack in one fixed bottom-right column, one per unit. */
+function pillStack(): HTMLElement {
+  let stack = document.querySelector<HTMLElement>(".canon-eval-pill-stack");
   if (!stack) {
     stack = document.createElement("div");
-    stack.className = "canon-eval-progress-stack";
+    stack.className = "canon-eval-pill-stack";
     document.body.appendChild(stack);
   }
   return stack;
 }
 
-function reattachPanel(panel: EvalProgressPanel): void {
-  if (!panel.element.isConnected) panelStack().appendChild(panel.element);
+function reattachPill(pill: EvalPill): void {
+  if (!pill.element.isConnected) pillStack().appendChild(pill.element);
 }
 
-/** Non-modal per-unit progress panel. Survives the whole run and stays after
- *  it until dismissed — the persistent record toasts weren't. Rows are lazy:
- *  events for unknown ids create their row (the relay's reload path starts
- *  with none). Rows expand on click to the full judge reason + duration +
- *  transcript link; Stop cancels the backend run. */
-export function openEvalProgressPanel(
-  kind: string,
+/** Shown once per app session, the first time a live pill is dismissed. */
+let closeHintShown = false;
+
+/** One-line ambient progress pill: dot · name · bar · n/m · elapsed · Stop ·
+ *  Expand · ×. The run's durable state lives in the backend registry, so the
+ *  × only hides this viewport — the cockpit (⌘⌥E) still shows everything. */
+export function openEvalPill(
+  key: string,
   name: string,
-  ids: string[],
+  total: number,
   cwd?: string,
-): EvalProgressPanel {
-  const key = `${kind}/${name}`;
-  // One panel per unit: replace a same-unit panel, stack across units. The
-  // key charset is valid_pkg_name + "/" — no quoting hazards in the selector.
-  document.querySelector(`.canon-eval-progress[data-key="${key}"]`)?.remove();
+): EvalPill {
+  // One pill per unit: replace a same-unit pill, stack across units. The key
+  // charset is valid_pkg_name + "/" — no quoting hazards in the selector.
+  document.querySelector(`.canon-eval-pill[data-key="${key}"]`)?.remove();
 
   const el = document.createElement("div");
-  el.className = "canon-eval-progress";
+  el.className = "canon-eval-pill";
   el.dataset.key = key;
-  const head = document.createElement("div");
-  head.className = "canon-eval-progress-head";
-  const title = document.createElement("span");
-  title.className = "canon-eval-progress-title";
-  title.textContent = `Evals — ${name}`;
+
+  const dot = document.createElement("span");
+  dot.className = "canon-eval-pill-dot is-running";
+  const label = document.createElement("span");
+  label.className = "canon-eval-pill-label";
+  label.textContent = "Evals"; // uppercased via CSS, per DESIGN.md rule 6
+  const nameEl = document.createElement("span");
+  nameEl.className = "canon-eval-pill-name";
+  nameEl.textContent = name;
+  const bar = document.createElement("span");
+  bar.className = "canon-eval-pill-bar";
+  const fill = document.createElement("i");
+  bar.appendChild(fill);
   const tally = document.createElement("span");
-  tally.className = "canon-eval-progress-tally";
+  tally.className = "canon-eval-pill-tally";
+  const elapsed = document.createElement("span");
+  elapsed.className = "canon-eval-pill-elapsed";
+  elapsed.textContent = "0:00";
+
   const stopBtn = document.createElement("button");
   stopBtn.type = "button";
-  stopBtn.className = "canon-eval-progress-stop";
+  stopBtn.className = "canon-eval-pill-stop";
   stopBtn.textContent = "Stop";
+  const [kind = "", unit = name] = key.split("/") as [string?, string?];
   stopBtn.addEventListener("click", () => {
     stopBtn.disabled = true;
     stopBtn.textContent = "Stopping…";
-    canonCancelEvals(kind, name).catch((e) => {
+    canonCancelEvals(kind, unit).catch((e) => {
       stopBtn.disabled = false;
       stopBtn.textContent = "Stop";
       pushInfoToast({ message: `Stop failed: ${String(e)}` });
     });
   });
+
+  const expandBtn = document.createElement("button");
+  expandBtn.type = "button";
+  expandBtn.className = "canon-eval-pill-expand";
+  expandBtn.textContent = "Expand";
+  expandBtn.addEventListener("click", () => {
+    window.dispatchEvent(new CustomEvent("covenant:open-evals", {
+      detail: { cwd, kind, name: unit },
+    }));
+  });
+
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
-  closeBtn.className = "canon-eval-progress-close";
-  closeBtn.setAttribute("aria-label", "Dismiss");
-  closeBtn.innerHTML = Icons.x({ size: 13 });
+  closeBtn.className = "canon-eval-pill-close";
+  closeBtn.setAttribute("aria-label", "Hide");
+  closeBtn.innerHTML = Icons.x({ size: 12 });
   closeBtn.addEventListener("click", () => {
     el.remove();
-    // Dismissing a finished run retires it; a live run stays in the map so
-    // the relay re-opens the panel on its next event.
     const run = runs.get(key);
-    if (run?.done) runs.delete(key);
-  });
-  head.append(title, tally, stopBtn, closeBtn);
-  el.appendChild(head);
-
-  interface Row {
-    row: HTMLElement;
-    dot: HTMLElement;
-    note: HTMLElement;
-    dur: HTMLElement;
-    status: EvalRowStatus;
-  }
-  const rows = new Map<string, Row>();
-  const list = document.createElement("div");
-  list.className = "canon-eval-progress-list";
-  el.appendChild(list);
-
-  const ensureRow = (id: string): Row => {
-    let r = rows.get(id);
-    if (r) return r;
-    const row = document.createElement("div");
-    row.className = "canon-eval-progress-row is-pending";
-    const dot = document.createElement("span");
-    dot.className = "canon-eval-progress-dot";
-    const label = document.createElement("span");
-    label.className = "canon-eval-progress-id";
-    label.textContent = id;
-    const dur = document.createElement("span");
-    dur.className = "canon-eval-progress-dur";
-    const note = document.createElement("span");
-    note.className = "canon-eval-progress-note";
-    row.append(dot, label, dur, note);
-    // Expand: full reason, plus the transcript link once a verdict landed.
-    row.addEventListener("click", (ev) => {
-      if ((ev.target as HTMLElement).closest("button")) return;
-      row.classList.toggle("is-open");
-    });
-    if (cwd) {
-      const view = document.createElement("button");
-      view.type = "button";
-      view.className = "canon-eval-progress-view";
-      view.textContent = "transcript";
-      view.addEventListener("click", () => { void openEvalDetail(cwd, kind, name, id); });
-      row.appendChild(view);
+    if (!run) return;
+    if (run.done) {
+      runs.delete(key);
+    } else {
+      // The run keeps going in the backend; say so exactly once per session.
+      run.dismissed = true;
+      if (!closeHintShown) {
+        closeHintShown = true;
+        pushInfoToast({ message: "Run continues in background — Evals cockpit (⌘⌥E) has it." });
+      }
     }
-    list.appendChild(row);
-    const entry: Row = { row, dot, note, dur, status: "pending" };
-    rows.set(id, entry);
-    return entry;
-  };
-  for (const id of ids) ensureRow(id);
-  panelStack().appendChild(el);
+  });
 
-  const syncTally = (): void => {
-    const all = [...rows.values()];
-    const settled = all.filter((r) => r.status !== "pending" && r.status !== "running").length;
-    const passed = all.filter((r) => r.status === "pass").length;
-    tally.textContent = settled < all.length
-      ? `${settled}/${all.length}`
-      : `${passed}/${all.length} pass`;
-  };
-  syncTally();
+  el.append(dot, label, nameEl, bar, tally, elapsed, stopBtn, expandBtn, closeBtn);
+  pillStack().appendChild(el);
 
-  const set = (id: string, status: EvalRowStatus, reason: string, arm?: string, durationMs?: number): void => {
-    const r = ensureRow(id);
-    r.status = status;
-    r.row.className = `canon-eval-progress-row is-${status}${r.row.classList.contains("is-open") ? " is-open" : ""}`;
-    r.note.textContent = status === "running" && arm === "baseline" ? "baseline arm…" : reason;
-    if (durationMs !== undefined) r.dur.textContent = `${Math.round(durationMs / 1000)}s`;
-    r.row.classList.toggle("has-verdict", status === "pass" || status === "fail");
-    syncTally();
+  const statuses = new Map<string, EvalCaseStatus>();
+  let done = false;
+  let dismissTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const startedAt = Date.now();
+  const tick = (): void => {
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    elapsed.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   };
+  const timer = setInterval(tick, 1000);
+
+  const counts = (): { settled: number; passed: number; all: number } => {
+    const vals = [...statuses.values()];
+    return {
+      settled: vals.filter((s) => s !== "pending" && s !== "running").length,
+      passed: vals.filter((s) => s === "pass").length,
+      all: Math.max(total, statuses.size),
+    };
+  };
+  const sync = (): void => {
+    const { settled, passed, all } = counts();
+    tally.textContent = done ? `${passed}/${all} pass` : `${settled}/${all}`;
+    fill.style.width = all > 0 ? `${Math.round((settled / all) * 100)}%` : "0%";
+    if (done) {
+      const failed = [...statuses.values()].some((s) => s === "fail" || s === "error");
+      dot.className = `canon-eval-pill-dot ${failed || passed < all ? "is-fail" : "is-pass"}`;
+    }
+  };
+  sync();
 
   const finishChrome = (note?: string): void => {
+    if (done) return;
+    done = true;
+    clearInterval(timer);
     el.classList.add("is-done");
     stopBtn.remove();
-    if (note) title.textContent = `Evals — ${name} · ${note}`;
+    if (note) nameEl.textContent = `${name} · ${note}`;
+    sync();
+    dismissTimer = setTimeout(() => {
+      el.remove();
+      const run = runs.get(key);
+      if (run?.done) runs.delete(key);
+    }, PILL_LINGER_MS);
+    // A finished pill that's already hidden shouldn't resurrect a timer leak.
+    if (!el.isConnected && dismissTimer) clearTimeout(dismissTimer);
   };
 
   return {
     element: el,
-    setStatus(id, status, reason, arm, durationMs) {
-      const s: EvalRowStatus =
+    setStatus(id, status, _reason, _arm, _durationMs) {
+      const s: EvalCaseStatus =
         status === "running" || status === "pass" || status === "fail" ||
         status === "skipped" || status === "error"
           ? status
           : "pending";
-      set(id, s, reason, arm, durationMs);
+      statuses.set(id, s);
+      sync();
     },
     finishAll(status, reason) {
-      for (const [id, r] of rows) {
-        if (r.status === "pending" || r.status === "running") set(id, status, reason);
+      for (const [id, s] of statuses) {
+        if (s === "pending" || s === "running") statuses.set(id, status);
       }
+      if (statuses.size === 0 && reason) nameEl.textContent = `${name} · ${reason}`;
       finishChrome();
     },
     finish(note?: string) {
-      // Anything the run never reached stays visibly unresolved, not fake-green.
-      for (const [id, r] of rows) {
-        if (r.status === "pending" || r.status === "running") set(id, "skipped", "not reached");
+      for (const [id, s] of statuses) {
+        if (s === "pending" || s === "running") statuses.set(id, "skipped");
       }
       finishChrome(note);
-      syncTally();
+    },
+    tallyText() {
+      const { passed, all } = counts();
+      return `${passed}/${all} pass`;
     },
   };
 }

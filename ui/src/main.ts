@@ -128,6 +128,8 @@ import { vitalsDaily, vitalsRecord, vitalsSummary, vitalsWorst } from "./api";
 import { gitRepoSummary } from "./api";
 import { handleHandoffRouted, type HandoffRoutedEvent } from "./teammate/handoff-spawn";
 import { initEvalProgressRelay } from "./canon/evals";
+import { EvalsCockpit } from "./canon/evals-cockpit";
+import "./canon/evals-cockpit.css";
 import type { TabPlacement } from "./tabs/manager";
 
 type LastCallChoice = "use" | "without" | "cancel";
@@ -2175,6 +2177,24 @@ async function boot(): Promise<void> {
   };
   window.addEventListener("covenant:open-worktrees", () => { void openWorktrees(); });
 
+  // Evals cockpit — ⌘⌥E toggle, plus "Expand" on the eval progress pill.
+  // Own fixed-overlay host on body, same tier as the Worktrees page.
+  const evalsHost = document.createElement("div");
+  document.body.appendChild(evalsHost);
+  const evalsCockpit = new EvalsCockpit(evalsHost);
+  const openEvals = (focus?: { kind: string; name: string }, cwd?: string): void => {
+    const dir = cwd ?? manager.activeCwd();
+    if (!dir) return;
+    void evalsCockpit.open(dir, focus);
+  };
+  window.addEventListener("covenant:open-evals", (e) => {
+    const detail = (e as CustomEvent).detail as
+      | { cwd?: string; kind?: string; name?: string }
+      | undefined;
+    const focus = detail?.kind && detail.name ? { kind: detail.kind, name: detail.name } : undefined;
+    openEvals(focus, detail?.cwd);
+  });
+
   // UI Vitals — terminal-speed metrics. Collector feeds every capture
   // point in the TabManager; the surface is the ⌘⌥V dashboard.
   const vitalsCollector = new VitalsCollector((ev) => vitalsRecord(ev));
@@ -2929,6 +2949,13 @@ async function boot(): Promise<void> {
     if (modHeld(e) && e.altKey && !e.shiftKey && (e.key === "v" || e.key === "V" || e.key === "√")) {
       e.preventDefault();
       if (vitalsSurface.isOpen()) { vitalsSurface.close(); } else { void vitalsSurface.open(); }
+      return;
+    }
+    // ⌘⌥E / Ctrl+Alt+E → Evals cockpit. ⌥E is a DEAD KEY on macOS (acute
+    // accent), so e.key is "Dead" — match e.code, which is layout-stable.
+    if (modHeld(e) && e.altKey && !e.shiftKey && (e.code === "KeyE" || e.key === "e" || e.key === "E")) {
+      e.preventDefault();
+      if (evalsCockpit.isOpen) { evalsCockpit.close(); } else { openEvals(); }
       return;
     }
     // Canon cockpit for the active group (full-screen, skips the rail):

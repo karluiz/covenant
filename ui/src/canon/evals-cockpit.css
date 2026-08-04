@@ -1,0 +1,181 @@
+/* Evals cockpit — full-screen eval-run module (⌘⌥E).
+   Same frame tier as .wt-frame (ui/src/worktrees/worktrees.css): fixed
+   overlay in the app content area, below the 38px titlebar, above the
+   status bar. Sharp corners throughout (dots excepted), neutral lifts. */
+
+body.evals-fullscreen { overflow: hidden; }
+
+.evc-frame {
+  position: fixed;
+  inset: 38px 0 0 0;
+  bottom: calc(var(--statusbar-h) + 1px);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+}
+body.tabbar-left .evc-frame { left: var(--tabbar-w); }
+.evc-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.evc-title {
+  font-size: var(--fs-title, 13px); font-weight: 700;
+  letter-spacing: 0.02em; text-transform: uppercase;
+}
+.evc-header-spacer { flex: 1; }
+.evc-close { background: none; border: 0; cursor: pointer; color: inherit; padding: 0; }
+
+.evc-body { flex: 1; display: flex; min-height: 0; }
+.evc-rail {
+  width: 240px; min-width: 200px; overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding: 10px 0;
+}
+.evc-cases {
+  width: 320px; min-width: 260px; overflow-y: auto;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.evc-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.evc-section {
+  padding: 8px 16px 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-dim, #888);
+}
+.evc-empty { padding: 16px; font-size: 12px; color: var(--fg-dim, #888); }
+
+.evc-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--fg-dim, #666); opacity: 0.5; }
+.evc-dot.is-running {
+  background: var(--accent, #6ea8ff); opacity: 1;
+  animation: evc-pulse 1.2s ease-in-out infinite;
+}
+@keyframes evc-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .evc-dot.is-running { animation: none; } }
+.evc-dot.is-pass { background: var(--ok, #3fb950); opacity: 1; }
+.evc-dot.is-fail { background: var(--fail, #e5534b); opacity: 1; }
+.evc-dot.is-idle { opacity: 0.5; }
+
+.evc-run-row {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  grid-template-areas: "dot name" "dot meta";
+  align-items: center; column-gap: 9px;
+  width: 100%; text-align: left;
+  padding: 7px 16px;
+  background: none; border: 0; border-left: 2px solid transparent;
+  color: inherit; cursor: pointer;
+}
+.evc-run-row.is-selected {
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.08);
+  border-left-color: var(--ok, #3fb950);
+}
+.evc-run-row .evc-dot { grid-area: dot; }
+.evc-run-name {
+  grid-area: name;
+  font-family: var(--mono, ui-monospace, monospace); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.evc-run-meta {
+  grid-area: meta;
+  font-size: 11px; color: var(--fg-dim, #888);
+  font-variant-numeric: tabular-nums;
+}
+
+.evc-cases-head {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.evc-cases-title {
+  flex: 1; min-width: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 13px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.evc-cases-sub { font-size: 11px; color: var(--fg-dim, #888); }
+.evc-stop,
+.evc-manage {
+  appearance: none;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  background: none; border-radius: 0;
+  padding: 1px 8px; font-size: 11px;
+  color: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.evc-stop:hover { border-color: var(--fail, #e5534b); color: var(--fail, #e5534b); }
+.evc-stop:disabled { opacity: 0.55; cursor: default; }
+.evc-manage:hover { border-color: var(--accent, #6ea8ff); color: var(--accent, #6ea8ff); }
+.evc-stop:focus-visible, .evc-manage:focus-visible,
+.evc-run-row:focus-visible, .evc-case:focus-visible, .evc-tab:focus-visible {
+  outline: 1px solid var(--accent, #6ea8ff); outline-offset: -1px;
+}
+
+.evc-case-list { padding: 6px 0; }
+.evc-case {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; text-align: left;
+  padding: 6px 16px;
+  background: none; border: 0;
+  color: inherit; cursor: pointer;
+  font-size: 12px;
+}
+.evc-case.is-selected { background: rgb(var(--ink-rgb, 255 255 255) / 0.08); }
+.evc-case-id {
+  font-family: var(--mono, ui-monospace, monospace);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.evc-case-note {
+  flex: 1; min-width: 0;
+  font-size: 11px; color: var(--fg-dim, #888);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.evc-case-dur {
+  flex: none; margin-left: auto;
+  font-size: 11px; color: var(--fg-dim, #888);
+  font-variant-numeric: tabular-nums;
+}
+
+.evc-tabs { display: flex; border-bottom: 1px solid var(--border); }
+.evc-tab {
+  appearance: none; background: none; border: 0; border-radius: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 16px 8px;
+  font-size: 12px; color: var(--fg-dim, #888); cursor: pointer;
+}
+.evc-tab.is-selected { color: var(--text-primary); border-bottom-color: var(--ok, #3fb950); }
+.evc-tab:disabled { opacity: 0.4; cursor: default; }
+
+.evc-detail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 18px; }
+.evc-pre {
+  margin: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--text-primary);
+}
+.evc-text-block + .evc-text-block { margin-top: 16px; }
+.evc-text-cap {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--fg-dim, #888);
+  margin-bottom: 4px;
+}
+.evc-text-val { font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; }
+
+.evc-verdict {
+  display: flex; align-items: baseline; gap: 14px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.evc-verdict-pass { color: var(--ok, #3fb950); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.evc-verdict-fail { color: var(--fail, #e5534b); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.evc-verdict-meta {
+  color: var(--fg-dim, #888);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

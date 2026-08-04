@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { openDraftReview, openEvalProgressPanel, openEvalManager } from "./evals";
+import { openDraftReview, openEvalPill, openEvalManager } from "./evals";
 import { canonCancelEvals, canonDeleteEval, canonListEvals, canonUpdateEval, canonWriteEvals } from "../api";
 
 vi.mock("../api", () => ({
@@ -83,80 +83,72 @@ describe("openDraftReview", () => {
   });
 });
 
-describe("openEvalProgressPanel", () => {
+describe("openEvalPill", () => {
   beforeEach(() => document.body.replaceChildren());
 
-  const rowClasses = (el: HTMLElement): string[] =>
-    [...el.querySelectorAll(".canon-eval-progress-row")].map((r) => r.className);
+  const tally = (el: HTMLElement): string =>
+    el.querySelector(".canon-eval-pill-tally")!.textContent ?? "";
 
-  it("starts with one pending row per eval and a settled tally", () => {
-    const p = openEvalProgressPanel("skill", "horizon", ["a", "b"]);
-    expect(rowClasses(p.element)).toEqual([
-      "canon-eval-progress-row is-pending",
-      "canon-eval-progress-row is-pending",
-    ]);
-    expect(p.element.querySelector(".canon-eval-progress-tally")!.textContent).toBe("0/2");
-  });
-
-  it("tracks running → verdict per row and flips the tally to pass-rate", () => {
-    const p = openEvalProgressPanel("skill", "horizon", ["a", "b"]);
-    p.setStatus("a", "running", "");
-    expect(rowClasses(p.element)[0]).toContain("is-running");
+  it("starts at 0/N with a running dot and fills the bar as cases settle", () => {
+    const p = openEvalPill("skill/horizon", "horizon", 2);
+    expect(tally(p.element)).toBe("0/2");
+    expect(p.element.querySelector(".canon-eval-pill-dot")!.className).toContain("is-running");
     p.setStatus("a", "pass", "refused correctly");
+    expect(tally(p.element)).toBe("1/2");
+    const fill = p.element.querySelector<HTMLElement>(".canon-eval-pill-bar > i")!;
+    expect(fill.style.width).toBe("50%");
+  });
+
+  it("finish flips the tally to pass-rate, colors the dot, removes Stop", () => {
+    const p = openEvalPill("skill/horizon", "horizon", 2);
+    p.setStatus("a", "pass", "");
     p.setStatus("b", "fail", "pushed anyway");
-    expect(rowClasses(p.element)[0]).toContain("is-pass");
-    expect(rowClasses(p.element)[1]).toContain("is-fail");
-    expect(p.element.querySelector(".canon-eval-progress-tally")!.textContent).toBe("1/2 pass");
-    expect(p.element.textContent).toContain("pushed anyway");
-  });
-
-  it("shows the baseline arm and the with-arm duration", () => {
-    const p = openEvalProgressPanel("skill", "horizon", ["a"]);
-    p.setStatus("a", "running", "", "baseline");
-    expect(p.element.textContent).toContain("baseline arm…");
-    p.setStatus("a", "pass", "ok", "", 12_000);
-    expect(p.element.querySelector(".canon-eval-progress-dur")!.textContent).toBe("12s");
-  });
-
-  it("creates rows lazily for unknown ids (relay reload path)", () => {
-    const p = openEvalProgressPanel("skill", "horizon", []);
-    p.setStatus("surprise", "running", "");
-    expect(p.element.querySelectorAll(".canon-eval-progress-row").length).toBe(1);
-    expect(p.element.textContent).toContain("surprise");
-  });
-
-  it("rows expand on click to show the full note", () => {
-    const p = openEvalProgressPanel("skill", "horizon", ["a"]);
-    const row = p.element.querySelector<HTMLElement>(".canon-eval-progress-row")!;
-    row.click();
-    expect(row.classList.contains("is-open")).toBe(true);
-  });
-
-  it("Stop cancels the backend run and disappears once done", () => {
-    const p = openEvalProgressPanel("skill", "horizon", ["a"]);
-    const stop = p.element.querySelector(".canon-eval-progress-stop") as HTMLButtonElement;
-    stop.click();
-    expect(canonCancelEvals).toHaveBeenCalledWith("skill", "horizon");
     p.finish();
-    expect(p.element.querySelector(".canon-eval-progress-stop")).toBeNull();
+    expect(tally(p.element)).toBe("1/2 pass");
+    expect(p.element.classList.contains("is-done")).toBe(true);
+    expect(p.element.querySelector(".canon-eval-pill-dot")!.className).toContain("is-fail");
+    expect(p.element.querySelector(".canon-eval-pill-stop")).toBeNull();
   });
 
-  it("finish marks unreached rows skipped, never fake-green", () => {
-    const p = openEvalProgressPanel("skill", "horizon", ["a", "b"]);
+  it("an all-green finish shows a pass dot and the full count", () => {
+    const p = openEvalPill("skill/horizon", "horizon", 1);
     p.setStatus("a", "pass", "");
     p.finish();
-    expect(rowClasses(p.element)[1]).toContain("is-skipped");
-    expect(p.element.classList.contains("is-done")).toBe(true);
+    expect(tally(p.element)).toBe("1/1 pass");
+    expect(p.element.querySelector(".canon-eval-pill-dot")!.className).toContain("is-pass");
+    expect(p.tallyText()).toBe("1/1 pass");
   });
 
-  it("replaces a same-unit panel but stacks across units", () => {
-    openEvalProgressPanel("skill", "one", ["a"]);
-    openEvalProgressPanel("skill", "one", ["a"]);
-    openEvalProgressPanel("skill", "two", ["b"]);
-    expect(document.querySelectorAll(".canon-eval-progress").length).toBe(2);
-    const p = document.querySelector(`.canon-eval-progress[data-key="skill/two"]`)!;
-    (p.querySelector(".canon-eval-progress-close") as HTMLButtonElement).click();
-    expect(document.querySelectorAll(".canon-eval-progress").length).toBe(1);
+  it("counts lazily-discovered ids beyond the initial total (reload path)", () => {
+    const p = openEvalPill("skill/horizon", "horizon", 0);
+    p.setStatus("surprise", "pass", "");
+    expect(tally(p.element)).toBe("1/1");
+  });
+
+  it("Stop cancels the backend run using the key's kind and name", () => {
+    const p = openEvalPill("skill/horizon", "horizon", 1);
+    (p.element.querySelector(".canon-eval-pill-stop") as HTMLButtonElement).click();
+    expect(canonCancelEvals).toHaveBeenCalledWith("skill", "horizon");
+  });
+
+  it("Expand dispatches covenant:open-evals with the unit's coordinates", () => {
+    const p = openEvalPill("skill/horizon", "horizon", 1, "/repo");
+    const seen: unknown[] = [];
+    const onOpen = (e: Event): void => { seen.push((e as CustomEvent).detail); };
+    window.addEventListener("covenant:open-evals", onOpen);
+    (p.element.querySelector(".canon-eval-pill-expand") as HTMLButtonElement).click();
+    window.removeEventListener("covenant:open-evals", onOpen);
+    expect(seen).toEqual([{ cwd: "/repo", kind: "skill", name: "horizon" }]);
+  });
+
+  it("× hides the pill; replaces a same-unit pill but stacks across units", () => {
+    openEvalPill("skill/one", "one", 1);
+    openEvalPill("skill/one", "one", 1);
+    openEvalPill("skill/two", "two", 1);
+    expect(document.querySelectorAll(".canon-eval-pill").length).toBe(2);
+    const p = document.querySelector(`.canon-eval-pill[data-key="skill/two"]`)!;
+    (p.querySelector(".canon-eval-pill-close") as HTMLButtonElement).click();
+    expect(document.querySelectorAll(".canon-eval-pill").length).toBe(1);
   });
 });
 

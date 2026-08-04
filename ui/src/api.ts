@@ -2072,6 +2072,8 @@ export interface EvalUnitSummary {
 }
 
 export interface CanonEvalProgress {
+  /** Durable run identity — key into `canonListEvalRuns().live`. */
+  run_id?: string;
   kind: string;
   name: string;
   eval_id: string;
@@ -2081,6 +2083,47 @@ export interface CanonEvalProgress {
   arm?: string;
   /** With-unit arm duration, present on pass/fail events. */
   duration_ms?: number | null;
+}
+
+/** One eval's state within a run, mirrored from the progress events. */
+export interface EvalRunCase {
+  eval_id: string;
+  status: "pending" | "running" | "pass" | "fail" | "skipped" | "error";
+  reason: string;
+  arm: string;
+  duration_ms: number | null;
+  started_at_ms: number | null;
+}
+
+/** A run's durable state in the backend registry — views are viewports. */
+export interface EvalRunSnapshot {
+  run_id: string;
+  kind: string;
+  name: string;
+  cwd: string;
+  started_at_ms: number;
+  done: boolean;
+  cancelled: boolean;
+  cases: EvalRunCase[];
+}
+
+/** Aggregate of a past completed run (from eval-history.jsonl). */
+export interface EvalHistoryRecord {
+  kind: string;
+  name: string;
+  passed: number;
+  total: number;
+  at_ms: number;
+}
+
+export interface EvalRunsList {
+  live: EvalRunSnapshot[];
+  history: EvalHistoryRecord[];
+}
+
+/** Live registry runs for this repo (newest first) + on-disk run history. */
+export async function canonListEvalRuns(cwd: string): Promise<EvalRunsList> {
+  return invoke<EvalRunsList>("canon_list_eval_runs", { cwd });
 }
 
 export interface CanonRunEvalsOpts {
