@@ -163,10 +163,16 @@ export class TaskerPanel {
       // title, notes editor) if it fired mid-keystroke. Skip the rebuild
       // while the user is actively typing inside the panel — the share
       // button's dot/pulse just catches up on the next render the user's
-      // own action triggers.
-      if (this.isTypingInPanel()) return;
+      // own action triggers. Same guard for an open popover (project
+      // switcher / share / date / row menu): render() closes them all, so
+      // the push cycle was yanking dropdowns shut ~2s after any edit.
+      if (this.isTypingInPanel() || this.hasOpenMenu()) return;
       this.render();
     });
+  }
+
+  private hasOpenMenu(): boolean {
+    return Boolean(this.openMenu || this.dateMenuEl || this.projectMenuEl || this.shareMenuEl);
   }
 
   private isTypingInPanel(): boolean {

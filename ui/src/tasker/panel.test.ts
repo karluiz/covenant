@@ -8,7 +8,7 @@ import { TaskerPanel } from "./panel";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.reject(new Error("no tauri"))) }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { getPushState, isBoardShared, resetBoardShareStateForTests, shareProjectBoard } from "./share";
+import { BOARD_SHARES_EVENT, getPushState, isBoardShared, resetBoardShareStateForTests, shareProjectBoard } from "./share";
 
 function mount(): { panel: TaskerPanel; host: HTMLElement } {
   document.body.innerHTML = `<div id="tasker-panel"></div>`;
@@ -390,6 +390,21 @@ describe("board share control", () => {
 
     await vi.waitFor(() => expect(isBoardShared(pid)).toBe(false));
     expect(document.querySelector(".tasker-share-menu")).toBeNull();
+  });
+});
+
+describe("board project switcher vs auto-push rerender", () => {
+  it("keeps the project menu open when BOARD_SHARES_EVENT fires", () => {
+    const { panel, host } = mount();
+    storageOf(panel).createProject("Peru", "");
+    (panel as any).viewMode = "board";
+    panel.render();
+
+    host.querySelector<HTMLButtonElement>(".kb-project-select")!.click();
+    expect(document.querySelector(".kb-project-menu")).toBeTruthy();
+
+    window.dispatchEvent(new CustomEvent(BOARD_SHARES_EVENT));
+    expect(document.querySelector(".kb-project-menu")).toBeTruthy();
   });
 });
 
