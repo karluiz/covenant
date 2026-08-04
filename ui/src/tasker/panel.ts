@@ -311,6 +311,16 @@ export class TaskerPanel {
       },
     });
     host.appendChild(this.projectSelect.element);
+    this.projectSelect.button.addEventListener("dblclick", () => this.beginBoardRename());
+  }
+
+  /// Same gesture and guard as the list view's project rename: dblclick,
+  /// and Inbox stays Inbox.
+  private beginBoardRename(): void {
+    const project = this.currentBoardProject();
+    if (!project || project.name === "Inbox") return;
+    this.renamingProjectId = project.id;
+    this.render();
   }
 
   /// Same fallback the project switcher uses: a null `boardProjectId` (first
@@ -331,10 +341,23 @@ export class TaskerPanel {
     }
     // The toolbar's project switcher names the board being looked at, so the
     // share affordance belongs beside it — board view has no project header
-    // row, which is the only place the list view exposes it.
+    // row, which is the only place the list view exposes it. Renaming (dblclick,
+    // same gesture as the list view) and the new-bucket composer reuse the list
+    // view's input classes so the shared wiring in setupEventListeners applies.
     const boardProject = this.currentBoardProject();
+    const renaming = boardProject && this.renamingProjectId === boardProject.id;
     return `
-    <div class="tasker-board-toolbar">${this.renderProjectSwitcher()}${boardProject ? this.renderShareButton(boardProject, "toolbar") : ""}</div>
+    <div class="tasker-board-toolbar">
+      ${renaming
+        ? `<input class="tasker-project-rename-input kb-project-rename" data-project-id="${boardProject.id}" type="text" value="${escapeAttr(boardProject.name)}" autocomplete="off" aria-label="Rename bucket" />`
+        : this.renderProjectSwitcher()}
+      ${boardProject && !renaming ? this.renderShareButton(boardProject, "toolbar") : ""}
+      ${this.composingList ? `
+        <form class="tasker-newlist kb-newlist">
+          <input class="tasker-newlist-input" type="text" autocomplete="off" placeholder="New bucket name…" />
+          <button class="tasker-newlist-cancel" type="button" aria-label="Cancel">${Icons.x({ size: 12 })}</button>
+        </form>` : ""}
+    </div>
     <div class="tasker-board-layout">
       <div class="kb-columns-host"></div>
       <aside class="tasker-board-dock${dock ? " tasker-board-dock-open" : ""}">${dock}</aside>
@@ -796,6 +819,8 @@ export class TaskerPanel {
     // destroys the stale board-mode instance.
     this.mountProjectSwitcher();
     if (this.viewMode === "board") {
+      this.host.querySelector<HTMLElement>(".kb-project-name")
+        ?.addEventListener("dblclick", () => this.beginBoardRename());
       this.mountBoard();
     }
 
@@ -934,6 +959,12 @@ export class TaskerPanel {
         const project = this.storage.createProject(name);
         this.expandedProjects.add(project.id);
         this.saveExpandedProjects();
+        // From the board, land on the bucket you just created.
+        if (this.viewMode === "board") {
+          this.boardProjectId = project.id;
+          this.selectedTask = null;
+          this.saveViewPrefs();
+        }
       }
       this.render();
     };

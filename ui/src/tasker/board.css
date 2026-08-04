@@ -296,6 +296,24 @@ body.theme-true-dark .kb-card { background: #141416; }
 .kb-project-switch .ui-select__button:hover { background: rgb(var(--ink-rgb) / 0.08); }
 .kb-project-switch .ui-select__button[aria-expanded="true"] { border-color: var(--accent); }
 
+/* Toolbar variants of the list view's rename input + new-bucket composer. */
+.tasker-board-toolbar .tasker-project-rename-input {
+  flex: 0 1 220px;
+  appearance: none;
+  -webkit-appearance: none;
+  font: 600 12.5px ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-primary);
+  background: rgb(var(--ink-rgb) / 0.04);
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  padding: 5px 11px;
+  outline: none;
+}
+.tasker-board-toolbar .tasker-newlist {
+  padding: 0;
+  flex: 0 1 240px;
+}
+
 /* Non-native dropdown menu (share menu still uses this chrome) */
 .kb-project-menu {
   z-index: 9000;

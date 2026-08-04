@@ -308,6 +308,39 @@ describe("board project switcher", () => {
     expect(host.querySelector(".kb-project-switch")).toBeNull();
     expect(host.querySelector(".kb-project-name")!.textContent).toContain("Inbox");
   });
+
+  it("new-project button opens the toolbar composer and lands on the new bucket", () => {
+    const { panel, host, storage } = mountBoardPanel();
+    host.querySelector<HTMLButtonElement>(".tasker-btn-new-project")!.click();
+    const input = host.querySelector<HTMLInputElement>(".tasker-board-toolbar .tasker-newlist-input")!;
+    expect(input).toBeTruthy();
+    input.value = "Peru";
+    input.dispatchEvent(new Event("change"));
+    const created = storage.getProjects().find((p) => p.name === "Peru")!;
+    expect(created).toBeTruthy();
+    expect((panel as unknown as { boardProjectId: string }).boardProjectId).toBe(created.id);
+  });
+
+  it("dblclick on the switcher renames the bucket (Inbox stays locked)", () => {
+    const { host, storage } = mountBoardPanel();
+    const b = storage.createProject("Second");
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="list"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
+
+    // Switch the board to the renamable project via the select.
+    host.querySelector<HTMLButtonElement>(".kb-project-switch .ui-select__button")!.click();
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".ui-select__option"))
+      .find((o) => o.dataset.value === b.id)!
+      .click();
+
+    host.querySelector<HTMLButtonElement>(".kb-project-switch .ui-select__button")!
+      .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const input = host.querySelector<HTMLInputElement>(".tasker-board-toolbar .tasker-project-rename-input")!;
+    expect(input).toBeTruthy();
+    input.value = "Renamed";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(storage.getProject(b.id)!.name).toBe("Renamed");
+  });
 });
 
 describe("time estimate helpers", () => {

@@ -17340,6 +17340,9 @@ body.tasker-board #tasker-panel {
   height: auto;
   max-width: none;
   border: none;
+  /* Separate the board from the tab bar above — matches .cd-frame /
+     Worktrees, whose fullscreen headers draw the same top rule. */
+  border-top: 1px solid var(--border);
   z-index: 80;
 }
 body.tabbar-left.tasker-board #tasker-panel {
