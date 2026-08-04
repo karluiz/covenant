@@ -27,13 +27,23 @@ pub struct HarnessOutcome {
     pub duration_ms: u64,
 }
 
+/// The PATH the harness spawns with. GUI apps launched from Finder inherit
+/// launchd's minimal PATH (no brew/nvm/asdf shims), so `claude` — typically in
+/// `~/.local/bin` or `/opt/homebrew/bin` — is invisible without asking the
+/// login shell. Resolved once and cached: the shell probe costs ~100ms.
+fn harness_path() -> Option<String> {
+    static P: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    P.get_or_init(crate::login_shell_path).clone()
+}
+
 /// True if the `claude` CLI is on PATH and runnable.
 pub fn claude_available() -> bool {
-    std::process::Command::new("claude")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    let mut cmd = std::process::Command::new("claude");
+    cmd.arg("--version");
+    if let Some(p) = harness_path() {
+        cmd.env("PATH", p);
+    }
+    cmd.output().map(|o| o.status.success()).unwrap_or(false)
 }
 
 /// Deny-list mirroring `crates/agent/src/safety.rs` — keeps a prompt-injected
@@ -219,6 +229,10 @@ async fn run_scenario_in(sbox_path: &Path, scenario: &str, started: Instant) -> 
         .current_dir(sbox_path)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true);
+    // Cache is warm: every caller runs `claude_available` (spawn_blocking) first.
+    if let Some(p) = harness_path() {
+        cmd.env("PATH", p);
+    }
     let (transcript, status) =
         match tokio::time::timeout(Duration::from_secs(HARNESS_TIMEOUT_SECS), cmd.output()).await {
             Err(_) => (String::new(), HarnessStatus::TimedOut),

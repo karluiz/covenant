@@ -3120,7 +3120,7 @@ async fn canon_new_unit(cwd: String, kind: String, name: String) -> Result<Strin
 /// The user's login-shell PATH. GUI apps launched from Finder/.app inherit a
 /// minimal PATH (no nvm/brew/asdf shims), so we ask the login+interactive shell.
 /// Returns None if the shell call fails (caller falls back to inherited PATH).
-fn login_shell_path() -> Option<String> {
+pub(crate) fn login_shell_path() -> Option<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let out = std::process::Command::new(&shell)
         .args(["-ilc", "printf '__KT_PATH__%s' \"$PATH\""])
