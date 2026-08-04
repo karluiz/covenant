@@ -43,9 +43,6 @@ mod git_tools;
 mod group_supervision;
 mod history_import;
 mod lsp_commands;
-mod mac_activity;
-mod mac_render;
-mod mac_audio_keepalive;
 mod mac_wake;
 mod main_lag;
 mod mcp_server;
@@ -5661,38 +5658,21 @@ pub fn run() {
                 }
             }
 
-            // Keep WebKit rendering when AppKit thinks the window is occluded.
-            // Measured: after a tab switch the first frame took 1.3-2.0s while
-            // the event loop stayed healthy — frames suspended, not work.
-            if let Some(main_win) = app.get_webview_window("main") {
-                mac_render::keep_rendering_while_occluded(&main_win);
-            }
-
-            // Native main-thread lag probe — feeds `detail.mainLagMs` on the
-            // repaint vital so the next release's data can tell a blocked UI
-            // process from a cold WebKit compositor. See main_lag.rs.
+            // Native main-thread lag probe — feeds the mainLag/gcdLag/
+            // timerLag/mode/priority forensics on the repaint vital. The
+            // idle-switch freeze itself is macOS's kernel wake gate, filed
+            // as FB24145989; the failed in-app patches (occlusion opt-out,
+            // render heartbeat, LatencyCritical assertion, silent-audio
+            // keepalive) were removed once each disproved itself — see
+            // main_lag.rs for the falsification ledger.
             main_lag::spawn_probe(app.handle().clone());
 
-            // Kernel-level throttle opt-out — the 0.11.13 probe pinned the
-            // idle-cold switch on the native main thread servicing posted
-            // work 1-2s late. See mac_activity.rs for the evidence chain.
-            mac_activity::begin_latency_critical_activity();
-
-            // WindowServer donation keepalive — the spindump-licensed fix for
-            // the idle switch freeze: the kernel gates ALL receives of an
-            // idle-classified process until a WindowServer importance
-            // donation arrives (even the user's click waits). Subscribing to
-            // session-wide mouse events keeps donations flowing so the gate
-            // never closes. See mac_wake.rs. Setup runs on the main thread,
-            // which the NSEvent monitor install requires.
+            // WindowServer donation keepalive — the one workaround that
+            // measurably helps: session mouse events keep importance
+            // donations flowing so the wake gate stays open while the user
+            // is active anywhere. See mac_wake.rs. Setup runs on the main
+            // thread, which the NSEvent monitor install requires.
             mac_wake::install();
-
-            // Silent-audio classification keepalive — the last workaround
-            // lever for the kernel wake gate (FB24145989). Fully fenced:
-            // kill-switch via `defaults write com.karluiz.covenant
-            // AudioKeepaliveDisabled -bool YES`, module removal is two
-            // lines. See mac_audio_keepalive.rs for the exit contract.
-            mac_audio_keepalive::install();
 
             // Fullscreen-aware notch: when the main Covenant window
             // enters fullscreen the floating overlay is intrusive, so
