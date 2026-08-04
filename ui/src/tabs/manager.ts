@@ -116,7 +116,7 @@ import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
 import { detectExecutor } from "../executor";
 import { PiChatView } from "../executors/pi/view";
-import { spawnPiSession, piSetSessionName, devLiveWorktreeRoot, gitRepoSummary } from "../api";
+import { spawnPiSession, piSetSessionName, devLiveWorktreeRoot } from "../api";
 import { cwdUnderRoot } from "./live-worktree";
 import { AcpChatView } from "../executors/acp/view";
 import { closeAcpSession, spawnAcpSession, type AcpExecutor, type AcpTrust } from "../api";
@@ -1906,19 +1906,6 @@ export class TabManager {
     } catch {
       /* omit prompts section */
     }
-    // Best-effort: is this pane's cwd inside a git repo? Gates the explicit
-    // "Start agent here / in worktree" pair below — outside a repo there is
-    // no worktree to cut, so the single ambiguity-free "Start agent" stays.
-    let inGitRepo = false;
-    if (sessionId && pane?.cwd && this.runAgentHere) {
-      try {
-        await gitRepoSummary(pane.cwd);
-        inGitRepo = true;
-      } catch {
-        /* not a git repo, or summary failed — single item */
-      }
-    }
-
     const menu = document.createElement("div");
     menu.className = "pane-context-menu";
     menu.style.position = "fixed";
@@ -2121,21 +2108,21 @@ export class TabManager {
 
     // Start the default agent — only when none is already running in this
     // pane (pane.executor is the detected foreground executor, null if idle).
+    // Always the explicit pair, no git probe: "in worktree" is resolveLaunch
+    // (which already degrades silently to the plain cwd outside a repo), and
+    // "here" types the spawn into THIS shell, so it runs wherever the shell
+    // actually is — immune to a stale pane.cwd.
     if (sessionId && !pane?.executor && this.runDefaultAgent) {
       const run = this.runDefaultAgent;
-      if (inGitRepo && this.runAgentHere && pane?.cwd) {
-        // In a repo, be explicit: launch on this checkout (main included)
-        // vs. cut a fresh worktree.
+      addItem(
+        "Start agent in worktree",
+        () => run(sessionId),
+        this.defaultAgentIcon?.() ?? Icons.sparkles(),
+      );
+      if (this.runAgentHere) {
         const runHere = this.runAgentHere;
-        const cwd = pane.cwd;
-        addItem(
-          "Start agent in worktree",
-          () => run(sessionId),
-          this.defaultAgentIcon?.() ?? Icons.sparkles(),
-        );
+        const cwd = pane?.cwd ?? this.activeCwd() ?? "";
         addItem("Start agent here", () => runHere(sessionId, cwd), Icons.pin());
-      } else {
-        addItem("Start agent", () => run(sessionId), this.defaultAgentIcon?.() ?? Icons.sparkles());
       }
     }
 
