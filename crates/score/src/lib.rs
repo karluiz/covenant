@@ -222,6 +222,9 @@ pub fn record_canon_install(name: &str, group: Option<String>, workspace: Option
 /// Inherits the ambient session context so per-group views can filter it,
 /// exactly like prompts do.
 pub fn record_skill_use(name: &str) {
+    // Canon projects a unit into executors as `canon-<name>` (project.rs);
+    // credit the installed unit, not the projection alias.
+    let name = name.strip_prefix("canon-").unwrap_or(name);
     let now = chrono::Utc::now().timestamp_millis();
     let exec = format!("skill:{name}");
     let ctx = current_context();

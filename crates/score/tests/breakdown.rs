@@ -245,15 +245,17 @@ fn skill_usage_counts_per_unit_strips_prefix_and_honors_group_filter() {
     };
     use_in("a", "kyc");
     use_in("a", "kyc");
-    use_in("a", "pty-conventions");
     use_in("b", "kyc");
+    // Historic rows recorded under the projection alias fold into the unit.
+    use_in("a", "canon-kyc");
+    use_in("a", "pty-conventions");
     // A prompt must never leak into the usage breakdown.
     seed(&s, t, EventKind::Prompt, "kt", "n", Some("a"));
 
     let all = s.skill_usage(&ScoreFilter::default()).unwrap();
     assert_eq!(all.len(), 2, "one row per unit, prompts excluded");
     assert_eq!(all[0].skill, "kyc", "sorted most-used first");
-    assert_eq!(all[0].uses, 3);
+    assert_eq!(all[0].uses, 4, "canon- alias rows fold into the bare name");
 
     let group_a = s
         .skill_usage(&ScoreFilter {
@@ -261,5 +263,5 @@ fn skill_usage_counts_per_unit_strips_prefix_and_honors_group_filter() {
             ..ScoreFilter::default()
         })
         .unwrap();
-    assert_eq!(group_a.iter().find(|r| r.skill == "kyc").unwrap().uses, 2);
+    assert_eq!(group_a.iter().find(|r| r.skill == "kyc").unwrap().uses, 3);
 }

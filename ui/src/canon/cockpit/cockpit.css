@@ -285,6 +285,7 @@ body.tabbar-left .canon-cockpit {
   gap: 11px;
   height: auto;
   width: 100%;
+  box-sizing: border-box; /* attention rows are divs — without this they overflow the list border */
   padding: 10px 12px;
   text-align: left;
   color: var(--text-primary);
@@ -371,7 +372,7 @@ body.tabbar-left .canon-cockpit {
   align-items: baseline;
 }
 .canon-cockpit-listitem.is-attention .canon-cockpit-listitem-name {
-  flex: 0 1 auto;
+  flex: 0 0 auto; /* the headline is the fact — only the names list truncates */
 }
 .canon-cockpit-listitem.is-attention .canon-cockpit-listitem-meta {
   flex: 1 1 auto;
@@ -896,6 +897,41 @@ body.tabbar-left.canon-cockpit-open .canon-reader {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* The rail's 2×2 stat readout stretches into sparse boxes at column width —
+   in the cockpit the four numbers run as one instrument band instead. */
+.canon-cockpit-loop-body .canon-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.canon-cockpit-loop-body .canon-stat {
+  padding: 13px 14px 11px;
+}
+.canon-cockpit-loop-body .canon-stat-val {
+  font-size: 19px;
+}
+
+/* Block rhythm — the 2px flex gap is right for rows, cramped for subheads
+   sitting between blocks. First block hugs the section top. */
+.canon-cockpit-loop-body .canon-subhead {
+  margin: 24px 0 8px;
+}
+.canon-cockpit-loop-body > div:first-child .canon-subhead {
+  margin-top: 0;
+}
+.canon-cockpit-loop-body .canon-cockpit-note {
+  margin: 0 0 10px;
+}
+
+/* Unused is a decision queue, not a browse list — its resolving action stays
+   visible instead of hover-revealed, and hovers as the destructive act it is. */
+.canon-cockpit-section .canon-skill-row .canon-card-head button.canon-unused-action {
+  opacity: 1;
+}
+.canon-cockpit-section .canon-card-head button.canon-unused-action:hover:not(:disabled) {
+  color: var(--danger, #e85a5a);
+  border-color: color-mix(in srgb, var(--danger, #e85a5a) 55%, transparent);
+  background: color-mix(in srgb, var(--danger, #e85a5a) 8%, transparent);
 }
 
 /* ── Close ──────────────────────────────────────────────────────────── */

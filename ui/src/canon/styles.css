@@ -1083,6 +1083,10 @@ body.theme-light .op-detail-constraints {
 .canon-stat.is-hero .canon-stat-val {
   color: var(--canon-accent, var(--accent, #7aa2f7));
 }
+/* A zero is context, not a reading — dim it so the live numbers carry the strip. */
+.canon-stat.is-zero .canon-stat-val {
+  color: var(--muted, #6c7280);
+}
 .canon-stat-lbl {
   font-size: 9.5px;
   font-weight: 600;

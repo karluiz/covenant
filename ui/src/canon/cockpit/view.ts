@@ -875,8 +875,9 @@ export class CanonCockpitView {
   /** Uninstall an installed skill, behind the confirm card. Shared by the
    *  Skills list and Loop's dead-weight list — the row that reports a skill
    *  isn't earning its keep is the right place to remove it. */
-  private skillUninstallAction(cwd: string, name: string, onDone: () => void): HTMLButtonElement {
-    const btn = iconButton(Icons.trash({ size: 15 }), "Uninstall skill", () => {
+  private skillUninstallAction(cwd: string, name: string, onDone: () => void, labeled = false): HTMLButtonElement {
+    let btn: HTMLButtonElement;
+    const confirm = (): void => {
       openConfirmPrompt({
         label: "Uninstall skill",
         message: `Uninstall "${name}"? Removes it from this repo and every executor projection.`,
@@ -891,7 +892,19 @@ export class CanonCockpitView {
             });
         },
       });
-    });
+    };
+    if (labeled) {
+      // Loop's dead-weight list is a decision queue: the resolving action is a
+      // visible labelled button, not a hover-revealed icon.
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "canon-unused-action";
+      btn.textContent = "Uninstall";
+      btn.setAttribute("aria-label", "Uninstall skill");
+      btn.addEventListener("click", confirm);
+    } else {
+      btn = iconButton(Icons.trash({ size: 15 }), "Uninstall skill", confirm);
+    }
     return btn;
   }
 
@@ -2398,6 +2411,52 @@ export class CanonCockpitView {
       return el;
     }
 
+    // Inference — this group's footprint, first: the cost context everything
+    // below is judged against (summary before detail).
+    const inferenceBox = document.createElement("div");
+    el.appendChild(inferenceBox);
+    void scoreSummaryFiltered(this.opts.groupLabel ?? null)
+      .then((sc) => {
+        inferenceBox.appendChild(loopSubhead("Inference · this group"));
+        const stats = document.createElement("div");
+        stats.className = "canon-stats";
+        stats.append(
+          statCell(fmtTokens(sc.total_tokens), "tokens", true),
+          statCell(sc.total_prompts.toLocaleString(), "prompts"),
+          statCell(String(sc.total_specs), "specs"),
+          statCell(String(sc.total_commits), "commits"),
+        );
+        inferenceBox.appendChild(stats);
+      })
+      .catch(() => {});
+
+    // Dead weight — installed, projected into every prompt, never used. The
+    // sentence that closes the loop: it's what tells the next Generate what to
+    // stop authoring. Renders right under the footprint as the decision queue.
+    const unusedBox = document.createElement("div");
+    el.appendChild(unusedBox);
+    if (cwd) {
+      void Promise.all([
+        this.status(cwd),
+        scoreSkillUsage(this.opts.groupLabel ?? null).catch(() => []),
+      ]).then(([status, usage]) => {
+        const unused = unusedUnits(status.installed, usage);
+        if (unused.length === 0) return;
+        unusedBox.appendChild(loopSubhead("Unused"));
+        unusedBox.appendChild(this.note("Installed and projected into every prompt, never used. Uninstall what isn't earning its keep."));
+        for (const name of unused) {
+          unusedBox.appendChild(skillCard({
+            name,
+            meta: "0 uses",
+            className: "canon-skill-row",
+            leadIcon: Icons.packageBox({ size: 15 }),
+            fetchPreview: () => canonReadLocal(cwd, name),
+            actions: [this.skillUninstallAction(cwd, name, () => this.showSection("loop"), true)],
+          }));
+        }
+      }).catch(() => {});
+    }
+
     // Adoption — org-wide installs, plus local uses, for this group's
     // registry-sourced units. Skills are the ones whose local record carries a
     // `registry:` source; shared contexts have no source field, so a local
@@ -2439,51 +2498,6 @@ export class CanonCockpitView {
         }
       });
     }
-
-    // Dead weight — installed, projected into every prompt, never used. The
-    // sentence that closes the loop: it's what tells the next Generate what to
-    // stop authoring. Same two sources the adoption block already reads.
-    const unusedBox = document.createElement("div");
-    el.appendChild(unusedBox);
-    if (cwd) {
-      void Promise.all([
-        this.status(cwd),
-        scoreSkillUsage(this.opts.groupLabel ?? null).catch(() => []),
-      ]).then(([status, usage]) => {
-        const unused = unusedUnits(status.installed, usage);
-        if (unused.length === 0) return;
-        unusedBox.appendChild(loopSubhead("Unused"));
-        unusedBox.appendChild(this.note("Installed and projected into every prompt, never used. Uninstall what isn't earning its keep."));
-        for (const name of unused) {
-          unusedBox.appendChild(skillCard({
-            name,
-            meta: "0 uses",
-            className: "canon-skill-row",
-            leadIcon: Icons.packageBox({ size: 15 }),
-            fetchPreview: () => canonReadLocal(cwd, name),
-            actions: [this.skillUninstallAction(cwd, name, () => this.showSection("loop"))],
-          }));
-        }
-      }).catch(() => {});
-    }
-
-    // Inference — this group's footprint from the four Covenant primitives.
-    const inferenceBox = document.createElement("div");
-    el.appendChild(inferenceBox);
-    void scoreSummaryFiltered(this.opts.groupLabel ?? null)
-      .then((sc) => {
-        inferenceBox.appendChild(loopSubhead("Inference · this group"));
-        const stats = document.createElement("div");
-        stats.className = "canon-stats";
-        stats.append(
-          statCell(fmtTokens(sc.total_tokens), "tokens", true),
-          statCell(sc.total_prompts.toLocaleString(), "prompts"),
-          statCell(String(sc.total_specs), "specs"),
-          statCell(String(sc.total_commits), "commits"),
-        );
-        inferenceBox.appendChild(stats);
-      })
-      .catch(() => {});
 
     // Eval — context-TDD pass-rate from the local runner.
     const evalBox = document.createElement("div");

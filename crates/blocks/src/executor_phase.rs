@@ -200,6 +200,8 @@ pub fn matches_interrupt_hint(text: &str) -> bool {
 }
 
 static RE_SKILL_CALL: OnceLock<Regex> = OnceLock::new();
+static RE_SLASH_CMD_CALL: OnceLock<Regex> = OnceLock::new();
+static RE_SLASH_RUN: OnceLock<Regex> = OnceLock::new();
 
 /// Claude Code's skill invocation as it appears in the PTY: a tool-call line
 /// `⏺ Skill(superpowers:brainstorming)`. Anchored at line start (after the
@@ -210,6 +212,19 @@ static RE_SKILL_CALL: OnceLock<Regex> = OnceLock::new();
 /// loads as a distinct tool call today. Add a branch when one does.
 fn re_skill_call() -> &'static Regex {
     RE_SKILL_CALL.get_or_init(|| Regex::new(r"^⏺?\s*Skill\(([^)]+)\)").unwrap())
+}
+
+/// The model running a command-backed unit via the SlashCommand tool:
+/// `⏺ SlashCommand(/horizon)` (arguments may follow the name).
+fn re_slash_cmd_call() -> &'static Regex {
+    RE_SLASH_CMD_CALL.get_or_init(|| Regex::new(r"^⏺?\s*SlashCommand\(\s*/([^)\s]+)").unwrap())
+}
+
+/// A user-typed slash command executing: `> /horizon is running…`. Anchored
+/// on the transcript echo PLUS the "is running" tail so keystroke redraws of
+/// the input line (`> /hori`) never count as a use.
+fn re_slash_run() -> &'static Regex {
+    RE_SLASH_RUN.get_or_init(|| Regex::new(r"^>\s*/([\w-]+(?::[\w-]+)?)\s+is running").unwrap())
 }
 
 /// Canon units an executor loaded in this PTY chunk, in order of appearance.
@@ -224,7 +239,11 @@ pub fn skill_invocations(bytes: &[u8]) -> Vec<String> {
         .lines()
         .filter_map(|line| {
             let stripped = strip_ansi(line);
-            let caps = re_skill_call().captures(stripped.trim())?;
+            let t = stripped.trim();
+            let caps = re_skill_call()
+                .captures(t)
+                .or_else(|| re_slash_cmd_call().captures(t))
+                .or_else(|| re_slash_run().captures(t))?;
             let name = caps.get(1)?.as_str().trim();
             (!name.is_empty()).then(|| name.to_string())
         })
@@ -233,8 +252,13 @@ pub fn skill_invocations(bytes: &[u8]) -> Vec<String> {
 
 /// Substring pre-check for [`skill_invocations`], cheap enough to run on
 /// every PTY chunk even when the notch is switched off.
+///
+/// Bare words, no paren: Claude Code styles the tool name in bold
+/// (`ESC[1mSkill ESC[22m(...)`), so `Skill` and its `(` are never contiguous
+/// in raw bytes. The stripped-line regexes above are the real filter.
 pub fn contains_skill_call(bytes: &[u8]) -> bool {
-    bytes.windows(6).any(|w| w == b"Skill(")
+    let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+    has(b"Skill") || has(b"SlashCommand") || has(b"is running")
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -447,6 +471,54 @@ mod tests {
             super::skill_invocations(b"\xe2\x8f\xba Skill(a)\n\xe2\x8f\xba Skill(b)\n"),
             vec!["a", "b"]
         );
+    }
+
+    #[test]
+    fn skill_invocations_survives_claude_bold_styling() {
+        // Real bytes captured from Claude Code's PTY (Covenant scrollback,
+        // 2026-08-03): the tool name renders bold, so raw bytes carry
+        // `ESC[1mSkill ESC[22m(` — "Skill(" is never contiguous. This was the
+        // gate that kept prod at zero recorded uses.
+        let chunk = b"\r\r\n\x1b[38;2;51;153;255m\xe2\x8f\xba\x1b[3G\x1b[39m\x1b[1mSkill\x1b[22m(superpowers:systematic-debugging)\r\r\n";
+        assert_eq!(
+            super::skill_invocations(chunk),
+            vec!["superpowers:systematic-debugging"]
+        );
+        // Redraw variant with cursor-up repositioning ahead of the bullet.
+        let redraw = b"\r\x1b[8A\x1b[38;2;153;153;153m\xe2\x8f\xba\x1b[3G\x1b[39m\x1b[1mSkill\x1b[22m(horizon)\x1b[K\r";
+        assert_eq!(super::skill_invocations(redraw), vec!["horizon"]);
+    }
+
+    #[test]
+    fn skill_invocations_reads_slash_command_tool_calls() {
+        // Model-invoked: the SlashCommand tool, with and without arguments.
+        let chunk = "\x1b[32m⏺\x1b[0m SlashCommand(/horizon)\r\n";
+        assert_eq!(super::skill_invocations(chunk.as_bytes()), vec!["horizon"]);
+        assert_eq!(
+            super::skill_invocations(b"\xe2\x8f\xba SlashCommand(/loop 5m /foo)\n"),
+            vec!["loop"]
+        );
+        // Mid-line mention does not count.
+        assert!(super::skill_invocations(b"docs say SlashCommand(/x) exists\n").is_empty());
+    }
+
+    #[test]
+    fn skill_invocations_reads_user_typed_slash_runs() {
+        // User-typed command executing — the transcript echo.
+        assert_eq!(
+            super::skill_invocations("> /verify is running\u{2026}\n".as_bytes()),
+            vec!["verify"]
+        );
+        // Plugin-namespaced form.
+        assert_eq!(
+            super::skill_invocations(b"> /ponytail:ponytail-review is running...\n"),
+            vec!["ponytail:ponytail-review"]
+        );
+        // The input line being typed (no "is running" tail) never counts —
+        // keystroke redraws would otherwise record every prefix.
+        assert!(super::skill_invocations(b"> /hori\n").is_empty());
+        // Prose containing "is running" without the echo shape doesn't count.
+        assert!(super::skill_invocations(b"the server is running fine\n").is_empty());
     }
 
     #[test]

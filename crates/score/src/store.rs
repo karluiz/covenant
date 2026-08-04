@@ -659,7 +659,9 @@ impl ScoreStore {
 
     /// How many times each Canon unit was loaded by an executor, most-used
     /// first. `executor` is stored as `skill:<name>`; the prefix is stripped
-    /// here so callers key by the same bare name the registry uses.
+    /// here so callers key by the same bare name the registry uses. Historic
+    /// rows recorded under the `canon-<name>` projection alias fold into the
+    /// bare name too (record_skill_use normalizes new rows at write time).
     pub fn skill_usage(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::SkillUseCell>> {
         let w = crate::filter::build_where(f);
         let sql = format!(
@@ -670,15 +672,22 @@ impl ScoreStore {
         );
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(&sql)?;
+        let mut acc: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
         let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
-            let exec: String = r.get(0)?;
-            Ok(crate::SkillUseCell {
-                skill: exec.strip_prefix("skill:").unwrap_or(&exec).to_string(),
-                uses: r.get::<_, i64>(1)? as u32,
-            })
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32))
         })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(Into::into)
+        for row in rows {
+            let (exec, uses) = row?;
+            let name = exec.strip_prefix("skill:").unwrap_or(&exec);
+            let name = name.strip_prefix("canon-").unwrap_or(name);
+            *acc.entry(name.to_string()).or_default() += uses;
+        }
+        let mut cells: Vec<crate::SkillUseCell> = acc
+            .into_iter()
+            .map(|(skill, uses)| crate::SkillUseCell { skill, uses })
+            .collect();
+        cells.sort_by(|a, b| b.uses.cmp(&a.uses).then_with(|| a.skill.cmp(&b.skill)));
+        Ok(cells)
     }
 
     pub fn breakdown_groups(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::GroupCell>> {

@@ -33,6 +33,7 @@ export function fmtTokens(n: number): string {
 export function statCell(value: string, label: string, hero = false): HTMLElement {
   const cell = document.createElement("div");
   cell.className = hero ? "canon-stat is-hero" : "canon-stat";
+  if (value === "0") cell.classList.add("is-zero"); // zeros recede; real numbers read
   const v = document.createElement("span");
   v.className = "canon-stat-val";
   v.textContent = value;
