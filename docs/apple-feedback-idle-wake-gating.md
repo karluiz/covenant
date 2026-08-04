@@ -1,4 +1,6 @@
-# Apple Feedback draft — frontmost app's mach receives gated for seconds after idle
+# Apple Feedback — frontmost app's mach receives gated for seconds after idle
+
+> **FILED: FB24145989** (2026-08-03, with full spindump attached)
 
 > File under: macOS → Performance / Responsiveness. Attach
 > `covenant-stall-2026-08-03.spindump.txt` (kept in
