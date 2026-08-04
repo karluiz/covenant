@@ -29,6 +29,7 @@ const base = {
   mainPriMin: 46,
   timerLagMs: 7.8,
   keepaliveGapMs: 420,
+  coldSyncReveal: false,
 };
 
 describe("buildSwitchVitals", () => {
@@ -134,6 +135,13 @@ describe("buildSwitchVitals", () => {
     expect(out[0].detail).not.toHaveProperty("gcdLagMs");
     expect(out[0].detail).not.toHaveProperty("runloopModes");
     expect(out[0].detail).not.toHaveProperty("mainPriMin");
+  });
+
+  it("marks cold single-commit reveals so the experiment's samples are filterable", () => {
+    const out = buildSwitchVitals({ ...base, coldSyncReveal: true });
+    for (const e of out) expect(e.detail.coldSyncReveal).toBe(true);
+    const off = buildSwitchVitals(base);
+    expect(off[0].detail).not.toHaveProperty("coldSyncReveal");
   });
 
   it("carries the runloop-mode histogram and min main-thread priority", () => {

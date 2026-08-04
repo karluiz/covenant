@@ -94,6 +94,9 @@ export interface SwitchVitalInput {
   /// Small + slow switch → keepalive fails even with events; huge → coverage
   /// hole (no mouse activity / handler starved).
   keepaliveGapMs: number | null;
+  /// True when the cold-switch experiment forced a stale pane through the
+  /// synchronous single-commit reveal instead of the rAF-defer + crossfade.
+  coldSyncReveal: boolean;
 }
 
 export interface BuiltVital {
@@ -119,6 +122,7 @@ export function buildSwitchVitals(input: SwitchVitalInput): BuiltVital[] {
   if (input.mainPriMin !== null) shared.mainPriMin = input.mainPriMin;
   if (input.timerLagMs !== null) shared.timerLagMs = Math.round(input.timerLagMs);
   if (input.keepaliveGapMs !== null) shared.keepaliveGapMs = Math.round(input.keepaliveGapMs);
+  if (input.coldSyncReveal) shared.coldSyncReveal = true;
   if (input.gapStarvedMs !== null) shared.gapStarvedMs = Math.round(input.gapStarvedMs);
   if (input.grid) {
     shared.cols = input.grid.cols;

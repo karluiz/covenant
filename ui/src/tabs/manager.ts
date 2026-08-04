@@ -348,6 +348,10 @@ interface TabActivationMetric {
 }
 
 const SLOW_TAB_ACTIVATION_MS = 120;
+/// A switch this long after the previous one counts as "cold" — the kernel
+/// wake gate (FB24145989) has re-engaged by then (vitals: 10-60s idle bucket
+/// already shows 18% slow), so the reveal takes the single-commit path.
+const COLD_SWITCH_MS = 30_000;
 const POST_REVEAL_STARVED_WARN_MS = 250;
 const SLOW_REPAINT_MS = 250;
 
@@ -2385,6 +2389,9 @@ export class TabManager {
   /// hibernates (its PTYs die anyway); persist in the manifest if
   /// cross-workspace recency ever matters.
   private tabLastActive = new Map<string, number>();
+  /// performance.now() of the last activate() that ran past its early
+  /// returns — feeds the cold-switch single-commit reveal decision.
+  private lastActivationAt = 0;
 
   /// Fires whenever any tab's operator_id changes (bind, rebind, or unbind).
   /// Subscribers should recompute derived state across the full tab list,
@@ -7566,8 +7573,11 @@ export class TabManager {
     hiddenOutputBytes: number;
     hiddenOutputChunks: number;
     fit: SwitchFitBreadcrumb | null;
+    /// True when the cold-switch experiment forced a stale pane through the
+    /// synchronous single-commit reveal — the samples that judge it.
+    coldSyncReveal: boolean;
   }): void {
-    const { tab, activationStartedAt, syncMs, queuedMs, hiddenOutputBytes, hiddenOutputChunks, fit } = args;
+    const { tab, activationStartedAt, syncMs, queuedMs, hiddenOutputBytes, hiddenOutputChunks, fit, coldSyncReveal } = args;
     // Epoch-clock twin of activationStartedAt, for the native main-thread lag
     // probe (Rust samples are stamped with SystemTime — same wall clock).
     const epochStart = Date.now() - (performance.now() - activationStartedAt);
@@ -7657,6 +7667,7 @@ export class TabManager {
                 grid,
                 pressure,
                 focusedThroughout,
+                coldSyncReveal,
                 mainLagMs: lag?.main ?? null,
                 gcdLagMs: lag?.gcd ?? null,
                 runloopModes: lag?.modes ?? null,
@@ -7746,6 +7757,19 @@ export class TabManager {
 
     this.activeId = id;
     this.tabLastActive.set(id, Date.now());
+    // Cold-switch single-commit reveal experiment. After ~30s without any
+    // switch, macOS's kernel wake gate (FB24145989) delivers wakes in sparse
+    // donation pulses — every render round-trip the reveal needs can cost a
+    // pulse (seconds). A cold switch therefore takes the synchronous
+    // single-commit path below even when the pane is stale: the flash the
+    // deferred path exists to hide is invisible on a frozen screen anyway.
+    // Vitals carry `coldSyncReveal` so the data judges the experiment.
+    // Kill switch: localStorage "covenant-cold-reveal-off" = "1".
+    const coldSwitch =
+      this.lastActivationAt !== 0 &&
+      activationStartedAt - this.lastActivationAt > COLD_SWITCH_MS &&
+      localStorage.getItem("covenant-cold-reveal-off") !== "1";
+    this.lastActivationAt = activationStartedAt;
     // Fast path: on a plain tab switch the strip structure is unchanged —
     // only which pill carries `.active` moves. A full renderTabbar() wipes
     // the strip (innerHTML="") and rebuilds every pill with fresh
@@ -7778,6 +7802,7 @@ export class TabManager {
         hiddenOutputBytes: 0,
         hiddenOutputChunks: 0,
         fit: null,
+        coldSyncReveal: false,
       });
 
     if (tab.kind === "browser") {
@@ -7922,12 +7947,11 @@ export class TabManager {
     // what removes the perceptible "delay before the tab appears" on the
     // common switch (see activate()'s deferred path for the stale case).
     let syncRevealed = false;
-    if (
-      deferSwap &&
+    const cleanSwitch =
       term.cols === fitColsBefore &&
       term.rows === fitRowsBefore &&
-      tab.wroteWhileHidden !== true
-    ) {
+      tab.wroteWhileHidden !== true;
+    if (deferSwap && (cleanSwitch || coldSwitch)) {
       tab.pane.style.removeProperty("visibility");
       if (prevPainted && prevPainted !== tab) {
         prevPainted.pane.hidden = true;
@@ -7999,6 +8023,7 @@ export class TabManager {
           usedNudge: plan.nudge,
           fitChangedDimensions: dimsChangedByFit,
         },
+        coldSyncReveal: coldSwitch && syncRevealed && !cleanSwitch,
       });
     });
   }
