@@ -177,7 +177,12 @@ body.statusbar-single-row {
    Mirrors the original `grid-template-columns: auto auto 1fr auto`. */
 body.statusbar-single-row #status-bar {
     display: grid;
-    grid-template-columns: auto auto 1fr auto;
+    /* minmax(0,·) so left/framing/center can shrink below min-content and
+       their texts ellipsize, instead of the row overflowing and the
+       overflow:hidden clip eating the trailing chrome (version, score,
+       telegram). Right stays auto — protected, same policy as .sb-right
+       { flex-shrink: 0 } in two-row mode. */
+    grid-template-columns: minmax(0, auto) minmax(0, auto) minmax(0, 1fr) auto;
     align-items: center;
 }
 body.statusbar-single-row .sb-center {
@@ -7658,6 +7663,27 @@ button.status-segment.status-add-operator:focus-visible {
     outline: none;
     opacity: 1;
     border-color: var(--operator-accent, #7dcfff);
+}
+
+/* Narrow-window shedding. The bar spans the full window (single grid
+   column), so viewport queries measure it exactly. Shed lowest-value
+   pixels first: the add-affordance labels are redundant (tooltip +
+   aria-label carry them), then the identity texts tighten so ellipsis
+   engages before the framing zone is starved. */
+@media (max-width: 1000px) {
+    button.status-segment.status-add-mission .status-text,
+    button.status-segment.status-add-operator .status-text {
+        display: none;
+    }
+    .status-segment.status-active-tab .status-text { max-width: 110px; }
+    .status-segment.status-active-tab .status-tab-group { max-width: 80px; }
+    .status-segment.status-git .status-text { max-width: 100px; }
+    .status-segment.status-workspace .status-text { max-width: 90px; }
+}
+/* Tighter still: score chip keeps the avatar (the click target + tooltip
+   survive), drops login/streak text. */
+@media (max-width: 760px) {
+    .status-score .score-chip-label { display: none; }
 }
 
 /* Executor chip — shown when a known agent (claude/aider/opencode/...)
