@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.28 — Evals cockpit empty-history fix (group-root hydration)
+
+### Fixed
+
+- **Cockpit no longer opens empty after a run finishes**: ⌘⌥E hydrated
+  with the active tab's live cwd, so a tab that had cd'd elsewhere — or
+  was sitting in a linked worktree — asked the backend for
+  `.covenant/canon/eval-history.jsonl` under the wrong root and rendered
+  "No eval runs yet" despite durable history on disk. `openEvals` now
+  resolves the active group's root dir first (the same cwd Canon launches
+  runs with), falling back to the tab cwd only when no group is linked
+  (`ui/src/main.ts`).
+
+- **Stop/Manage buttons align in the cases header**: the header row
+  aligns children on `baseline`, and the Manage button's inline SVG icon
+  shifted its baseline off the text-only Stop button. Both buttons now
+  `align-self: center` while the title/sub keep their baseline alignment
+  (`ui/src/canon/evals-cockpit.css`).
+
 ## v0.11.27 — Evals cockpit (⌘⌥E): durable runs, pill + status chip
 
 ### Added
