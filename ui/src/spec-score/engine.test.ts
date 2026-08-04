@@ -150,6 +150,23 @@ Lives in \`ui/src/terminal/activate.ts\` and \`crates/app/src/vitals.rs\`.
     expect(s.canonical).toBe(false);
   });
 
+  it('matches numbered headings (## 19. Acceptance criteria)', () => {
+    const md = [
+      '# Spec',
+      '## 1. Goal',
+      'Ship a thing that does X for Y.',
+      '## 19. Acceptance criteria for the full system',
+      '- Running `npm test` passes with the new suite enabled.',
+      '- The badge renders in `ui/src/foo.ts` within 16ms.',
+      '## 21. Complexity',
+      'Medium — the rule engine touches persistence and needs a dedupe pass.',
+    ].join('\n\n');
+    const s = scoreSpec(md);
+    expect(s.dimensions.find((d) => d.key === 'goal')!.earned).toBe(20);
+    expect(s.dimensions.find((d) => d.key === 'verifiability')!.earned).toBeGreaterThan(0);
+    expect(s.dimensions.find((d) => d.key === 'complexity')!.earned).toBe(10);
+  });
+
   it('falls back to the opening paragraph for the goal', () => {
     const md = '# Title\n\nShip a thing that does X for Y.\n\n## Notes\n\n- whatever\n';
     const goal = scoreSpec(md).dimensions.find((d) => d.key === 'goal')!;
