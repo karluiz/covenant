@@ -34,6 +34,8 @@ function addTask(panel: TaskerPanel, projectId: string, title: string): string {
 beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = "";
+  // jsdom lacks scrollIntoView, which CustomSelect calls on open.
+  Element.prototype.scrollIntoView = vi.fn();
   // Finding 4: sharedProjects/pushState/the auto-push subscription are
   // module singletons that outlive any one test — without this, an id (or a
   // listener bound to a prior test's storage) leaks across tests in this
@@ -400,11 +402,11 @@ describe("board project switcher vs auto-push rerender", () => {
     (panel as any).viewMode = "board";
     panel.render();
 
-    host.querySelector<HTMLButtonElement>(".kb-project-select")!.click();
-    expect(document.querySelector(".kb-project-menu")).toBeTruthy();
+    host.querySelector<HTMLButtonElement>(".kb-project-switch .ui-select__button")!.click();
+    expect(document.querySelector(".ui-select__popover")).toBeTruthy();
 
     window.dispatchEvent(new CustomEvent(BOARD_SHARES_EVENT));
-    expect(document.querySelector(".kb-project-menu")).toBeTruthy();
+    expect(document.querySelector(".ui-select__popover")).toBeTruthy();
   });
 });
 

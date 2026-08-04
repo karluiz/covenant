@@ -5,6 +5,7 @@ import { TaskStorage, generateId } from "./storage";
 import { Icons } from "../icons";
 import { BoardView, renderSubsFraction, formatMinutes, parseDuration, loggedMinutes } from "./board";
 import { MarkdownEditor } from "../ui/markdown-editor";
+import { CustomSelect } from "../ui/select";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
 import {
@@ -115,8 +116,7 @@ export class TaskerPanel {
   private dateMenuEl: HTMLElement | null = null;
   private datePickerRepaint: (() => void) | null = null;
   private dateOutsideListener: ((ev: MouseEvent) => void) | null = null;
-  private projectMenuEl: HTMLElement | null = null;
-  private projectMenuOutside: ((ev: MouseEvent) => void) | null = null;
+  private projectSelect: CustomSelect | null = null;
   private shareMenuEl: HTMLElement | null = null;
   private shareMenuOutside: ((ev: MouseEvent) => void) | null = null;
   private editingTitle: { projectId: string; taskId: string } | null = null;
@@ -172,7 +172,10 @@ export class TaskerPanel {
   }
 
   private hasOpenMenu(): boolean {
-    return Boolean(this.openMenu || this.dateMenuEl || this.projectMenuEl || this.shareMenuEl);
+    return Boolean(
+      this.openMenu || this.dateMenuEl || this.shareMenuEl ||
+      this.projectSelect?.button.getAttribute("aria-expanded") === "true",
+    );
   }
 
   private isTypingInPanel(): boolean {
@@ -277,19 +280,37 @@ export class TaskerPanel {
         <div class="rail-footer">${this.getStats()}</div>`;
   }
 
+  // DESIGN.md rule 14: the switcher is a CustomSelect, mounted into this
+  // host span by setupEventListeners (render() rebuilds via innerHTML, so
+  // the instance can't live in the HTML string).
   private renderProjectSwitcher(): string {
     const projects = this.storage.getProjects();
     if (projects.length <= 1) {
       const only = projects[0];
       return `<span class="kb-project-name">${escapeHtml(only?.name ?? "")}</span>`;
     }
-    const current = this.boardProjectId ?? projects[0].id;
-    const currentName = projects.find((p) => p.id === current)?.name ?? "";
-    return `
-      <button class="kb-project-select" type="button" aria-haspopup="listbox" aria-expanded="false" data-current="${current}">
-        <span class="kb-project-select-label">${escapeHtml(currentName)}</span>
-        <span class="kb-project-select-caret" aria-hidden="true">${Icons.chevronRight({ size: 13 })}</span>
-      </button>`;
+    return `<span class="kb-project-switch"></span>`;
+  }
+
+  private mountProjectSwitcher(): void {
+    const host = this.host.querySelector<HTMLElement>(".kb-project-switch");
+    this.projectSelect?.destroy();
+    this.projectSelect = null;
+    if (!host) return;
+    const projects = this.storage.getProjects();
+    this.projectSelect = new CustomSelect({
+      options: projects.map((p) => ({ value: p.id, label: p.name })),
+      value: this.boardProjectId ?? projects[0]?.id ?? "",
+      ariaLabel: "Board project",
+      onChange: (id) => {
+        if (id === this.boardProjectId) return;
+        this.boardProjectId = id;
+        this.selectedTask = null;
+        this.saveViewPrefs();
+        this.render();
+      },
+    });
+    host.appendChild(this.projectSelect.element);
   }
 
   /// Same fallback the project switcher uses: a null `boardProjectId` (first
@@ -349,7 +370,6 @@ export class TaskerPanel {
   render(): void {
     this.flushNoteEditors();
     if (this.dateMenuEl && !this.openMenu) this.closeDatePicker();
-    if (this.projectMenuEl) this.closeProjectMenu();
     if (this.shareMenuEl) this.closeShareMenu();
     this.host.classList.remove("hidden");
     this.isOpen = true;
@@ -571,67 +591,10 @@ export class TaskerPanel {
       </div>`;
   }
 
-  private closeProjectMenu(): void {
-    if (this.projectMenuOutside) {
-      document.removeEventListener("mousedown", this.projectMenuOutside, true);
-      this.projectMenuOutside = null;
-    }
-    this.projectMenuEl?.remove();
-    this.projectMenuEl = null;
-    const btn = this.host.querySelector<HTMLButtonElement>(".kb-project-select");
-    btn?.setAttribute("aria-expanded", "false");
-  }
-
-  private openProjectMenu(anchor: HTMLElement): void {
-    if (this.projectMenuEl) { this.closeProjectMenu(); return; }
-    const projects = this.storage.getProjects();
-    const current = anchor.dataset.current ?? this.boardProjectId ?? projects[0]?.id;
-
-    const el = document.createElement("div");
-    el.className = "kb-project-menu";
-    el.setAttribute("role", "listbox");
-    el.innerHTML = projects
-      .map((p) =>
-        `<button class="kb-project-opt${p.id === current ? " on" : ""}" type="button" role="option" aria-selected="${p.id === current}" data-project-id="${p.id}">
-          <span class="kb-project-opt-check">${p.id === current ? Icons.check({ size: 13 }) : ""}</span>
-          <span class="kb-project-opt-name">${escapeHtml(p.name)}</span>
-        </button>`)
-      .join("");
-    document.body.appendChild(el);
-    this.projectMenuEl = el;
-    anchor.setAttribute("aria-expanded", "true");
-
-    const r = anchor.getBoundingClientRect();
-    el.style.position = "fixed";
-    el.style.top = `${r.bottom + 4}px`;
-    el.style.left = `${r.left}px`;
-    el.style.minWidth = `${r.width}px`;
-
-    el.querySelectorAll<HTMLButtonElement>(".kb-project-opt").forEach((opt) => {
-      opt.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const id = opt.dataset.projectId;
-        this.closeProjectMenu();
-        if (!id || id === this.boardProjectId) return;
-        this.boardProjectId = id;
-        this.selectedTask = null;
-        this.saveViewPrefs();
-        this.render();
-      });
-    });
-
-    this.projectMenuOutside = (ev: MouseEvent) => {
-      if (!el.contains(ev.target as Node) && !anchor.contains(ev.target as Node)) {
-        this.closeProjectMenu();
-      }
-    };
-    document.addEventListener("mousedown", this.projectMenuOutside, true);
-  }
-
-  // F4 — the shared-board affordance: "Copy link" / "Stop sharing". Clones
-  // openProjectMenu/closeProjectMenu above rather than inventing a new
-  // popover — same outside-click dismissal, same fixed positioning off the
-  // anchor, same reuse of .kb-project-menu/.kb-project-opt chrome.
+  // F4 — the shared-board affordance: "Copy link" / "Stop sharing". A small
+  // action menu (not a select), so it keeps its bespoke popover — same
+  // outside-click dismissal, fixed positioning off the anchor, and the
+  // .kb-project-menu/.kb-project-opt chrome.
   private closeShareMenu(): void {
     if (this.shareMenuOutside) {
       document.removeEventListener("mousedown", this.shareMenuOutside, true);
@@ -823,19 +786,16 @@ export class TaskerPanel {
       if (!document.body.classList.contains("sidebar-view-tasker")) return;
       const ae = document.activeElement as HTMLElement | null;
       if (ae instanceof HTMLInputElement || ae instanceof HTMLTextAreaElement || ae?.isContentEditable) return;
-      if (this.openMenu || this.dateMenuEl || this.projectMenuEl || this.shareMenuEl) return;
+      if (this.hasOpenMenu()) return;
       e.preventDefault();
       this.onClose?.();
     };
     document.addEventListener("keydown", this.boardKeyHandler);
 
+    // Unconditional: in list mode (no .kb-project-switch host) this just
+    // destroys the stale board-mode instance.
+    this.mountProjectSwitcher();
     if (this.viewMode === "board") {
-      const projectSelect = this.host.querySelector<HTMLButtonElement>(".kb-project-select");
-      projectSelect?.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.openProjectMenu(projectSelect);
-      });
-
       this.mountBoard();
     }
 

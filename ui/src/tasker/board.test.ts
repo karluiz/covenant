@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TaskerPanel } from "./panel";
 import { BoardView, formatMinutes, parseDuration } from "./board";
 import { TaskStorage } from "./storage";
@@ -37,6 +37,8 @@ beforeEach(() => {
   localStorage.clear();
   document.body.className = "";
   document.body.innerHTML = "";
+  // jsdom lacks scrollIntoView, which CustomSelect calls on open.
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 describe("view toggle + fullscreen", () => {
@@ -288,14 +290,14 @@ describe("board project switcher", () => {
     host.querySelector<HTMLButtonElement>('.rail-btn[data-view="list"]')!.click();
     host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
 
-    const trigger = host.querySelector<HTMLButtonElement>(".kb-project-select")!;
+    const trigger = host.querySelector<HTMLButtonElement>(".kb-project-switch .ui-select__button")!;
     expect(trigger).toBeTruthy();
     trigger.click();
 
-    const opts = document.querySelectorAll<HTMLButtonElement>(".kb-project-menu .kb-project-opt");
+    const opts = document.querySelectorAll<HTMLButtonElement>(".ui-select__popover .ui-select__option");
     expect(opts.length).toBe(2);
 
-    const optB = Array.from(opts).find((o) => o.dataset.projectId === b.id)!;
+    const optB = Array.from(opts).find((o) => o.dataset.value === b.id)!;
     optB.click();
     expect(host.textContent).toContain("task in B");
     expect(host.textContent).not.toContain("task in A");
@@ -303,7 +305,7 @@ describe("board project switcher", () => {
 
   it("shows the project name without a dropdown when only one project exists", () => {
     const { host } = mountBoardPanel();
-    expect(host.querySelector(".kb-project-select")).toBeNull();
+    expect(host.querySelector(".kb-project-switch")).toBeNull();
     expect(host.querySelector(".kb-project-name")!.textContent).toContain("Inbox");
   });
 });

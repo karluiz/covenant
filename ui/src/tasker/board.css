@@ -270,7 +270,6 @@ body.theme-true-dark .kb-card { background: #141416; }
   color: var(--accent);
 }
 
-.kb-project-select,
 .kb-project-name {
   font: 600 12.5px ui-monospace, "SF Mono", Menlo, monospace;
   color: var(--text-primary);
@@ -279,23 +278,25 @@ body.theme-true-dark .kb-card { background: #141416; }
   border-radius: 0;
   padding: 5px 11px;
 }
-.kb-project-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
+/* DESIGN.md rule 14: the switcher is a CustomSelect; the toolbar look
+   (uppercase mono chip) layers on top of the shared .ui-select chrome. */
+.kb-project-switch { display: inline-flex; }
+.kb-project-switch .ui-select__button {
+  width: auto;
+  min-height: 0;
+  font: 600 12.5px ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-primary);
   text-transform: uppercase;
-  transition: background 120ms, border-color 120ms;
+  background: rgb(var(--ink-rgb) / 0.04);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 5px 11px;
+  gap: 8px;
 }
-.kb-project-select:hover { background: rgb(var(--ink-rgb) / 0.08); }
-.kb-project-select[aria-expanded="true"] { border-color: var(--accent); }
-.kb-project-select-caret {
-  display: inline-flex;
-  transform: rotate(90deg);
-  opacity: 0.6;
-}
+.kb-project-switch .ui-select__button:hover { background: rgb(var(--ink-rgb) / 0.08); }
+.kb-project-switch .ui-select__button[aria-expanded="true"] { border-color: var(--accent); }
 
-/* Non-native dropdown menu */
+/* Non-native dropdown menu (share menu still uses this chrome) */
 .kb-project-menu {
   z-index: 9000;
   display: flex;
