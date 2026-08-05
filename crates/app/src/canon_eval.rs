@@ -998,10 +998,14 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
 /// (EVAL_CONCURRENCY sandboxes at a time); `baseline: Some(false)` skips the
 /// control arm for quick iteration. Aborts the whole run only if claude is
 /// not installed; a per-eval transient failure skips that eval and continues.
-#[tauri::command]
-pub async fn canon_run_evals(
+///
+/// Extracted from `canon_run_evals` so `canon_publish` can fire-and-forget an
+/// auto-run on a stale publish without a `State<AppState>` — `State` borrows
+/// from the invocation and can't be moved into a `tokio::spawn`'d future, so
+/// this takes the `Arc<Mutex<Settings>>` clone directly instead.
+pub(crate) async fn run_evals_inner(
     app: AppHandle,
-    state: State<'_, crate::AppState>,
+    settings: std::sync::Arc<tokio::sync::Mutex<Settings>>,
     cwd: String,
     kind: String,
     name: String,
@@ -1078,7 +1082,6 @@ pub async fn canon_run_evals(
     }
     let cancel_key = karl_canon::unit_key(unit_kind, &name);
     clear_cancel(&cancel_key); // a stale flag from a prior stop must not kill this run
-    let settings = state.settings.clone();
     let (timeout, judge_model) = {
         let s = settings.lock().await;
         (
@@ -1160,6 +1163,56 @@ pub async fn canon_run_evals(
         if was_cancelled { "cancelled" } else { "" },
     );
     Ok(())
+}
+
+/// Tauri command surface for `run_evals_inner` — unwraps the `State` into the
+/// `Arc<Mutex<Settings>>` clone the inner fn takes, so the same run path is
+/// reachable from a real invocation (this command) or a fire-and-forget
+/// `tokio::spawn` (the auto-run `canon_publish` triggers on a stale unit).
+#[tauri::command]
+pub async fn canon_run_evals(
+    app: AppHandle,
+    state: State<'_, crate::AppState>,
+    cwd: String,
+    kind: String,
+    name: String,
+    baseline: Option<bool>,
+    only: Option<String>,
+) -> Result<(), String> {
+    let settings = state.settings.clone();
+    run_evals_inner(app, settings, cwd, kind, name, baseline, only).await
+}
+
+/// After a publish, catch a stale unit up: if it isn't eval-fresh AND has
+/// authored evals, fire off an unattended re-run. Fire-and-forget by design —
+/// the publish call this follows has already returned to its caller, and the
+/// cockpit picks the run up through the same registry any manual run uses.
+pub(crate) fn spawn_auto_run_if_stale(
+    app: &AppHandle,
+    settings: std::sync::Arc<tokio::sync::Mutex<Settings>>,
+    repo_root: &Path,
+    kind: karl_canon::ContextKind,
+    name: &str,
+    fresh: bool,
+) {
+    if fresh || karl_canon::read_evals(repo_root, kind, name).is_empty() {
+        return;
+    }
+    let app = app.clone();
+    let cwd = repo_root.to_string_lossy().into_owned();
+    let kind_slug = kind.slug().to_string();
+    let name = name.to_string();
+    tokio::spawn(async move {
+        if let Err(e) =
+            run_evals_inner(app, settings, cwd, kind_slug.clone(), name.clone(), None, None).await
+        {
+            tracing::warn!(
+                target: "canon",
+                kind = %kind_slug, name = %name, error = %e,
+                "auto-run-on-publish failed"
+            );
+        }
+    });
 }
 
 /// Snapshot of the run registry + the on-disk run history for one repo — the
@@ -1416,6 +1469,39 @@ pub async fn canon_list_evals(
     Ok(karl_canon::read_evals(&repo_root, unit_kind, &name))
 }
 
+/// Sum non-stale stored results for a unit into a publish-ready aggregate.
+/// `None` when nothing contributes (no results, or every stored result is
+/// stale / carries no score). `baseline_score` is `None` overall — not
+/// summed from zeroes — if any contributing row lacks a baseline score,
+/// since a partial baseline sum would understate it silently.
+pub(crate) fn eval_aggregate(
+    repo_root: &Path,
+    kind: karl_canon::ContextKind,
+    name: &str,
+) -> Option<serde_json::Value> {
+    let all = karl_canon::read_results(repo_root);
+    let inner = all.get(&karl_canon::unit_key(kind, name))?;
+    let rows: Vec<&karl_canon::EvalResult> = inner
+        .values()
+        .filter(|r| !r.stale && r.max_score > 0)
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    let score: u32 = rows.iter().map(|r| r.score).sum();
+    let max_score: u32 = rows.iter().map(|r| r.max_score).sum();
+    let baseline_score: Option<u32> = if rows.iter().any(|r| r.baseline_score.is_none()) {
+        None
+    } else {
+        Some(rows.iter().filter_map(|r| r.baseline_score).sum())
+    };
+    Some(serde_json::json!({
+        "score": score,
+        "max_score": max_score,
+        "baseline_score": baseline_score,
+    }))
+}
+
 /// Per-unit `(passed,total)` for the Impact section, read from eval-results.json.
 #[tauri::command]
 pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, String> {
@@ -1647,6 +1733,39 @@ mod tests {
         for slug in ["skill", "command", "agent", "context", "memory"] {
             assert!(parse_evaluable_kind(slug).unwrap().evaluable());
         }
+    }
+
+    #[test]
+    fn eval_aggregate_sums_non_stale_results_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let mk = |id: &str, score: u32, stale: bool| karl_canon::EvalResult {
+            eval_id: id.into(),
+            pass: score == 100,
+            reason: String::new(),
+            ran_at_ms: 1,
+            duration_ms: 1,
+            baseline_pass: Some(false),
+            stale,
+            executor_model: None,
+            judge_model: None,
+            score,
+            max_score: 100,
+            baseline_score: Some(10),
+        };
+        karl_canon::write_result(dir.path(), karl_canon::ContextKind::Skill, "s", &mk("a", 100, false))
+            .unwrap();
+        karl_canon::write_result(dir.path(), karl_canon::ContextKind::Skill, "s", &mk("b", 0, true))
+            .unwrap();
+        let agg = eval_aggregate(dir.path(), karl_canon::ContextKind::Skill, "s").unwrap();
+        assert_eq!(agg["score"], 100);
+        assert_eq!(agg["max_score"], 100); // stale row excluded
+        assert_eq!(agg["baseline_score"], 10);
+    }
+
+    #[test]
+    fn eval_aggregate_none_when_nothing_contributes() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(eval_aggregate(dir.path(), karl_canon::ContextKind::Skill, "missing").is_none());
     }
 
     #[tokio::test]

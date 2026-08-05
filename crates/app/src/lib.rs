@@ -3222,8 +3222,25 @@ async fn canon_projection_status(cwd: String) -> Result<karl_canon::ProjectionSt
         .map_err(|e| e.to_string())
 }
 
+/// Build the publish-body `"evals"` object (score aggregate + `fresh` flag),
+/// omitted entirely when the unit has no non-stale results.
+fn publish_evals_field(
+    repo: &std::path::Path,
+    k: karl_canon::ContextKind,
+    name: &str,
+) -> (bool, Option<serde_json::Value>) {
+    let fresh = karl_canon::evals_fresh(repo, k, name);
+    let evals = canon_eval::eval_aggregate(repo, k, name).map(|mut v| {
+        v["fresh"] = fresh.into();
+        v
+    });
+    (fresh, evals)
+}
+
 #[tauri::command]
 async fn canon_publish(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
     cwd: String,
     org: String,
     name: String,
@@ -3232,13 +3249,19 @@ async fn canon_publish(
     let repo = std::path::PathBuf::from(cwd);
     let kind = kind.unwrap_or_else(|| "skill".to_string());
     if kind == "skill" {
+        let repo_b = repo.clone();
+        let n = name.clone();
         let (toml_s, md_s, sm) =
-            tokio::task::spawn_blocking(move || karl_canon::read_skill_package(&repo, &name))
+            tokio::task::spawn_blocking(move || karl_canon::read_skill_package(&repo_b, &n))
                 .await
                 .map_err(|e| format!("canon_publish join: {e}"))?
                 .map_err(|e| e.to_string())?;
         let desc = karl_canon::parse_frontmatter_str(&md_s, "description").unwrap_or_default();
-        return canon_registry::publish(
+        // Eval lookups key off `name` (the on-disk unit folder), NOT `sm.name`
+        // (the manifest's published name) — that is also what
+        // `unit_content_hash`/`evals_fresh` key off for a skill.
+        let (fresh, evals) = publish_evals_field(&repo, karl_canon::ContextKind::Skill, &name);
+        let result = canon_registry::publish(
             &org,
             &sm.name,
             &sm.version,
@@ -3246,8 +3269,18 @@ async fn canon_publish(
             &toml_s,
             &md_s,
             "skill",
+            evals,
         )
-        .await;
+        .await?;
+        canon_eval::spawn_auto_run_if_stale(
+            &app,
+            state.settings.clone(),
+            &repo,
+            karl_canon::ContextKind::Skill,
+            &name,
+            fresh,
+        );
+        return Ok(result);
     }
     let k = parse_unit_kind(&kind)?;
     if matches!(
@@ -3257,7 +3290,8 @@ async fn canon_publish(
         return Err(format!("kind {kind} is not publishable"));
     }
     let n = name.clone();
-    let content = tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, k, &n))
+    let repo_b = repo.clone();
+    let content = tokio::task::spawn_blocking(move || karl_canon::read_source(&repo_b, k, &n))
         .await
         .map_err(|e| format!("canon_publish join: {e}"))?
         .map_err(|e| e.to_string())?;
@@ -3275,7 +3309,11 @@ async fn canon_publish(
     };
     let version = karl_canon::content_version(&content);
     let desc = karl_canon::parse_frontmatter_str(&content, "description").unwrap_or_default();
-    canon_registry::publish(&org, &name, &version, &desc, "", &content, &kind).await
+    let (fresh, evals) = publish_evals_field(&repo, k, &name);
+    let result =
+        canon_registry::publish(&org, &name, &version, &desc, "", &content, &kind, evals).await?;
+    canon_eval::spawn_auto_run_if_stale(&app, state.settings.clone(), &repo, k, &name, fresh);
+    Ok(result)
 }
 
 /// Install a non-skill registry unit: fetch, write into .covenant/canon, re-project.
