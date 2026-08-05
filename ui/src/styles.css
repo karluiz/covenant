@@ -9137,8 +9137,12 @@ body.structure-dragging * {
     height: auto;
     z-index: 10;
     /* Solid background — overlay mode covers the terminal, so honoring
-       --surface-alpha would let xterm text bleed through. */
-    background: rgb(17 20 26);
+       --surface-alpha would let xterm text bleed through. --bg-elevated
+       is opaque in every theme and, under a Special Theme, derives from
+       the artwork's ground, so the overlay stays on-theme instead of
+       reading as a fixed navy slab. Its default-dark value is the same
+       #11141a this rule used to hardcode. */
+    background: var(--bg-overlay);
     box-shadow: -8px 0 28px rgb(0 0 0 / 0.55);
 }
 /* Solidify nested header + body too — both inherit alpha-tinted
@@ -9146,7 +9150,7 @@ body.structure-dragging * {
 .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
 .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-body,
 .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])) > .editor-host .structure-editor-lsp-banner {
-    background: rgb(17 20 26);
+    background: var(--bg-overlay);
 }
 /* True Dark/OLED: the editor overlay hardcodes rgb(17 20 26) slate to stay
    solid over xterm; on true black that reads as a grey topbar. Pin to #000. */
@@ -9301,7 +9305,10 @@ body.theme-true-dark .tab-pane:not(.tab-pane-acp):has(.editor-host:not([hidden])
     flex: 1;
     display: flex;
     position: relative;
-    background: rgb(13 16 21 / var(--surface-alpha));
+    /* Theme token, not a fixed navy — Special Themes rewrite --bg-panel
+       from the artwork's ground. The overlay-mode rule above pins it
+       opaque when the editor covers a live terminal. */
+    background: var(--bg-panel);
     /* min-width:0 lets this body shrink below its child textarea's
      min-content width inside the parent grid column. Without this,
      a file with a long line (or wrap=off) blows the body up to
