@@ -5492,7 +5492,15 @@ pub fn run() {
             karl_score::set_recorder(score_store.clone());
             app.manage(score_commands::ScoreState(score_store.clone()));
 
-            // OTEL CDLC metrics — opt-in via OTEL_EXPORTER_OTLP_ENDPOINT.
+            // OTEL CDLC metrics — opt-in via Settings → Metrics, or the
+            // standard env var. A shell-provided env var wins over config.
+            let cfg_otlp = settings_arc.blocking_lock().otlp_endpoint.clone();
+            if let Some(ep) = settings::resolve_otlp_endpoint(
+                std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok().as_deref(),
+                cfg_otlp.as_deref(),
+            ) {
+                std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", ep);
+            }
             let _otel_provider = karl_score::otel::start(score_store.clone());
             if _otel_provider.is_some() {
                 // Keep the provider alive for the app lifetime.

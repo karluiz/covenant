@@ -164,6 +164,8 @@ type GroupBg = "tinted" | "solid" | "off";
 interface Settings {
   anthropic_api_key: string | null;
   sendgrid_api_key?: string | null;
+  /// OTLP collector endpoint for Pulse metrics export. Applied at boot.
+  otlp_endpoint?: string | null;
   agent: AgentConfig;
   operator: OperatorConfig;
   terminal: TerminalConfig;
@@ -1314,6 +1316,27 @@ export class SettingsPanel {
           <h3 class="settings-section-title">Metrics</h3>
           <p class="settings-section-desc">Track prompts and commits across your repos.</p>
           <div id="pulse-summary-root"></div>
+          <div class="settings-field">
+            <span class="settings-label">OpenTelemetry export</span>
+            <div class="settings-input-row">
+              <input
+                type="text"
+                name="otlp_endpoint"
+                class="settings-input"
+                placeholder="http://localhost:4317"
+                spellcheck="false"
+                autocapitalize="off"
+                autocomplete="off"
+              />
+            </div>
+            <small class="settings-hint">
+              Push all Pulse metrics to an OTLP collector (Grafana, Datadog,
+              Honeycomb…) every 60&nbsp;s under the <code>covenant.cdlc</code>
+              namespace. Empty = off. <strong>Takes effect on restart.</strong>
+              An <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> set in your shell
+              overrides this.
+            </small>
+          </div>
         </section>
         <section class="settings-section" id="sec-workspace">
           <h3 class="settings-section-title">Workspace</h3>
@@ -1588,6 +1611,9 @@ export class SettingsPanel {
     const notifEmailDigest = form.querySelector<HTMLInputElement>(
       'input[name="notif_email_digest"]',
     )!;
+    const otlpEndpoint = form.querySelector<HTMLInputElement>(
+      'input[name="otlp_endpoint"]',
+    )!;
     const digestWindowLabel = form.querySelector<HTMLElement>('#digest-window-label')!;
     const emailIncompleteWarn = form.querySelector<HTMLElement>('#email-incomplete-warn')!;
     const sendgridKeyWarn = form.querySelector<HTMLElement>('#sendgrid-key-warn')!;
@@ -1827,6 +1853,7 @@ export class SettingsPanel {
     notifSuppressFocused.checked = n.suppress_when_focused;
     notifEmailEnabled.checked = n.email_enabled ?? false;
     sendgridKeyInput.value = this.current.sendgrid_api_key ?? "";
+    otlpEndpoint.value = this.current.otlp_endpoint ?? "";
     notifEmailFrom.value = n.email_from ?? "";
     notifEmailTo.value = n.email_to ?? "";
     const digestVal = n.email_digest_window_minutes ?? 15;
@@ -2294,7 +2321,7 @@ export class SettingsPanel {
       "sec-updates": "update version release auto-update channel",
       "sec-notifications": "email sendgrid notify alert sound",
       "sec-telegram": "telegram bot token chat message",
-      "sec-covenant": "metrics score commits prompts tokens repo",
+      "sec-covenant": "metrics score commits prompts tokens repo pulse otel opentelemetry otlp collector grafana prometheus datadog export telemetry endpoint",
       "sec-onboarding": "onboarding tour wizard first-run welcome tutorial",
       "sec-workspace": "workspace directory folder repo path",
       "sec-cloud": "cloud sync backup restore operators specs preferences",
@@ -2357,6 +2384,7 @@ export class SettingsPanel {
           ? this.current!.providers.anthropic.api_key
           : null,
         sendgrid_api_key: sendgridKeyInput.value.trim() === "" ? null : sendgridKeyInput.value,
+        otlp_endpoint: otlpEndpoint.value.trim() || null,
         agent: {
           model_summary: this.current!.agent.model_summary,
           model_chat: this.current!.agent.model_chat,
