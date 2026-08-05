@@ -1023,6 +1023,11 @@ pub async fn canon_run_evals(
     }
     let repo_root = std::path::PathBuf::from(&cwd);
     let run_id = ulid::Ulid::new().to_string();
+    // Stamped on the history record at the end of the run. Computed once,
+    // here, so it reflects the unit's content as of run start rather than
+    // whatever it drifts to while the run is in flight.
+    let content_hash =
+        karl_canon::unit_content_hash(&repo_root, unit_kind, &name).unwrap_or_default();
     let mut evals = karl_canon::read_evals(&repo_root, unit_kind, &name);
     if let Some(only_id) = &only {
         evals.retain(|e| &e.id == only_id);
@@ -1132,6 +1137,13 @@ pub async fn canon_run_evals(
                 .collect(),
             score: fresh_results.iter().map(|r| r.score).sum(),
             max_score: fresh_results.iter().map(|r| r.max_score).sum(),
+            // A partial run (`only: Some(_)`) only re-verified one case, not
+            // the whole suite — it must not certify the unit fresh.
+            content_hash: if only.is_some() {
+                String::new()
+            } else {
+                content_hash.clone()
+            },
         };
         if let Err(e) = karl_canon::append_history(&repo_root, &record) {
             tracing::warn!(target: "canon", error = %e, "append_history failed");
@@ -2278,6 +2290,7 @@ mod tests {
                     cases: vec![],
                     score: 0,
                     max_score: 0,
+                    content_hash: String::new(),
                 },
             )
             .unwrap();

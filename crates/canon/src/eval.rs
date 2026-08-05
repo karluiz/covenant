@@ -199,6 +199,12 @@ pub struct EvalRunRecord {
     /// Total points available across all cases in this run.
     #[serde(default)]
     pub max_score: u32,
+    /// Sha256 of the unit's source content, stamped once at run start (see
+    /// `unit_content_hash`). Partial runs (`only: Some(_)`) stamp an empty
+    /// string — a single-case retry must never certify the whole suite
+    /// fresh. Empty on records written before this field existed.
+    #[serde(default)]
+    pub content_hash: String,
 }
 
 /// `.covenant/canon/evals/<kind>/<name>/` — one tree for every evaluable kind,
@@ -517,6 +523,54 @@ pub fn read_history(repo_root: &Path) -> Vec<EvalRunRecord> {
         .lines()
         .filter_map(|l| serde_json::from_str(l).ok())
         .collect()
+}
+
+// --- content hash / freshness ---------------------------------------------
+
+/// Sha256 of a unit's current source, for detecting drift since its evals
+/// last ran. `Skill` hashes both source files it's built from (`skill.toml`
+/// + `SKILL.md`, via `read_skill_package`, reusing the `scenario_hash`
+/// digest pattern); every other evaluable kind hashes its single
+/// `read_source` file. `None` when the unit is unreadable (missing source,
+/// or — for skills — not actually installed).
+pub fn unit_content_hash(repo_root: &Path, kind: ContextKind, name: &str) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    if kind == ContextKind::Skill {
+        let (skill_toml, skill_md, _) = crate::install::read_skill_package(repo_root, name).ok()?;
+        h.update(skill_toml.as_bytes());
+        h.update([0]);
+        h.update(skill_md.as_bytes());
+    } else {
+        h.update(
+            crate::install::read_source(repo_root, kind, name)
+                .ok()?
+                .as_bytes(),
+        );
+    }
+    Some(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// True iff `name` has authored evals AND the most recent history record for
+/// it carries a non-empty `content_hash` equal to the unit's current
+/// content. A run stamps `content_hash` once at its start (empty for
+/// partial `only` runs — see `EvalRunRecord::content_hash`), so a
+/// single-case retry can never certify the whole suite fresh, and any
+/// drift since the last full run reads as stale.
+pub fn evals_fresh(repo_root: &Path, kind: ContextKind, name: &str) -> bool {
+    if read_evals(repo_root, kind, name).is_empty() {
+        return false;
+    }
+    let Some(current) = unit_content_hash(repo_root, kind, name) else {
+        return false;
+    };
+    let slug = kind.slug();
+    read_history(repo_root)
+        .iter()
+        .rev()
+        .find(|r| r.kind == slug && r.name == name)
+        .map(|r| !r.content_hash.is_empty() && r.content_hash == current)
+        .unwrap_or(false)
 }
 
 /// Write one eval as `<id>.toml` under the unit's evals dir. Refuses to
@@ -1124,6 +1178,7 @@ mod tests {
             }],
             score: 0,
             max_score: 0,
+            content_hash: String::new(),
         };
         append_history(root, &rec(3, 1)).unwrap();
         append_history(root, &rec(7, 2)).unwrap();
@@ -1196,5 +1251,88 @@ mod tests {
             true,
             "new write still lands"
         );
+    }
+
+    /// Write a unit's source in the same layout `canon_source_path` expects.
+    /// Mirrors `review.rs`'s test helper of the same name — kept local
+    /// rather than shared across the crate for a fixture this thin.
+    fn write_unit(root: &std::path::Path, kind: ContextKind, name: &str, content: &str) {
+        let path = match kind {
+            ContextKind::Skill => canon_dir(root).join(kind.dir()).join(name).join("SKILL.md"),
+            ContextKind::Mcp => canon_dir(root)
+                .join(kind.dir())
+                .join(format!("{name}.json")),
+            ContextKind::Spec => root.join("docs/specs").join(format!("{name}.md")),
+            _ => canon_dir(root).join(kind.dir()).join(format!("{name}.md")),
+        };
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+
+    /// Write a minimal authored eval `<id>.toml` for a unit, via the
+    /// production `write_eval` (shadowed inside this module by the raw-bytes
+    /// helper above, so called through `super::`).
+    fn write_eval_toml(dir: &std::path::Path, kind: ContextKind, name: &str, id: &str) {
+        super::write_eval(
+            dir,
+            kind,
+            name,
+            &Eval {
+                id: id.into(),
+                scenario: "do the thing".into(),
+                rubric: "does it".into(),
+                criteria: Vec::new(),
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn unit_content_hash_changes_when_source_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        write_unit(
+            dir.path(),
+            ContextKind::Command,
+            "h",
+            "---\ndescription: d\n---\nv1",
+        );
+        let h1 = unit_content_hash(dir.path(), ContextKind::Command, "h").unwrap();
+        write_unit(
+            dir.path(),
+            ContextKind::Command,
+            "h",
+            "---\ndescription: d\n---\nv2",
+        );
+        assert_ne!(
+            h1,
+            unit_content_hash(dir.path(), ContextKind::Command, "h").unwrap()
+        );
+    }
+
+    #[test]
+    fn evals_fresh_only_when_last_run_hash_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        write_unit(dir.path(), ContextKind::Command, "h", "src");
+        write_eval_toml(dir.path(), ContextKind::Command, "h", "case-a"); // authored eval exists
+        assert!(!evals_fresh(dir.path(), ContextKind::Command, "h")); // never run
+        let hash = unit_content_hash(dir.path(), ContextKind::Command, "h").unwrap();
+        append_history(
+            dir.path(),
+            &EvalRunRecord {
+                kind: "command".into(),
+                name: "h".into(),
+                passed: 1,
+                total: 1,
+                at_ms: 1,
+                cases: vec![],
+                score: 100,
+                max_score: 100,
+                content_hash: hash,
+            },
+        )
+        .unwrap();
+        assert!(evals_fresh(dir.path(), ContextKind::Command, "h"));
+        write_unit(dir.path(), ContextKind::Command, "h", "src v2"); // content drifts
+        assert!(!evals_fresh(dir.path(), ContextKind::Command, "h"));
     }
 }
