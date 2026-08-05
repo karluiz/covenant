@@ -69,22 +69,113 @@ export function revokeDriver(sessionId: string): void {
   );
 }
 
-/// One-time mount: Tauri event bridge + grant toast.
-export function initCollabShare(tabTitle: (sessionId: string) => string): void {
-  void listen<RequestEvt>("rc://guest/request", ({ payload }) => {
+// ── Grant-request queue ──
+//
+// `pushConfirmToast` (toast.ts) is a singleton: a second confirm while one is
+// showing just refocuses the existing card and silently drops the new one.
+// The quit guard relies on that (mash ⌘Q → one card, not a stack), so
+// toast.ts stays untouched — instead collab.ts owns a FIFO in front of it:
+// only one collab request is ever "in flight" (shown as a toast) at a time,
+// everything else queues behind it.
+//
+// Known accepted edge (not fixed here): if some OTHER, non-collab confirm
+// toast (e.g. the quit guard) happens to be showing when we dequeue and call
+// pushConfirmToast, the singleton still swallows ours — there is no return
+// signal from pushConfirmToast to detect that and retry. Rare in practice
+// (quit guard is a one-shot on ⌘Q) and out of scope: fixing it needs a
+// richer contract on the shared toast host, not queueing logic in here.
+let pendingRequests: RequestEvt[] = [];
+let inFlightRequest: RequestEvt | null = null;
+
+function sameRequest(a: RequestEvt, b: RequestEvt): boolean {
+  return a.sessionId === b.sessionId && a.connId === b.connId;
+}
+
+/// A guest re-clicking "request control" while already queued or already
+/// showing as the live toast must not stack a second card for the same
+/// (sessionId, connId).
+function isDuplicateRequest(e: RequestEvt): boolean {
+  if (inFlightRequest && sameRequest(inFlightRequest, e)) return true;
+  return pendingRequests.some((q) => sameRequest(q, e));
+}
+
+/// Checked at dequeue time (not eagerly, per the fix) — a guest can
+/// disconnect while its request sits in the queue behind another. `rosters`
+/// only reflects a session once a roster event has landed for it, so the
+/// absence of an entry is "unknown", not "gone" — only a positive roster
+/// snapshot that excludes the connId counts as evidence the guest left.
+function guestStillPresent(e: RequestEvt): boolean {
+  const roster = rosters.get(e.sessionId);
+  if (!roster) return true;
+  return roster.some((g) => g.connId === e.connId);
+}
+
+/// Pops the queue until it finds a request whose guest is still connected
+/// (or the queue is empty), and shows that one as the live confirm toast.
+function dequeueNextRequest(tabTitle: (sessionId: string) => string): void {
+  inFlightRequest = null;
+  while (pendingRequests.length > 0) {
+    const next = pendingRequests.shift()!;
+    if (!guestStillPresent(next)) continue;
+    inFlightRequest = next;
     pushConfirmToast({
-      message: `${payload.login} wants control of ${tabTitle(payload.sessionId)}`,
+      message: `${next.login} wants control of ${tabTitle(next.sessionId)}`,
       confirmLabel: "Grant control",
       cancelLabel: "Decline",
       onConfirm: () => {
         void invoke("rc_grant_driver", {
-          sessionId: payload.sessionId,
-          connId: payload.connId,
-          login: payload.login,
+          sessionId: next.sessionId,
+          connId: next.connId,
+          login: next.login,
         }).catch((e) => console.error("grant failed", e));
+        dequeueNextRequest(tabTitle);
       },
+      // Decline stays a pure no-op toward the guest (no denial frame exists
+      // on the guest page — see the deferred finding) beyond advancing our
+      // own queue to whoever's next.
+      onCancel: () => dequeueNextRequest(tabTitle),
     });
-  });
+    return;
+  }
+}
+
+function handleGuestRequest(
+  e: RequestEvt,
+  tabTitle: (sessionId: string) => string,
+): void {
+  if (isDuplicateRequest(e)) return;
+  pendingRequests.push(e);
+  if (!inFlightRequest) dequeueNextRequest(tabTitle);
+}
+
+/// Exported for tests — drives the queue directly so vitest doesn't need to
+/// mock @tauri-apps/api/event to exercise it.
+export const _requestQueue = {
+  enqueue: handleGuestRequest,
+  get pendingCount(): number {
+    return pendingRequests.length;
+  },
+  get inFlight(): RequestEvt | null {
+    return inFlightRequest;
+  },
+  /// Clears ALL module state (driver map, roster map, queue) — not just the
+  /// queue's own fields. `guestStillPresent` reads `rosters` at dequeue
+  /// time, so a roster left behind by an unrelated earlier test (e.g. one
+  /// that ends with `rosters.set(sessionId, [])`) would otherwise make a
+  /// same-named session look disconnected here.
+  _resetForTest(): void {
+    drivers.clear();
+    rosters.clear();
+    pendingRequests = [];
+    inFlightRequest = null;
+  },
+};
+
+/// One-time mount: Tauri event bridge + grant toast.
+export function initCollabShare(tabTitle: (sessionId: string) => string): void {
+  void listen<RequestEvt>("rc://guest/request", ({ payload }) =>
+    handleGuestRequest(payload, tabTitle),
+  );
   void listen<DriverEvt>("rc://guest/driver", ({ payload }) => {
     const had = drivers.get(payload.sessionId);
     _collabState.onDriver(payload);
