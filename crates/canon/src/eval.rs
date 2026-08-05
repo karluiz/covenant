@@ -13,10 +13,77 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Criterion {
+    pub id: String,
+    pub text: String,
+    pub points: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Eval {
     pub id: String,
     pub scenario: String,
+    /// Legacy single-rubric shape; still valid when `criteria` is empty.
+    #[serde(default)]
     pub rubric: String,
+    /// Weighted pass/fail criteria; wins over `rubric` when non-empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub criteria: Vec<Criterion>,
+}
+
+/// The criteria this eval is judged against. A legacy rubric-only eval is a
+/// single derived criterion worth 100 points, so downstream code sees one shape.
+pub fn effective_criteria(eval: &Eval) -> Vec<Criterion> {
+    if !eval.criteria.is_empty() {
+        return eval.criteria.clone();
+    }
+    vec![Criterion {
+        id: "rubric".into(),
+        text: eval.rubric.clone(),
+        points: 100,
+    }]
+}
+
+/// Shared validation for every write path (manager Save, drafter accept, MCP).
+pub fn validate_eval(eval: &Eval) -> Result<(), String> {
+    if eval.id.trim().is_empty() || eval.scenario.trim().is_empty() {
+        return Err("eval needs a non-empty id and scenario".into());
+    }
+    if eval.criteria.is_empty() {
+        if eval.rubric.trim().is_empty() {
+            return Err("eval needs criteria or a rubric".into());
+        }
+        return Ok(());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for c in &eval.criteria {
+        if c.id.trim().is_empty() || c.text.trim().is_empty() {
+            return Err("every criterion needs a non-empty id and text".into());
+        }
+        if c.points == 0 {
+            return Err(format!("criterion {:?} needs points >= 1", c.id));
+        }
+        if !seen.insert(c.id.as_str()) {
+            return Err(format!("duplicate criterion id {:?}", c.id));
+        }
+    }
+    Ok(())
+}
+
+/// Stable digest of a criteria set — baseline verdicts are only reusable when
+/// judged against the same criteria.
+pub fn criteria_hash(criteria: &[Criterion]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for c in criteria {
+        h.update(c.id.as_bytes());
+        h.update([0]);
+        h.update(c.text.as_bytes());
+        h.update([0]);
+        h.update(c.points.to_le_bytes());
+        h.update([0xff]);
+    }
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -492,6 +559,90 @@ mod tests {
     }
 
     #[test]
+    fn legacy_eval_toml_still_parses_and_derives_one_criterion() {
+        let ev: Eval =
+            toml::from_str("id = \"a\"\nscenario = \"do x\"\nrubric = \"must do x\"\n").unwrap();
+        assert!(ev.criteria.is_empty());
+        let crits = effective_criteria(&ev);
+        assert_eq!(crits.len(), 1);
+        assert_eq!(crits[0].id, "rubric");
+        assert_eq!(crits[0].text, "must do x");
+        assert_eq!(crits[0].points, 100);
+    }
+
+    #[test]
+    fn criteria_eval_toml_roundtrips_and_wins_over_rubric() {
+        let ev = Eval {
+            id: "a".into(),
+            scenario: "do x".into(),
+            rubric: String::new(),
+            criteria: vec![
+                Criterion {
+                    id: "stops".into(),
+                    text: "stops the release".into(),
+                    points: 60,
+                },
+                Criterion {
+                    id: "reports".into(),
+                    text: "reports the command".into(),
+                    points: 40,
+                },
+            ],
+        };
+        let s = toml::to_string_pretty(&ev).unwrap();
+        let back: Eval = toml::from_str(&s).unwrap();
+        assert_eq!(back, ev);
+        assert_eq!(effective_criteria(&back).len(), 2);
+    }
+
+    #[test]
+    fn validate_eval_rules() {
+        let ok = Eval {
+            id: "a".into(),
+            scenario: "s".into(),
+            rubric: String::new(),
+            criteria: vec![Criterion {
+                id: "c1".into(),
+                text: "t".into(),
+                points: 1,
+            }],
+        };
+        assert!(validate_eval(&ok).is_ok());
+        // no criteria and no rubric → invalid
+        let mut bad = ok.clone();
+        bad.criteria.clear();
+        assert!(validate_eval(&bad).is_err());
+        // legacy shape (rubric only) → valid
+        bad.rubric = "must".into();
+        assert!(validate_eval(&bad).is_ok());
+        // zero points → invalid
+        let mut zp = ok.clone();
+        zp.criteria[0].points = 0;
+        assert!(validate_eval(&zp).is_err());
+        // duplicate ids → invalid
+        let mut dup = ok.clone();
+        dup.criteria.push(dup.criteria[0].clone());
+        assert!(validate_eval(&dup).is_err());
+        // empty scenario → invalid
+        let mut es = ok.clone();
+        es.scenario = "  ".into();
+        assert!(validate_eval(&es).is_err());
+    }
+
+    #[test]
+    fn criteria_hash_is_stable_and_content_sensitive() {
+        let c = vec![Criterion {
+            id: "a".into(),
+            text: "t".into(),
+            points: 10,
+        }];
+        assert_eq!(criteria_hash(&c), criteria_hash(&c.clone()));
+        let mut c2 = c.clone();
+        c2[0].points = 20;
+        assert_ne!(criteria_hash(&c), criteria_hash(&c2));
+    }
+
+    #[test]
     fn reads_and_sorts_evals_for_a_skill() {
         let tmp = tempfile::tempdir().unwrap();
         let evals_dir = tmp.path().join(".covenant/canon/evals/skill/kyc-peru");
@@ -617,6 +768,7 @@ mod tests {
             id: id.into(),
             scenario: "s".into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         super::write_eval(root, crate::ContextKind::Skill, "horizon", &ev("a")).unwrap();
         super::write_eval(root, crate::ContextKind::Skill, "horizon", &ev("b")).unwrap();
@@ -643,6 +795,7 @@ mod tests {
             id: "refuses-a-dirty-tree".into(),
             scenario: "s".into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         let path = super::write_eval(root, crate::ContextKind::Skill, "horizon", &ev).unwrap();
         assert!(path.ends_with(".covenant/canon/evals/skill/horizon/refuses-a-dirty-tree.toml"));
@@ -739,6 +892,7 @@ mod tests {
             id: "e1".into(),
             scenario: s.into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         super::write_eval(root, k, "horizon", &ev("original")).unwrap();
         // Explicit overwrite replaces where write_eval refuses.

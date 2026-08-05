@@ -1509,6 +1509,7 @@ mod tests {
             id: id.into(),
             scenario: "s".into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         karl_canon::write_eval(root, ContextKind::Command, "horizon", &ev("e1")).unwrap();
         karl_canon::write_eval(root, ContextKind::Command, "horizon", &ev("e2")).unwrap();
@@ -1550,6 +1551,7 @@ mod tests {
                     id: id.into(),
                     scenario: "s".into(),
                     rubric: "r".into(),
+                    criteria: Vec::new(),
                 },
             )
             .unwrap();
@@ -1579,6 +1581,7 @@ mod tests {
             id: id.into(),
             scenario: s.into(),
             rubric: r.into(),
+            criteria: Vec::new(),
         };
         // Pre-existing hand-tuned eval must survive untouched.
         karl_canon::write_eval(
@@ -1966,6 +1969,7 @@ mod tests {
             id: "Refuses Something".into(), // slugged on save
             scenario: "s".into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         canon_update_eval(cwd.clone(), "skill".into(), "horizon".into(), ev.clone())
             .await
@@ -1991,7 +1995,8 @@ mod tests {
             karl_canon::Eval {
                 id: "ok".into(),
                 scenario: "  ".into(),
-                rubric: "r".into()
+                rubric: "r".into(),
+                criteria: Vec::new(),
             }
         )
         .await
