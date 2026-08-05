@@ -724,15 +724,16 @@ export function openDraftReview(
     id.setAttribute("aria-label", `id for ${d.id}`);
     const scenario = draftField("Scenario", d.scenario);
     body.append(id, scenario.wrap);
+    let rubric: ReturnType<typeof draftField> | undefined;
     if (d.criteria && d.criteria.length > 0) {
       body.append(criteriaList(d.criteria));
     } else {
-      const rubric = draftField("Rubric", d.rubric);
+      rubric = draftField("Rubric", d.rubric);
       body.append(rubric.wrap);
     }
     row.append(check, body);
     list.appendChild(row);
-    return { draft: d, check, id, scenario: scenario.input };
+    return { draft: d, check, id, scenario: scenario.input, rubric: rubric?.input };
   });
   card.appendChild(list);
 
@@ -779,7 +780,7 @@ export function openDraftReview(
       .map((r) => ({
         id: r.id.value.trim(),
         scenario: r.scenario.value,
-        rubric: r.draft.rubric,
+        rubric: r.rubric?.value ?? r.draft.rubric,
         criteria: r.draft.criteria,
       }));
     writeBtn.disabled = true;

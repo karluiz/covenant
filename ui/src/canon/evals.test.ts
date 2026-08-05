@@ -67,6 +67,18 @@ describe("openDraftReview", () => {
     ], undefined);
   });
 
+  it("writes an edited Rubric textarea value for a rubric-only draft", () => {
+    const overlay = open();
+    overlay.querySelectorAll<HTMLInputElement>(".canon-draft-item > input[type=checkbox]")[1]!.click();
+    const textareas = overlay.querySelectorAll<HTMLTextAreaElement>("textarea");
+    // draft 0: [0] scenario, [1] rubric
+    textareas[1]!.value = "edited rubric";
+    (overlay.querySelector(".canon-draft-write") as HTMLButtonElement).click();
+    expect(canonWriteEvals).toHaveBeenCalledWith("/repo", "skill", "horizon", [
+      { id: "refuses-a-dirty-tree", scenario: "s1", rubric: "edited rubric" },
+    ], undefined);
+  });
+
   it("renders a draft's criteria as a read-only list under the scenario, instead of a rubric field", () => {
     document.body.replaceChildren();
     const withCriteria = [
