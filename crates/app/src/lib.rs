@@ -6036,6 +6036,8 @@ pub fn run() {
             canon_read_local,
             canon_read_source,
             canon_unit_path,
+            mcp_server::mcp_local_tools,
+            mcp_server::mcp_probe_http,
             canon_delete_unit,
             canon_adopt,
             canon_new_unit,
