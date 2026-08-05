@@ -8416,14 +8416,19 @@ mark.mv-find-hit.is-active {
 }
 
 /* First heading is the spec's own H1 — give it real presence, since
-   the modal header is now just a quiet eyebrow + breadcrumb. */
-.markdown-doc h1 {
+   the modal header is now just a quiet eyebrow + breadcrumb.
+   `.markdown-doc.markdown-doc` (class repeated) deliberately outranks the
+   generic `.markdown-body h1-h4` block further down this file — every real
+   caller carries both classes together, and same-specificity + later source
+   order meant the generic rule was silently winning (18px top margin, 16px
+   type instead of this rule's tighter, larger treatment). */
+.markdown-doc.markdown-doc h1 {
     font-size: 22px;
     line-height: 1.2;
     letter-spacing: -0.01em;
     margin: 2px 0 14px;
 }
-.markdown-doc h2 {
+.markdown-doc.markdown-doc h2 {
     font-size: 15px;
     margin: 26px 0 8px;
     padding-top: 16px;
@@ -8431,12 +8436,12 @@ mark.mv-find-hit.is-active {
     border-top: 1px solid var(--border);
     border-bottom: none;
 }
-.markdown-doc h2:first-child {
+.markdown-doc.markdown-doc h2:first-child {
     border-top: none;
     padding-top: 0;
     margin-top: 0;
 }
-.markdown-doc h3 {
+.markdown-doc.markdown-doc h3 {
     margin-top: 20px;
     font-size: 11px;
 }
@@ -8444,7 +8449,9 @@ mark.mv-find-hit.is-active {
 .markdown-doc li {
     color: var(--text-secondary, var(--muted));
 }
-.markdown-doc p { margin: 10px 0; }
+/* Same class-repeat trick as the headings above — .markdown-body p (6px)
+   would otherwise win on the 6px vs 10px margin tie. */
+.markdown-doc.markdown-doc p { margin: 10px 0; }
 .markdown-doc strong { color: var(--fg, #d6d8db); }
 
 /* Code blocks read as terminal panes — full-bleed, darker ground,
@@ -13403,6 +13410,23 @@ body[data-aom-phase="triaging"]
   color: var(--fg-dim, var(--muted));
   font-size: 12px;
 }
+.mission-page-current-jump {
+  display: inline-flex;
+  margin-top: 7px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-tertiary, var(--muted));
+}
+.mission-page-current-jump b {
+  color: var(--fg-dim);
+  font-weight: 600;
+  margin-left: 4px;
+}
+.mission-page-current-jump:hover b { color: var(--accent, #7aa2f7); }
 /* Bare button; the visible pill is the inner .settings-esc, shared with
    Settings / Release / Capabilities for a consistent esc affordance. */
 .mission-page-close {
@@ -13424,14 +13448,12 @@ body[data-aom-phase="triaging"]
 
 .mission-page-sidebar {
   border-right: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.08);
-  overflow-y: auto;
-  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  min-height: 0;
   background: rgb(var(--ink-rgb, 255 255 255) / 0.012);
 }
-.mission-page-search-row { position: sticky; top: 0; background: var(--bg-overlay, rgb(11 13 16)); padding-bottom: 8px; z-index: 1; }
+.mission-page-search-row { flex: 0 0 auto; padding: 12px 14px 8px; }
 .mission-page-search {
   width: 100%;
   box-sizing: border-box;
@@ -13445,49 +13467,77 @@ body[data-aom-phase="triaging"]
 }
 .mission-page-search:focus { outline: 2px solid color-mix(in srgb, var(--accent, #7aa2f7) 40%, transparent); outline-offset: 0; }
 
-.mission-page-section h4 {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--fg-dim);
-  margin: 0 0 6px 0;
+/* Kind tabs — DESIGN.md's registry/catalog tab convention: one active kind
+ * narrows the list below to a flat feed instead of an accordion fold. */
+.mission-page-kind-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  padding: 0 10px;
+  border-bottom: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.08);
+  overflow-x: auto;
 }
-.mission-page-section-head { display: flex; align-items: center; justify-content: space-between; }
-.mission-page-list { display: flex; flex-direction: column; gap: 4px; }
-
-/* Foldable sections (native <details>). Sticky-free, chevron-led header row. */
-details.mission-page-section { margin: 0; }
-details.mission-page-section > summary {
+.mission-page-kind-tabs::-webkit-scrollbar { display: none; }
+.mission-page-kind-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  list-style: none;
+  gap: 6px;
+  color: var(--fg-dim);
+  padding: 8px 9px 9px;
   cursor: pointer;
-  padding: 5px 4px 5px 2px;
-  margin: 0 0 4px 0;
-  user-select: none;
-  color: var(--fg-dim);
+  font: inherit;
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s;
 }
-details.mission-page-section > summary::-webkit-details-marker { display: none; }
-details.mission-page-section > summary:hover { color: var(--text-primary, var(--fg)); }
-.mission-page-sec-chevron {
-  display: inline-flex;
-  color: var(--fg-dim);
-  transition: transform 0.15s ease-out;
-  flex: 0 0 auto;
-}
-details.mission-page-section[open] > summary .mission-page-sec-chevron { transform: rotate(90deg); }
-.mission-page-sec-title { font-weight: 600; }
-.mission-page-sec-count {
+.mission-page-kind-tab-ico { display: inline-flex; opacity: 0.7; transition: opacity 0.12s, color 0.12s; }
+.mission-page-kind-tab-ct {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 10px;
   color: var(--text-tertiary, var(--muted));
-  letter-spacing: 0;
 }
-.mission-page-sec-action { margin-left: auto; }
+.mission-page-kind-tab:hover:not(.is-active) { color: var(--text-primary, var(--fg)); }
+.mission-page-kind-tab.is-active { color: var(--text-primary, var(--fg)); border-bottom-color: var(--accent, #7aa2f7); }
+.mission-page-kind-tab.is-active .mission-page-kind-tab-ico { opacity: 1; color: var(--accent, #7aa2f7); }
+.mission-page-kind-tab.is-active .mission-page-kind-tab-ct { color: var(--accent, #7aa2f7); }
+
+/* Groups — one per kind. Label + count only show in "All"; a single active
+ * kind tab already says what's listed. */
+.mission-page-groups {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.mission-page-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 6px;
+}
+.mission-page-group-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  font-weight: 600;
+}
+.mission-page-group-count {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  color: var(--text-tertiary, var(--muted));
+}
+.mission-page-group-action { margin-left: auto; }
+.mission-page-group-action-row { display: flex; justify-content: flex-end; padding: 0 2px 6px; }
+.mission-page-list { display: flex; flex-direction: column; gap: 4px; }
 
 .mission-page-spec, .mission-page-sp-row {
   display: grid;
@@ -13522,13 +13572,20 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
 }
 .mission-page-badge--ok { color: rgb(140 220 160); border-color: rgb(140 220 160 / 0.3); }
 .mission-page-badge--missing { color: rgb(220 140 140); border-color: rgb(220 140 140 / 0.3); cursor: pointer; background: none; }
-.mission-page-badge-new {
-  color: var(--accent, #7aa2f7);
-  border-color: color-mix(in srgb, var(--accent, #7aa2f7) 45%, transparent);
-  background: color-mix(in srgb, var(--accent, #7aa2f7) 14%, transparent);
-  font-weight: 650;
+.mission-page-badge-current {
+  color: var(--ok, #9ece6a);
+  border-color: color-mix(in srgb, var(--ok, #9ece6a) 40%, transparent);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
+}
+/* Small accent dot instead of a "NEW" pill — every row qualified in practice,
+ * which made the pill noise rather than signal. */
+.mission-page-dot-new {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #7aa2f7);
+  flex: 0 0 auto;
 }
 .mission-page-spec.is-new .mission-page-id {
   color: var(--accent, #7aa2f7);
@@ -13596,7 +13653,25 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
 .mission-page-draft { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; }
 .mission-page-publish { background: none; border: 1px solid rgb(255 255 255 / 0.15); color: var(--fg); padding: 2px 8px; border-radius: 0; cursor: pointer; font: inherit; font-size: 11px; }
 
-.mission-page-pathrow .mission-page-path-controls { display: flex; gap: 6px; }
+.mission-page-pathrow {
+  flex: 0 0 auto;
+  border-top: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.08);
+  padding: 8px 14px;
+}
+.mission-page-path-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 0;
+  padding: 3px 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.mission-page-path-toggle:hover { color: var(--accent, #7aa2f7); }
+.mission-page-pathrow .mission-page-path-controls { display: flex; gap: 6px; margin-top: 8px; }
 .mission-page-input {
   flex: 1; background: rgb(255 255 255 / 0.04); border: 1px solid rgb(255 255 255 / 0.08);
   color: var(--fg); padding: 6px 8px; border-radius: 0; font: inherit; font-family: var(--mono); font-size: 12px;
@@ -13644,12 +13719,27 @@ details.mission-page-section[open] > summary .mission-page-sec-chevron { transfo
 
 .mission-page-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
   align-items: center;
   padding: 0 20px;
   border-top: 1px solid rgb(255 255 255 / 0.06);
 }
+/* navigate()/Enter/Escape already worked — this just makes them discoverable. */
+.mission-page-kbd-hints {
+  display: flex;
+  gap: 14px;
+  font-size: 10px;
+  color: var(--text-tertiary, var(--muted));
+}
+.mission-page-kbd-hints span { display: flex; align-items: center; gap: 5px; }
+.mission-page-kbd-hints kbd {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.18);
+  padding: 1px 5px;
+  color: var(--fg-dim);
+}
+.mission-page-footer-actions { display: flex; gap: 8px; align-items: center; }
 /* .mission-page-cancel / .mission-page-submit styled via shared
    primary/secondary button block at the top of styles.css. */
 
@@ -16056,8 +16146,8 @@ body.theme-light .mission-page-input:focus {
     outline: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
     outline-offset: 0;
 }
-body.theme-light .mission-page-section h4,
-body.theme-light .mission-page-section > summary,
+body.theme-light .mission-page-group-title,
+body.theme-light .mission-page-kind-tab:not(.is-active),
 body.theme-light .mission-page-id,
 body.theme-light .mission-page-spec-goal,
 body.theme-light .mission-page-empty,
@@ -16082,7 +16172,8 @@ body.theme-light .mission-page-badge {
     color: var(--muted);
 }
 body.theme-light .mission-page-badge--ok,
-body.theme-light .mission-page-status-ok {
+body.theme-light .mission-page-status-ok,
+body.theme-light .mission-page-badge-current {
     color: var(--ok);
     border-color: color-mix(in srgb, var(--ok) 35%, transparent);
     opacity: 0.9;

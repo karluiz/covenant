@@ -9,6 +9,13 @@ import { scoreSpec, type SpecScore } from "../spec-score/engine";
 import { makeSpecScoreChip, renderBreakdown } from "../spec-score/badge";
 import { deepScore } from "../spec-score/deep";
 import { formatChord } from "../platform";
+import { attachTooltip } from "../tooltip/tooltip";
+
+/** Kind filter for the picker's rail — replaces the old per-section fold state:
+ *  one tab narrows the list instead of expanding/collapsing an accordion. */
+export type KindTab = "all" | "inprogress" | "published" | "superpowers" | "drafts";
+
+const GRADE_TOOLTIP = "S ≥ 95 · A ≥ 85 · B ≥ 70 · C ≥ 50 · D < 50";
 
 export type SelectedRef =
   | { source: "card"; path: string }
@@ -110,8 +117,10 @@ export class MissionPage {
   /// Invalidates async list/preview loads from a previous picker open.
   private openGeneration = 0;
   private state: PageState = initialState(null);
-  /** Section keys the user has folded shut. Persists across innerHTML re-renders. */
-  private collapsed = new Set<string>(["superpowers", "drafts"]);
+  /** Which kind of spec the rail shows. Persists across innerHTML re-renders. */
+  private activeKindTab: KindTab = "all";
+  /** "Or paste a path…" starts folded; persists across innerHTML re-renders. */
+  private pathRowOpen = false;
   private opts: MissionPageOpts | null = null;
   private resolve: ((r: PageResult) => void) | null = null;
   private unlistenSp: UnlistenFn | null = null;
@@ -141,6 +150,8 @@ export class MissionPage {
     const generation = ++this.openGeneration;
     this.opts = opts;
     this.state = initialState(opts.currentMissionPath);
+    this.activeKindTab = "all";
+    this.pathRowOpen = false;
     this.previewBody = "";
     this.previewPath = "";
     this.previewLoading = false;
@@ -280,6 +291,13 @@ export class MissionPage {
 
     this.pageHost.innerHTML = "";
 
+    const currentSpec = this.opts?.currentMissionPath
+      ? s.specs.find((sp) => sp.path === this.opts!.currentMissionPath)
+      : undefined;
+    const currentJump = currentSpec
+      ? `<button type="button" class="mission-page-current-jump">Currently set → <b>${escapeHtml(currentSpec.id)} · ${escapeHtml(currentSpec.title)}</b></button>`
+      : "";
+
     const header = document.createElement("header");
     header.className = "mission-page-header";
     header.innerHTML = `
@@ -288,6 +306,7 @@ export class MissionPage {
         <div>
           <h2 class="mission-page-title">Set spec</h2>
           <p class="mission-page-subtitle">Choose the spec that anchors this tab.</p>
+          ${currentJump}
         </div>
       </div>
       <button type="button" class="mission-page-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
@@ -304,8 +323,15 @@ export class MissionPage {
     const footer = document.createElement("footer");
     footer.className = "mission-page-footer";
     footer.innerHTML = `
-      <button type="button" class="mission-page-cancel">Cancel</button>
-      <button type="button" class="mission-page-submit" ${canSubmit(s) ? "" : "disabled"}>Set spec</button>
+      <div class="mission-page-kbd-hints">
+        <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> navigate</span>
+        <span><kbd>&crarr;</kbd> set spec</span>
+        <span><kbd>esc</kbd> close</span>
+      </div>
+      <div class="mission-page-footer-actions">
+        <button type="button" class="mission-page-cancel">Cancel</button>
+        <button type="button" class="mission-page-submit" ${canSubmit(s) ? "" : "disabled"}>Set spec</button>
+      </div>
     `;
     this.pageHost.appendChild(footer);
 
@@ -332,41 +358,93 @@ export class MissionPage {
                autocomplete="off" spellcheck="false" value="${escapeAttr(s.query)}" />
       </div>
       ${this.renderError()}
-      ${this.renderInProgressSection()}
-      ${this.renderPublishedSection(visible)}
-      ${this.renderSuperpowersSection()}
-      ${this.renderDraftsSection()}
+      ${this.renderKindTabs(visible)}
+      <div class="mission-page-groups">
+        ${this.renderInProgressGroup()}
+        ${this.renderPublishedGroup(visible)}
+        ${this.renderSuperpowersGroup()}
+        ${this.renderDraftsGroup()}
+      </div>
       ${this.renderPathRow()}
     `;
     return aside;
   }
 
-  /** Foldable section wrapper. Open unless the user folded it — or always open
-   *  while searching, so matches buried in a folded group stay visible. */
-  private section(key: string, title: string, count: string, bodyHTML: string, actionHTML = ""): string {
-    const open = this.state.query.trim().length > 0 || !this.collapsed.has(key);
-    return `<details class="mission-page-section" data-section="${key}" ${open ? "open" : ""}>
-      <summary>
-        <span class="mission-page-sec-chevron" aria-hidden="true">${Icons.chevronRight({ size: 12 })}</span>
-        <span class="mission-page-sec-title">${escapeHtml(title)}</span>
-        ${count ? `<span class="mission-page-sec-count">${escapeHtml(count)}</span>` : ""}
-        ${actionHTML ? `<span class="mission-page-sec-action">${actionHTML}</span>` : ""}
-      </summary>
-      <div class="mission-page-list">${bodyHTML}</div>
-    </details>`;
+  /** Kind-filter tab row (DESIGN.md's registry/catalog tab convention): one
+   *  active kind narrows the list below to a flat feed, replacing the old
+   *  per-section fold state — there's nothing left to expand/collapse. */
+  private renderKindTabs(visible: PublishedSpec[]): string {
+    const s = this.state;
+    const q = s.query.trim().toLowerCase();
+    const ipCount = q ? s.inProgress.filter((d) => draftLabel(d).toLowerCase().includes(q)).length : s.inProgress.length;
+    const pubCount = visible.length;
+    const spCount = q
+      ? s.superpowers.filter((e) => {
+          const { title } = humanizeSpecFilename(e.spec_filename);
+          return (
+            title.toLowerCase().includes(q) ||
+            e.spec_filename.toLowerCase().includes(q) ||
+            (e.goal_preview ?? "").toLowerCase().includes(q)
+          );
+        }).length
+      : s.superpowers.length;
+    const draftCount = q ? s.drafts.filter((d) => d.title.toLowerCase().includes(q)).length : s.drafts.length;
+
+    const tabs: Array<{ key: KindTab; label: string; count: number; icon: string; hide?: boolean }> = [
+      { key: "all", label: "All", count: ipCount + pubCount + spCount + draftCount, icon: "" },
+      { key: "inprogress", label: "In progress", count: ipCount, icon: Icons.history({ size: 12 }), hide: s.inProgress.length === 0 },
+      { key: "published", label: "Published", count: pubCount, icon: Icons.fileText({ size: 12 }) },
+      { key: "superpowers", label: "Superpowers", count: spCount, icon: "&#10022;", hide: s.superpowers.length === 0 },
+      { key: "drafts", label: "Drafts", count: draftCount, icon: Icons.filePen({ size: 12 }), hide: s.drafts.length === 0 },
+    ];
+    return `<div class="mission-page-kind-tabs" role="tablist">
+      ${tabs.filter((t) => !t.hide).map((t) => `
+        <button type="button" class="mission-page-kind-tab ${this.activeKindTab === t.key ? "is-active" : ""}"
+                data-kind="${t.key}" role="tab" aria-selected="${this.activeKindTab === t.key}">
+          ${t.icon ? `<span class="mission-page-kind-tab-ico" aria-hidden="true">${t.icon}</span>` : ""}
+          ${escapeHtml(t.label)}
+          <span class="mission-page-kind-tab-ct">${t.count}</span>
+        </button>`).join("")}
+    </div>`;
   }
 
-  private renderInProgressSection(): string {
+  /** Wraps one kind's rows. Renders "" when a different tab is active — the
+   *  label + count only show up in "All", where the active tab isn't already
+   *  saying what's listed. */
+  private group(kind: KindTab, title: string, count: string, bodyHTML: string, actionHTML = ""): string {
+    if (this.activeKindTab !== "all" && this.activeKindTab !== kind) return "";
+    if (this.activeKindTab !== "all") {
+      return `<div class="mission-page-group" data-kind="${kind}">
+        ${actionHTML ? `<div class="mission-page-group-action-row">${actionHTML}</div>` : ""}
+        <div class="mission-page-list">${bodyHTML}</div>
+      </div>`;
+    }
+    return `<div class="mission-page-group" data-kind="${kind}">
+      <div class="mission-page-group-head">
+        <span class="mission-page-group-title">${escapeHtml(title)}</span>
+        ${count ? `<span class="mission-page-group-count">${escapeHtml(count)}</span>` : ""}
+        ${actionHTML ? `<span class="mission-page-group-action">${actionHTML}</span>` : ""}
+      </div>
+      <div class="mission-page-list">${bodyHTML}</div>
+    </div>`;
+  }
+
+  private renderInProgressGroup(): string {
     const s = this.state;
     if (s.loading || s.inProgress.length === 0) return "";
     const q = s.query.trim().toLowerCase();
     const filtered = q
       ? s.inProgress.filter((d) => draftLabel(d).toLowerCase().includes(q))
       : s.inProgress;
-    if (filtered.length === 0) return "";
+    const count = q && filtered.length !== s.inProgress.length
+      ? `${filtered.length}/${s.inProgress.length}`
+      : `${s.inProgress.length}`;
+    if (filtered.length === 0) {
+      return this.group("inprogress", "In progress", count, `<div class="mission-page-empty">No matches for "${escapeHtml(s.query)}".</div>`);
+    }
     const items = filtered.map((d) => `
       <button type="button" class="mission-page-spec mission-page-wip-row" data-draft="${escapeAttr(d.id)}"
-              title="Resume in Spec Creator">
+              data-tip="Resume in Spec Creator">
         <span class="mission-page-id">${d.status === "Ready" ? "RDY" : "WIP"}</span>
         <span class="mission-page-spec-body">
           <span class="mission-page-spec-title">${escapeHtml(draftLabel(d))}</span>
@@ -375,10 +453,7 @@ export class MissionPage {
         <span class="mission-page-badge mission-page-badge-wip">${escapeHtml(phaseBadge(d.status))}</span>
       </button>
     `).join("");
-    const count = q && filtered.length !== s.inProgress.length
-      ? `${filtered.length}/${s.inProgress.length}`
-      : `${s.inProgress.length}`;
-    return this.section("inprogress", "In progress", count, items);
+    return this.group("inprogress", "In progress", count, items);
   }
 
   private renderError(): string {
@@ -389,14 +464,14 @@ export class MissionPage {
     </div>`;
   }
 
-  private renderPublishedSection(visible: PublishedSpec[]): string {
+  private renderPublishedGroup(visible: PublishedSpec[]): string {
     const s = this.state;
     const specAction = `<button type="button" class="mission-page-sp-new" data-action="spec-new">✦ Spec Creator</button>`;
     if (s.loading) {
-      return `<section class="mission-page-section">
-        <h4>Published</h4>
+      return `<div class="mission-page-group" data-kind="published">
+        <div class="mission-page-group-head"><span class="mission-page-group-title">Published</span></div>
         <div class="mission-page-skeleton">${"<div class=\"skel-row\"></div>".repeat(3)}</div>
-      </section>`;
+      </div>`;
     }
     if (s.specs.length === 0) {
       const body = `<div class="mission-page-empty">
@@ -405,11 +480,11 @@ export class MissionPage {
           or write one in
           <button type="button" class="mission-page-link" data-action="open-drafts">Drafts (${formatChord(["mod", "shift", "D"])})</button>.
         </div>`;
-      return this.section("published", "Published", "0", body, specAction);
+      return this.group("published", "Published", "0", body, specAction);
     }
     if (visible.length === 0) {
       const body = `<div class="mission-page-empty">No matches for "${escapeHtml(s.query)}".</div>`;
-      return this.section("published", "Published", `0/${s.specs.length}`, body, specAction);
+      return this.group("published", "Published", `0/${s.specs.length}`, body, specAction);
     }
     const cards = visible.map((spec) => {
       const isSelected = s.selected?.source === "card" && s.selected.path === spec.path;
@@ -426,19 +501,19 @@ export class MissionPage {
           <span class="mission-page-badges">
             ${this.scoreBadgeHtml(spec.path)}
             ${spec.worktree_label ? `<span class="mission-page-badge mission-page-badge-wt">${escapeHtml(spec.worktree_label)}</span>` : ""}
-            ${isCurrent ? `<span class="mission-page-badge">current</span>` : ""}
-            ${!isCurrent && isNew ? `<span class="mission-page-badge mission-page-badge-new">new</span>` : ""}
+            ${isCurrent ? `<span class="mission-page-badge mission-page-badge-current" data-tip="Currently set on this tab">current</span>` : ""}
+            ${!isCurrent && isNew ? `<span class="mission-page-dot-new" data-tip="Updated in the last 24h"></span>` : ""}
           </span>
         </button>
       `;
     }).join("");
     const count = visible.length !== s.specs.length ? `${visible.length}/${s.specs.length}` : `${visible.length}`;
-    return this.section("published", "Published", count, cards, specAction);
+    return this.group("published", "Published", count, cards, specAction);
   }
 
   private scoreBadgeHtml(path: string): string {
     const s = this.scoreCache.get(path);
-    return s ? `<span class="spec-score-badge" data-grade="${s.grade}">${s.score} ${s.grade}</span>` : "";
+    return s ? `<span class="spec-score-badge" data-grade="${s.grade}" data-tip="${escapeAttr(GRADE_TOOLTIP)}">${s.score} ${s.grade}</span>` : "";
   }
 
   /** Compute SpecScores for visible rows that lack one; re-render once when any
@@ -462,7 +537,7 @@ export class MissionPage {
     if (landed && generation === this.openGeneration && this.isOpenState) this.render();
   }
 
-  private renderSuperpowersSection(): string {
+  private renderSuperpowersGroup(): string {
     const s = this.state;
     if (s.loading || s.superpowers.length === 0) return "";
     const q = s.query.trim().toLowerCase();
@@ -482,7 +557,7 @@ export class MissionPage {
     const spAction = `<button type="button" class="mission-page-sp-new" data-action="sp-new">+ New Superpowers mission</button>`;
     if (filtered.length === 0) {
       const body = `<div class="mission-page-empty">No matches for "${escapeHtml(s.query)}".</div>`;
-      return this.section("superpowers", "Superpowers", countLabel, body, spAction);
+      return this.group("superpowers", "Superpowers", countLabel, body, spAction);
     }
     const items = filtered.map((e) => {
       const { title, date } = humanizeSpecFilename(e.spec_filename);
@@ -492,13 +567,13 @@ export class MissionPage {
         ? `<span class="mission-page-badge mission-page-badge--missing mission-page-plan-missing"
                    role="button" tabindex="0"
                    data-spec="${escapeAttr(e.spec_path)}"
-                   title="Generate plan with writing-plans skill">no plan</span>`
-        : `<span class="mission-page-status-ok" title="spec ✓ · plan ✓" aria-label="ready">✓</span>`;
+                   data-tip="Generate a plan with the writing-plans skill">no plan</span>`
+        : `<span class="mission-page-status-ok" data-tip="Spec ✓ · Plan ✓" aria-label="ready">✓</span>`;
       return `
         <button type="button" class="mission-page-spec mission-page-sp-row"
                 data-spec="${escapeAttr(e.spec_path)}"
                 data-plan="${escapeAttr(e.plan_path ?? "")}"
-                title="${escapeAttr(e.spec_filename)}">
+                data-tip="${escapeAttr(e.spec_filename)}">
           <span class="mission-page-id">${escapeHtml(date)}</span>
           <span class="mission-page-spec-body">
             <span class="mission-page-spec-title">${escapeHtml(title)}</span>
@@ -509,13 +584,19 @@ export class MissionPage {
         </button>
       `;
     }).join("");
-    return this.section("superpowers", "Superpowers", countLabel, items, spAction);
+    return this.group("superpowers", "Superpowers", countLabel, items, spAction);
   }
 
-  private renderDraftsSection(): string {
+  private renderDraftsGroup(): string {
     const s = this.state;
     if (s.drafts.length === 0) return "";
-    const items = s.drafts.map((d) => `
+    const q = s.query.trim().toLowerCase();
+    const filtered = q ? s.drafts.filter((d) => d.title.toLowerCase().includes(q)) : s.drafts;
+    const count = q && filtered.length !== s.drafts.length ? `${filtered.length}/${s.drafts.length}` : `${s.drafts.length}`;
+    if (filtered.length === 0) {
+      return this.group("drafts", "Drafts", count, `<div class="mission-page-empty">No matches for "${escapeHtml(s.query)}".</div>`);
+    }
+    const items = filtered.map((d) => `
       <div class="mission-page-draft" data-slug="${escapeAttr(d.slug)}">
         <span class="mission-page-spec-title">${escapeHtml(d.title)}</span>
         ${d.worktree_label
@@ -525,22 +606,27 @@ export class MissionPage {
           : `<button type="button" class="mission-page-publish" data-slug="${escapeAttr(d.slug)}">Publish to use</button>`}
       </div>
     `).join("");
-    return this.section("drafts", "Drafts", `${s.drafts.length}`, items);
+    return this.group("drafts", "Drafts", count, items);
   }
 
+  /** Folded by default — stays out of the way until the user actually needs to
+   *  paste an arbitrary path; open already if one's mid-edit (input non-empty). */
   private renderPathRow(): string {
     const s = this.state;
+    const open = this.pathRowOpen || s.inputValue.trim().length > 0;
     return `
-      <section class="mission-page-section mission-page-pathrow">
-        <h4>Or pick another file…</h4>
-        <div class="mission-page-path-controls">
+      <div class="mission-page-pathrow">
+        <button type="button" class="mission-page-path-toggle" aria-expanded="${open}">
+          ${Icons.fileText({ size: 12 })} Or paste a file path…
+        </button>
+        <div class="mission-page-path-controls" ${open ? "" : "hidden"}>
           <input type="text" class="mission-page-input"
                  autocomplete="off" spellcheck="false"
                  placeholder="/absolute/path/to/spec.md"
                  value="${escapeAttr(s.inputValue)}" />
           <button type="button" class="mission-page-browse">Browse…</button>
         </div>
-      </section>
+      </div>
     `;
   }
 
@@ -650,14 +736,36 @@ export class MissionPage {
       });
     });
 
-    // Persist fold state across the innerHTML wipe render() does on every keystroke.
-    host.querySelectorAll<HTMLDetailsElement>("details.mission-page-section").forEach((det) => {
-      const key = det.dataset.section;
-      if (!key) return;
-      det.addEventListener("toggle", () => {
-        if (det.open) this.collapsed.delete(key);
-        else this.collapsed.add(key);
+    host.querySelectorAll<HTMLButtonElement>(".mission-page-kind-tab").forEach((btn) => {
+      const kind = btn.dataset.kind as KindTab | undefined;
+      btn.addEventListener("click", () => {
+        if (!kind || this.activeKindTab === kind) return;
+        this.activeKindTab = kind;
+        this.render();
       });
+    });
+
+    host.querySelector<HTMLButtonElement>(".mission-page-current-jump")?.addEventListener("click", () => {
+      if (!this.opts?.currentMissionPath) return;
+      const path = this.opts.currentMissionPath;
+      this.activeKindTab = "published";
+      this.state = selectCard(this.state, path);
+      void this.loadPreview(path);
+      this.render();
+      this.pageHost.querySelector(`.mission-page-spec[data-path="${CSS.escape(path)}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
+
+    host.querySelector<HTMLButtonElement>(".mission-page-path-toggle")?.addEventListener("click", () => {
+      this.pathRowOpen = !this.pathRowOpen;
+      this.render();
+    });
+
+    // Rows use a custom `data-tip` attribute (never native `title=`), all wired
+    // through the shared attachTooltip so they behave like the rest of chrome.
+    host.querySelectorAll<HTMLElement>("[data-tip]").forEach((el) => {
+      const tip = el.dataset.tip;
+      if (tip) attachTooltip(el, tip, { placement: "right" });
     });
 
     host.querySelectorAll<HTMLButtonElement>(".mission-page-sp-row").forEach((btn) => {
