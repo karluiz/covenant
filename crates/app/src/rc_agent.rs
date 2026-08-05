@@ -624,25 +624,26 @@ async fn handle_guest_input(app: &AppHandle, session_id: &str, conn_id: u64, b64
     // lock must not fail open (silently forward ungated bytes) or fail
     // closed with no signal — recover it like every other rc_guest access
     // and keep going.
+    //
+    // The actual driver/conn_id/blocklist decision lives in
+    // `rc_guest::decide_guest_input` (pure, unit-tested); this just applies
+    // its verdict under the lock.
     let (fwd, blocked) = {
         let mut st = state.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(driver) = st.drivers.get_mut(&id) else {
-            return;
-        };
-        if driver.conn_id != conn_id {
-            return;
+        match crate::rc_guest::decide_guest_input(&mut st, id, conn_id, &bytes) {
+            crate::rc_guest::GuestInputVerdict::Drop => return,
+            crate::rc_guest::GuestInputVerdict::Forward(fwd) => (fwd, None),
+            crate::rc_guest::GuestInputVerdict::Blocked { forward, message } => {
+                crate::rc_guest::send_frame(
+                    &st,
+                    serde_json::to_string(&serde_json::json!({
+                        "t": "input_blocked", "session_id": session_id, "message": &message,
+                    }))
+                    .unwrap_or_default(),
+                );
+                (forward, Some(message))
+            }
         }
-        let (fwd, blocked) = crate::rc_guest::gate_guest_bytes(&mut driver.line, &bytes);
-        if let Some(msg) = &blocked {
-            crate::rc_guest::send_frame(
-                &st,
-                serde_json::to_string(&serde_json::json!({
-                    "t": "input_blocked", "session_id": session_id, "message": msg,
-                }))
-                .unwrap_or_default(),
-            );
-        }
-        (fwd, blocked)
     };
     if blocked.is_some() {
         karl_score::record_risky_action(karl_score::RiskyOutcome::Blocked);

@@ -124,6 +124,49 @@ pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<Str
     (fwd, None)
 }
 
+/// Outcome of `decide_guest_input` for one inbound `guest_input` frame.
+/// `Blocked` still carries whatever bytes were typed before the blocked
+/// terminator (`gate_guest_bytes` forwards those unconditionally) — a
+/// blocked submit is not "nothing happened", it's "everything except the
+/// terminator happened".
+#[derive(Debug, PartialEq)]
+pub enum GuestInputVerdict {
+    Forward(Vec<u8>),
+    Blocked { forward: Vec<u8>, message: String },
+    Drop,
+}
+
+/// Pure decision for one inbound `guest_input` frame: is there a driver
+/// for this session, does its `conn_id` match, and does the blocklist gate
+/// pass? Factored out of `rc_agent::handle_guest_input` so the branching
+/// is unit-testable without an `AppHandle`. The caller holds
+/// `RcGuestState`'s lock for the duration of the call, same as before this
+/// was extracted.
+pub fn decide_guest_input(
+    st: &mut RcGuestState,
+    id: karl_session::SessionId,
+    conn_id: u64,
+    bytes: &[u8],
+) -> GuestInputVerdict {
+    if bytes.is_empty() {
+        return GuestInputVerdict::Drop;
+    }
+    let Some(driver) = st.drivers.get_mut(&id) else {
+        return GuestInputVerdict::Drop;
+    };
+    if driver.conn_id != conn_id {
+        return GuestInputVerdict::Drop;
+    }
+    let (fwd, blocked) = gate_guest_bytes(&mut driver.line, bytes);
+    match blocked {
+        Some(message) => GuestInputVerdict::Blocked {
+            forward: fwd,
+            message,
+        },
+        None => GuestInputVerdict::Forward(fwd),
+    }
+}
+
 /// Remove the driver (if any), announce control_revoked to guests, and
 /// tell the UI. Callable from sync contexts (std Mutex, no awaits).
 pub fn revoke_driver(app: &AppHandle, id: karl_session::SessionId) -> Option<GuestDriver> {
@@ -367,6 +410,123 @@ mod tests {
             line, "caf\u{fffd}",
             "the lead byte gets one placeholder, the continuation byte is skipped"
         );
+    }
+
+    fn test_session() -> karl_session::SessionId {
+        karl_session::SessionId(ulid::Ulid::new())
+    }
+
+    #[test]
+    fn decide_guest_input_drops_when_no_driver_exists() {
+        let mut st = RcGuestState::default();
+        let id = test_session();
+        assert_eq!(
+            decide_guest_input(&mut st, id, 1, b"ls"),
+            GuestInputVerdict::Drop
+        );
+    }
+
+    #[test]
+    fn decide_guest_input_drops_on_conn_id_mismatch() {
+        let mut st = RcGuestState::default();
+        let id = test_session();
+        st.drivers.insert(
+            id,
+            GuestDriver {
+                conn_id: 1,
+                login: "nico".into(),
+                line: String::new(),
+            },
+        );
+        assert_eq!(
+            decide_guest_input(&mut st, id, 2, b"ls"),
+            GuestInputVerdict::Drop
+        );
+    }
+
+    #[test]
+    fn decide_guest_input_drops_on_empty_bytes() {
+        let mut st = RcGuestState::default();
+        let id = test_session();
+        st.drivers.insert(
+            id,
+            GuestDriver {
+                conn_id: 1,
+                login: "nico".into(),
+                line: String::new(),
+            },
+        );
+        assert_eq!(
+            decide_guest_input(&mut st, id, 1, b""),
+            GuestInputVerdict::Drop
+        );
+    }
+
+    #[test]
+    fn decide_guest_input_forwards_when_driver_matches() {
+        let mut st = RcGuestState::default();
+        let id = test_session();
+        st.drivers.insert(
+            id,
+            GuestDriver {
+                conn_id: 1,
+                login: "nico".into(),
+                line: String::new(),
+            },
+        );
+        assert_eq!(
+            decide_guest_input(&mut st, id, 1, b"ls -la"),
+            GuestInputVerdict::Forward(b"ls -la".to_vec())
+        );
+    }
+
+    #[test]
+    fn decide_guest_input_blocks_a_dangerous_line_and_still_forwards_the_prefix() {
+        let mut st = RcGuestState::default();
+        let id = test_session();
+        st.drivers.insert(
+            id,
+            GuestDriver {
+                conn_id: 1,
+                login: "nico".into(),
+                line: String::new(),
+            },
+        );
+        let verdict = decide_guest_input(&mut st, id, 1, b"rm -rf /\r");
+        match verdict {
+            GuestInputVerdict::Blocked { forward, message } => {
+                assert_eq!(forward, b"rm -rf /");
+                assert!(!message.is_empty());
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn granting_a_new_driver_overwrites_the_previous_one() {
+        // Driver uniqueness is a HashMap property: a second grant for the
+        // same session must replace the first, not coexist with it.
+        let mut st = RcGuestState::default();
+        let id = test_session();
+        st.drivers.insert(
+            id,
+            GuestDriver {
+                conn_id: 1,
+                login: "nico".into(),
+                line: String::new(),
+            },
+        );
+        st.drivers.insert(
+            id,
+            GuestDriver {
+                conn_id: 2,
+                login: "ana".into(),
+                line: String::new(),
+            },
+        );
+        assert_eq!(st.drivers.len(), 1);
+        assert_eq!(st.drivers.get(&id).unwrap().conn_id, 2);
+        assert_eq!(st.drivers.get(&id).unwrap().login, "ana");
     }
 
     #[test]

@@ -64,7 +64,7 @@ pub fn save_shares(path: &Path, m: &HashMap<String, TermShare>) -> Result<(), St
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
-fn shares_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn shares_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     use tauri::Manager;
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -120,6 +120,16 @@ fn validate_mode(mode: &str) -> Result<(), String> {
         "ro" | "collab" => Ok(()),
         other => Err(format!("invalid share mode: {other}")),
     }
+}
+
+/// Pure: does the local share store have a live collab share for this
+/// session? `rc_grant_driver` calls this before ever installing a guest
+/// driver — the relay-compromise defense's desktop-side half. A forged
+/// `guest_request_control` frame naming a session nobody actually shared
+/// in collab mode must not result in a granted driver, no matter what the
+/// relay forwards.
+pub(crate) fn grant_allowed(shares: &HashMap<String, TermShare>, session_id: &str) -> bool {
+    shares.contains_key(&store_key(session_id, "collab"))
 }
 
 #[tauri::command]
@@ -265,6 +275,44 @@ mod tests {
         let back = load_shares(&p);
         assert_eq!(back.get(&store_key("S1", "ro")).unwrap().share_id, 1);
         assert_eq!(back.get(&store_key("S1", "collab")).unwrap().share_id, 2);
+    }
+
+    #[test]
+    fn grant_allowed_true_when_collab_share_exists() {
+        let mut shares = HashMap::new();
+        shares.insert(
+            store_key("S1", "collab"),
+            TermShare {
+                share_id: 1,
+                token: "t".into(),
+                url: "u".into(),
+                mode: "collab".into(),
+            },
+        );
+        assert!(grant_allowed(&shares, "S1"));
+    }
+
+    #[test]
+    fn grant_allowed_false_when_no_share_at_all() {
+        let shares: HashMap<String, TermShare> = HashMap::new();
+        assert!(!grant_allowed(&shares, "S1"));
+    }
+
+    #[test]
+    fn grant_allowed_false_when_only_ro_shared() {
+        // A ro-shared session must not let a forged grant through — only
+        // a collab share counts.
+        let mut shares = HashMap::new();
+        shares.insert(
+            store_key("S1", "ro"),
+            TermShare {
+                share_id: 1,
+                token: "t".into(),
+                url: "u".into(),
+                mode: "ro".into(),
+            },
+        );
+        assert!(!grant_allowed(&shares, "S1"));
     }
 
     #[test]

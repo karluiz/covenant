@@ -1325,6 +1325,15 @@ async fn rc_grant_driver(
     login: String,
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
+    // Desktop-side half of the relay-compromise defense: a forged
+    // `guest_request_control` frame (or a compromised relay replaying one)
+    // must not grant write control over a session the owner never actually
+    // shared in collab mode. The local share store is the source of truth
+    // for what's live — check it before installing any driver.
+    let shares = term_share::load_shares(&term_share::shares_path(&app)?);
+    if !term_share::grant_allowed(&shares, &session_id) {
+        return Err("no live collab share for this session".into());
+    }
     {
         // Recover a poisoned guard rather than fail open — a granted
         // driver must never come from a swallowed error path.
