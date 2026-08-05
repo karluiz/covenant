@@ -111,6 +111,15 @@ import { SpawnsChip, spawnBrandGlyph } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline, acpExecutorFor, quickCallAcp } from "./spawns/shortcuts";
 import { resolveLaunch, isolateCwd, isSilentWorktreeFailure } from "./spawns/worktree-launch";
+import {
+  buildContinuePrompt,
+  clipContinuePrompt,
+  CONTINUE_BLOCK_COUNT,
+  waitForExecutor,
+  type ContinuePromptInput,
+  type ContinueWithArgs,
+} from "./continue-with";
+import { sendPromptToSession } from "./project-notes/paste";
 import { worktreeCreate, worktreeRetire } from "./api";
 import { beaconFailurePrompt } from "./api";
 import {
@@ -1560,6 +1569,103 @@ async function boot(): Promise<void> {
       // falls back to a plain tab.
       if (spec?.acp && acpExecutorFor(spec)) return null;
       return spec && spec.command ? buildSpawnCmdline(spec, claudeTheme()) : null;
+    };
+    // Pane context menu → "Continue with…" submenu: the user's full spawn
+    // list, filtered down to eligible destinations by manager itself
+    // (eligibleContinueSpawns) before rendering.
+    manager.listContinueSpawns = () => listSpawns();
+    // Pane context menu → "Continue with…" item click: open a NEW tab (same
+    // group/cwd/color as the source pane — never a new worktree, never the
+    // source PTY) running `dest`, then hand it the source session's recent
+    // context once its executor is detected.
+    manager.continueWithHarness = (args: ContinueWithArgs): void => {
+      void (async () => {
+        const { dest } = args;
+        if (!dest.command) return;
+
+        let recent: ContinuePromptInput["recent"] = [];
+        let excerptCwd = args.cwd;
+        try {
+          const excerpt = await readSessionExcerpt(args.sourceSessionId, CONTINUE_BLOCK_COUNT);
+          recent = excerpt.recent;
+          if (excerpt.cwd) excerptCwd = excerpt.cwd;
+        } catch {
+          pushInfoToast({ message: "No recent blocks — launching with a minimal brief" });
+        }
+
+        let branch: string | null = null;
+        try {
+          if (excerptCwd) {
+            branch = (await gitRepoSummary(excerptCwd)).current_branch;
+          }
+        } catch {
+          /* omit branch */
+        }
+
+        const prompt = clipContinuePrompt(
+          buildContinuePrompt({
+            sourceExecutor: args.sourceExecutor,
+            destLabel: dest.label,
+            cwd: excerptCwd || args.cwd || "(unknown)",
+            branch,
+            recent,
+          }),
+        );
+
+        const cmdline = buildSpawnCmdline(dest, claudeTheme()) + "\n";
+        let tab;
+        try {
+          tab = await manager.createTab({
+            cwd: args.cwd || null,
+            groupId: args.groupId,
+            color: args.color,
+            defaultTitle: `Continue · ${dest.label}`,
+            initialCommand: cmdline,
+            scrubLaunch: true,
+          });
+        } catch (e) {
+          pushInfoToast({
+            message: `Couldn’t open tab: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          return;
+        }
+        if (!tab) {
+          pushInfoToast({ message: "Couldn’t open tab for Continue with…" });
+          return;
+        }
+
+        const destSessionId = tab.panes[0]?.sessionId ?? null;
+        if (!destSessionId) {
+          pushInfoToast({ message: "Tab opened but session missing — paste context manually" });
+          return;
+        }
+
+        manager.setActiveSpawnId(dest.id);
+        requestAnimationFrame(() => manager.focusActive());
+
+        // `tab` is the live object returned by createTab — OSC/foreground
+        // detection mutates its pane in place (see manager.ts), so closing
+        // over it (rather than re-looking it up by id, which TabManager
+        // doesn't expose) is enough to observe executor detection land.
+        const ready = await waitForExecutor({
+          getExecutor: () => tab.panes[0]?.executor ?? null,
+        });
+
+        try {
+          await sendPromptToSession(destSessionId, prompt);
+          pushInfoToast({
+            message: ready
+              ? `Continuing with ${dest.label}`
+              : `Continuing with ${dest.label} (agent may still be starting)`,
+          });
+        } catch (e) {
+          pushInfoToast({
+            message: `Tab ready — couldn’t send context: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          });
+        }
+      })();
     };
     // Ctrl+N quick-spawn: launch the Nth executor (list order) in the
     // CURRENT terminal — same as clicking it in the picker (runSpawn).
