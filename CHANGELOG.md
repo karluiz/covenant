@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.32 — Idle-beachball root cause: score DB scans off the main thread
+
+### Fixed
+
+- **The first-switch-after-idle beachball, actually solved**: a live `sample`
+  of a lagging process caught the native main thread spending 4s of a 30s
+  window inside `ScoreStore::summary → heatmap_all → sqlite3_step → pread` —
+  two full scans of `score.sqlite` (320MB; ~573k score_events + ~555k
+  llm_calls) running synchronously inside Tauri's IPC URL-scheme handler.
+  The trigger: the status bar's `render()` refreshed the score chip on every
+  tab switch. Idle evicts the file cache, so the first switch paid disk I/O
+  (1–2.5s), which warmed the cache and made the second switch fly — the
+  reported symptom exactly. Every DB-touching command in
+  `crates/app/src/score_commands.rs` is now `async` + `spawn_blocking` (a
+  shared `blocking()` helper; sync DB commands are forbidden there by doc
+  comment), and `ui/src/status/bar.ts` refreshes the score chip on creation +
+  a 60s interval + user change, never per `render()`.
+
 ## v0.11.31 — WebKit hygiene sweep: the idle-freeze cure, shipped as prevention
 
 ### Changed
