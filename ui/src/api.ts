@@ -2603,44 +2603,63 @@ export async function findRecentCommands(
 /// One spec hit for the `@spec:` mention picker. Sourced from the
 /// project's published-specs index (same data the Set Mission picker
 /// shows), filtered in-process for fuzzy match.
+/// Where a query literally matched a spec, so the picker can mark the
+/// contiguous run in the field it actually matched. `null` when only the
+/// id matched — there is nothing to mark in the title or goal, and
+/// marking anything there would be a lie.
+export interface SpecMatch {
+  field: "title" | "goal";
+  start: number;       // CHAR offset into that field
+  len: number;
+}
+
 export interface SpecHit {
   id: string;          // version-like, e.g. "3.23"
   title: string;
   goal: string;        // one-line description
   abs_path: string;
   updated_at: string;
-  match_indices: number[]; // CHAR offsets in title
+  match: SpecMatch | null;
 }
 
 export async function findSpecs(repoRoot: string, query: string, limit: number): Promise<SpecHit[]> {
   const { draftsApi } = await import("./drafts/api");
   const all = await draftsApi.listPublishedSpecs(repoRoot);
   const q = query.toLowerCase();
-  const scored: Array<{ score: number; indices: number[]; spec: typeof all[number] }> = [];
+  const scored: Array<{ score: number; match: SpecMatch | null; spec: typeof all[number] }> = [];
   for (const s of all) {
     if (q === "") {
-      scored.push({ score: 0, indices: [], spec: s });
+      scored.push({ score: 0, match: null, spec: s });
       continue;
     }
-    const haystack = (s.id + " " + s.title + " " + s.goal).toLowerCase();
-    const titleLower = s.title.toLowerCase();
-    if (!haystack.includes(q)) continue;
-    const indices: number[] = [];
-    let qi = 0;
-    for (let i = 0; i < titleLower.length && qi < q.length; i++) {
-      if (titleLower[i] === q[qi]) { indices.push(i); qi++; }
-    }
-    const score = titleLower.startsWith(q) ? 100 : titleLower.includes(q) ? 50 : 10;
-    scored.push({ score, indices, spec: s });
+    // Locate the query where it *literally* occurs, and report that field.
+    // The old code searched `id + title + goal` but then re-derived the
+    // offsets as a greedy subsequence over the title alone — so a match in
+    // the goal scattered unrelated letters across the title.
+    const titleAt = s.title.toLowerCase().indexOf(q);
+    const goalAt  = s.goal.toLowerCase().indexOf(q);
+    const idHit   = s.id.toLowerCase().includes(q);
+    if (titleAt < 0 && goalAt < 0 && !idHit) continue;
+
+    const match: SpecMatch | null =
+      titleAt >= 0 ? { field: "title", start: titleAt, len: q.length }
+      : goalAt >= 0 ? { field: "goal",  start: goalAt,  len: q.length }
+      : null;
+    const score = idHit && s.id.toLowerCase().startsWith(q) ? 120
+      : titleAt === 0 ? 100
+      : titleAt > 0 ? 50
+      : idHit ? 30
+      : 10;
+    scored.push({ score, match, spec: s });
   }
   scored.sort((a, b) => b.score - a.score || b.spec.id.localeCompare(a.spec.id));
-  return scored.slice(0, limit).map(({ indices, spec }) => ({
+  return scored.slice(0, limit).map(({ match, spec }) => ({
     id: spec.id,
     title: spec.title,
     goal: spec.goal,
     abs_path: spec.path,
     updated_at: spec.updated_at,
-    match_indices: indices,
+    match,
   }));
 }
 

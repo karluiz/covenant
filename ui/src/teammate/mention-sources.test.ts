@@ -25,7 +25,7 @@ describe("findMentions", () => {
           is_default: true, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0 },
       ]),
     });
-    const hits = await findMentions({ query: "", cwd: "/a", activeTab: "all", limit: 12, deps: d });
+    const { hits } = await findMentions({ query: "", cwd: "/a", activeTab: "all", limit: 12, deps: d });
     expect(hits.filter(h => h.kind === "files").length).toBe(3);
     expect(hits.some(h => h.kind === "teammates")).toBe(true);
   });
@@ -36,7 +36,7 @@ describe("findMentions", () => {
         Array.from({ length: 10 }, (_, i) => ({ path: `/a/${i}.ts`, rel_path: `${i}.ts`, match_indices: [] })),
       ),
     });
-    const hits = await findMentions({ query: "", cwd: "/a", activeTab: "files", limit: 12, deps: d });
+    const { hits } = await findMentions({ query: "", cwd: "/a", activeTab: "files", limit: 12, deps: d });
     expect(hits.length).toBe(10);
     expect(hits.every(h => h.kind === "files")).toBe(true);
   });
@@ -50,7 +50,7 @@ describe("findMentions", () => {
           is_default: true, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0 },
       ]),
     });
-    const hits = await findMentions({ query: "", cwd: "/a", activeTab: "all", limit: 12, deps: d });
+    const { hits } = await findMentions({ query: "", cwd: "/a", activeTab: "all", limit: 12, deps: d });
     expect(hits.some(h => h.kind === "teammates")).toBe(true);
   });
 
@@ -65,7 +65,7 @@ describe("findMentions", () => {
           is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0 },
       ]),
     });
-    const hits = await findMentions({
+    const { hits } = await findMentions({
       query: "", cwd: "/a", activeTab: "teammates", limit: 12, deps: d, excludeOperatorId: "self",
     });
     expect(hits.map(h => h.primary)).toEqual(["Kiro"]);
@@ -77,10 +77,10 @@ describe("findMentions", () => {
       findSpecs: vi.fn().mockResolvedValue([
         { id: "3.23", title: "Achievements and Reputation", goal: "Operators earn XP.",
           abs_path: "/a/docs/superpowers/specs/2026-05-24-foo.md",
-          updated_at: "2026-05-24T00:00:00Z", match_indices: [] },
+          updated_at: "2026-05-24T00:00:00Z", match: null },
       ]),
     });
-    const hits = await findMentions({ query: "", cwd: "/a", activeTab: "specs", limit: 12, deps: d });
+    const { hits } = await findMentions({ query: "", cwd: "/a", activeTab: "specs", limit: 12, deps: d });
     expect(hits.length).toBe(1);
     expect(hits[0].kind).toBe("specs");
     expect(hits[0].token).toBe("spec:3.23");
@@ -97,7 +97,7 @@ describe("findMentions", () => {
           is_default: true, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0 },
       ]),
     });
-    const hits = await findMentions({ query: "", cwd: null, activeTab: "all", limit: 12, deps: d });
+    const { hits } = await findMentions({ query: "", cwd: null, activeTab: "all", limit: 12, deps: d });
     expect(findFilesMock).not.toHaveBeenCalled();
     expect(hits.some(h => h.kind === "teammates")).toBe(true);
   });
