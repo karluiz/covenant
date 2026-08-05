@@ -45,6 +45,7 @@ mod history_import;
 mod lsp_commands;
 mod mac_wake;
 mod main_lag;
+mod webkit_hygiene;
 mod mcp_server;
 mod mcp_stdio;
 mod memory;
@@ -4901,6 +4902,14 @@ pub fn run() {
         std::env::current_dir().ok().as_deref(),
     ));
 
+    let context = tauri::generate_context!();
+
+    // WebKit hygiene sweep — MUST run before any webview exists (WebKit
+    // reopens these files on webview init). Prevents the aged-store
+    // condition that froze every post-idle tab switch for months; see
+    // webkit_hygiene.rs for the field evidence and what survives the sweep.
+    webkit_hygiene::run(&context.config().identifier);
+
     let builder = tauri::Builder::default();
     // Single-instance shares the bundle id with the installed app, so a
     // debug build would forward its argv to the running prod instance and
@@ -6266,7 +6275,7 @@ pub fn run() {
             cli_open::install_cli,
             cli_open::cli_installed,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             // Finder "Open With" / double-click on an associated file
