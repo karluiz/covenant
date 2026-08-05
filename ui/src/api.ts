@@ -2206,10 +2206,17 @@ export async function canonDeleteEval(
   return invoke<void>("canon_delete_eval", { cwd, kind, name, evalId });
 }
 
+export interface CanonEvalCriterion {
+  id: string;
+  text: string;
+  points: number;
+}
+
 export interface CanonEvalDraft {
   id: string;
   scenario: string;
   rubric: string;
+  criteria?: CanonEvalCriterion[];
 }
 
 /** Draft 3-5 evals for a unit via the Summary-role model. Returns the drafts for review — nothing is written. */

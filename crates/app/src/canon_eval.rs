@@ -1212,12 +1212,13 @@ pub async fn canon_update_eval(
     }
     let mut eval = eval;
     eval.id = draft_slug(&eval.id);
-    if !karl_canon::valid_pkg_name(&eval.id)
-        || eval.scenario.trim().is_empty()
-        || eval.rubric.trim().is_empty()
-    {
-        return Err("eval needs a valid id and non-empty scenario + rubric".into());
+    for c in &mut eval.criteria {
+        c.id = draft_slug(&c.id);
     }
+    if !karl_canon::valid_pkg_name(&eval.id) {
+        return Err("eval needs a valid id".into());
+    }
+    karl_canon::validate_eval(&eval)?;
     karl_canon::overwrite_eval(&std::path::PathBuf::from(&cwd), unit_kind, &name, &eval)
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -1241,11 +1242,12 @@ pub async fn canon_delete_eval(
 
 const DRAFT_SYSTEM: &str = "You write behavior evals for an AI agent's context unit (a skill, \
 command, agent, context doc, or memory). Given the unit's source, produce 3-5 evals. Each eval is a \
-scenario that would tempt an agent WITHOUT this unit to do the wrong thing, plus a rubric stating \
-the observable behavior the unit should force. The scenario is 1-3 sentences addressed to the agent \
-as a user request; the rubric is 1-2 sentences of pass criteria a judge can verify from a transcript \
-alone. Reply with ONLY a JSON array, no prose and no code fences: \
-[{\"id\": \"kebab-case-slug\", \"scenario\": \"...\", \"rubric\": \"...\"}, ...]";
+scenario that would tempt an agent WITHOUT this unit to do the wrong thing, plus 2-4 weighted \
+criteria stating observable behaviors the unit should force. The scenario is 1-3 sentences addressed \
+to the agent as a user request. Each criterion is one verifiable-from-transcript behavior with an \
+integer point weight; a scenario's points sum to 100 and weights reflect importance. Reply with ONLY \
+a JSON array, no prose and no code fences: [{\"id\": \"kebab-case-slug\", \"scenario\": \"...\", \
+\"criteria\": [{\"id\": \"kebab-case-slug\", \"text\": \"...\", \"points\": 60}, ...]}, ...]";
 
 /// Extract the drafter's JSON array, tolerating prose or fences around it.
 fn parse_drafts(text: &str) -> Result<Vec<karl_canon::Eval>, String> {
@@ -1319,14 +1321,13 @@ pub async fn canon_draft_evals(
         .into_iter()
         .map(|mut d| {
             d.id = draft_slug(&d.id);
+            for c in &mut d.criteria {
+                c.id = draft_slug(&c.id);
+            }
             d
         })
-        .filter(|d| {
-            // a malformed draft is dropped, never surfaced
-            karl_canon::valid_pkg_name(&d.id)
-                && !d.scenario.trim().is_empty()
-                && !d.rubric.trim().is_empty()
-        })
+        // a malformed draft is dropped, never surfaced
+        .filter(|d| karl_canon::valid_pkg_name(&d.id) && karl_canon::validate_eval(d).is_ok())
         .collect();
     if drafts.is_empty() {
         return Err("model drafted no usable evals — try again".into());
@@ -1356,10 +1357,10 @@ pub async fn canon_write_evals(
     let mut written = Vec::new();
     for mut d in evals {
         d.id = draft_slug(&d.id);
-        if !karl_canon::valid_pkg_name(&d.id)
-            || d.scenario.trim().is_empty()
-            || d.rubric.trim().is_empty()
-        {
+        for c in &mut d.criteria {
+            c.id = draft_slug(&c.id);
+        }
+        if !karl_canon::valid_pkg_name(&d.id) || karl_canon::validate_eval(&d).is_err() {
             continue;
         }
         let res = if overwrite {
@@ -1683,6 +1684,20 @@ mod tests {
 
         assert!(parse_drafts("no array here").is_err());
         assert!(parse_drafts("[{\"id\": broken").is_err());
+    }
+
+    #[test]
+    fn parse_drafts_accepts_criteria_shape() {
+        let text = r#"[{"id":"a","scenario":"s","criteria":[{"id":"c1","text":"t","points":100}]}]"#;
+        let ds = parse_drafts(text).unwrap();
+        assert_eq!(ds[0].criteria.len(), 1);
+        assert!(karl_canon::validate_eval(&ds[0]).is_ok());
+    }
+
+    #[test]
+    fn parse_drafts_still_accepts_legacy_rubric_shape() {
+        let text = r#"[{"id":"a","scenario":"s","rubric":"must"}]"#;
+        assert!(karl_canon::validate_eval(&parse_drafts(text).unwrap()[0]).is_ok());
     }
 
     #[test]

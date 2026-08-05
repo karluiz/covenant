@@ -67,6 +67,34 @@ describe("openDraftReview", () => {
     ], undefined);
   });
 
+  it("renders a draft's criteria as a read-only list under the scenario, instead of a rubric field", () => {
+    document.body.replaceChildren();
+    const withCriteria = [
+      {
+        id: "refuses-a-dirty-tree",
+        scenario: "s1",
+        rubric: "",
+        criteria: [
+          { id: "stops", text: "stops before committing", points: 60 },
+          { id: "reports", text: "reports the dirty files", points: 40 },
+        ],
+      },
+    ];
+    openDraftReview("/repo", "skill", "horizon", withCriteria, document.createElement("button"), () => {});
+    const overlay = document.querySelector(".canon-draft-overlay") as HTMLElement;
+    const items = overlay.querySelectorAll(".canon-draft-criteria-item");
+    expect(items.length).toBe(2);
+    expect(items[0]!.textContent).toContain("60");
+    expect(items[0]!.textContent).toContain("stops before committing");
+    // no editable rubric field when criteria are present
+    expect(overlay.querySelectorAll("textarea").length).toBe(1); // scenario only
+
+    (overlay.querySelector(".canon-draft-write") as HTMLButtonElement).click();
+    expect(canonWriteEvals).toHaveBeenCalledWith("/repo", "skill", "horizon", [
+      { id: "refuses-a-dirty-tree", scenario: "s1", rubric: "", criteria: withCriteria[0]!.criteria },
+    ], undefined);
+  });
+
   it("overwrite checkbox opts into clobbering existing ids", () => {
     const overlay = open();
     const overwrite = overlay.querySelector<HTMLInputElement>(".canon-draft-overwrite input")!;
