@@ -41,9 +41,21 @@ pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<Str
     let mut fwd = Vec::with_capacity(bytes.len());
     for &b in bytes {
         match b {
-            b'\r' | b'\n' => {
+            // \r / \n are the usual submits; 0x0f (^O) is bound by both
+            // zsh (accept-line-and-down-history) and bash
+            // (operate-and-get-next) to accept-and-run the current line.
+            b'\r' | b'\n' | 0x0f => {
                 if let Some(d) = crate::safety::is_dangerous(line, &[]) {
-                    line.clear();
+                    // Do NOT clear `line` here. Every printable byte was
+                    // already forwarded, so the shell's own line editor
+                    // still holds this exact (dangerous) text — clearing
+                    // our copy would desync us from it, and a bare Enter
+                    // right after (which re-scans an empty buffer) would
+                    // let the still-buffered command execute. Keep the
+                    // buffer so every subsequent terminator re-scans and
+                    // re-blocks until the guest edits the line (backspace)
+                    // or aborts it (^C / ESC, which do clear — the shell
+                    // line is genuinely gone at that point).
                     return (fwd, Some(d.message));
                 }
                 line.clear();
@@ -60,12 +72,19 @@ pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<Str
                 fwd.push(b);
             }
             _ => {
-                // ASCII-only scan (blocklist patterns are ASCII): bytes
-                // outside 0x20..=0x7e — including UTF-8 continuation/lead
-                // bytes for multibyte characters — are excluded from the
-                // line buffer but still forwarded to the PTY unchanged.
-                if (0x20..=0x7e).contains(&b) {
-                    line.push(b as char);
+                // ASCII-only scan (blocklist patterns are ASCII). Bytes
+                // 0x20..=0x7e accumulate literally. UTF-8 lead bytes
+                // (0xc2..=0xf4) push exactly one placeholder char so
+                // backspace pops one "character" per real keystroke,
+                // staying aligned with the shell's own line editor;
+                // their continuation bytes (0x80..=0xbf) are skipped —
+                // already accounted for by the lead byte's placeholder.
+                // Every byte is forwarded to the PTY unchanged regardless.
+                match b {
+                    0x20..=0x7e => line.push(b as char),
+                    0xc2..=0xf4 => line.push('\u{fffd}'),
+                    0x80..=0xbf => {}
+                    _ => {}
                 }
                 fwd.push(b);
             }
@@ -78,7 +97,11 @@ pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<Str
 /// tell the UI. Callable from sync contexts (std Mutex, no awaits).
 pub fn revoke_driver(app: &AppHandle, id: karl_session::SessionId) -> Option<GuestDriver> {
     let state = app.try_state::<crate::AppState>()?;
-    let mut st = state.rc_guest.lock().ok()?;
+    // Recover a poisoned guard rather than fail open: `.ok()?` here would
+    // turn a panic elsewhere while holding this lock into a silent no-op
+    // that leaves the driver grant in place — the one thing revocation
+    // must never do.
+    let mut st = state.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
     let gone = st.drivers.remove(&id)?;
     send_frame(
         &st,
@@ -122,7 +145,60 @@ mod tests {
         let (fwd, blocked) = gate_guest_bytes(&mut line, b"\r");
         assert!(fwd.is_empty(), "the terminator must not reach the PTY");
         assert!(blocked.is_some());
-        assert!(line.is_empty(), "buffer resets so the guest can correct");
+        assert_eq!(
+            line, "rm -rf /",
+            "the buffer must persist unchanged: the shell's own line editor \
+             still holds this exact text, so a bare Enter right after must \
+             re-scan and re-block the same command rather than see a blank line"
+        );
+    }
+
+    #[test]
+    fn blocked_line_stays_blocked_until_edited() {
+        let mut line = String::new();
+        gate_guest_bytes(&mut line, b"rm -rf /");
+        let (fwd1, blocked1) = gate_guest_bytes(&mut line, b"\r");
+        assert!(fwd1.is_empty());
+        assert!(blocked1.is_some());
+        assert_eq!(line, "rm -rf /");
+
+        // A second bare Enter, with nothing edited in between: the
+        // buffered command must still be blocked, not silently run.
+        let (fwd2, blocked2) = gate_guest_bytes(&mut line, b"\r");
+        assert!(
+            fwd2.is_empty(),
+            "the terminator must not reach the PTY on retry either"
+        );
+        assert!(blocked2.is_some(), "must re-block, not execute, on retry");
+        assert_eq!(line, "rm -rf /");
+    }
+
+    #[test]
+    fn editing_after_a_block_lets_a_clean_enter_through() {
+        let mut line = String::new();
+        gate_guest_bytes(&mut line, b"rm -rf /");
+        gate_guest_bytes(&mut line, b"\r"); // blocked; line persists
+        assert_eq!(line, "rm -rf /");
+
+        // Backspace every character — the guest correcting the command.
+        for _ in 0..line.chars().count() {
+            gate_guest_bytes(&mut line, &[0x7f]);
+        }
+        assert!(line.is_empty());
+
+        let (fwd, blocked) = gate_guest_bytes(&mut line, b"\r");
+        assert_eq!(fwd, b"\r", "a clean line's Enter must now pass");
+        assert_eq!(blocked, None);
+    }
+
+    #[test]
+    fn ctrl_o_is_gated_like_cr() {
+        // zsh binds ^O to accept-line-and-down-history, bash to
+        // operate-and-get-next — both execute the current line.
+        let mut line = "rm -rf /".to_string();
+        let (fwd, blocked) = gate_guest_bytes(&mut line, &[0x0f]);
+        assert!(fwd.is_empty(), "^O must not reach the PTY when blocked");
+        assert!(blocked.is_some());
     }
 
     #[test]
@@ -163,8 +239,11 @@ mod tests {
     }
 
     #[test]
-    fn multibyte_utf8_forwards_but_stays_out_of_the_scan_buffer() {
-        // "é" is 0xC3 0xA9 in UTF-8 — both bytes are > 0x7f.
+    fn multibyte_utf8_forwards_and_gets_one_placeholder_per_character() {
+        // "é" is 0xC3 0xA9 in UTF-8 — both bytes are > 0x7f. The lead byte
+        // (0xc3) gets exactly one placeholder char in the scan buffer; the
+        // continuation byte (0xa9) is skipped, so backspace later pops
+        // one "character" per real keystroke instead of desyncing.
         let mut line = String::new();
         let (fwd, blocked) = gate_guest_bytes(&mut line, "café".as_bytes());
         assert_eq!(
@@ -174,8 +253,38 @@ mod tests {
         );
         assert_eq!(blocked, None);
         assert_eq!(
-            line, "caf",
-            "continuation/lead bytes are excluded from the ASCII scan buffer"
+            line, "caf\u{fffd}",
+            "the lead byte gets one placeholder, the continuation byte is skipped"
+        );
+    }
+
+    #[test]
+    fn multibyte_backspace_stays_aligned_with_the_real_shell_line() {
+        // Real shell line ends up as "sudo reboot": "sudo" + "é" (one
+        // keystroke) + backspace (removes the "é") + " reboot". If the
+        // scan buffer didn't give "é" exactly one pop-able placeholder,
+        // the backspace would remove an ASCII char instead, leaving the
+        // buffer as "sud reboot" — one char short of what the shell
+        // actually holds, and the dangerous line would slip through.
+        let mut line = String::new();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"sudo");
+        bytes.extend_from_slice("é".as_bytes());
+        bytes.push(0x7f); // backspace: must remove the whole "é"
+        bytes.extend_from_slice(b" reboot");
+
+        let (fwd, _blocked) = gate_guest_bytes(&mut line, &bytes);
+        assert_eq!(fwd, bytes, "every byte still reaches the PTY");
+        assert_eq!(
+            line, "sudo reboot",
+            "buffer must match the real shell line after the backspace"
+        );
+
+        let (fwd2, blocked2) = gate_guest_bytes(&mut line, b"\r");
+        assert!(fwd2.is_empty());
+        assert!(
+            blocked2.is_some(),
+            "the real line 'sudo reboot' must be blocked"
         );
     }
 }

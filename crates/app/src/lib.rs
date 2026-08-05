@@ -1086,14 +1086,12 @@ async fn write_to_session(
     // Owner typed locally: an active remote driver loses control instantly.
     // Lock scoped to this block so the std Mutex guard is dropped before
     // `revoke_driver` (below) re-acquires the same lock — holding it here
-    // would deadlock.
+    // would deadlock. Recover a poisoned guard rather than fail open
+    // (`.ok()` would silently treat poisoning as "no driver").
     {
-        let has_driver = state
-            .rc_guest
-            .lock()
-            .ok()
-            .map(|st| st.drivers.contains_key(&id))
-            .unwrap_or(false);
+        let st = state.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
+        let has_driver = st.drivers.contains_key(&id);
+        drop(st);
         if has_driver {
             rc_guest::revoke_driver(&app, id);
         }
@@ -1269,16 +1267,25 @@ async fn set_operator_enabled(
 
 #[tauri::command]
 async fn rc_set_armed(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     armed: bool,
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
-    let sessions = state.sessions.lock().await;
-    let managed = sessions.get(&id).ok_or("session not found")?;
-    managed
-        .armed
-        .store(armed, std::sync::atomic::Ordering::Relaxed);
+    {
+        let sessions = state.sessions.lock().await;
+        let managed = sessions.get(&id).ok_or("session not found")?;
+        managed
+            .armed
+            .store(armed, std::sync::atomic::Ordering::Relaxed);
+    }
+    if !armed {
+        // Owner explicitly cut remote control of this tab — a live
+        // collab-guest driver grant goes with it, not just rc_agent's
+        // send_input path.
+        rc_guest::revoke_driver(&app, id);
+    }
     tracing::info!(session = %id, armed, "remote arming toggled");
     Ok(())
 }
@@ -1319,7 +1326,9 @@ async fn rc_grant_driver(
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
     {
-        let mut st = state.rc_guest.lock().map_err(|e| e.to_string())?;
+        // Recover a poisoned guard rather than fail open — a granted
+        // driver must never come from a swallowed error path.
+        let mut st = state.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
         st.drivers.insert(
             id,
             rc_guest::GuestDriver {
@@ -1349,7 +1358,9 @@ async fn rc_grant_driver(
 #[tauri::command]
 async fn rc_revoke_driver(app: tauri::AppHandle, session_id: String) -> Result<(), String> {
     let id = parse_id(&session_id)?;
-    rc_guest::revoke_driver(&app, id);
+    if rc_guest::revoke_driver(&app, id).is_none() {
+        tracing::warn!(session = %id, "rc_revoke_driver: no active driver to revoke");
+    }
     Ok(())
 }
 
@@ -1364,11 +1375,13 @@ async fn rc_disarm_all(app: tauri::AppHandle, state: State<'_, AppState>) -> Res
     }
     drop(sessions);
     // Kill switch also strips any live collab-guest write control — the
-    // whole point is "nothing remote can touch my PTYs right now."
+    // whole point is "nothing remote can touch my PTYs right now." Recover
+    // a poisoned guard rather than fail open (bailing here via `?` would
+    // leave every driver granted, exactly what the kill switch must not do).
     let driver_ids: Vec<karl_session::SessionId> = state
         .rc_guest
         .lock()
-        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|e| e.into_inner())
         .drivers
         .keys()
         .copied()
