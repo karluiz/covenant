@@ -13,10 +13,86 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Criterion {
+    pub id: String,
+    pub text: String,
+    pub points: u32,
+}
+
+/// One criterion's judged verdict against a transcript.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CriterionVerdict {
+    pub id: String,
+    pub pass: bool,
+    pub reason: String,
+    pub points: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Eval {
     pub id: String,
     pub scenario: String,
+    /// Legacy single-rubric shape; still valid when `criteria` is empty.
+    #[serde(default)]
     pub rubric: String,
+    /// Weighted pass/fail criteria; wins over `rubric` when non-empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub criteria: Vec<Criterion>,
+}
+
+/// The criteria this eval is judged against. A legacy rubric-only eval is a
+/// single derived criterion worth 100 points, so downstream code sees one shape.
+pub fn effective_criteria(eval: &Eval) -> Vec<Criterion> {
+    if !eval.criteria.is_empty() {
+        return eval.criteria.clone();
+    }
+    vec![Criterion {
+        id: "rubric".into(),
+        text: eval.rubric.clone(),
+        points: 100,
+    }]
+}
+
+/// Shared validation for every write path (manager Save, drafter accept, MCP).
+pub fn validate_eval(eval: &Eval) -> Result<(), String> {
+    if eval.id.trim().is_empty() || eval.scenario.trim().is_empty() {
+        return Err("eval needs a non-empty id and scenario".into());
+    }
+    if eval.criteria.is_empty() {
+        if eval.rubric.trim().is_empty() {
+            return Err("eval needs criteria or a rubric".into());
+        }
+        return Ok(());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for c in &eval.criteria {
+        if c.id.trim().is_empty() || c.text.trim().is_empty() {
+            return Err("every criterion needs a non-empty id and text".into());
+        }
+        if c.points == 0 {
+            return Err(format!("criterion {:?} needs points >= 1", c.id));
+        }
+        if !seen.insert(c.id.as_str()) {
+            return Err(format!("duplicate criterion id {:?}", c.id));
+        }
+    }
+    Ok(())
+}
+
+/// Stable digest of a criteria set — baseline verdicts are only reusable when
+/// judged against the same criteria.
+pub fn criteria_hash(criteria: &[Criterion]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for c in criteria {
+        h.update(c.id.as_bytes());
+        h.update([0]);
+        h.update(c.text.as_bytes());
+        h.update([0]);
+        h.update(c.points.to_le_bytes());
+        h.update([0xff]);
+    }
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -38,6 +114,17 @@ pub struct EvalResult {
     /// Model that judged the transcript (provenance).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub judge_model: Option<String>,
+    /// Points earned across all judged criteria. Zero on records written
+    /// before weighted criteria existed.
+    #[serde(default)]
+    pub score: u32,
+    /// Total points available across all judged criteria.
+    #[serde(default)]
+    pub max_score: u32,
+    /// The baseline (bare-sandbox) arm's score, when judged. None when the
+    /// baseline was skipped, cached, or opted out.
+    #[serde(default)]
+    pub baseline_score: Option<u32>,
 }
 
 /// Full record of one eval run — everything needed to understand a verdict.
@@ -64,6 +151,19 @@ pub struct EvalRunDetail {
     /// cached, or opted out.
     #[serde(default)]
     pub baseline_transcript: Option<String>,
+    #[serde(default)]
+    pub score: u32,
+    #[serde(default)]
+    pub max_score: u32,
+    #[serde(default)]
+    pub baseline_score: Option<u32>,
+    /// Per-criterion verdicts for the with-unit arm. Empty on records written
+    /// before weighted criteria existed, or for legacy rubric-only evals.
+    #[serde(default)]
+    pub criteria: Vec<CriterionVerdict>,
+    /// Per-criterion verdicts for the baseline arm.
+    #[serde(default)]
+    pub baseline_criteria: Vec<CriterionVerdict>,
 }
 
 /// One case's verdict inside a history record — enough to reconstruct that
@@ -74,6 +174,10 @@ pub struct EvalCaseRecord {
     pub pass: bool,
     pub reason: String,
     pub duration_ms: u64,
+    #[serde(default)]
+    pub score: u32,
+    #[serde(default)]
+    pub max_score: u32,
 }
 
 /// One line of the append-only run log: a completed suite run's aggregate.
@@ -88,6 +192,19 @@ pub struct EvalRunRecord {
     /// field existed — the UI falls back to unit-level (last-run) state.
     #[serde(default)]
     pub cases: Vec<EvalCaseRecord>,
+    /// Points earned across all cases in this run. Zero on records written
+    /// before weighted criteria existed.
+    #[serde(default)]
+    pub score: u32,
+    /// Total points available across all cases in this run.
+    #[serde(default)]
+    pub max_score: u32,
+    /// Sha256 of the unit's source content, stamped once at run start (see
+    /// `unit_content_hash`). Partial runs (`only: Some(_)`) stamp an empty
+    /// string — a single-case retry must never certify the whole suite
+    /// fresh. Empty on records written before this field existed.
+    #[serde(default)]
+    pub content_hash: String,
 }
 
 /// `.covenant/canon/evals/<kind>/<name>/` — one tree for every evaluable kind,
@@ -323,6 +440,16 @@ pub fn overwrite_eval(
 pub struct BaselineVerdict {
     pub pass: bool,
     pub judged_at_ms: i64,
+    /// Digest of the criteria this verdict was judged against — a cached
+    /// verdict is only reusable when the criteria set is unchanged.
+    #[serde(default)]
+    pub criteria_hash: String,
+    #[serde(default)]
+    pub score: u32,
+    #[serde(default)]
+    pub max_score: u32,
+    #[serde(default)]
+    pub criteria: Vec<CriterionVerdict>,
 }
 
 fn baseline_cache_path(repo_root: &Path) -> std::path::PathBuf {
@@ -396,6 +523,54 @@ pub fn read_history(repo_root: &Path) -> Vec<EvalRunRecord> {
         .lines()
         .filter_map(|l| serde_json::from_str(l).ok())
         .collect()
+}
+
+// --- content hash / freshness ---------------------------------------------
+
+/// Sha256 of a unit's current source, for detecting drift since its evals
+/// last ran. `Skill` hashes both source files it's built from (`skill.toml`
+/// + `SKILL.md`, via `read_skill_package`, reusing the `scenario_hash`
+/// digest pattern); every other evaluable kind hashes its single
+/// `read_source` file. `None` when the unit is unreadable (missing source,
+/// or — for skills — not actually installed).
+pub fn unit_content_hash(repo_root: &Path, kind: ContextKind, name: &str) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    if kind == ContextKind::Skill {
+        let (skill_toml, skill_md, _) = crate::install::read_skill_package(repo_root, name).ok()?;
+        h.update(skill_toml.as_bytes());
+        h.update([0]);
+        h.update(skill_md.as_bytes());
+    } else {
+        h.update(
+            crate::install::read_source(repo_root, kind, name)
+                .ok()?
+                .as_bytes(),
+        );
+    }
+    Some(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// True iff `name` has authored evals AND the most recent history record for
+/// it carries a non-empty `content_hash` equal to the unit's current
+/// content. A run stamps `content_hash` once at its start (empty for
+/// partial `only` runs — see `EvalRunRecord::content_hash`), so a
+/// single-case retry can never certify the whole suite fresh, and any
+/// drift since the last full run reads as stale.
+pub fn evals_fresh(repo_root: &Path, kind: ContextKind, name: &str) -> bool {
+    if read_evals(repo_root, kind, name).is_empty() {
+        return false;
+    }
+    let Some(current) = unit_content_hash(repo_root, kind, name) else {
+        return false;
+    };
+    let slug = kind.slug();
+    read_history(repo_root)
+        .iter()
+        .rev()
+        .find(|r| r.kind == slug && r.name == name)
+        .map(|r| !r.content_hash.is_empty() && r.content_hash == current)
+        .unwrap_or(false)
 }
 
 /// Write one eval as `<id>.toml` under the unit's evals dir. Refuses to
@@ -489,6 +664,90 @@ mod tests {
     fn write_eval(dir: &std::path::Path, file: &str, body: &str) {
         fs::create_dir_all(dir).unwrap();
         fs::write(dir.join(file), body).unwrap();
+    }
+
+    #[test]
+    fn legacy_eval_toml_still_parses_and_derives_one_criterion() {
+        let ev: Eval =
+            toml::from_str("id = \"a\"\nscenario = \"do x\"\nrubric = \"must do x\"\n").unwrap();
+        assert!(ev.criteria.is_empty());
+        let crits = effective_criteria(&ev);
+        assert_eq!(crits.len(), 1);
+        assert_eq!(crits[0].id, "rubric");
+        assert_eq!(crits[0].text, "must do x");
+        assert_eq!(crits[0].points, 100);
+    }
+
+    #[test]
+    fn criteria_eval_toml_roundtrips_and_wins_over_rubric() {
+        let ev = Eval {
+            id: "a".into(),
+            scenario: "do x".into(),
+            rubric: String::new(),
+            criteria: vec![
+                Criterion {
+                    id: "stops".into(),
+                    text: "stops the release".into(),
+                    points: 60,
+                },
+                Criterion {
+                    id: "reports".into(),
+                    text: "reports the command".into(),
+                    points: 40,
+                },
+            ],
+        };
+        let s = toml::to_string_pretty(&ev).unwrap();
+        let back: Eval = toml::from_str(&s).unwrap();
+        assert_eq!(back, ev);
+        assert_eq!(effective_criteria(&back).len(), 2);
+    }
+
+    #[test]
+    fn validate_eval_rules() {
+        let ok = Eval {
+            id: "a".into(),
+            scenario: "s".into(),
+            rubric: String::new(),
+            criteria: vec![Criterion {
+                id: "c1".into(),
+                text: "t".into(),
+                points: 1,
+            }],
+        };
+        assert!(validate_eval(&ok).is_ok());
+        // no criteria and no rubric → invalid
+        let mut bad = ok.clone();
+        bad.criteria.clear();
+        assert!(validate_eval(&bad).is_err());
+        // legacy shape (rubric only) → valid
+        bad.rubric = "must".into();
+        assert!(validate_eval(&bad).is_ok());
+        // zero points → invalid
+        let mut zp = ok.clone();
+        zp.criteria[0].points = 0;
+        assert!(validate_eval(&zp).is_err());
+        // duplicate ids → invalid
+        let mut dup = ok.clone();
+        dup.criteria.push(dup.criteria[0].clone());
+        assert!(validate_eval(&dup).is_err());
+        // empty scenario → invalid
+        let mut es = ok.clone();
+        es.scenario = "  ".into();
+        assert!(validate_eval(&es).is_err());
+    }
+
+    #[test]
+    fn criteria_hash_is_stable_and_content_sensitive() {
+        let c = vec![Criterion {
+            id: "a".into(),
+            text: "t".into(),
+            points: 10,
+        }];
+        assert_eq!(criteria_hash(&c), criteria_hash(&c.clone()));
+        let mut c2 = c.clone();
+        c2[0].points = 20;
+        assert_ne!(criteria_hash(&c), criteria_hash(&c2));
     }
 
     #[test]
@@ -617,6 +876,7 @@ mod tests {
             id: id.into(),
             scenario: "s".into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         super::write_eval(root, crate::ContextKind::Skill, "horizon", &ev("a")).unwrap();
         super::write_eval(root, crate::ContextKind::Skill, "horizon", &ev("b")).unwrap();
@@ -643,6 +903,7 @@ mod tests {
             id: "refuses-a-dirty-tree".into(),
             scenario: "s".into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         let path = super::write_eval(root, crate::ContextKind::Skill, "horizon", &ev).unwrap();
         assert!(path.ends_with(".covenant/canon/evals/skill/horizon/refuses-a-dirty-tree.toml"));
@@ -739,6 +1000,7 @@ mod tests {
             id: "e1".into(),
             scenario: s.into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         super::write_eval(root, k, "horizon", &ev("original")).unwrap();
         // Explicit overwrite replaces where write_eval refuses.
@@ -774,6 +1036,11 @@ mod tests {
                 judge_model: None,
                 transcript: "t".into(),
                 baseline_transcript: None,
+                score: 0,
+                max_score: 0,
+                baseline_score: None,
+                criteria: Vec::new(),
+                baseline_criteria: Vec::new(),
             },
         )
         .unwrap();
@@ -837,6 +1104,16 @@ mod tests {
             judge_model: Some("claude-sonnet-4-6".into()),
             transcript: "the agent said things".into(),
             baseline_transcript: Some("bare arm".into()),
+            score: 40,
+            max_score: 100,
+            baseline_score: Some(20),
+            criteria: vec![CriterionVerdict {
+                id: "c1".into(),
+                pass: false,
+                reason: "missed it".into(),
+                points: 40,
+            }],
+            baseline_criteria: Vec::new(),
         };
         write_run_detail(root, crate::ContextKind::Skill, "kyc", &d).unwrap();
         assert_eq!(
@@ -861,6 +1138,10 @@ mod tests {
             &BaselineVerdict {
                 pass: true,
                 judged_at_ms: 9,
+                criteria_hash: String::new(),
+                score: 0,
+                max_score: 0,
+                criteria: Vec::new(),
             },
         )
         .unwrap();
@@ -868,7 +1149,11 @@ mod tests {
             read_baseline_cache(root).get(&h),
             Some(&BaselineVerdict {
                 pass: true,
-                judged_at_ms: 9
+                judged_at_ms: 9,
+                criteria_hash: String::new(),
+                score: 0,
+                max_score: 0,
+                criteria: Vec::new(),
             })
         );
     }
@@ -888,7 +1173,12 @@ mod tests {
                 pass: true,
                 reason: "refused".into(),
                 duration_ms: 41_000,
+                score: 0,
+                max_score: 0,
             }],
+            score: 0,
+            max_score: 0,
+            content_hash: String::new(),
         };
         append_history(root, &rec(3, 1)).unwrap();
         append_history(root, &rec(7, 2)).unwrap();
@@ -911,6 +1201,29 @@ mod tests {
         assert_eq!(all[0].cases.len(), 1);
         assert!(all[2].cases.is_empty(), "legacy line reads with no cases");
         assert!(read_history(tempfile::tempdir().unwrap().path()).is_empty());
+    }
+
+    #[test]
+    fn old_results_json_deserializes_with_zero_scores() {
+        let old = r#"{"eval_id":"a","pass":true,"reason":"ok","ran_at_ms":1,"duration_ms":2}"#;
+        let r: EvalResult = serde_json::from_str(old).unwrap();
+        assert_eq!((r.score, r.max_score, r.baseline_score), (0, 0, None));
+    }
+
+    #[test]
+    fn old_run_record_json_deserializes_with_zero_scores() {
+        let old = r#"{"kind":"skill","name":"horizon","passed":3,"total":8,"at_ms":1}"#;
+        let r: EvalRunRecord = serde_json::from_str(old).unwrap();
+        assert_eq!((r.score, r.max_score), (0, 0));
+        assert!(r.cases.is_empty());
+    }
+
+    #[test]
+    fn old_baseline_cache_entry_has_empty_criteria_hash() {
+        let old = r#"{"pass":true,"judged_at_ms":5}"#;
+        let v: BaselineVerdict = serde_json::from_str(old).unwrap();
+        assert!(v.criteria_hash.is_empty());
+        assert_eq!(v.max_score, 0);
     }
 
     #[test]
@@ -938,5 +1251,88 @@ mod tests {
             true,
             "new write still lands"
         );
+    }
+
+    /// Write a unit's source in the same layout `canon_source_path` expects.
+    /// Mirrors `review.rs`'s test helper of the same name — kept local
+    /// rather than shared across the crate for a fixture this thin.
+    fn write_unit(root: &std::path::Path, kind: ContextKind, name: &str, content: &str) {
+        let path = match kind {
+            ContextKind::Skill => canon_dir(root).join(kind.dir()).join(name).join("SKILL.md"),
+            ContextKind::Mcp => canon_dir(root)
+                .join(kind.dir())
+                .join(format!("{name}.json")),
+            ContextKind::Spec => root.join("docs/specs").join(format!("{name}.md")),
+            _ => canon_dir(root).join(kind.dir()).join(format!("{name}.md")),
+        };
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+
+    /// Write a minimal authored eval `<id>.toml` for a unit, via the
+    /// production `write_eval` (shadowed inside this module by the raw-bytes
+    /// helper above, so called through `super::`).
+    fn write_eval_toml(dir: &std::path::Path, kind: ContextKind, name: &str, id: &str) {
+        super::write_eval(
+            dir,
+            kind,
+            name,
+            &Eval {
+                id: id.into(),
+                scenario: "do the thing".into(),
+                rubric: "does it".into(),
+                criteria: Vec::new(),
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn unit_content_hash_changes_when_source_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        write_unit(
+            dir.path(),
+            ContextKind::Command,
+            "h",
+            "---\ndescription: d\n---\nv1",
+        );
+        let h1 = unit_content_hash(dir.path(), ContextKind::Command, "h").unwrap();
+        write_unit(
+            dir.path(),
+            ContextKind::Command,
+            "h",
+            "---\ndescription: d\n---\nv2",
+        );
+        assert_ne!(
+            h1,
+            unit_content_hash(dir.path(), ContextKind::Command, "h").unwrap()
+        );
+    }
+
+    #[test]
+    fn evals_fresh_only_when_last_run_hash_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        write_unit(dir.path(), ContextKind::Command, "h", "src");
+        write_eval_toml(dir.path(), ContextKind::Command, "h", "case-a"); // authored eval exists
+        assert!(!evals_fresh(dir.path(), ContextKind::Command, "h")); // never run
+        let hash = unit_content_hash(dir.path(), ContextKind::Command, "h").unwrap();
+        append_history(
+            dir.path(),
+            &EvalRunRecord {
+                kind: "command".into(),
+                name: "h".into(),
+                passed: 1,
+                total: 1,
+                at_ms: 1,
+                cases: vec![],
+                score: 100,
+                max_score: 100,
+                content_hash: hash,
+            },
+        )
+        .unwrap();
+        assert!(evals_fresh(dir.path(), ContextKind::Command, "h"));
+        write_unit(dir.path(), ContextKind::Command, "h", "src v2"); // content drifts
+        assert!(!evals_fresh(dir.path(), ContextKind::Command, "h"));
     }
 }

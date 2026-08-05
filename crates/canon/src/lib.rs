@@ -10,14 +10,16 @@ pub mod manifest;
 pub mod mcp;
 pub mod new_unit;
 pub mod project;
+pub mod review;
 pub mod types;
 
 pub use detect::scan_detected;
 pub use eval::{
-    append_history, authored_counts, delete_eval, mark_result_stale, overwrite_eval, pass_rate,
-    read_baseline_cache, read_evals, read_history, read_results, read_run_detail, scenario_hash,
-    unit_key, write_baseline_verdict, write_eval, write_result, write_run_detail, BaselineVerdict,
-    Eval, EvalCaseRecord, EvalResult, EvalRunDetail, EvalRunRecord,
+    append_history, authored_counts, criteria_hash, delete_eval, effective_criteria, evals_fresh,
+    mark_result_stale, overwrite_eval, pass_rate, read_baseline_cache, read_evals, read_history,
+    read_results, read_run_detail, scenario_hash, unit_content_hash, unit_key, validate_eval,
+    write_baseline_verdict, write_eval, write_result, write_run_detail, BaselineVerdict, Criterion,
+    CriterionVerdict, Eval, EvalCaseRecord, EvalResult, EvalRunDetail, EvalRunRecord,
 };
 pub use install::{
     adopt, adopt_new_skills, content_version, delete_unit, install_from_dir, install_local,
@@ -33,6 +35,7 @@ pub use project::{
     parse_frontmatter_str, project, project_with_active, projection_status, ExecutorStatus,
     ProjState, ProjectionStatus,
 };
+pub use review::{lint_unit, LintFinding, LintSeverity};
 pub use types::{CanonManifest, InstalledRef, SkillManifest};
 
 use thiserror::Error;

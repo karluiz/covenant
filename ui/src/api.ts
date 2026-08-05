@@ -1875,6 +1875,11 @@ export interface PkgMeta {
   /** Cross-org eval aggregate for this version. 0/0 when nobody has run them. */
   eval_passed: number;
   eval_total: number;
+  /** Criteria-eval score aggregate. Absent on a pre-upgrade server → undefined → hidden. */
+  eval_score?: number | null;
+  eval_max_score?: number | null;
+  eval_baseline_score?: number | null;
+  eval_fresh?: boolean | null;
 }
 export async function canonMyOrgs(): Promise<Org[]> {
   return invoke<Org[]>("canon_my_orgs");
@@ -2095,6 +2100,10 @@ export interface EvalUnitSummary {
   /** Previous completed run's aggregate, for a pass-rate delta. */
   prev_passed?: number | null;
   prev_total?: number | null;
+  /** Points earned/available across non-stale stored results. Optional only
+   *  for older test fixtures; the backend always sends it. */
+  score?: number;
+  max_score?: number;
 }
 
 export interface CanonEvalProgress {
@@ -2150,6 +2159,10 @@ export interface EvalHistoryRecord {
   at_ms: number;
   /** Per-case verdicts of this run; empty on records written before v0.11.29. */
   cases: EvalCaseRecord[];
+  /** Points earned/available across this run's cases. Optional only for
+   *  older test fixtures and pre-criteria records; the backend always sends it. */
+  score?: number;
+  max_score?: number;
 }
 
 export interface EvalRunsList {
@@ -2201,6 +2214,21 @@ export interface CanonEvalRunDetail {
   judge_model: string | null;
   transcript: string;
   baseline_transcript: string | null;
+  /** Weighted-criteria score. `max_score === 0` marks a legacy record
+   *  (pre-criteria) — render today's pass/fail-only detail unchanged. */
+  score: number;
+  max_score: number;
+  baseline_score: number | null;
+  criteria: CanonCriterionVerdict[];
+  baseline_criteria: CanonCriterionVerdict[];
+}
+
+/** One rubric criterion's verdict against a single run. */
+export interface CanonCriterionVerdict {
+  id: string;
+  pass: boolean;
+  reason: string;
+  points: number;
 }
 
 export async function canonEvalDetail(
@@ -2232,10 +2260,17 @@ export async function canonDeleteEval(
   return invoke<void>("canon_delete_eval", { cwd, kind, name, evalId });
 }
 
+export interface CanonEvalCriterion {
+  id: string;
+  text: string;
+  points: number;
+}
+
 export interface CanonEvalDraft {
   id: string;
   scenario: string;
   rubric: string;
+  criteria?: CanonEvalCriterion[];
 }
 
 /** Draft 3-5 evals for a unit via the Summary-role model. Returns the drafts for review — nothing is written. */
@@ -2262,6 +2297,29 @@ export async function canonWriteEvals(
 
 export async function canonEvalSummary(cwd: string): Promise<EvalUnitSummary[]> {
   return invoke<EvalUnitSummary[]>("canon_eval_summary", { cwd });
+}
+
+/** One deterministic-lint finding (no LLM) for a context unit. */
+export interface CanonLintFinding {
+  severity: "error" | "warn";
+  message: string;
+  hint: string;
+}
+
+/** Static lint over one unit's source — works for every kind, including `mcp`/`spec`. */
+export async function canonLintUnit(cwd: string, kind: string, name: string): Promise<CanonLintFinding[]> {
+  return invoke<CanonLintFinding[]>("canon_lint_unit", { cwd, kind, name });
+}
+
+/** One LLM-suggested quality improvement for a context unit. */
+export interface CanonReviewSuggestion {
+  area: string;
+  suggestion: string;
+}
+
+/** On-demand LLM quality audit (3-7 suggestions) via the Summary-role model. */
+export async function canonReviewUnit(cwd: string, kind: string, name: string): Promise<CanonReviewSuggestion[]> {
+  return invoke<CanonReviewSuggestion[]>("canon_review_unit", { cwd, kind, name });
 }
 
 export async function onCanonEvalProgress(

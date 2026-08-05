@@ -67,6 +67,46 @@ describe("openDraftReview", () => {
     ], undefined);
   });
 
+  it("writes an edited Rubric textarea value for a rubric-only draft", () => {
+    const overlay = open();
+    overlay.querySelectorAll<HTMLInputElement>(".canon-draft-item > input[type=checkbox]")[1]!.click();
+    const textareas = overlay.querySelectorAll<HTMLTextAreaElement>("textarea");
+    // draft 0: [0] scenario, [1] rubric
+    textareas[1]!.value = "edited rubric";
+    (overlay.querySelector(".canon-draft-write") as HTMLButtonElement).click();
+    expect(canonWriteEvals).toHaveBeenCalledWith("/repo", "skill", "horizon", [
+      { id: "refuses-a-dirty-tree", scenario: "s1", rubric: "edited rubric" },
+    ], undefined);
+  });
+
+  it("renders a draft's criteria as a read-only list under the scenario, instead of a rubric field", () => {
+    document.body.replaceChildren();
+    const withCriteria = [
+      {
+        id: "refuses-a-dirty-tree",
+        scenario: "s1",
+        rubric: "",
+        criteria: [
+          { id: "stops", text: "stops before committing", points: 60 },
+          { id: "reports", text: "reports the dirty files", points: 40 },
+        ],
+      },
+    ];
+    openDraftReview("/repo", "skill", "horizon", withCriteria, document.createElement("button"), () => {});
+    const overlay = document.querySelector(".canon-draft-overlay") as HTMLElement;
+    const items = overlay.querySelectorAll(".canon-draft-criteria-item");
+    expect(items.length).toBe(2);
+    expect(items[0]!.textContent).toContain("60");
+    expect(items[0]!.textContent).toContain("stops before committing");
+    // no editable rubric field when criteria are present
+    expect(overlay.querySelectorAll("textarea").length).toBe(1); // scenario only
+
+    (overlay.querySelector(".canon-draft-write") as HTMLButtonElement).click();
+    expect(canonWriteEvals).toHaveBeenCalledWith("/repo", "skill", "horizon", [
+      { id: "refuses-a-dirty-tree", scenario: "s1", rubric: "", criteria: withCriteria[0]!.criteria },
+    ], undefined);
+  });
+
   it("overwrite checkbox opts into clobbering existing ids", () => {
     const overlay = open();
     const overwrite = overlay.querySelector<HTMLInputElement>(".canon-draft-overwrite input")!;
@@ -183,6 +223,36 @@ describe("openEvalManager", () => {
       id: "refuses-a-dirty-tree",
       scenario: "tightened scenario",
       rubric: "r1",
+    });
+  });
+
+  it("Save on a criteria eval carries criteria through to canon_update_eval, and renders the criteria read-only instead of a Rubric textarea", async () => {
+    const criteria = [
+      { id: "stops", text: "stops before committing", points: 60 },
+      { id: "reports", text: "reports the dirty files", points: 40 },
+    ];
+    (canonListEvals as Mock).mockResolvedValue([
+      { id: "refuses-a-dirty-tree", scenario: "s1", rubric: "", criteria },
+    ]);
+    const overlay = await openMgr();
+    // No editable Rubric textarea — only the Scenario one — and the criteria
+    // render read-only.
+    expect(overlay.querySelectorAll("textarea").length).toBe(1);
+    const items = overlay.querySelectorAll(".canon-draft-criteria-item");
+    expect(items.length).toBe(2);
+    expect(items[0]!.textContent).toContain("60");
+    expect(items[0]!.textContent).toContain("stops before committing");
+
+    const scenario = overlay.querySelector<HTMLTextAreaElement>("textarea")!;
+    scenario.value = "tightened scenario";
+    const save = [...overlay.querySelectorAll("button")].find((b) => b.textContent === "Save")!;
+    save.click();
+    // The criteria travel untouched; no fabricated rubric text is sent.
+    expect(canonUpdateEval).toHaveBeenCalledWith("/repo", "skill", "horizon", {
+      id: "refuses-a-dirty-tree",
+      scenario: "tightened scenario",
+      rubric: "",
+      criteria,
     });
   });
 

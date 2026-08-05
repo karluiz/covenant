@@ -1,4 +1,5 @@
 import "./styles.css";
+import "./evals-cockpit.css"; // .evc-review / .evc-lint-* / .evc-review-* — reused by the reader's Review section
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
@@ -7,10 +8,11 @@ import type { CanonStatus, Org, Operator } from "../api";
 import {
   canonLocalStatus, canonMyOrgs, canonPublish,
   canonReadLocal, canonReadSource, canonExport,
-  canonEvalSummary, operatorList,
+  canonEvalSummary, canonLintUnit, canonReviewUnit, operatorList,
 } from "../api";
 import { openOperatorDetail } from "./operator-detail";
 import { liftClass, type LiftBadge } from "./cockpit/lift";
+import { renderCallError, renderFindings, renderSuggestions } from "./evals-cockpit";
 import { resolveActiveOrg, orgInitials, orgHue } from "./org";
 import { openCreateOrgExperience } from "./create-org/view";
 import { runEvals } from "./evals";
@@ -94,13 +96,63 @@ export function prettyJson(t: string): string | null {
   }
 }
 
+/** The context-unit identity a reader needs to mount its Review section
+ *  (static lint + on-demand LLM review) — omit for readers with no backing
+ *  unit (there are none today, but `openMarkdownReader` is generic). */
+interface ReaderUnit {
+  cwd: string;
+  kind: string;
+  name: string;
+}
+
+/** Review section for one unit's reader: lint fires immediately (cheap,
+ *  local); the LLM review only runs when "Run review" is clicked. Shares
+ *  its renderers with the cockpit's own Review section (evals-cockpit.ts)
+ *  — one renderer, two mounts — so severity/chip styling exists once. */
+function mountUnitReview(host: HTMLElement, unit: ReaderUnit): void {
+  host.classList.add("evc-review");
+  const heading = document.createElement("div");
+  heading.className = "evc-review-head";
+  heading.textContent = "Review";
+  host.appendChild(heading);
+
+  const lintHost = document.createElement("div");
+  lintHost.className = "evc-lint-list";
+  host.appendChild(lintHost);
+  canonLintUnit(unit.cwd, unit.kind, unit.name)
+    .then((findings) => renderFindings(lintHost, findings))
+    .catch((e) => renderCallError(lintHost, String(e)));
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "evc-review-btn";
+  btn.textContent = "Run review";
+  const suggestHost = document.createElement("div");
+  suggestHost.className = "evc-review-list";
+  btn.addEventListener("click", () => {
+    btn.disabled = true;
+    btn.textContent = "Reviewing…";
+    canonReviewUnit(unit.cwd, unit.kind, unit.name)
+      .then((suggestions) => renderSuggestions(suggestHost, suggestions))
+      .catch((e) => renderCallError(suggestHost, String(e)))
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = "Run review";
+      });
+  });
+  host.append(btn, suggestHost);
+}
+
 /** Full-screen rendered-markdown reader for a SKILL.md — same vibe as the
  *  spec preview. renderMarkdown HTML-escapes every segment, so the untrusted
- *  registry content is safe to innerHTML here. Esc / backdrop / esc button closes. */
+ *  registry content is safe to innerHTML here. Esc / backdrop / esc button closes.
+ *  `unit` (when given) mounts a Review section below the body — the second
+ *  of the two Review mounts (the first is the evals cockpit's case list). */
 export function openMarkdownReader(
   title: string,
   fetchMd: () => Promise<string>,
   stats?: string[],
+  unit?: ReaderUnit,
 ): void {
   const overlay = document.createElement("div");
   overlay.className = "canon-reader";
@@ -112,12 +164,16 @@ export function openMarkdownReader(
       </div>
       <button type="button" class="canon-reader-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
     </header>
-    <article class="canon-reader-body mission-page-preview-body markdown-body markdown-doc">Loading…</article>`;
+    <article class="canon-reader-body mission-page-preview-body markdown-body markdown-doc">Loading…</article>
+    <section class="canon-reader-review"></section>`;
   (overlay.querySelector(".canon-reader-title") as HTMLElement).textContent = title;
   const statsEl = overlay.querySelector(".canon-reader-stats") as HTMLElement;
   if (stats && stats.length) statsEl.textContent = stats.join("  ·  ");
   else statsEl.remove();
   const body = overlay.querySelector(".canon-reader-body") as HTMLElement;
+  const reviewSection = overlay.querySelector(".canon-reader-review") as HTMLElement;
+  if (unit) mountUnitReview(reviewSection, unit);
+  else reviewSection.remove();
 
   const close = (): void => {
     overlay.remove();
@@ -332,6 +388,39 @@ interface RailRowSpec {
   onOpen: () => void;
   /** Skill name for lift-badge fill; only set on skill rows. */
   liftName?: string;
+}
+
+/** Fields a registry row needs to render its criteria-eval score chip —
+ *  a subset of `PkgMeta`, kept narrow so callers don't need the full type. */
+interface EvalScoreFields {
+  eval_score?: number | null;
+  eval_max_score?: number | null;
+  eval_baseline_score?: number | null;
+  eval_fresh?: boolean | null;
+}
+
+/** The criteria-eval score segment for a registry card meta line — plain
+ *  text, appended into `skillCard`'s already-muted `.canon-meta` span (no new
+ *  styling needed for the "stale" suffix to read as dimmed).
+ *
+ *  "" when `eval_max_score` is 0/absent — nobody has run a criteria eval for
+ *  this version yet, same "unmeasured, not broken" reasoning as `evalChip`'s
+ *  0/0 case. Lift only appears when a baseline score is present (org has an
+ *  A/B to compare against); the "evals stale" suffix appears independently
+ *  when the score was computed against an older unit hash. */
+export function evalScoreLabel(p: EvalScoreFields): string {
+  const max = p.eval_max_score ?? 0;
+  if (max <= 0) return "";
+  const score = p.eval_score ?? 0;
+  const pct = Math.round((score / max) * 100);
+  const parts = [`Score ${pct}%`];
+  if (p.eval_baseline_score !== null && p.eval_baseline_score !== undefined) {
+    const basePct = Math.round((p.eval_baseline_score / max) * 100);
+    const lift = pct - basePct;
+    parts.push(`Lift ${lift >= 0 ? "+" : ""}${lift}`);
+  }
+  if (p.eval_fresh === false) parts.push("evals stale");
+  return parts.join(" · ");
 }
 
 /** A small lift chip for a skill row — `canon-lift-badge lift-<kind>` + short text. */
@@ -666,7 +755,8 @@ export class CanonPanel {
         title: i.name,
         meta: `v${i.version} · ${i.source}`,
         actions,
-        onOpen: () => openMarkdownReader(i.name, fetch, [`v${i.version}`, i.source]),
+        onOpen: () => openMarkdownReader(i.name, fetch, [`v${i.version}`, i.source],
+          cwd ? { cwd, kind: "skill", name: i.name } : undefined),
         liftName: i.name,
       };
     });
@@ -677,14 +767,18 @@ export class CanonPanel {
         meta: o.tags.filter(Boolean).slice(0, 3).join(" · ") || o.model,
         onOpen: () => openOperatorDetail(o),
       })) },
-      { label: "Subagents", rows: s.agents.map((a) => ({ title: a.name, meta: "agent", onOpen: () => openMarkdownReader(a.name, readSource("agent", a.name)) })) },
-      { label: "Context", rows: s.contexts.map((c) => ({ title: c.name, meta: c.summary ?? "context", onOpen: () => openMarkdownReader(c.name, readSource("context", c.name)) })) },
-      { label: "Memory", rows: s.memory.map((m) => ({ title: m.name, meta: m.description ?? "memory", onOpen: () => openMarkdownReader(m.name, readSource("memory", m.name)) })) },
-      { label: "Commands", rows: s.commands.map((c) => ({ title: c.name, meta: c.description ?? "command", onOpen: () => openMarkdownReader(c.name, readSource("command", c.name)) })) },
-      { label: "MCP", rows: s.mcp.map((m) => ({ title: m.name, meta: m.description ?? m.transport, onOpen: () => openMarkdownReader(m.name, readSource("mcp", m.name)) })) },
+      { label: "Subagents", rows: s.agents.map((a) => ({ title: a.name, meta: "agent", onOpen: () => openMarkdownReader(a.name, readSource("agent", a.name), undefined, cwd ? { cwd, kind: "agent", name: a.name } : undefined) })) },
+      { label: "Context", rows: s.contexts.map((c) => ({ title: c.name, meta: c.summary ?? "context", onOpen: () => openMarkdownReader(c.name, readSource("context", c.name), undefined, cwd ? { cwd, kind: "context", name: c.name } : undefined) })) },
+      { label: "Memory", rows: s.memory.map((m) => ({ title: m.name, meta: m.description ?? "memory", onOpen: () => openMarkdownReader(m.name, readSource("memory", m.name), undefined, cwd ? { cwd, kind: "memory", name: m.name } : undefined) })) },
+      { label: "Commands", rows: s.commands.map((c) => ({ title: c.name, meta: c.description ?? "command", onOpen: () => openMarkdownReader(c.name, readSource("command", c.name), undefined, cwd ? { cwd, kind: "command", name: c.name } : undefined) })) },
+      { label: "MCP", rows: s.mcp.map((m) => ({ title: m.name, meta: m.description ?? m.transport, onOpen: () => openMarkdownReader(m.name, readSource("mcp", m.name), undefined, cwd ? { cwd, kind: "mcp", name: m.name } : undefined) })) },
       { label: "Specs", rows: s.specs.map((sp) => {
         const { idx, label } = specParts(sp.name, sp.title);
-        return { idx, title: label, meta: sp.name, onOpen: () => openMarkdownReader(sp.title, readSource("spec", sp.name)) };
+        return {
+          idx, title: label, meta: sp.name,
+          onOpen: () => openMarkdownReader(sp.title, readSource("spec", sp.name), undefined,
+            cwd ? { cwd, kind: "spec", name: sp.name } : undefined),
+        };
       }) },
       { label: "Skills", rows: skillSpecs },
     ];

@@ -12,9 +12,14 @@ import {
   canonEvalDetail,
   canonListEvalRuns,
   canonListEvals,
+  canonLintUnit,
+  canonReviewUnit,
+  canonRunEvals,
   onCanonEvalProgress,
   type CanonEvalProgress,
   type CanonEvalRunDetail,
+  type CanonLintFinding,
+  type CanonReviewSuggestion,
   type EvalHistoryRecord,
   type EvalRunCase,
   type EvalRunSnapshot,
@@ -24,7 +29,29 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { Icons } from "../icons";
 import { renderMarkdown } from "../ui/markdown";
 import { pushInfoToast } from "../notifications/toast";
+import { attachTooltip } from "../tooltip/tooltip";
 import { openEvalManager } from "./evals";
+
+/** Total/baseline percentages + lift derived from a detail's weighted-criteria
+ *  score. Null for a legacy record (`max_score === 0`) — the case detail
+ *  falls back to today's pass/fail-only rendering, unchanged. */
+export function scoreSummary(
+  d: Pick<CanonEvalRunDetail, "score" | "max_score" | "baseline_score">,
+): { pct: number; basePct: number | null; lift: number | null } | null {
+  if (!d.max_score) return null;
+  const pct = Math.round((d.score / d.max_score) * 100);
+  const basePct = d.baseline_score == null
+    ? null
+    : Math.round((d.baseline_score / d.max_score) * 100);
+  return { pct, basePct, lift: basePct == null ? null : pct - basePct };
+}
+
+/** "75%" from a run's score/max_score, or "" when no criteria data exists
+ *  (legacy record, `max_score` zero/absent) — callers render nothing then. */
+export function runScoreLabel(r: { score?: number; max_score?: number }): string {
+  if (!r.max_score) return "";
+  return `${Math.round(((r.score ?? 0) / r.max_score) * 100)}%`;
+}
 
 /** What the rail selects: a live registry run, or one history record (a past
  *  run, pinned by `atMs`). `atMs: null` = unit focus with no specific run —
@@ -55,6 +82,78 @@ function dotClass(status: string): string {
   return "is-idle";
 }
 
+// --- Review section: static lint (automatic) + LLM review (on demand) ------
+//
+// Pure renderers shared by two mounts: this cockpit's own case-list column
+// (renderReview below, keyed off the same selectedUnit() the Manage button
+// uses) and the Canon panel's unit-detail reader (ui/src/canon/panel.ts,
+// openMarkdownReader) — one renderer, two mounts, so severity/chip styling
+// only exists once.
+
+type FetchState<T> =
+  | { status: "loading" }
+  | { status: "ok"; value: T }
+  | { status: "error"; message: string };
+
+/** Lint findings, errors before warnings, one row each: severity glyph +
+ *  message + dimmed hint. Empty input renders one quiet line rather than an
+ *  empty section. */
+export function renderFindings(host: HTMLElement, findings: CanonLintFinding[]): void {
+  host.innerHTML = "";
+  if (findings.length === 0) {
+    const empty = el("div", "evc-empty");
+    empty.textContent = "No lint findings.";
+    host.appendChild(empty);
+    return;
+  }
+  const sorted = [...findings].sort((a, b) =>
+    a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1);
+  for (const f of sorted) {
+    const row = el("div", "evc-lint-row");
+    const glyph = el("span", `evc-lint-glyph is-${f.severity}`);
+    glyph.innerHTML = Icons.alertTriangle({ size: 12 });
+    const msg = el("span", "evc-lint-msg");
+    msg.textContent = f.message;
+    row.append(glyph, msg);
+    if (f.hint) {
+      const hint = el("span", "evc-lint-hint");
+      hint.textContent = f.hint;
+      row.appendChild(hint);
+    }
+    host.appendChild(row);
+  }
+}
+
+/** LLM review suggestions — one row per `{area, suggestion}`, area rendered
+ *  as an uppercase chip (same sharp-cornered family as the criteria/lift
+ *  chips elsewhere in this module). */
+export function renderSuggestions(host: HTMLElement, suggestions: CanonReviewSuggestion[]): void {
+  host.innerHTML = "";
+  if (suggestions.length === 0) {
+    const empty = el("div", "evc-empty");
+    empty.textContent = "No suggestions.";
+    host.appendChild(empty);
+    return;
+  }
+  for (const s of suggestions) {
+    const row = el("div", "evc-review-row");
+    const area = el("span", "evc-review-area");
+    area.textContent = s.area;
+    const text = el("span", "evc-review-suggestion");
+    text.textContent = s.suggestion;
+    row.append(area, text);
+    host.appendChild(row);
+  }
+}
+
+/** A single dimmed line for a failed lint/review call — never a toast loop. */
+export function renderCallError(host: HTMLElement, message: string): void {
+  host.innerHTML = "";
+  const line = el("div", "evc-lint-error");
+  line.textContent = message;
+  host.appendChild(line);
+}
+
 export class EvalsCockpit {
   private host: HTMLElement;
   private open_ = false;
@@ -68,6 +167,14 @@ export class EvalsCockpit {
   private unitCases = new Map<string, string[]>();
   /** Last-run detail per `<kind>/<name>/<eval_id>`; null = fetched, none. */
   private details = new Map<string, CanonEvalRunDetail | null>();
+  /** Case keys (`<kind>/<name>/<eval_id>`) with an in-flight retry — disables
+   *  that case's retry button until the request settles. */
+  private retrying = new Set<string>();
+  /** Lint/review state per unit key (`<kind>/<name>`) — cached so the Review
+   *  section doesn't refetch on every render() (progress events, case
+   *  selection, and the elapsed-time ticker all call render()). */
+  private lint = new Map<string, FetchState<CanonLintFinding[]>>();
+  private review = new Map<string, FetchState<CanonReviewSuggestion[]>>();
   private unlisten: UnlistenFn | null = null;
   private ticker: ReturnType<typeof setInterval> | undefined;
 
@@ -112,6 +219,9 @@ export class EvalsCockpit {
     this.selCase = null;
     this.unitCases.clear();
     this.details.clear();
+    this.retrying.clear();
+    this.lint.clear();
+    this.review.clear();
   }
 
   private async refresh(focus?: { kind: string; name: string }): Promise<void> {
@@ -285,6 +395,13 @@ export class EvalsCockpit {
     }
   }
 
+  /** The history record a just-finished live run appended, if any — carries
+   *  the aggregate score the live registry snapshot itself doesn't track. */
+  private historyFor(run: EvalRunSnapshot): EvalHistoryRecord | undefined {
+    return this.data?.history.find((h) =>
+      h.kind === run.kind && h.name === run.name && h.at_ms >= run.started_at_ms);
+  }
+
   private railRunRow(run: EvalRunSnapshot): HTMLElement {
     const row = el("button", "evc-run-row") as HTMLButtonElement;
     row.type = "button";
@@ -297,7 +414,9 @@ export class EvalsCockpit {
     name.textContent = run.name;
     const meta = el("span", "evc-run-meta");
     if (run.done) {
-      meta.textContent = `${run.kind} · ${passed}/${run.cases.length} pass${run.cancelled ? " · stopped" : ""}`;
+      const scoreLabel = runScoreLabel(this.historyFor(run) ?? {});
+      const scoreBit = scoreLabel ? ` · ${scoreLabel}` : "";
+      meta.textContent = `${run.kind} · ${passed}/${run.cases.length} pass${scoreBit}${run.cancelled ? " · stopped" : ""}`;
     } else {
       meta.textContent = `${run.kind} · ${settled}/${run.cases.length} · `;
       const elapsed = el("span", "");
@@ -324,7 +443,9 @@ export class EvalsCockpit {
     const name = el("span", "evc-run-name");
     name.textContent = h.name;
     const meta = el("span", "evc-run-meta");
-    meta.textContent = `${h.kind} · ${h.passed}/${h.total} pass · ${timeAgo(h.at_ms)}`;
+    const scoreLabel = runScoreLabel(h);
+    const scoreBit = scoreLabel ? ` · ${scoreLabel}` : "";
+    meta.textContent = `${h.kind} · ${h.passed}/${h.total} pass${scoreBit} · ${timeAgo(h.at_ms)}`;
     row.append(dot, name, meta);
     row.addEventListener("click", () => {
       this.sel = { type: "unit", kind: h.kind, name: h.name, atMs: h.at_ms };
@@ -381,9 +502,12 @@ export class EvalsCockpit {
 
     const list = el("div", "evc-case-list");
     host.appendChild(list);
+    // Appended to `host` directly (not `list`) so it survives every branch
+    // below, several of which `return` right after finishing the case list.
+    this.renderReview(host, unit);
 
     if (run) {
-      for (const c of run.cases) list.appendChild(this.caseRow(c.eval_id, c));
+      for (const c of run.cases) list.appendChild(this.caseRow(c.eval_id, c, unit.kind, unit.name));
       return;
     }
     // A pinned history record carries its own per-case verdicts — render THAT
@@ -397,7 +521,7 @@ export class EvalsCockpit {
           arm: "",
           duration_ms: c.duration_ms,
           started_at_ms: null,
-        }));
+        }, unit.kind, unit.name));
       }
       return;
     }
@@ -428,7 +552,7 @@ export class EvalsCockpit {
             started_at_ms: null,
           }
         : null;
-      list.appendChild(this.caseRow(id, pseudo));
+      list.appendChild(this.caseRow(id, pseudo, unit.kind, unit.name));
       // Prefetch the verdict so dots fill in without a click.
       if (d === undefined) this.fetchDetail(unit.kind, unit.name, id);
     }
@@ -439,7 +563,54 @@ export class EvalsCockpit {
     }
   }
 
-  private caseRow(id: string, c: EvalRunCase | null): HTMLElement {
+  /** Review section for the selected unit: lint fires automatically (cached
+   *  per unit, so re-selecting doesn't refetch); the LLM review only runs
+   *  when "Run review" is clicked — never automatic. */
+  private renderReview(host: HTMLElement, unit: { kind: string; name: string }): void {
+    const key = `${unit.kind}/${unit.name}`;
+    const wrap = el("div", "evc-review");
+    // Not `section()` (`.evc-section`) — that class is the rail's Running/
+    // History header and other callers query it by exact count.
+    const heading = el("div", "evc-review-head");
+    heading.textContent = "Review";
+    wrap.appendChild(heading);
+
+    const lintHost = el("div", "evc-lint-list");
+    wrap.appendChild(lintHost);
+    let lintState = this.lint.get(key);
+    if (!lintState) {
+      lintState = { status: "loading" };
+      this.lint.set(key, lintState);
+      canonLintUnit(this.cwd, unit.kind, unit.name)
+        .then((findings) => { this.lint.set(key, { status: "ok", value: findings }); this.render(); })
+        .catch((e) => { this.lint.set(key, { status: "error", message: String(e) }); this.render(); });
+    }
+    if (lintState.status === "ok") renderFindings(lintHost, lintState.value);
+    else if (lintState.status === "error") renderCallError(lintHost, lintState.message);
+
+    const btn = el("button", "evc-review-btn") as HTMLButtonElement;
+    btn.type = "button";
+    const reviewState = this.review.get(key);
+    const busy = reviewState?.status === "loading";
+    btn.disabled = busy;
+    btn.textContent = busy ? "Reviewing…" : "Run review";
+    const suggestHost = el("div", "evc-review-list");
+    btn.addEventListener("click", () => {
+      if (this.review.get(key)?.status === "loading") return;
+      this.review.set(key, { status: "loading" });
+      this.render();
+      canonReviewUnit(this.cwd, unit.kind, unit.name)
+        .then((suggestions) => { this.review.set(key, { status: "ok", value: suggestions }); this.render(); })
+        .catch((e) => { this.review.set(key, { status: "error", message: String(e) }); this.render(); });
+    });
+    wrap.append(btn, suggestHost);
+    if (reviewState?.status === "ok") renderSuggestions(suggestHost, reviewState.value);
+    else if (reviewState?.status === "error") renderCallError(suggestHost, reviewState.message);
+
+    host.appendChild(wrap);
+  }
+
+  private caseRow(id: string, c: EvalRunCase | null, kind: string, name: string): HTMLElement {
     const row = el("button", "evc-case") as HTMLButtonElement;
     row.type = "button";
     row.classList.toggle("is-selected", this.selCase === id);
@@ -461,7 +632,29 @@ export class EvalsCockpit {
     } else {
       dur.textContent = "—";
     }
-    row.append(dot, label, note, dur);
+    // A span, not a button — `row` is already a <button> and nested buttons
+    // are invalid HTML (see the same pattern in canon/panel.ts's org rename).
+    const retryKey = `${kind}/${name}/${id}`;
+    const busy = this.retrying.has(retryKey);
+    const retry = el("span", `evc-case-retry${busy ? " is-busy" : ""}`);
+    retry.innerHTML = Icons.refresh({ size: 12 });
+    retry.setAttribute("role", "button");
+    retry.setAttribute("aria-label", "Re-run this case");
+    retry.setAttribute("aria-disabled", String(busy));
+    attachTooltip(retry, "Re-run this case");
+    retry.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.retrying.has(retryKey)) return;
+      this.retrying.add(retryKey);
+      this.render();
+      canonRunEvals(this.cwd, kind, name, { only: id })
+        .catch((err) => pushInfoToast({ message: `Retry failed: ${String(err)}` }))
+        .finally(() => {
+          this.retrying.delete(retryKey);
+          this.render();
+        });
+    });
+    row.append(dot, label, note, dur, retry);
     row.addEventListener("click", () => {
       this.selCase = id;
       this.render();
@@ -554,6 +747,9 @@ export class EvalsCockpit {
       return;
     }
 
+    const summary = scoreSummary(d);
+    if (summary) host.appendChild(this.criteriaBlock(d, summary));
+
     const tabs = el("div", "evc-tabs");
     const tabDefs: { id: DetailTab; label: string; available: boolean }[] = [
       { id: "transcript", label: "Transcript", available: true },
@@ -600,6 +796,70 @@ export class EvalsCockpit {
     meta.textContent = bits.join(" · ");
     verdict.appendChild(meta);
     host.appendChild(verdict);
+  }
+
+  /** Tessl-style criteria breakdown — one row per rubric criterion, then a
+   *  Total/Baseline/Lift summary. Only rendered when `scoreSummary` finds
+   *  weighted-criteria data; legacy details never reach this. */
+  private criteriaBlock(
+    d: CanonEvalRunDetail,
+    summary: { pct: number; basePct: number | null; lift: number | null },
+  ): HTMLElement {
+    const wrap = el("div", "evc-score-summary");
+    for (const c of d.criteria) {
+      const row = el("div", "evc-crit-row");
+      const dot = el("span", `evc-dot ${c.pass ? "is-pass" : "is-fail"}`);
+      const id = el("span", "evc-crit-id");
+      id.textContent = c.id;
+      const reason = el("span", "evc-crit-reason");
+      reason.textContent = c.reason;
+      const points = el("span", "evc-crit-points");
+      points.textContent = `${c.pass ? c.points : 0}/${c.points}`;
+      row.append(dot, id, reason, points);
+      wrap.appendChild(row);
+      // Attach only when the reason actually overflows its column — a live
+      // DOM read (forces layout), harmless since this row is already mounted.
+      requestAnimationFrame(() => {
+        if (reason.scrollWidth > reason.clientWidth) attachTooltip(reason, c.reason);
+      });
+    }
+
+    const sep = el("div", "evc-crit-sep");
+    wrap.appendChild(sep);
+
+    const total = el("div", "evc-crit-row evc-crit-summary-row");
+    const totalLabel = el("span", "evc-crit-summary-label");
+    totalLabel.textContent = "Total";
+    const totalPoints = el("span", "evc-crit-points");
+    totalPoints.textContent = `${d.score}/${d.max_score} (${summary.pct}%)`;
+    total.append(totalLabel, totalPoints);
+    wrap.appendChild(total);
+
+    const baseline = el("div", "evc-crit-row evc-crit-summary-row");
+    const baselineLabel = el("span", "evc-crit-summary-label");
+    baselineLabel.textContent = "Baseline";
+    const baselinePoints = el("span", "evc-crit-points");
+    baselinePoints.textContent = d.baseline_score == null || summary.basePct == null
+      ? "— not measured"
+      : `${d.baseline_score}/${d.max_score} (${summary.basePct}%)`;
+    baseline.append(baselineLabel, baselinePoints);
+    wrap.appendChild(baseline);
+
+    const lift = el("div", "evc-crit-row evc-crit-summary-row");
+    const liftLabel = el("span", "evc-crit-summary-label");
+    liftLabel.textContent = "Lift";
+    const liftValue = el("span", "evc-crit-points");
+    if (summary.lift == null) {
+      liftValue.textContent = "—";
+    } else {
+      liftValue.textContent = `${summary.lift > 0 ? "+" : ""}${summary.lift}%`;
+      if (summary.lift > 0) liftValue.classList.add("is-pass");
+      else if (summary.lift < 0) liftValue.classList.add("is-fail");
+    }
+    lift.append(liftLabel, liftValue);
+    wrap.appendChild(lift);
+
+    return wrap;
   }
 
   /** Transcript body with a Preview (rendered markdown) / Source (raw) toggle. */

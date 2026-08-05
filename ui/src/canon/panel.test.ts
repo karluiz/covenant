@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, type Mock } from "vitest";
-import { CanonPanel, asDoc, cleanDescription, descriptionFromMd, liftBadgeEl, slugify } from "./panel";
+import { CanonPanel, asDoc, cleanDescription, descriptionFromMd, evalScoreLabel, liftBadgeEl, slugify } from "./panel";
 import { liftClass } from "./cockpit/lift";
+import { canonLintUnit } from "../api";
 import type { Operator } from "../api";
 
 // Mock the api module so tests don't invoke Tauri IPC. Only the calls
@@ -18,6 +19,8 @@ vi.mock("../api", () => ({
   canonRunEvals: vi.fn().mockResolvedValue(undefined),
   canonListEvals: vi.fn().mockResolvedValue([]),
   canonEvalSummary: vi.fn().mockResolvedValue([]),
+  canonLintUnit: vi.fn().mockResolvedValue([]),
+  canonReviewUnit: vi.fn().mockResolvedValue([]),
   onCanonEvalProgress: vi.fn().mockResolvedValue(() => {}),
   operatorList: vi.fn(async () => []),
   operatorSoulRead: vi.fn(async () => ""),
@@ -55,6 +58,25 @@ describe("CanonPanel", () => {
     const cells = [...host.querySelectorAll(".canon-census-cell")];
     const skills = cells.find((c) => c.textContent?.includes("Skills"));
     expect(skills?.querySelector(".canon-census-n")?.textContent).toBe("1");
+  });
+
+  it("opening a unit's reader mounts a Review section and lints automatically", async () => {
+    const host = document.createElement("div");
+    const panel = new CanonPanel({
+      groupId: "g-review",
+      groupLabel: "Reader",
+      groupColor: null,
+      groupRootDir: "/repo",
+    }).mount(host);
+    panel.renderStatus({
+      installed: [], agents: [], contexts: [{ name: "kyc-peru.md", summary: null }],
+      memory: [], commands: [], mcp: [], specs: [], detectedSkills: [],
+    });
+    (host.querySelector('button[aria-label="Open"]') as HTMLButtonElement).click();
+    const review = document.querySelector(".canon-reader-review");
+    expect(review?.querySelector(".evc-review-head")?.textContent).toBe("Review");
+    expect(canonLintUnit).toHaveBeenCalledWith("/repo", "context", "kyc-peru.md");
+    document.querySelector<HTMLButtonElement>(".canon-reader-close")!.click();
   });
 
   it("renders a census strip with one cell per kind", () => {
@@ -414,6 +436,16 @@ describe("liftBadgeEl", () => {
     const el = liftBadgeEl(liftClass({ kind: "skill", name: "x", passed: 8, total: 10, baseline_passed: 6, baseline_total: 10 }));
     expect(el.className).toContain("lift-earning");
     expect(el.textContent).toContain("+20");
+  });
+});
+
+describe("evalScoreLabel", () => {
+  it("formats score, lift and staleness", () => {
+    expect(evalScoreLabel({ eval_score: 75, eval_max_score: 100, eval_baseline_score: 15, eval_fresh: true } as never))
+      .toBe("Score 75% · Lift +60");
+    expect(evalScoreLabel({ eval_score: 75, eval_max_score: 100, eval_baseline_score: null, eval_fresh: false } as never))
+      .toBe("Score 75% · evals stale");
+    expect(evalScoreLabel({ eval_max_score: 0 } as never)).toBe("");
   });
 });
 

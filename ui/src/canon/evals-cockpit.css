@@ -141,6 +141,17 @@ body.tabbar-left .evc-frame { left: var(--tabbar-w); }
   font-size: 11px; color: var(--fg-dim, #888);
   font-variant-numeric: tabular-nums;
 }
+.evc-case-retry {
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 0;
+  padding: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--fg-dim, #888); cursor: pointer;
+}
+.evc-case-retry:hover { border-color: var(--accent, #6ea8ff); color: var(--accent, #6ea8ff); }
+.evc-case-retry.is-busy { opacity: 0.5; cursor: default; pointer-events: none; }
+.evc-case-retry:focus-visible { outline: 1px solid var(--accent, #6ea8ff); outline-offset: -1px; }
 
 .evc-tabs { display: flex; border-bottom: 1px solid var(--border); }
 .evc-tab {
@@ -190,6 +201,43 @@ body.tabbar-left .evc-frame { left: var(--tabbar-w); }
 }
 .evc-text-val { font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; }
 
+/* Criteria breakdown (Tessl-style) — one row per rubric criterion, then a
+   Total/Baseline/Lift summary. Only shown for weighted-criteria details;
+   legacy records skip straight to the tabs below. */
+.evc-score-summary {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.evc-crit-row {
+  display: flex; align-items: baseline; gap: 9px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.evc-crit-row .evc-dot { align-self: center; }
+.evc-crit-id {
+  font-family: var(--mono, ui-monospace, monospace);
+  flex: none; min-width: 0; max-width: 40%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.evc-crit-reason {
+  flex: 1; min-width: 0;
+  color: var(--fg-dim, #888);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.evc-crit-points {
+  flex: none; margin-left: auto;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+.evc-crit-points.is-pass { color: var(--ok, #3fb950); }
+.evc-crit-points.is-fail { color: var(--fail, #e5534b); }
+.evc-crit-sep { border-top: 1px solid var(--border); margin: 8px 0; }
+.evc-crit-summary-row { font-weight: 600; }
+.evc-crit-summary-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--fg-dim, #888);
+}
+
 .evc-verdict {
   display: flex; align-items: baseline; gap: 14px;
   padding: 10px 18px;
@@ -202,3 +250,58 @@ body.tabbar-left .evc-frame { left: var(--tabbar-w); }
   color: var(--fg-dim, #888);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* Review section — deterministic lint (fires per unit selection, cached) +
+   on-demand LLM review suggestions. Shared visual language for both mounts:
+   this column and the Canon panel's unit-detail reader, which imports this
+   sheet to reuse these classes verbatim. */
+.evc-review {
+  padding: 4px 16px 14px;
+  border-top: 1px solid var(--border);
+}
+.evc-review-head {
+  padding: 8px 0 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-dim, #888);
+}
+.evc-lint-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.evc-lint-row {
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 2px 0;
+  font-size: 11.5px;
+}
+.evc-lint-glyph { flex: none; display: inline-flex; align-items: center; }
+.evc-lint-glyph.is-error { color: var(--fail, #e5534b); }
+.evc-lint-glyph.is-warn { color: var(--running, #e0af68); }
+.evc-lint-msg { flex: none; }
+.evc-lint-hint { color: var(--fg-dim, #888); }
+.evc-lint-error {
+  padding: 4px 0;
+  font-size: 11.5px;
+  color: var(--fg-dim, #888);
+}
+
+.evc-review-btn {
+  appearance: none;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  background: none; border-radius: 0;
+  padding: 2px 9px; font-size: 11px;
+  color: inherit; cursor: pointer;
+}
+.evc-review-btn:hover:not(:disabled) { border-color: var(--accent, #6ea8ff); color: var(--accent, #6ea8ff); }
+.evc-review-btn:disabled { opacity: 0.55; cursor: default; }
+.evc-review-btn:focus-visible { outline: 1px solid var(--accent, #6ea8ff); outline-offset: -1px; }
+
+.evc-review-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.evc-review-row { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
+.evc-review-area {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
+  border-radius: 0;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--fg-dim, #888);
+  white-space: nowrap;
+}
+.evc-review-suggestion { flex: 1; min-width: 0; line-height: 1.4; }

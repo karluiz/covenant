@@ -39,6 +39,16 @@ pub struct PkgMeta {
     pub eval_passed: i64,
     #[serde(default)]
     pub eval_total: i64,
+    /// Criteria-eval score aggregate (Task 13's server fields). Absent on a
+    /// pre-upgrade server → None → hidden, same pattern as eval_passed above.
+    #[serde(default)]
+    pub eval_score: Option<i64>,
+    #[serde(default)]
+    pub eval_max_score: Option<i64>,
+    #[serde(default)]
+    pub eval_baseline_score: Option<i64>,
+    #[serde(default)]
+    pub eval_fresh: Option<bool>,
 }
 
 #[allow(dead_code)] // description/sha/publisher_login/kind are part of the server JSON contract
@@ -190,13 +200,20 @@ pub async fn publish(
     skill_toml: &str,
     skill_md: &str,
     kind: &str,
+    evals: Option<Value>,
 ) -> Result<Value, String> {
     let url = format!("{}/cdlc/packages", auth::backend_url());
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "org": org, "name": name, "version": version,
         "description": description, "skill_toml": skill_toml, "skill_md": skill_md,
         "kind": kind,
     });
+    // Server ignores unknown keys today — safe to ship ahead of the Task 13
+    // server-side field addition. Omitted entirely (not `null`) when the unit
+    // has no non-stale results, so an old server sees the same body as before.
+    if let Some(evals) = evals {
+        body["evals"] = evals;
+    }
     send_authed(|j| client().post(&url).bearer_auth(j).json(&body))
         .await?
         .json()

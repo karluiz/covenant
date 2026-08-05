@@ -16,6 +16,7 @@ import {
   canonUpdateEval,
   canonWriteEvals,
   onCanonEvalProgress,
+  type CanonEvalCriterion,
   type CanonEvalDraft,
   type CanonEvalProgress,
   type CanonRunEvalsOpts,
@@ -514,7 +515,13 @@ export async function openEvalManager(
       idEl = id;
     }
     const scenario = draftField("Scenario", ev.scenario);
-    const rubric = draftField("Rubric", ev.rubric);
+    const hasCriteria = !!(ev.criteria && ev.criteria.length > 0);
+    // Weighted criteria are drafted, not hand-edited here — editing weights is
+    // YAGNI until asked for (matches the draft review drawer). Show them
+    // read-only and carry them through untouched; only legacy rubric-only
+    // evals get the editable textarea.
+    const rubric = hasCriteria ? undefined : draftField("Rubric", ev.rubric);
+    const criteriaEl = hasCriteria ? criteriaList(ev.criteria as CanonEvalCriterion[]) : undefined;
     const actions = document.createElement("div");
     actions.className = "canon-eval-manage-actions";
 
@@ -527,7 +534,9 @@ export async function openEvalManager(
     saveBtn.textContent = "Save";
     saveBtn.addEventListener("click", () => {
       const id = currentId();
-      const draft = { id, scenario: scenario.input.value, rubric: rubric.input.value };
+      const draft: CanonEvalDraft = hasCriteria
+        ? { id, scenario: scenario.input.value, rubric: ev.rubric, criteria: ev.criteria }
+        : { id, scenario: scenario.input.value, rubric: rubric!.input.value };
       saveBtn.disabled = true;
       const write = isNew
         ? canonWriteEvals(cwd, kind, name, [draft]).then(() => undefined)
@@ -582,7 +591,7 @@ export async function openEvalManager(
       viewBtn.addEventListener("click", () => { void openEvalDetail(cwd, kind, name, ev.id); });
       actions.appendChild(viewBtn);
     }
-    body.append(idEl, scenario.wrap, rubric.wrap, actions);
+    body.append(idEl, scenario.wrap, (criteriaEl ?? rubric!.wrap), actions);
     row.appendChild(body);
     list.appendChild(row);
   };
@@ -722,11 +731,17 @@ export function openDraftReview(
     id.value = d.id;
     id.setAttribute("aria-label", `id for ${d.id}`);
     const scenario = draftField("Scenario", d.scenario);
-    const rubric = draftField("Rubric", d.rubric);
-    body.append(id, scenario.wrap, rubric.wrap);
+    body.append(id, scenario.wrap);
+    let rubric: ReturnType<typeof draftField> | undefined;
+    if (d.criteria && d.criteria.length > 0) {
+      body.append(criteriaList(d.criteria));
+    } else {
+      rubric = draftField("Rubric", d.rubric);
+      body.append(rubric.wrap);
+    }
     row.append(check, body);
     list.appendChild(row);
-    return { draft: d, check, id, scenario: scenario.input, rubric: rubric.input };
+    return { draft: d, check, id, scenario: scenario.input, rubric: rubric?.input };
   });
   card.appendChild(list);
 
@@ -770,7 +785,12 @@ export function openDraftReview(
   writeBtn.addEventListener("click", () => {
     const approved = rows
       .filter((r) => r.check.checked)
-      .map((r) => ({ id: r.id.value.trim(), scenario: r.scenario.value, rubric: r.rubric.value }));
+      .map((r) => ({
+        id: r.id.value.trim(),
+        scenario: r.scenario.value,
+        rubric: r.rubric?.value ?? r.draft.rubric,
+        criteria: r.draft.criteria,
+      }));
     writeBtn.disabled = true;
     canonWriteEvals(cwd, kind, name, approved, overwriteCheck.checked || undefined)
       .then(async (ids) => {
@@ -794,6 +814,32 @@ export function openDraftReview(
 
   document.body.appendChild(overlay);
   writeBtn.focus();
+}
+
+/** Read-only breakdown of a draft's weighted criteria — id, points, text —
+ *  shown under the scenario. Editing weights is YAGNI until asked for. */
+function criteriaList(criteria: CanonEvalCriterion[]): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "canon-draft-field canon-draft-criteria";
+  const cap = document.createElement("span");
+  cap.textContent = "Criteria";
+  wrap.appendChild(cap);
+  const list = document.createElement("ul");
+  list.className = "canon-draft-criteria-list";
+  for (const c of criteria) {
+    const item = document.createElement("li");
+    item.className = "canon-draft-criteria-item";
+    const points = document.createElement("span");
+    points.className = "canon-draft-criteria-points";
+    points.textContent = `${c.points}`;
+    const text = document.createElement("span");
+    text.className = "canon-draft-criteria-text";
+    text.textContent = c.text;
+    item.append(points, text);
+    list.appendChild(item);
+  }
+  wrap.appendChild(list);
+  return wrap;
 }
 
 function draftField(caption: string, value: string): { wrap: HTMLElement; input: HTMLTextAreaElement } {

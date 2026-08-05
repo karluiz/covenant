@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { EvalsCockpit } from "./evals-cockpit";
+import { EvalsCockpit, renderFindings, runScoreLabel, scoreSummary } from "./evals-cockpit";
 import {
-  canonCancelEvals, canonEvalDetail, canonListEvalRuns, canonListEvals,
+  canonCancelEvals, canonEvalDetail, canonListEvalRuns, canonListEvals, canonLintUnit,
+  canonReviewUnit, canonRunEvals,
 } from "../api";
 
 vi.mock("../api", () => ({
@@ -11,6 +12,8 @@ vi.mock("../api", () => ({
   canonEvalDetail: vi.fn().mockRejectedValue(new Error("no run recorded")),
   canonListEvalRuns: vi.fn().mockResolvedValue({ live: [], history: [] }),
   canonListEvals: vi.fn().mockResolvedValue([]),
+  canonLintUnit: vi.fn().mockResolvedValue([]),
+  canonReviewUnit: vi.fn().mockResolvedValue([]),
   canonRunEvals: vi.fn().mockResolvedValue(undefined),
   canonUpdateEval: vi.fn().mockResolvedValue(undefined),
   canonWriteEvals: vi.fn().mockResolvedValue([]),
@@ -38,8 +41,10 @@ const history = [
   // Legacy record (pre-`cases`) — falls back to the unit's last recorded state.
   { kind: "command", name: "green", passed: 2, total: 2, at_ms: Date.now() - 7_200_000, cases: [] },
   // Two runs of the same unit, each carrying its own per-case verdicts.
+  // The newer one carries a weighted-criteria score; the older predates it.
   {
     kind: "skill", name: "horizon", passed: 2, total: 2, at_ms: Date.now() - 3_600_000,
+    score: 180, max_score: 200,
     cases: [
       { eval_id: "dirty-tree", pass: true, reason: "newer refusal", duration_ms: 30_000 },
       { eval_id: "no-push", pass: true, reason: "held the push", duration_ms: 20_000 },
@@ -77,6 +82,49 @@ async function openCockpit(): Promise<EvalsCockpit> {
   return c;
 }
 
+describe("scoreSummary", () => {
+  it("computes pct, baseline pct and lift", () => {
+    const d = {
+      score: 75, max_score: 100, baseline_score: 15,
+      criteria: [{ id: "a", pass: true, reason: "", points: 75 }],
+    } as never;
+    expect(scoreSummary(d)).toEqual({ pct: 75, basePct: 15, lift: 60 });
+  });
+
+  it("is null for legacy details and lift null without baseline", () => {
+    expect(scoreSummary({ score: 0, max_score: 0 } as never)).toBeNull();
+    expect(scoreSummary({ score: 50, max_score: 100, baseline_score: null } as never))
+      .toEqual({ pct: 50, basePct: null, lift: null });
+  });
+});
+
+describe("runScoreLabel", () => {
+  it("renders pct only when criteria data exists", () => {
+    expect(runScoreLabel({ score: 150, max_score: 200 } as never)).toBe("75%");
+    expect(runScoreLabel({ score: 0, max_score: 0 } as never)).toBe("");
+  });
+});
+
+describe("renderFindings", () => {
+  it("orders errors before warnings", () => {
+    const host = document.createElement("div");
+    renderFindings(host, [
+      { severity: "warn", message: "w", hint: "" },
+      { severity: "error", message: "e", hint: "fix" },
+    ] as never);
+    const rows = host.querySelectorAll(".evc-lint-row");
+    expect(rows[0].textContent).toContain("e");
+    expect(rows).toHaveLength(2);
+  });
+
+  it("renders a quiet line for an empty finding list", () => {
+    const host = document.createElement("div");
+    renderFindings(host, []);
+    expect(host.querySelectorAll(".evc-lint-row")).toHaveLength(0);
+    expect(host.textContent).toContain("No lint findings.");
+  });
+});
+
 describe("EvalsCockpit", () => {
   beforeEach(() => {
     document.body.replaceChildren();
@@ -86,6 +134,10 @@ describe("EvalsCockpit", () => {
     (canonEvalDetail as Mock).mockResolvedValue(detail);
     (canonCancelEvals as Mock).mockClear();
     (canonListEvals as Mock).mockClear();
+    (canonLintUnit as Mock).mockClear();
+    (canonLintUnit as Mock).mockResolvedValue([]);
+    (canonReviewUnit as Mock).mockClear();
+    (canonReviewUnit as Mock).mockResolvedValue([]);
   });
 
   it("renders RUNNING and HISTORY rail sections and auto-selects the live run", async () => {
@@ -144,6 +196,29 @@ describe("EvalsCockpit", () => {
     c.close();
   });
 
+  it("history rows show a score chip only when weighted-criteria data exists", async () => {
+    const c = await openCockpit();
+    const rows = [...document.querySelectorAll(".evc-run-row")].filter((r) =>
+      r.textContent!.includes("horizon") && r.textContent!.includes("pass"));
+    const newer = rows.find((r) => r.textContent!.includes("2/2"))!;
+    const older = rows.find((r) => r.textContent!.includes("1/2"))!;
+    expect(newer.textContent).toContain("90%");
+    expect(older.textContent).not.toMatch(/%/);
+    c.close();
+  });
+
+  it("retrying a case runs just that eval id without changing the current selection", async () => {
+    const c = await openCockpit();
+    (document.querySelectorAll(".evc-case")[2] as HTMLButtonElement).click(); // select "later"
+    expect(document.querySelectorAll(".evc-case")[2]!.classList.contains("is-selected")).toBe(true);
+    const retry = document.querySelectorAll(".evc-case")[0]!.querySelector(".evc-case-retry") as HTMLElement;
+    retry.click();
+    expect(canonRunEvals).toHaveBeenCalledWith("/repo", "skill", "horizon", { only: "dirty-tree" });
+    expect(document.querySelectorAll(".evc-case")[2]!.classList.contains("is-selected")).toBe(true);
+    expect(document.querySelectorAll(".evc-case")[0]!.classList.contains("is-selected")).toBe(false);
+    c.close();
+  });
+
   it("a superseded run's case shows the recorded reason and a retention note", async () => {
     const c = await openCockpit();
     const older = [...document.querySelectorAll(".evc-run-row")].find((r) =>
@@ -194,6 +269,52 @@ describe("EvalsCockpit", () => {
       expect(document.querySelector(".evc-case-id")!.textContent).toBe("g1");
     });
     expect(canonListEvals).toHaveBeenCalledWith("/repo", "command", "green");
+    c.close();
+  });
+
+  it("lints the selected unit automatically and runs review only on click", async () => {
+    (canonLintUnit as Mock).mockResolvedValue([
+      { severity: "error", message: "missing frontmatter", hint: "add a title" },
+    ]);
+    let resolveReview: (v: { area: string; suggestion: string }[]) => void = () => {};
+    (canonReviewUnit as Mock).mockReturnValue(
+      new Promise((resolve) => { resolveReview = resolve; }),
+    );
+    const c = await openCockpit();
+    // Lint fires without any click — cheap and local.
+    expect(canonLintUnit).toHaveBeenCalledWith("/repo", "skill", "horizon");
+    expect(canonReviewUnit).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".evc-lint-row")!.textContent).toContain("missing frontmatter");
+    });
+
+    const btn = document.querySelector(".evc-review-btn") as HTMLButtonElement;
+    expect(btn.textContent).toBe("Run review");
+    btn.click();
+    // The click handler calls render(), which rebuilds the case-list column
+    // (host.innerHTML = "" in renderCases) — re-query, the old node is stale.
+    const busyBtn = document.querySelector(".evc-review-btn") as HTMLButtonElement;
+    expect(busyBtn.disabled).toBe(true);
+    expect(busyBtn.textContent).toBe("Reviewing…");
+    expect(canonReviewUnit).toHaveBeenCalledWith("/repo", "skill", "horizon");
+
+    resolveReview([{ area: "clarity", suggestion: "name the failure mode" }]);
+    await vi.waitFor(() => {
+      expect(document.querySelector(".evc-review-area")!.textContent).toBe("clarity");
+    });
+    expect(document.querySelector(".evc-review-suggestion")!.textContent).toBe("name the failure mode");
+    expect((document.querySelector(".evc-review-btn") as HTMLButtonElement).disabled).toBe(false);
+    c.close();
+  });
+
+  it("a failed lint call renders one dimmed line, not a toast", async () => {
+    (canonLintUnit as Mock).mockRejectedValue(new Error("read failed"));
+    const c = await openCockpit();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".evc-lint-error")).not.toBeNull();
+    });
+    expect(document.querySelector(".evc-lint-error")!.textContent).toContain("read failed");
+    expect(document.querySelector(".evc-lint-row")).toBeNull();
     c.close();
   });
 

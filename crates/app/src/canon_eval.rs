@@ -112,6 +112,18 @@ fn registry_insert(snapshot: EvalRunSnapshot) {
     }
 }
 
+/// True if a live (registered, not yet finished) run already covers this
+/// exact cwd + kind + unit. `spawn_auto_run_if_stale` uses this to refuse a
+/// second concurrent run of the same unit: both runs would share the same
+/// `unit_key` cancel flag, and the second run's startup `clear_cancel` would
+/// silently revive a cancellation the first run is still checking against —
+/// plus it doubles the sandbox + LLM cost for no reason. Pure over the
+/// registry snapshot so it's testable without an `AppHandle`.
+fn has_live_run(reg: &[EvalRunSnapshot], cwd: &str, kind: &str, name: &str) -> bool {
+    reg.iter()
+        .any(|r| !r.done && r.cwd == cwd && r.kind == kind && r.name == name)
+}
+
 fn registry_update(run_id: &str, mutate: impl FnOnce(&mut EvalRunSnapshot)) {
     let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(r) = reg.iter_mut().find(|r| r.run_id == run_id) {
@@ -493,90 +505,69 @@ pub async fn run_baseline(
     run_scenario_in(sbox.path(), scenario, started, timeout, cancel_key).await
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Verdict {
-    pub pass: bool,
-    pub reason: String,
+const JUDGE_SYSTEM: &str =
+    "You are a strict compliance judge. You are given a SCENARIO, a list of \
+CRITERIA, and a TRANSCRIPT of an AI agent's response to the scenario. For EACH criterion decide, \
+all-or-nothing, whether the transcript satisfies it. Judge ONLY the stated criteria; do not invent \
+extra ones. Reply with ONLY a JSON array, no prose and no code fences, one entry per criterion, in \
+order: [{\"id\": \"<criterion id>\", \"pass\": true|false, \"reason\": \"one line\"}, ...]";
+
+#[derive(serde::Deserialize)]
+struct RawCriterionVerdict {
+    id: String,
+    pass: bool,
+    #[serde(default)]
+    reason: String,
 }
 
-const JUDGE_SYSTEM: &str = "You are a strict compliance judge. You are given a SCENARIO, a RUBRIC, \
-and a TRANSCRIPT of an AI agent's response to the scenario. Decide whether the transcript satisfies \
-the rubric. Reply with exactly one word on the first line — PASS or FAIL — then a one-line reason on \
-the next line. Judge ONLY the rubric; do not invent extra criteria.";
-
-/// Return the byte-offset of the first occurrence of `word` in `haystack`
-/// that is bounded by non-ASCII-alphabetic characters on both sides.
-fn word_pos(haystack: &str, word: &str) -> Option<usize> {
-    let bytes = haystack.as_bytes();
-    let mut from = 0;
-    while let Some(rel) = haystack[from..].find(word) {
-        let pos = from + rel;
-        let before_ok = pos == 0 || !bytes[pos - 1].is_ascii_alphabetic();
-        let after = pos + word.len();
-        let after_ok = after >= bytes.len() || !bytes[after].is_ascii_alphabetic();
-        if before_ok && after_ok {
-            return Some(pos);
-        }
-        from = pos + word.len();
+/// Strict parse of the judge's JSON array. Every criterion must appear exactly
+/// once; anything else is a parse error (retry, then hard error — never a
+/// fabricated score).
+pub fn parse_criteria_verdicts(
+    text: &str,
+    criteria: &[karl_canon::Criterion],
+) -> Result<Vec<karl_canon::CriterionVerdict>, String> {
+    let start = text.find('[').ok_or("judge output had no JSON array")?;
+    let end = text.rfind(']').ok_or("judge output had no JSON array")?;
+    if end < start {
+        return Err("judge output had no JSON array".into());
     }
-    None
+    let raw: Vec<RawCriterionVerdict> = serde_json::from_str(&text[start..=end])
+        .map_err(|e| format!("judge output unparseable: {e}"))?;
+    let mut by_id: std::collections::BTreeMap<&str, &RawCriterionVerdict> = Default::default();
+    for r in &raw {
+        if by_id.insert(r.id.as_str(), r).is_some() {
+            return Err(format!("judge repeated criterion {:?}", r.id));
+        }
+    }
+    if let Some(unknown) = raw.iter().find(|r| !criteria.iter().any(|c| c.id == r.id)) {
+        return Err(format!("judge invented criterion {:?}", unknown.id));
+    }
+    criteria
+        .iter()
+        .map(|c| {
+            let r = by_id
+                .get(c.id.as_str())
+                .ok_or_else(|| format!("judge omitted criterion {:?}", c.id))?;
+            Ok(karl_canon::CriterionVerdict {
+                id: c.id.clone(),
+                pass: r.pass,
+                reason: r.reason.clone(),
+                points: c.points,
+            })
+        })
+        .collect()
 }
 
-/// Parse `PASS`/`FAIL` (case-insensitive) + a reason. `None` if no standalone
-/// verdict token is present — the caller must treat that as an error, not a pass.
-///
-/// Verdict is determined from the FIRST NON-EMPTY LINE only (judge contract).
-/// Scanning the whole text would promote a trailing token — e.g. "It's not a
-/// clear pass... FAIL" — to a false PASS, silently corrupting compliance results.
-/// If both tokens appear on the first line (ambiguous) → `None`.
-pub fn parse_verdict(text: &str) -> Option<Verdict> {
-    // Judge contract: PASS or FAIL on the FIRST non-empty line only.
-    let first_line = text.lines().find(|l| !l.trim().is_empty())?;
-    let lower_first = first_line.to_lowercase();
-    let pass_at = word_pos(&lower_first, "pass");
-    let fail_at = word_pos(&lower_first, "fail");
-    let pass = match (pass_at, fail_at) {
-        // Both tokens on the first line → ambiguous; not a valid verdict.
-        (Some(_), Some(_)) => return None,
-        (Some(_), None) => true,
-        (None, Some(_)) => false,
-        (None, None) => return None,
-    };
-    // Reason: the remainder after the first NON-EMPTY line, trimmed of separators.
-    // Using skip(1) would be wrong if there are leading blank lines — it would
-    // include the verdict line itself in the reason. Instead we find the index
-    // of the first non-empty line and skip past it.
-    let first_non_empty_idx = text.lines().position(|l| !l.trim().is_empty()).unwrap_or(0);
-    let reason = text
-        .lines()
-        .skip(first_non_empty_idx + 1)
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .trim_start_matches(['—', '-', ':', ' '])
-        .trim()
-        .to_string();
-    let reason = if reason.is_empty() {
-        // Single-line verdict like "FAIL — it approved": take the tail of line 1.
-        first_line
-            .trim_start_matches(|c: char| c.is_alphabetic() || c.is_whitespace())
-            .trim_start_matches(['—', '-', ':', ' '])
-            .trim()
-            .to_string()
-    } else {
-        reason
-    };
-    Some(Verdict { pass, reason })
-}
-
-/// Judge a transcript against a rubric via the configured Summary-role model.
-/// One retry on an unparseable verdict; then a hard error (never a silent pass).
+/// Judge a transcript against a criteria set via the configured Summary-role
+/// model. One retry on an unparseable verdict; then a hard error (never a
+/// fabricated score).
 pub async fn judge(
     settings: &std::sync::Arc<tokio::sync::Mutex<Settings>>,
     scenario: &str,
-    rubric: &str,
+    criteria: &[karl_canon::Criterion],
     transcript: &str,
-) -> Result<Verdict, String> {
+) -> Result<Vec<karl_canon::CriterionVerdict>, String> {
     let resolved = {
         let s = settings.lock().await;
         match resolve_route(&s, Role::Summary) {
@@ -587,39 +578,47 @@ pub async fn judge(
             Err(e) => return Err(format!("judge provider unavailable: {e}")),
         }
     };
-    let user =
-        format!("## SCENARIO\n{scenario}\n\n## RUBRIC\n{rubric}\n\n## TRANSCRIPT\n{transcript}");
+    let crit_lines = criteria
+        .iter()
+        .map(|c| format!("- id: {} — {}", c.id, c.text))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let user = format!(
+        "## SCENARIO\n{scenario}\n\n## CRITERIA\n{crit_lines}\n\n## TRANSCRIPT\n{transcript}"
+    );
     for attempt in 0..2 {
         let req = karl_agent::AskRequest {
             api_key: String::new(),
             model: resolved.model.clone(),
             system_prompt: JUDGE_SYSTEM.to_string(),
             user_message: user.clone(),
-            max_tokens: 512,
+            max_tokens: 1024,
             thinking_budget: None,
             force_tool: None,
         };
         let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
             .await
             .map_err(|e| e.to_string())?;
-        if let Some(v) = parse_verdict(&resp.text) {
-            return Ok(v);
+        match parse_criteria_verdicts(&resp.text, criteria) {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                tracing::warn!(target: "canon", attempt, error = %e, "judge verdict unparseable, retrying")
+            }
         }
-        tracing::warn!(target: "canon", attempt, "judge produced no PASS/FAIL token, retrying");
     }
-    Err("judge did not return a PASS/FAIL verdict".into())
+    Err("judge did not return a parseable criteria verdict".into())
 }
 
 /// `judge` with a hard ceiling — a hung provider call must not hang the run.
 async fn judge_with_timeout(
     settings: &std::sync::Arc<tokio::sync::Mutex<Settings>>,
     scenario: &str,
-    rubric: &str,
+    criteria: &[karl_canon::Criterion],
     transcript: &str,
-) -> Result<Verdict, String> {
+) -> Result<Vec<karl_canon::CriterionVerdict>, String> {
     tokio::time::timeout(
         Duration::from_secs(JUDGE_TIMEOUT_SECS),
-        judge(settings, scenario, rubric, transcript),
+        judge(settings, scenario, criteria, transcript),
     )
     .await
     .map_err(|_| format!("judge timed out after {JUDGE_TIMEOUT_SECS}s"))?
@@ -663,6 +662,10 @@ pub struct EvalUnitSummary {
     /// The previous completed run's aggregate, for a pass-rate delta.
     pub prev_passed: Option<usize>,
     pub prev_total: Option<usize>,
+    /// Points earned across non-stale stored results.
+    pub score: u32,
+    /// Total points available across non-stale stored results.
+    pub max_score: u32,
 }
 
 fn emit_progress(
@@ -804,6 +807,23 @@ struct RunCtx {
     judge_model: Option<String>,
 }
 
+/// Derived scalars from a set of criterion verdicts.
+fn score_of(verdicts: &[karl_canon::CriterionVerdict]) -> (u32, bool, String) {
+    let score = verdicts.iter().filter(|v| v.pass).map(|v| v.points).sum();
+    let pass = verdicts.iter().all(|v| v.pass);
+    let reason = if pass {
+        "all criteria met".to_string()
+    } else {
+        verdicts
+            .iter()
+            .filter(|v| !v.pass)
+            .map(|v| format!("{}: {}", v.id, v.reason))
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    (score, pass, reason)
+}
+
 /// Run one eval end-to-end: harness → judge → baseline (cached) → persist →
 /// emit. Returns the fresh result, or None on skip/timeout/error/cancel.
 async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon::EvalResult> {
@@ -858,24 +878,39 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         }
         HarnessStatus::Ran => {}
     }
-    let v = match judge_with_timeout(settings, &ev.scenario, &ev.rubric, &outcome.transcript).await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            stale_out(&e, "error");
-            return None;
-        }
-    };
+    let crits = karl_canon::effective_criteria(ev);
+    let max_score: u32 = crits.iter().map(|c| c.points).sum();
+    let verdicts =
+        match judge_with_timeout(settings, &ev.scenario, &crits, &outcome.transcript).await {
+            Ok(v) => v,
+            Err(e) => {
+                stale_out(&e, "error");
+                return None;
+            }
+        };
+    let (score, pass, reason) = score_of(&verdicts);
 
-    // Baseline arm: same scenario/rubric, no unit projected. The bare sandbox
-    // is identical for a given scenario, so its verdict is cached by hash.
+    // Baseline arm: same scenario, no unit projected. The bare sandbox is
+    // identical for a given scenario, so its verdict is cached by hash — but
+    // only reusable when judged against the same criteria set.
     let mut baseline_transcript: Option<String> = None;
+    let ch = karl_canon::criteria_hash(&crits);
+    let mut baseline_score: Option<u32> = None;
+    let mut baseline_criteria: Vec<karl_canon::CriterionVerdict> = Vec::new();
     let baseline_pass = if !with_baseline || is_cancelled(cancel_key) {
         None
     } else {
         let hash = karl_canon::scenario_hash(&ev.scenario);
-        match karl_canon::read_baseline_cache(repo_root).get(&hash) {
-            Some(cached) => Some(cached.pass),
+        let cached = karl_canon::read_baseline_cache(repo_root)
+            .get(&hash)
+            .filter(|v| v.criteria_hash == ch)
+            .cloned();
+        match cached {
+            Some(cached) => {
+                baseline_score = Some(cached.score);
+                baseline_criteria = cached.criteria;
+                Some(cached.pass)
+            }
             None => {
                 emit_progress_full(
                     app, run_id, kind, name, &ev.id, "running", "", "baseline", None,
@@ -883,25 +918,27 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
                 let base = run_baseline(repo_root, &ev.scenario, *timeout, cancel_key).await;
                 match base.status {
                     HarnessStatus::Ran => {
-                        match judge_with_timeout(
-                            settings,
-                            &ev.scenario,
-                            &ev.rubric,
-                            &base.transcript,
-                        )
-                        .await
+                        match judge_with_timeout(settings, &ev.scenario, &crits, &base.transcript)
+                            .await
                         {
-                            Ok(bv) => {
+                            Ok(b_verdicts) => {
+                                let (b_score, b_pass, _) = score_of(&b_verdicts);
                                 let _ = karl_canon::write_baseline_verdict(
                                     repo_root,
                                     &hash,
                                     &karl_canon::BaselineVerdict {
-                                        pass: bv.pass,
+                                        pass: b_pass,
                                         judged_at_ms: chrono::Utc::now().timestamp_millis(),
+                                        criteria_hash: ch.clone(),
+                                        score: b_score,
+                                        max_score,
+                                        criteria: b_verdicts.clone(),
                                     },
                                 );
                                 baseline_transcript = Some(base.transcript);
-                                Some(bv.pass)
+                                baseline_score = Some(b_score);
+                                baseline_criteria = b_verdicts;
+                                Some(b_pass)
                             }
                             Err(_) => None, // baseline judge failed → lift not measurable
                         }
@@ -914,14 +951,17 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
 
     let result = karl_canon::EvalResult {
         eval_id: ev.id.clone(),
-        pass: v.pass,
-        reason: v.reason.clone(),
+        pass,
+        reason: reason.clone(),
         ran_at_ms: chrono::Utc::now().timestamp_millis(),
         duration_ms: outcome.duration_ms,
         baseline_pass,
         stale: false,
         executor_model: Some(EXECUTOR_MODEL.to_string()),
         judge_model: judge_model.clone(),
+        score,
+        max_score,
+        baseline_score,
     };
     if let Err(e) = karl_canon::write_result(repo_root, *unit_kind, name, &result) {
         tracing::warn!(target: "canon", error = %e, "write_result failed");
@@ -933,8 +973,8 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         eval_id: ev.id.clone(),
         scenario: ev.scenario.clone(),
         rubric: ev.rubric.clone(),
-        pass: v.pass,
-        reason: v.reason.clone(),
+        pass,
+        reason: reason.clone(),
         ran_at_ms: result.ran_at_ms,
         duration_ms: outcome.duration_ms,
         baseline_pass,
@@ -944,6 +984,11 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         baseline_transcript: baseline_transcript
             .as_deref()
             .map(crate::safety::mask_secrets),
+        score: result.score,
+        max_score: result.max_score,
+        baseline_score: result.baseline_score,
+        criteria: verdicts,
+        baseline_criteria,
     };
     if let Err(e) = karl_canon::write_run_detail(repo_root, *unit_kind, name, &detail) {
         tracing::warn!(target: "canon", error = %e, "write_run_detail failed");
@@ -954,8 +999,8 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         kind,
         name,
         &ev.id,
-        if v.pass { "pass" } else { "fail" },
-        &v.reason,
+        if pass { "pass" } else { "fail" },
+        &reason,
         "",
         Some(outcome.duration_ms),
     );
@@ -966,10 +1011,14 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
 /// (EVAL_CONCURRENCY sandboxes at a time); `baseline: Some(false)` skips the
 /// control arm for quick iteration. Aborts the whole run only if claude is
 /// not installed; a per-eval transient failure skips that eval and continues.
-#[tauri::command]
-pub async fn canon_run_evals(
+///
+/// Extracted from `canon_run_evals` so `canon_publish` can fire-and-forget an
+/// auto-run on a stale publish without a `State<AppState>` — `State` borrows
+/// from the invocation and can't be moved into a `tokio::spawn`'d future, so
+/// this takes the `Arc<Mutex<Settings>>` clone directly instead.
+pub(crate) async fn run_evals_inner(
     app: AppHandle,
-    state: State<'_, crate::AppState>,
+    settings: std::sync::Arc<tokio::sync::Mutex<Settings>>,
     cwd: String,
     kind: String,
     name: String,
@@ -991,6 +1040,11 @@ pub async fn canon_run_evals(
     }
     let repo_root = std::path::PathBuf::from(&cwd);
     let run_id = ulid::Ulid::new().to_string();
+    // Stamped on the history record at the end of the run. Computed once,
+    // here, so it reflects the unit's content as of run start rather than
+    // whatever it drifts to while the run is in flight.
+    let content_hash =
+        karl_canon::unit_content_hash(&repo_root, unit_kind, &name).unwrap_or_default();
     let mut evals = karl_canon::read_evals(&repo_root, unit_kind, &name);
     if let Some(only_id) = &only {
         evals.retain(|e| &e.id == only_id);
@@ -1041,7 +1095,6 @@ pub async fn canon_run_evals(
     }
     let cancel_key = karl_canon::unit_key(unit_kind, &name);
     clear_cancel(&cancel_key); // a stale flag from a prior stop must not kill this run
-    let settings = state.settings.clone();
     let (timeout, judge_model) = {
         let s = settings.lock().await;
         (
@@ -1094,8 +1147,19 @@ pub async fn canon_run_evals(
                     pass: r.pass,
                     reason: r.reason.clone(),
                     duration_ms: r.duration_ms,
+                    score: r.score,
+                    max_score: r.max_score,
                 })
                 .collect(),
+            score: fresh_results.iter().map(|r| r.score).sum(),
+            max_score: fresh_results.iter().map(|r| r.max_score).sum(),
+            // A partial run (`only: Some(_)`) only re-verified one case, not
+            // the whole suite — it must not certify the unit fresh.
+            content_hash: if only.is_some() {
+                String::new()
+            } else {
+                content_hash.clone()
+            },
         };
         if let Err(e) = karl_canon::append_history(&repo_root, &record) {
             tracing::warn!(target: "canon", error = %e, "append_history failed");
@@ -1112,6 +1176,75 @@ pub async fn canon_run_evals(
         if was_cancelled { "cancelled" } else { "" },
     );
     Ok(())
+}
+
+/// Tauri command surface for `run_evals_inner` — unwraps the `State` into the
+/// `Arc<Mutex<Settings>>` clone the inner fn takes, so the same run path is
+/// reachable from a real invocation (this command) or a fire-and-forget
+/// `tokio::spawn` (the auto-run `canon_publish` triggers on a stale unit).
+#[tauri::command]
+pub async fn canon_run_evals(
+    app: AppHandle,
+    state: State<'_, crate::AppState>,
+    cwd: String,
+    kind: String,
+    name: String,
+    baseline: Option<bool>,
+    only: Option<String>,
+) -> Result<(), String> {
+    let settings = state.settings.clone();
+    run_evals_inner(app, settings, cwd, kind, name, baseline, only).await
+}
+
+/// After a publish, catch a stale unit up: if it isn't eval-fresh AND has
+/// authored evals, fire off an unattended re-run. Fire-and-forget by design —
+/// the publish call this follows has already returned to its caller, and the
+/// cockpit picks the run up through the same registry any manual run uses.
+pub(crate) fn spawn_auto_run_if_stale(
+    app: &AppHandle,
+    settings: std::sync::Arc<tokio::sync::Mutex<Settings>>,
+    repo_root: &Path,
+    kind: karl_canon::ContextKind,
+    name: &str,
+    fresh: bool,
+) {
+    if fresh || karl_canon::read_evals(repo_root, kind, name).is_empty() {
+        return;
+    }
+    let cwd = repo_root.to_string_lossy().into_owned();
+    let kind_slug = kind.slug().to_string();
+    {
+        let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        if has_live_run(&reg, &cwd, &kind_slug, name) {
+            tracing::info!(
+                target: "canon",
+                kind = %kind_slug, name = %name,
+                "auto-run-on-publish skipped: a run for this unit is already in flight"
+            );
+            return;
+        }
+    }
+    let app = app.clone();
+    let name = name.to_string();
+    tokio::spawn(async move {
+        if let Err(e) = run_evals_inner(
+            app,
+            settings,
+            cwd,
+            kind_slug.clone(),
+            name.clone(),
+            None,
+            None,
+        )
+        .await
+        {
+            tracing::warn!(
+                target: "canon",
+                kind = %kind_slug, name = %name, error = %e,
+                "auto-run-on-publish failed"
+            );
+        }
+    });
 }
 
 /// Snapshot of the run registry + the on-disk run history for one repo — the
@@ -1182,12 +1315,13 @@ pub async fn canon_update_eval(
     }
     let mut eval = eval;
     eval.id = draft_slug(&eval.id);
-    if !karl_canon::valid_pkg_name(&eval.id)
-        || eval.scenario.trim().is_empty()
-        || eval.rubric.trim().is_empty()
-    {
-        return Err("eval needs a valid id and non-empty scenario + rubric".into());
+    for c in &mut eval.criteria {
+        c.id = draft_slug(&c.id);
     }
+    if !karl_canon::valid_pkg_name(&eval.id) {
+        return Err("eval needs a valid id".into());
+    }
+    karl_canon::validate_eval(&eval)?;
     karl_canon::overwrite_eval(&std::path::PathBuf::from(&cwd), unit_kind, &name, &eval)
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -1211,11 +1345,12 @@ pub async fn canon_delete_eval(
 
 const DRAFT_SYSTEM: &str = "You write behavior evals for an AI agent's context unit (a skill, \
 command, agent, context doc, or memory). Given the unit's source, produce 3-5 evals. Each eval is a \
-scenario that would tempt an agent WITHOUT this unit to do the wrong thing, plus a rubric stating \
-the observable behavior the unit should force. The scenario is 1-3 sentences addressed to the agent \
-as a user request; the rubric is 1-2 sentences of pass criteria a judge can verify from a transcript \
-alone. Reply with ONLY a JSON array, no prose and no code fences: \
-[{\"id\": \"kebab-case-slug\", \"scenario\": \"...\", \"rubric\": \"...\"}, ...]";
+scenario that would tempt an agent WITHOUT this unit to do the wrong thing, plus 2-4 weighted \
+criteria stating observable behaviors the unit should force. The scenario is 1-3 sentences addressed \
+to the agent as a user request. Each criterion is one verifiable-from-transcript behavior with an \
+integer point weight; a scenario's points sum to 100 and weights reflect importance. Reply with ONLY \
+a JSON array, no prose and no code fences: [{\"id\": \"kebab-case-slug\", \"scenario\": \"...\", \
+\"criteria\": [{\"id\": \"kebab-case-slug\", \"text\": \"...\", \"points\": 60}, ...]}, ...]";
 
 /// Extract the drafter's JSON array, tolerating prose or fences around it.
 fn parse_drafts(text: &str) -> Result<Vec<karl_canon::Eval>, String> {
@@ -1289,14 +1424,13 @@ pub async fn canon_draft_evals(
         .into_iter()
         .map(|mut d| {
             d.id = draft_slug(&d.id);
+            for c in &mut d.criteria {
+                c.id = draft_slug(&c.id);
+            }
             d
         })
-        .filter(|d| {
-            // a malformed draft is dropped, never surfaced
-            karl_canon::valid_pkg_name(&d.id)
-                && !d.scenario.trim().is_empty()
-                && !d.rubric.trim().is_empty()
-        })
+        // a malformed draft is dropped, never surfaced
+        .filter(|d| karl_canon::valid_pkg_name(&d.id) && karl_canon::validate_eval(d).is_ok())
         .collect();
     if drafts.is_empty() {
         return Err("model drafted no usable evals — try again".into());
@@ -1326,10 +1460,10 @@ pub async fn canon_write_evals(
     let mut written = Vec::new();
     for mut d in evals {
         d.id = draft_slug(&d.id);
-        if !karl_canon::valid_pkg_name(&d.id)
-            || d.scenario.trim().is_empty()
-            || d.rubric.trim().is_empty()
-        {
+        for c in &mut d.criteria {
+            c.id = draft_slug(&c.id);
+        }
+        if !karl_canon::valid_pkg_name(&d.id) || karl_canon::validate_eval(&d).is_err() {
             continue;
         }
         let res = if overwrite {
@@ -1365,6 +1499,39 @@ pub async fn canon_list_evals(
     }
     let repo_root = std::path::PathBuf::from(&cwd);
     Ok(karl_canon::read_evals(&repo_root, unit_kind, &name))
+}
+
+/// Sum non-stale stored results for a unit into a publish-ready aggregate.
+/// `None` when nothing contributes (no results, or every stored result is
+/// stale / carries no score). `baseline_score` is `None` overall — not
+/// summed from zeroes — if any contributing row lacks a baseline score,
+/// since a partial baseline sum would understate it silently.
+pub(crate) fn eval_aggregate(
+    repo_root: &Path,
+    kind: karl_canon::ContextKind,
+    name: &str,
+) -> Option<serde_json::Value> {
+    let all = karl_canon::read_results(repo_root);
+    let inner = all.get(&karl_canon::unit_key(kind, name))?;
+    let rows: Vec<&karl_canon::EvalResult> = inner
+        .values()
+        .filter(|r| !r.stale && r.max_score > 0)
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    let score: u32 = rows.iter().map(|r| r.score).sum();
+    let max_score: u32 = rows.iter().map(|r| r.max_score).sum();
+    let baseline_score: Option<u32> = if rows.iter().any(|r| r.baseline_score.is_none()) {
+        None
+    } else {
+        Some(rows.iter().filter_map(|r| r.baseline_score).sum())
+    };
+    Some(serde_json::json!({
+        "score": score,
+        "max_score": max_score,
+        "baseline_score": baseline_score,
+    }))
 }
 
 /// Per-unit `(passed,total)` for the Impact section, read from eval-results.json.
@@ -1410,6 +1577,12 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 Some((p, t)) => (Some(p), Some(t)),
                 None => (None, None),
             };
+            let score: u32 = inner.values().filter(|r| !r.stale).map(|r| r.score).sum();
+            let max_score: u32 = inner
+                .values()
+                .filter(|r| !r.stale)
+                .map(|r| r.max_score)
+                .sum();
             EvalUnitSummary {
                 authored: authored.remove(&format!("{kind}/{name}")).unwrap_or(0),
                 kind,
@@ -1422,6 +1595,8 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 last_ran_at_ms,
                 prev_passed,
                 prev_total,
+                score,
+                max_score,
             }
         })
         .collect();
@@ -1441,9 +1616,114 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
             last_ran_at_ms: None,
             prev_passed: None,
             prev_total: None,
+            score: 0,
+            max_score: 0,
         });
     }
     Ok(out)
+}
+
+/// Deterministic static lint over one context unit — no LLM, no network.
+/// Unlike the eval/review paths this accepts every kind `lib.rs`'s
+/// `parse_unit_kind` knows (including `mcp`/`spec`): `lint_unit` only reads
+/// text and frontmatter, so there's no harness-security reason to restrict it
+/// to the evaluable five the way `canon_draft_evals`/`canon_review_unit` do.
+#[tauri::command]
+pub async fn canon_lint_unit(
+    cwd: String,
+    kind: String,
+    name: String,
+) -> Result<Vec<karl_canon::LintFinding>, String> {
+    let unit_kind = crate::parse_unit_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    let repo_root = std::path::PathBuf::from(&cwd);
+    let n = name.clone();
+    tokio::task::spawn_blocking(move || karl_canon::lint_unit(&repo_root, unit_kind, &n))
+        .await
+        .map_err(|e| format!("lint_unit join: {e}"))?
+}
+
+const REVIEW_SYSTEM: &str = "You audit an AI agent context unit (skill, command, agent, context \
+doc, or memory) for quality. Given its source, return 3-7 concrete, actionable suggestions \
+covering: trigger quality (does the description say when to use it), description completeness, \
+clarity and structure of the body, and anything misleading. Reply with ONLY a JSON array, no prose \
+and no code fences: [{\"area\": \"triggers|description|clarity|structure\", \"suggestion\": \"one \
+sentence, imperative\"}, ...]";
+
+/// One LLM-suggested quality improvement for a context unit.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct ReviewSuggestion {
+    pub area: String,
+    pub suggestion: String,
+}
+
+/// Extract the reviewer's JSON array, tolerating prose or fences around it.
+/// Drops entries missing an area/suggestion, caps at 7 (the prompt asks for
+/// 3-7 but a model can still over-deliver).
+pub fn parse_review(text: &str) -> Result<Vec<ReviewSuggestion>, String> {
+    let start = text.find('[').ok_or("review output had no JSON array")?;
+    let end = text.rfind(']').ok_or("review output had no JSON array")?;
+    if end < start {
+        return Err("review output had no JSON array".into());
+    }
+    let mut suggestions: Vec<ReviewSuggestion> = serde_json::from_str(&text[start..=end])
+        .map_err(|e| format!("review output unparseable: {e}"))?;
+    suggestions.retain(|s| !s.area.trim().is_empty() && !s.suggestion.trim().is_empty());
+    suggestions.truncate(7);
+    Ok(suggestions)
+}
+
+/// On-demand LLM quality audit for a unit: read its source, ask the
+/// Summary-role model for 3-7 actionable suggestions. Mirrors
+/// `canon_draft_evals`'s dispatch shape. Nothing calls this automatically —
+/// it's a manual "Review" click in the cockpit, so a failed or empty
+/// response is simply re-clickable and not worth retrying here.
+#[tauri::command]
+pub async fn canon_review_unit(
+    state: State<'_, crate::AppState>,
+    cwd: String,
+    kind: String,
+    name: String,
+) -> Result<Vec<ReviewSuggestion>, String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    let repo_root = std::path::PathBuf::from(&cwd);
+    let body = {
+        let repo = repo_root.clone();
+        let n = name.clone();
+        tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, unit_kind, &n))
+            .await
+            .map_err(|e| format!("read_source join: {e}"))?
+            .map_err(|e| e.to_string())?
+    };
+    let resolved = {
+        let s = state.settings.lock().await;
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(ResolveError::NoRoute(_)) => {
+                return Err("no LLM route configured for review".into())
+            }
+            Err(e) => return Err(format!("review provider unavailable: {e}")),
+        }
+    };
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: REVIEW_SYSTEM.to_string(),
+        user_message: format!("## UNIT ({kind} \"{name}\")\n\n{body}"),
+        max_tokens: 1024,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    // ponytail: no retry — review is on-demand and re-clickable.
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?;
+    parse_review(&resp.text)
 }
 
 #[cfg(test)]
@@ -1487,6 +1767,49 @@ mod tests {
         }
     }
 
+    #[test]
+    fn eval_aggregate_sums_non_stale_results_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let mk = |id: &str, score: u32, stale: bool| karl_canon::EvalResult {
+            eval_id: id.into(),
+            pass: score == 100,
+            reason: String::new(),
+            ran_at_ms: 1,
+            duration_ms: 1,
+            baseline_pass: Some(false),
+            stale,
+            executor_model: None,
+            judge_model: None,
+            score,
+            max_score: 100,
+            baseline_score: Some(10),
+        };
+        karl_canon::write_result(
+            dir.path(),
+            karl_canon::ContextKind::Skill,
+            "s",
+            &mk("a", 100, false),
+        )
+        .unwrap();
+        karl_canon::write_result(
+            dir.path(),
+            karl_canon::ContextKind::Skill,
+            "s",
+            &mk("b", 0, true),
+        )
+        .unwrap();
+        let agg = eval_aggregate(dir.path(), karl_canon::ContextKind::Skill, "s").unwrap();
+        assert_eq!(agg["score"], 100);
+        assert_eq!(agg["max_score"], 100); // stale row excluded
+        assert_eq!(agg["baseline_score"], 10);
+    }
+
+    #[test]
+    fn eval_aggregate_none_when_nothing_contributes() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(eval_aggregate(dir.path(), karl_canon::ContextKind::Skill, "missing").is_none());
+    }
+
     #[tokio::test]
     async fn canon_eval_summary_splits_the_kind_from_the_name() {
         use karl_canon::{ContextKind, EvalResult};
@@ -1509,6 +1832,7 @@ mod tests {
             id: id.into(),
             scenario: "s".into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         karl_canon::write_eval(root, ContextKind::Command, "horizon", &ev("e1")).unwrap();
         karl_canon::write_eval(root, ContextKind::Command, "horizon", &ev("e2")).unwrap();
@@ -1550,6 +1874,7 @@ mod tests {
                     id: id.into(),
                     scenario: "s".into(),
                     rubric: "r".into(),
+                    criteria: Vec::new(),
                 },
             )
             .unwrap();
@@ -1579,6 +1904,7 @@ mod tests {
             id: id.into(),
             scenario: s.into(),
             rubric: r.into(),
+            criteria: Vec::new(),
         };
         // Pre-existing hand-tuned eval must survive untouched.
         karl_canon::write_eval(
@@ -1653,6 +1979,33 @@ mod tests {
     }
 
     #[test]
+    fn parse_drafts_accepts_criteria_shape() {
+        let text =
+            r#"[{"id":"a","scenario":"s","criteria":[{"id":"c1","text":"t","points":100}]}]"#;
+        let ds = parse_drafts(text).unwrap();
+        assert_eq!(ds[0].criteria.len(), 1);
+        assert!(karl_canon::validate_eval(&ds[0]).is_ok());
+    }
+
+    #[test]
+    fn parse_drafts_still_accepts_legacy_rubric_shape() {
+        let text = r#"[{"id":"a","scenario":"s","rubric":"must"}]"#;
+        assert!(karl_canon::validate_eval(&parse_drafts(text).unwrap()[0]).is_ok());
+    }
+
+    #[test]
+    fn parse_review_extracts_suggestions_and_caps_at_seven() {
+        let text = r#"ok: [{"area":"triggers","suggestion":"add 'Use when'"},{"area":"description","suggestion":"name the output"}]"#;
+        let s = parse_review(text).unwrap();
+        assert_eq!(s.len(), 2);
+        let many = format!(
+            "[{}]",
+            vec![r#"{"area":"a","suggestion":"s"}"#; 12].join(",")
+        );
+        assert_eq!(parse_review(&many).unwrap().len(), 7);
+    }
+
+    #[test]
     fn draft_slug_forces_the_pkg_name_charset() {
         assert_eq!(draft_slug("Refuses A Dirty Tree!"), "refuses-a-dirty-tree");
         assert_eq!(draft_slug("--weird__id--"), "weird-id");
@@ -1663,29 +2016,87 @@ mod tests {
         assert_eq!(draft_slug("!!!"), "");
     }
 
-    #[test]
-    fn parse_verdict_reads_pass_fail_and_reason() {
-        let p = parse_verdict("PASS\nThe agent refused and cited SBS.").unwrap();
-        assert!(p.pass);
-        assert_eq!(p.reason, "The agent refused and cited SBS.");
-
-        let f = parse_verdict("FAIL — it approved the withdrawal").unwrap();
-        assert!(!f.pass);
-        assert!(f.reason.contains("approved"));
-
-        // Case-insensitive, tolerant of leading prose.
-        assert!(parse_verdict("Verdict: pass").unwrap().pass);
-        // No verdict token → None (caller treats as an error, never a silent pass).
-        assert!(parse_verdict("I'm not sure honestly").is_none());
+    fn crits() -> Vec<karl_canon::Criterion> {
+        vec![
+            karl_canon::Criterion {
+                id: "stops".into(),
+                text: "stops".into(),
+                points: 60,
+            },
+            karl_canon::Criterion {
+                id: "reports".into(),
+                text: "reports".into(),
+                points: 40,
+            },
+        ]
     }
 
     #[test]
-    fn parse_verdict_ignores_substring_false_positives() {
-        assert!(parse_verdict("I cannot determine if this passes the rubric").is_none());
-        assert!(parse_verdict("The work surpassed expectations").is_none());
-        // genuine verdicts still parse
-        assert!(parse_verdict("PASS\nrefused correctly").unwrap().pass);
-        assert!(!parse_verdict("FAIL — approved without KYC").unwrap().pass);
+    fn parse_criteria_verdicts_happy_path_attaches_points() {
+        let text = r#"[{"id":"stops","pass":true,"reason":"halted"},{"id":"reports","pass":false,"reason":"silent"}]"#;
+        let v = parse_criteria_verdicts(text, &crits()).unwrap();
+        assert_eq!(v.len(), 2);
+        assert!(v[0].pass && !v[1].pass);
+        assert_eq!((v[0].points, v[1].points), (60, 40));
+    }
+
+    #[test]
+    fn parse_criteria_verdicts_tolerates_fences_and_prose() {
+        let text = "Here you go:\n```json\n[{\"id\":\"stops\",\"pass\":true,\"reason\":\"r\"},{\"id\":\"reports\",\"pass\":true,\"reason\":\"r\"}]\n```";
+        assert!(parse_criteria_verdicts(text, &crits()).is_ok());
+    }
+
+    #[test]
+    fn parse_criteria_verdicts_rejects_missing_unknown_or_duplicate_ids() {
+        // missing "reports"
+        assert!(
+            parse_criteria_verdicts(r#"[{"id":"stops","pass":true,"reason":"r"}]"#, &crits())
+                .is_err()
+        );
+        // unknown id
+        assert!(parse_criteria_verdicts(
+            r#"[{"id":"stops","pass":true,"reason":"r"},{"id":"nope","pass":true,"reason":"r"}]"#,
+            &crits()
+        )
+        .is_err());
+        // duplicate id
+        assert!(parse_criteria_verdicts(
+            r#"[{"id":"stops","pass":true,"reason":"r"},{"id":"stops","pass":false,"reason":"r"}]"#,
+            &crits()
+        )
+        .is_err());
+        // no array at all
+        assert!(parse_criteria_verdicts("PASS", &crits()).is_err());
+    }
+
+    #[test]
+    fn score_of_sums_passed_points_and_derives_binary_pass() {
+        let vs = vec![
+            karl_canon::CriterionVerdict {
+                id: "a".into(),
+                pass: true,
+                reason: "ok".into(),
+                points: 60,
+            },
+            karl_canon::CriterionVerdict {
+                id: "b".into(),
+                pass: false,
+                reason: "missed".into(),
+                points: 40,
+            },
+        ];
+        let (score, pass, reason) = score_of(&vs);
+        assert_eq!(score, 60);
+        assert!(!pass);
+        assert!(reason.contains("b: missed"));
+        let all = vs
+            .iter()
+            .map(|v| karl_canon::CriterionVerdict {
+                pass: true,
+                ..v.clone()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(score_of(&all), (100, true, "all criteria met".into()));
     }
 
     #[test]
@@ -1966,6 +2377,7 @@ mod tests {
             id: "Refuses Something".into(), // slugged on save
             scenario: "s".into(),
             rubric: "r".into(),
+            criteria: Vec::new(),
         };
         canon_update_eval(cwd.clone(), "skill".into(), "horizon".into(), ev.clone())
             .await
@@ -1991,7 +2403,8 @@ mod tests {
             karl_canon::Eval {
                 id: "ok".into(),
                 scenario: "  ".into(),
-                rubric: "r".into()
+                rubric: "r".into(),
+                criteria: Vec::new(),
             }
         )
         .await
@@ -2040,6 +2453,9 @@ mod tests {
                     total: 2,
                     at_ms: at,
                     cases: vec![],
+                    score: 0,
+                    max_score: 0,
+                    content_hash: String::new(),
                 },
             )
             .unwrap();
@@ -2139,13 +2555,46 @@ mod tests {
         assert_eq!(run_b.cases[0].reason, "cancelled");
     }
 
+    /// `has_live_run` is the guard `spawn_auto_run_if_stale` checks before
+    /// spawning a second concurrent run of the same unit — it must match on
+    /// the exact cwd+kind+name and ignore already-finished runs.
     #[test]
-    fn parse_verdict_rejects_ambiguous_first_line() {
-        // both tokens on the first line = non-compliant judge output = unparseable, NOT a silent pass
-        assert!(parse_verdict("It's not a clear pass... FAIL").is_none());
-        assert!(parse_verdict("Could be PASS or FAIL, unsure").is_none());
-        // genuine single-token first lines still parse
-        assert!(parse_verdict("PASS\nrefused").unwrap().pass);
-        assert!(!parse_verdict("FAIL\napproved").unwrap().pass);
+    fn has_live_run_matches_only_the_same_unit_while_still_running() {
+        let running = EvalRunSnapshot {
+            run_id: "live-test-a".into(),
+            kind: "skill".into(),
+            name: "horizon".into(),
+            cwd: "/repo-live-test".into(),
+            started_at_ms: 1,
+            done: false,
+            cancelled: false,
+            cases: vec![],
+        };
+        let mut finished = running.clone();
+        finished.run_id = "live-test-b".into();
+        finished.done = true;
+
+        assert!(has_live_run(
+            &[running.clone()],
+            "/repo-live-test",
+            "skill",
+            "horizon"
+        ));
+        assert!(
+            !has_live_run(&[finished], "/repo-live-test", "skill", "horizon"),
+            "a finished run must not block a fresh one"
+        );
+        assert!(
+            !has_live_run(&[running.clone()], "/other-repo", "skill", "horizon"),
+            "different cwd is a different unit"
+        );
+        assert!(
+            !has_live_run(&[running.clone()], "/repo-live-test", "agent", "horizon"),
+            "different kind is a different unit"
+        );
+        assert!(
+            !has_live_run(&[running], "/repo-live-test", "skill", "other"),
+            "different name is a different unit"
+        );
     }
 }
