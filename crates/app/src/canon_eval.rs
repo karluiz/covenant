@@ -493,90 +493,68 @@ pub async fn run_baseline(
     run_scenario_in(sbox.path(), scenario, started, timeout, cancel_key).await
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Verdict {
-    pub pass: bool,
-    pub reason: String,
+const JUDGE_SYSTEM: &str = "You are a strict compliance judge. You are given a SCENARIO, a list of \
+CRITERIA, and a TRANSCRIPT of an AI agent's response to the scenario. For EACH criterion decide, \
+all-or-nothing, whether the transcript satisfies it. Judge ONLY the stated criteria; do not invent \
+extra ones. Reply with ONLY a JSON array, no prose and no code fences, one entry per criterion, in \
+order: [{\"id\": \"<criterion id>\", \"pass\": true|false, \"reason\": \"one line\"}, ...]";
+
+#[derive(serde::Deserialize)]
+struct RawCriterionVerdict {
+    id: String,
+    pass: bool,
+    #[serde(default)]
+    reason: String,
 }
 
-const JUDGE_SYSTEM: &str = "You are a strict compliance judge. You are given a SCENARIO, a RUBRIC, \
-and a TRANSCRIPT of an AI agent's response to the scenario. Decide whether the transcript satisfies \
-the rubric. Reply with exactly one word on the first line — PASS or FAIL — then a one-line reason on \
-the next line. Judge ONLY the rubric; do not invent extra criteria.";
-
-/// Return the byte-offset of the first occurrence of `word` in `haystack`
-/// that is bounded by non-ASCII-alphabetic characters on both sides.
-fn word_pos(haystack: &str, word: &str) -> Option<usize> {
-    let bytes = haystack.as_bytes();
-    let mut from = 0;
-    while let Some(rel) = haystack[from..].find(word) {
-        let pos = from + rel;
-        let before_ok = pos == 0 || !bytes[pos - 1].is_ascii_alphabetic();
-        let after = pos + word.len();
-        let after_ok = after >= bytes.len() || !bytes[after].is_ascii_alphabetic();
-        if before_ok && after_ok {
-            return Some(pos);
-        }
-        from = pos + word.len();
+/// Strict parse of the judge's JSON array. Every criterion must appear exactly
+/// once; anything else is a parse error (retry, then hard error — never a
+/// fabricated score).
+pub fn parse_criteria_verdicts(
+    text: &str,
+    criteria: &[karl_canon::Criterion],
+) -> Result<Vec<karl_canon::CriterionVerdict>, String> {
+    let start = text.find('[').ok_or("judge output had no JSON array")?;
+    let end = text.rfind(']').ok_or("judge output had no JSON array")?;
+    if end < start {
+        return Err("judge output had no JSON array".into());
     }
-    None
+    let raw: Vec<RawCriterionVerdict> = serde_json::from_str(&text[start..=end])
+        .map_err(|e| format!("judge output unparseable: {e}"))?;
+    let mut by_id: std::collections::BTreeMap<&str, &RawCriterionVerdict> = Default::default();
+    for r in &raw {
+        if by_id.insert(r.id.as_str(), r).is_some() {
+            return Err(format!("judge repeated criterion {:?}", r.id));
+        }
+    }
+    if let Some(unknown) = raw.iter().find(|r| !criteria.iter().any(|c| c.id == r.id)) {
+        return Err(format!("judge invented criterion {:?}", unknown.id));
+    }
+    criteria
+        .iter()
+        .map(|c| {
+            let r = by_id
+                .get(c.id.as_str())
+                .ok_or_else(|| format!("judge omitted criterion {:?}", c.id))?;
+            Ok(karl_canon::CriterionVerdict {
+                id: c.id.clone(),
+                pass: r.pass,
+                reason: r.reason.clone(),
+                points: c.points,
+            })
+        })
+        .collect()
 }
 
-/// Parse `PASS`/`FAIL` (case-insensitive) + a reason. `None` if no standalone
-/// verdict token is present — the caller must treat that as an error, not a pass.
-///
-/// Verdict is determined from the FIRST NON-EMPTY LINE only (judge contract).
-/// Scanning the whole text would promote a trailing token — e.g. "It's not a
-/// clear pass... FAIL" — to a false PASS, silently corrupting compliance results.
-/// If both tokens appear on the first line (ambiguous) → `None`.
-pub fn parse_verdict(text: &str) -> Option<Verdict> {
-    // Judge contract: PASS or FAIL on the FIRST non-empty line only.
-    let first_line = text.lines().find(|l| !l.trim().is_empty())?;
-    let lower_first = first_line.to_lowercase();
-    let pass_at = word_pos(&lower_first, "pass");
-    let fail_at = word_pos(&lower_first, "fail");
-    let pass = match (pass_at, fail_at) {
-        // Both tokens on the first line → ambiguous; not a valid verdict.
-        (Some(_), Some(_)) => return None,
-        (Some(_), None) => true,
-        (None, Some(_)) => false,
-        (None, None) => return None,
-    };
-    // Reason: the remainder after the first NON-EMPTY line, trimmed of separators.
-    // Using skip(1) would be wrong if there are leading blank lines — it would
-    // include the verdict line itself in the reason. Instead we find the index
-    // of the first non-empty line and skip past it.
-    let first_non_empty_idx = text.lines().position(|l| !l.trim().is_empty()).unwrap_or(0);
-    let reason = text
-        .lines()
-        .skip(first_non_empty_idx + 1)
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .trim_start_matches(['—', '-', ':', ' '])
-        .trim()
-        .to_string();
-    let reason = if reason.is_empty() {
-        // Single-line verdict like "FAIL — it approved": take the tail of line 1.
-        first_line
-            .trim_start_matches(|c: char| c.is_alphabetic() || c.is_whitespace())
-            .trim_start_matches(['—', '-', ':', ' '])
-            .trim()
-            .to_string()
-    } else {
-        reason
-    };
-    Some(Verdict { pass, reason })
-}
-
-/// Judge a transcript against a rubric via the configured Summary-role model.
-/// One retry on an unparseable verdict; then a hard error (never a silent pass).
+/// Judge a transcript against a criteria set via the configured Summary-role
+/// model. One retry on an unparseable verdict; then a hard error (never a
+/// fabricated score).
 pub async fn judge(
     settings: &std::sync::Arc<tokio::sync::Mutex<Settings>>,
     scenario: &str,
-    rubric: &str,
+    criteria: &[karl_canon::Criterion],
     transcript: &str,
-) -> Result<Verdict, String> {
+) -> Result<Vec<karl_canon::CriterionVerdict>, String> {
     let resolved = {
         let s = settings.lock().await;
         match resolve_route(&s, Role::Summary) {
@@ -587,39 +565,47 @@ pub async fn judge(
             Err(e) => return Err(format!("judge provider unavailable: {e}")),
         }
     };
-    let user =
-        format!("## SCENARIO\n{scenario}\n\n## RUBRIC\n{rubric}\n\n## TRANSCRIPT\n{transcript}");
+    let crit_lines = criteria
+        .iter()
+        .map(|c| format!("- id: {} — {}", c.id, c.text))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let user = format!(
+        "## SCENARIO\n{scenario}\n\n## CRITERIA\n{crit_lines}\n\n## TRANSCRIPT\n{transcript}"
+    );
     for attempt in 0..2 {
         let req = karl_agent::AskRequest {
             api_key: String::new(),
             model: resolved.model.clone(),
             system_prompt: JUDGE_SYSTEM.to_string(),
             user_message: user.clone(),
-            max_tokens: 512,
+            max_tokens: 1024,
             thinking_budget: None,
             force_tool: None,
         };
         let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
             .await
             .map_err(|e| e.to_string())?;
-        if let Some(v) = parse_verdict(&resp.text) {
-            return Ok(v);
+        match parse_criteria_verdicts(&resp.text, criteria) {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                tracing::warn!(target: "canon", attempt, error = %e, "judge verdict unparseable, retrying")
+            }
         }
-        tracing::warn!(target: "canon", attempt, "judge produced no PASS/FAIL token, retrying");
     }
-    Err("judge did not return a PASS/FAIL verdict".into())
+    Err("judge did not return a parseable criteria verdict".into())
 }
 
 /// `judge` with a hard ceiling — a hung provider call must not hang the run.
 async fn judge_with_timeout(
     settings: &std::sync::Arc<tokio::sync::Mutex<Settings>>,
     scenario: &str,
-    rubric: &str,
+    criteria: &[karl_canon::Criterion],
     transcript: &str,
-) -> Result<Verdict, String> {
+) -> Result<Vec<karl_canon::CriterionVerdict>, String> {
     tokio::time::timeout(
         Duration::from_secs(JUDGE_TIMEOUT_SECS),
-        judge(settings, scenario, rubric, transcript),
+        judge(settings, scenario, criteria, transcript),
     )
     .await
     .map_err(|_| format!("judge timed out after {JUDGE_TIMEOUT_SECS}s"))?
@@ -804,6 +790,23 @@ struct RunCtx {
     judge_model: Option<String>,
 }
 
+/// Derived scalars from a set of criterion verdicts.
+fn score_of(verdicts: &[karl_canon::CriterionVerdict]) -> (u32, bool, String) {
+    let score = verdicts.iter().filter(|v| v.pass).map(|v| v.points).sum();
+    let pass = verdicts.iter().all(|v| v.pass);
+    let reason = if pass {
+        "all criteria met".to_string()
+    } else {
+        verdicts
+            .iter()
+            .filter(|v| !v.pass)
+            .map(|v| format!("{}: {}", v.id, v.reason))
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    (score, pass, reason)
+}
+
 /// Run one eval end-to-end: harness → judge → baseline (cached) → persist →
 /// emit. Returns the fresh result, or None on skip/timeout/error/cancel.
 async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon::EvalResult> {
@@ -858,24 +861,39 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         }
         HarnessStatus::Ran => {}
     }
-    let v = match judge_with_timeout(settings, &ev.scenario, &ev.rubric, &outcome.transcript).await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            stale_out(&e, "error");
-            return None;
-        }
-    };
+    let crits = karl_canon::effective_criteria(ev);
+    let max_score: u32 = crits.iter().map(|c| c.points).sum();
+    let verdicts =
+        match judge_with_timeout(settings, &ev.scenario, &crits, &outcome.transcript).await {
+            Ok(v) => v,
+            Err(e) => {
+                stale_out(&e, "error");
+                return None;
+            }
+        };
+    let (score, pass, reason) = score_of(&verdicts);
 
-    // Baseline arm: same scenario/rubric, no unit projected. The bare sandbox
-    // is identical for a given scenario, so its verdict is cached by hash.
+    // Baseline arm: same scenario, no unit projected. The bare sandbox is
+    // identical for a given scenario, so its verdict is cached by hash — but
+    // only reusable when judged against the same criteria set.
     let mut baseline_transcript: Option<String> = None;
+    let ch = karl_canon::criteria_hash(&crits);
+    let mut baseline_score: Option<u32> = None;
+    let mut baseline_criteria: Vec<karl_canon::CriterionVerdict> = Vec::new();
     let baseline_pass = if !with_baseline || is_cancelled(cancel_key) {
         None
     } else {
         let hash = karl_canon::scenario_hash(&ev.scenario);
-        match karl_canon::read_baseline_cache(repo_root).get(&hash) {
-            Some(cached) => Some(cached.pass),
+        let cached = karl_canon::read_baseline_cache(repo_root)
+            .get(&hash)
+            .filter(|v| v.criteria_hash == ch)
+            .cloned();
+        match cached {
+            Some(cached) => {
+                baseline_score = Some(cached.score);
+                baseline_criteria = cached.criteria;
+                Some(cached.pass)
+            }
             None => {
                 emit_progress_full(
                     app, run_id, kind, name, &ev.id, "running", "", "baseline", None,
@@ -883,29 +901,27 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
                 let base = run_baseline(repo_root, &ev.scenario, *timeout, cancel_key).await;
                 match base.status {
                     HarnessStatus::Ran => {
-                        match judge_with_timeout(
-                            settings,
-                            &ev.scenario,
-                            &ev.rubric,
-                            &base.transcript,
-                        )
-                        .await
+                        match judge_with_timeout(settings, &ev.scenario, &crits, &base.transcript)
+                            .await
                         {
-                            Ok(bv) => {
+                            Ok(b_verdicts) => {
+                                let (b_score, b_pass, _) = score_of(&b_verdicts);
                                 let _ = karl_canon::write_baseline_verdict(
                                     repo_root,
                                     &hash,
                                     &karl_canon::BaselineVerdict {
-                                        pass: bv.pass,
+                                        pass: b_pass,
                                         judged_at_ms: chrono::Utc::now().timestamp_millis(),
-                                        criteria_hash: String::new(),
-                                        score: 0,
-                                        max_score: 0,
-                                        criteria: Vec::new(),
+                                        criteria_hash: ch.clone(),
+                                        score: b_score,
+                                        max_score,
+                                        criteria: b_verdicts.clone(),
                                     },
                                 );
                                 baseline_transcript = Some(base.transcript);
-                                Some(bv.pass)
+                                baseline_score = Some(b_score);
+                                baseline_criteria = b_verdicts;
+                                Some(b_pass)
                             }
                             Err(_) => None, // baseline judge failed → lift not measurable
                         }
@@ -918,17 +934,17 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
 
     let result = karl_canon::EvalResult {
         eval_id: ev.id.clone(),
-        pass: v.pass,
-        reason: v.reason.clone(),
+        pass,
+        reason: reason.clone(),
         ran_at_ms: chrono::Utc::now().timestamp_millis(),
         duration_ms: outcome.duration_ms,
         baseline_pass,
         stale: false,
         executor_model: Some(EXECUTOR_MODEL.to_string()),
         judge_model: judge_model.clone(),
-        score: 0,
-        max_score: 0,
-        baseline_score: None,
+        score,
+        max_score,
+        baseline_score,
     };
     if let Err(e) = karl_canon::write_result(repo_root, *unit_kind, name, &result) {
         tracing::warn!(target: "canon", error = %e, "write_result failed");
@@ -940,8 +956,8 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         eval_id: ev.id.clone(),
         scenario: ev.scenario.clone(),
         rubric: ev.rubric.clone(),
-        pass: v.pass,
-        reason: v.reason.clone(),
+        pass,
+        reason: reason.clone(),
         ran_at_ms: result.ran_at_ms,
         duration_ms: outcome.duration_ms,
         baseline_pass,
@@ -954,8 +970,8 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         score: result.score,
         max_score: result.max_score,
         baseline_score: result.baseline_score,
-        criteria: Vec::new(),
-        baseline_criteria: Vec::new(),
+        criteria: verdicts,
+        baseline_criteria,
     };
     if let Err(e) = karl_canon::write_run_detail(repo_root, *unit_kind, name, &detail) {
         tracing::warn!(target: "canon", error = %e, "write_run_detail failed");
@@ -966,8 +982,8 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         kind,
         name,
         &ev.id,
-        if v.pass { "pass" } else { "fail" },
-        &v.reason,
+        if pass { "pass" } else { "fail" },
+        &reason,
         "",
         Some(outcome.duration_ms),
     );
@@ -1680,29 +1696,87 @@ mod tests {
         assert_eq!(draft_slug("!!!"), "");
     }
 
-    #[test]
-    fn parse_verdict_reads_pass_fail_and_reason() {
-        let p = parse_verdict("PASS\nThe agent refused and cited SBS.").unwrap();
-        assert!(p.pass);
-        assert_eq!(p.reason, "The agent refused and cited SBS.");
-
-        let f = parse_verdict("FAIL — it approved the withdrawal").unwrap();
-        assert!(!f.pass);
-        assert!(f.reason.contains("approved"));
-
-        // Case-insensitive, tolerant of leading prose.
-        assert!(parse_verdict("Verdict: pass").unwrap().pass);
-        // No verdict token → None (caller treats as an error, never a silent pass).
-        assert!(parse_verdict("I'm not sure honestly").is_none());
+    fn crits() -> Vec<karl_canon::Criterion> {
+        vec![
+            karl_canon::Criterion {
+                id: "stops".into(),
+                text: "stops".into(),
+                points: 60,
+            },
+            karl_canon::Criterion {
+                id: "reports".into(),
+                text: "reports".into(),
+                points: 40,
+            },
+        ]
     }
 
     #[test]
-    fn parse_verdict_ignores_substring_false_positives() {
-        assert!(parse_verdict("I cannot determine if this passes the rubric").is_none());
-        assert!(parse_verdict("The work surpassed expectations").is_none());
-        // genuine verdicts still parse
-        assert!(parse_verdict("PASS\nrefused correctly").unwrap().pass);
-        assert!(!parse_verdict("FAIL — approved without KYC").unwrap().pass);
+    fn parse_criteria_verdicts_happy_path_attaches_points() {
+        let text = r#"[{"id":"stops","pass":true,"reason":"halted"},{"id":"reports","pass":false,"reason":"silent"}]"#;
+        let v = parse_criteria_verdicts(text, &crits()).unwrap();
+        assert_eq!(v.len(), 2);
+        assert!(v[0].pass && !v[1].pass);
+        assert_eq!((v[0].points, v[1].points), (60, 40));
+    }
+
+    #[test]
+    fn parse_criteria_verdicts_tolerates_fences_and_prose() {
+        let text = "Here you go:\n```json\n[{\"id\":\"stops\",\"pass\":true,\"reason\":\"r\"},{\"id\":\"reports\",\"pass\":true,\"reason\":\"r\"}]\n```";
+        assert!(parse_criteria_verdicts(text, &crits()).is_ok());
+    }
+
+    #[test]
+    fn parse_criteria_verdicts_rejects_missing_unknown_or_duplicate_ids() {
+        // missing "reports"
+        assert!(
+            parse_criteria_verdicts(r#"[{"id":"stops","pass":true,"reason":"r"}]"#, &crits())
+                .is_err()
+        );
+        // unknown id
+        assert!(parse_criteria_verdicts(
+            r#"[{"id":"stops","pass":true,"reason":"r"},{"id":"nope","pass":true,"reason":"r"}]"#,
+            &crits()
+        )
+        .is_err());
+        // duplicate id
+        assert!(parse_criteria_verdicts(
+            r#"[{"id":"stops","pass":true,"reason":"r"},{"id":"stops","pass":false,"reason":"r"}]"#,
+            &crits()
+        )
+        .is_err());
+        // no array at all
+        assert!(parse_criteria_verdicts("PASS", &crits()).is_err());
+    }
+
+    #[test]
+    fn score_of_sums_passed_points_and_derives_binary_pass() {
+        let vs = vec![
+            karl_canon::CriterionVerdict {
+                id: "a".into(),
+                pass: true,
+                reason: "ok".into(),
+                points: 60,
+            },
+            karl_canon::CriterionVerdict {
+                id: "b".into(),
+                pass: false,
+                reason: "missed".into(),
+                points: 40,
+            },
+        ];
+        let (score, pass, reason) = score_of(&vs);
+        assert_eq!(score, 60);
+        assert!(!pass);
+        assert!(reason.contains("b: missed"));
+        let all = vs
+            .iter()
+            .map(|v| karl_canon::CriterionVerdict {
+                pass: true,
+                ..v.clone()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(score_of(&all), (100, true, "all criteria met".into()));
     }
 
     #[test]
@@ -2158,13 +2232,4 @@ mod tests {
         assert_eq!(run_b.cases[0].reason, "cancelled");
     }
 
-    #[test]
-    fn parse_verdict_rejects_ambiguous_first_line() {
-        // both tokens on the first line = non-compliant judge output = unparseable, NOT a silent pass
-        assert!(parse_verdict("It's not a clear pass... FAIL").is_none());
-        assert!(parse_verdict("Could be PASS or FAIL, unsure").is_none());
-        // genuine single-token first lines still parse
-        assert!(parse_verdict("PASS\nrefused").unwrap().pass);
-        assert!(!parse_verdict("FAIL\napproved").unwrap().pass);
-    }
 }
