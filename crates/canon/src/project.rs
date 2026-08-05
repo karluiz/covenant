@@ -94,11 +94,16 @@ pub(crate) fn read_dir_md(dir: &Path) -> Result<Vec<(String, String)>, CanonErro
 /// Project operator personas into Claude's native multi-agent dir.
 /// Executors that read a multi-file AGENT dir (file-per-item). One persona per
 /// `.md`. Add an executor by adding its dir here.
-pub(crate) const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent"];
+pub(crate) const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent", ".kimi-code/agents"];
 
 /// Executors that read multi-file SKILL dirs (the Superpowers `SKILL.md`
 /// convention). Skills and full context bodies land here as `canon-<name>/SKILL.md`.
-pub(crate) const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills", ".cursor/skills"];
+pub(crate) const SKILL_DIRS: &[&str] = &[
+    ".claude/skills",
+    ".pi/skills",
+    ".cursor/skills",
+    ".kimi-code/skills",
+];
 
 /// Executors that read a multi-file COMMAND dir as file-per-item `<name>.md`
 /// slash commands. Codex has no project-level commands; Copilot uses a
@@ -430,7 +435,9 @@ fn newest_source_mtime(repo_root: &Path) -> Option<u64> {
 /// would currently write, without touching disk. Reuses the same content
 /// helpers as projection, so "synced" means byte-identical to a fresh project.
 pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonError> {
-    const TOOLS: [&str; 6] = ["claude", "opencode", "pi", "codex", "copilot", "cursor"];
+    const TOOLS: [&str; 7] = [
+        "claude", "opencode", "pi", "codex", "copilot", "cursor", "kimi",
+    ];
 
     let manifest = read_manifest(repo_root)?;
     let skills_dir = canon_dir(repo_root).join("skills");
@@ -481,6 +488,13 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         files.push((
             "opencode",
             repo_root.join(".opencode/agent").join(format!("{stem}.md")),
+            content.clone(),
+        ));
+        files.push((
+            "kimi",
+            repo_root
+                .join(".kimi-code/agents")
+                .join(format!("{stem}.md")),
             content,
         ));
     }
@@ -508,6 +522,14 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
                 .join(".cursor/skills")
                 .join(format!("canon-{name}"))
                 .join("SKILL.md"),
+            content.clone(),
+        ));
+        files.push((
+            "kimi",
+            repo_root
+                .join(".kimi-code/skills")
+                .join(format!("canon-{name}"))
+                .join("SKILL.md"),
             content,
         ));
     }
@@ -533,6 +555,14 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
             "cursor",
             repo_root
                 .join(".cursor/skills")
+                .join(format!("canon-{stem}"))
+                .join("SKILL.md"),
+            content.clone(),
+        ));
+        files.push((
+            "kimi",
+            repo_root
+                .join(".kimi-code/skills")
                 .join(format!("canon-{stem}"))
                 .join("SKILL.md"),
             content,
@@ -578,20 +608,14 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
             .or_default()
             .push(check_file(path, expected));
     }
-    // Managed-block executors. codex + opencode + cursor all read AGENTS.md.
+    // Managed-block executors. codex + opencode + cursor + kimi all read AGENTS.md.
     let agents_md = repo_root.join("AGENTS.md");
-    checks
-        .entry("codex")
-        .or_default()
-        .push(check_managed(&agents_md, body.as_deref()));
-    checks
-        .entry("opencode")
-        .or_default()
-        .push(check_managed(&agents_md, body.as_deref()));
-    checks
-        .entry("cursor")
-        .or_default()
-        .push(check_managed(&agents_md, body.as_deref()));
+    for tool in ["codex", "opencode", "cursor", "kimi"] {
+        checks
+            .entry(tool)
+            .or_default()
+            .push(check_managed(&agents_md, body.as_deref()));
+    }
     checks.entry("copilot").or_default().push(check_managed(
         &repo_root.join(".github/copilot-instructions.md"),
         body.as_deref(),
@@ -605,13 +629,13 @@ pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CanonErro
         })
         .collect();
 
-    // MCP is projected only to claude/opencode/codex, as a structured config
+    // MCP is projected only to claude/opencode/codex/kimi, as a structured config
     // merge. Downgrade a tool to Stale when its canon-* MCP servers don't match;
     // upgrade a not-projected tool to Synced when MCP is its only (matching)
     // source. Never falsely downgrade for an absent managed block.
     if !mcp_servers.is_empty() {
         for e in executors.iter_mut() {
-            if !matches!(e.tool.as_str(), "claude" | "opencode" | "codex") {
+            if !matches!(e.tool.as_str(), "claude" | "opencode" | "codex" | "kimi") {
                 continue;
             }
             if !crate::mcp::mcp_synced(repo_root, &e.tool, &mcp_servers) {
@@ -879,6 +903,20 @@ mod tests {
         // Claude targets unchanged (regression)
         assert!(repo.join(".claude/agents/kyc-reviewer.md").exists());
         assert!(repo.join(".claude/skills/canon-sbs-kyc/SKILL.md").exists());
+        // Kimi Code: brand dirs are `.kimi-code/{agents,skills}`; AGENTS.md and
+        // `.mcp.json` it already reads, so those need no separate write.
+        assert!(repo.join(".kimi-code/agents/kyc-reviewer.md").exists());
+        assert!(repo
+            .join(".kimi-code/skills/canon-sbs-kyc/SKILL.md")
+            .exists());
+        assert!(
+            projection_status(&repo)
+                .unwrap()
+                .executors
+                .iter()
+                .any(|e| e.tool == "kimi" && e.state == ProjState::Synced),
+            "kimi reports synced right after project()"
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }

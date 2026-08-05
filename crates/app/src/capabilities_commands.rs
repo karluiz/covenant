@@ -7,7 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
-use karl_capabilities::adapters::{claude, codex, copilot, covenant, cursor, opencode, pi, shared};
+use karl_capabilities::adapters::{
+    claude, codex, copilot, covenant, cursor, kimi, opencode, pi, shared,
+};
 use karl_capabilities::model::{Kind, Tool};
 use karl_capabilities::scaffold::{render, ScaffoldRequest};
 use karl_capabilities::writer::{delete_with_backup, write_atomic};
@@ -35,6 +37,7 @@ pub struct DetectResult {
     pub codex: bool,
     pub pi: bool,
     pub cursor: bool,
+    pub kimi: bool,
     pub shared: bool,
     pub covenant: bool,
 }
@@ -446,6 +449,77 @@ fn item_from_cursor(c: cursor::Capability) -> CapabilityListItem {
     }
 }
 
+fn item_from_kimi(c: kimi::Capability) -> CapabilityListItem {
+    let scope_label = |s: &kimi::KimiScope| match s {
+        kimi::KimiScope::User => "user".to_string(),
+        kimi::KimiScope::Project(p) => format!(
+            "project:{}",
+            p.file_name().and_then(|s| s.to_str()).unwrap_or("project")
+        ),
+    };
+    let (kind, name, description, path, lbl) = match c {
+        kimi::Capability::Skill(s) => {
+            let lbl = scope_label(&s.scope);
+            (
+                "skill",
+                s.name,
+                Some(s.description),
+                s.path.to_string_lossy().into_owned(),
+                lbl,
+            )
+        }
+        kimi::Capability::Agent(a) => {
+            let lbl = scope_label(&a.scope);
+            (
+                "agent",
+                a.name,
+                Some(a.description),
+                a.path.to_string_lossy().into_owned(),
+                lbl,
+            )
+        }
+        kimi::Capability::McpServer(m) => {
+            let lbl = scope_label(&m.scope);
+            let desc = match (&m.command, &m.url) {
+                (Some(cmd), _) => format!("{} {}", cmd, m.args.join(" "))
+                    .trim_end()
+                    .to_string(),
+                (None, Some(url)) => url.clone(),
+                _ => m.kind.clone(),
+            };
+            (
+                "mcp",
+                m.name,
+                Some(desc),
+                m.source_file.to_string_lossy().into_owned(),
+                lbl,
+            )
+        }
+        kimi::Capability::Memory(m) => {
+            let lbl = scope_label(&m.scope);
+            (
+                "memory",
+                m.name,
+                Some("Kimi AGENTS.md memory".to_string()),
+                m.path.to_string_lossy().into_owned(),
+                lbl,
+            )
+        }
+    };
+    CapabilityListItem {
+        // `name` is in the id because every server in one `mcp.json` shares
+        // that path — without it the MCP rows collide.
+        id: format!("kimi:{kind}:{path}:{name}"),
+        tool: "kimi".into(),
+        kind: kind.into(),
+        name,
+        description,
+        path,
+        scope_label: lbl,
+        read_only: false,
+    }
+}
+
 fn item_from_shared(s: shared::SharedSkill) -> CapabilityListItem {
     let path = s.path.to_string_lossy().into_owned();
     let scope_label = match (s.source.as_deref(), s.version.as_deref()) {
@@ -523,6 +597,14 @@ fn aggregate(project_root: Option<String>) -> Result<Vec<CapabilityListItem>, St
             .map(item_from_cursor),
     );
 
+    // Kimi Code: user scope (~/.kimi-code/{skills,agents,mcp.json,AGENTS.md}).
+    out.extend(
+        kimi::scan_user(&home)
+            .map_err(|e| format!("kimi scan_user: {e}"))?
+            .into_iter()
+            .map(item_from_kimi),
+    );
+
     // Shared ~/.agents/skills.
     out.extend(
         shared::scan(&home)
@@ -557,6 +639,12 @@ fn aggregate(project_root: Option<String>) -> Result<Vec<CapabilityListItem>, St
                     .map_err(|e| format!("cursor scan_project: {e}"))?
                     .into_iter()
                     .map(item_from_cursor),
+            );
+            out.extend(
+                kimi::scan_project(&p)
+                    .map_err(|e| format!("kimi scan_project: {e}"))?
+                    .into_iter()
+                    .map(item_from_kimi),
             );
             let repo_name = p
                 .file_name()
@@ -668,6 +756,7 @@ fn parse_tool(s: &str) -> Result<Tool, String> {
         "copilot" => Ok(Tool::Copilot),
         "opencode" => Ok(Tool::Opencode),
         "codex" => Ok(Tool::Codex),
+        "kimi" => Ok(Tool::Kimi),
         "shared" => Ok(Tool::Shared),
         other => Err(format!("unknown tool: {other}")),
     }
@@ -679,8 +768,13 @@ fn parse_kind(s: &str) -> Result<Kind, String> {
         "command" => Ok(Kind::SlashCommand),
         "hook" => Ok(Kind::Hook),
         "mcp" => Ok(Kind::McpServer),
+        "agent" => Ok(Kind::Agent),
         other => Err(format!("unknown kind: {other}")),
     }
+}
+
+fn kimi_root(project_root: Option<&Path>, home: &Path) -> PathBuf {
+    project_root.unwrap_or(home).join(".kimi-code")
 }
 
 fn scaffold_target(
@@ -708,6 +802,18 @@ fn scaffold_target(
                 .join(".config/opencode/agent")
                 .join(format!("{name}.md")),
         },
+        // Kimi's user and project scopes are the same shape under `.kimi-code/`.
+        (Tool::Kimi, Kind::Skill) => kimi_root(project_root, home)
+            .join("skills")
+            .join(name)
+            .join("SKILL.md"),
+        (Tool::Kimi, Kind::Agent) => kimi_root(project_root, home)
+            .join("agents")
+            .join(format!("{name}.md")),
+        // Snippet file, not a merge — `mcp.json` is hand-edited config.
+        (Tool::Kimi, Kind::McpServer) => {
+            kimi_root(project_root, home).join(format!("scaffolded-{name}.json"))
+        }
         (Tool::Shared, Kind::Skill) => home.join(".agents/skills").join(name).join("SKILL.md"),
         (Tool::Codex, Kind::SlashCommand) => home.join(".codex/prompts").join(format!("{name}.md")),
         (Tool::Codex, Kind::McpServer) => home.join(format!(".codex/scaffolded-{name}.json")),
@@ -764,6 +870,7 @@ pub async fn capabilities_detect() -> Result<DetectResult, String> {
         codex: codex::detect(&h_clone),
         pi: pi::detect(&h_clone),
         cursor: cursor::detect(&h_clone),
+        kimi: kimi::detect(&h_clone),
         shared: shared::detect(&h_clone),
         // Covenant is a project-scoped concept; always available — the list is
         // simply empty until a project root with `.covenant/canon` is selected.
@@ -817,5 +924,31 @@ mod tests {
     fn scaffold_target_copilot_skill_unsupported() {
         let home = PathBuf::from("/h");
         assert!(scaffold_target(Tool::Copilot, Kind::Skill, "x", None, &home).is_err());
+    }
+
+    #[test]
+    fn scaffold_target_kimi_lands_under_kimi_code_in_both_scopes() {
+        let home = PathBuf::from("/h");
+        let root = PathBuf::from("/repo");
+        let at = |k, r: Option<&Path>| scaffold_target(Tool::Kimi, k, "x", r, &home).unwrap();
+        assert_eq!(
+            at(Kind::Skill, None),
+            PathBuf::from("/h/.kimi-code/skills/x/SKILL.md")
+        );
+        assert_eq!(
+            at(Kind::Skill, Some(&root)),
+            PathBuf::from("/repo/.kimi-code/skills/x/SKILL.md")
+        );
+        assert_eq!(
+            at(Kind::Agent, Some(&root)),
+            PathBuf::from("/repo/.kimi-code/agents/x.md")
+        );
+        // MCP is a snippet beside the config, never a merge into mcp.json.
+        assert_eq!(
+            at(Kind::McpServer, Some(&root)),
+            PathBuf::from("/repo/.kimi-code/scaffolded-x.json")
+        );
+        // `agent` stays kimi-only.
+        assert!(scaffold_target(Tool::Claude, Kind::Agent, "x", None, &home).is_err());
     }
 }

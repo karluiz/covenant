@@ -3,6 +3,7 @@ pub mod codex;
 pub mod copilot;
 pub mod covenant;
 pub mod cursor;
+pub mod kimi;
 pub mod opencode;
 pub mod pi;
 pub mod shared;
