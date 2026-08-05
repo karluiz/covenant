@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod mcp;
 pub mod new_unit;
 pub mod project;
+pub mod review;
 pub mod types;
 
 pub use detect::scan_detected;
@@ -34,6 +35,7 @@ pub use project::{
     parse_frontmatter_str, project, project_with_active, projection_status, ExecutorStatus,
     ProjState, ProjectionStatus,
 };
+pub use review::{lint_unit, LintFinding, LintSeverity};
 pub use types::{CanonManifest, InstalledRef, SkillManifest};
 
 use thiserror::Error;
