@@ -20881,10 +20881,33 @@ body.theme-light .rail-search input { background: none; border: 0; }
 /* —— slot 4: the one empty state —— */
 .rail-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 32px 18px; text-align: center; }
 .rail-empty svg { width: 28px; height: 28px; color: var(--fg-dim); opacity: .4; }
-.rail-empty-title { font-size: 13px; font-weight: 600; color: var(--fg); }
+/* max-width + anywhere: an unshaped message (a URL, a stack line) must wrap
+   inside the rail instead of overflowing both edges of a 300px panel. */
+.rail-empty-title { font-size: 13px; font-weight: 600; color: var(--fg); max-width: 220px; overflow-wrap: anywhere; }
 .rail-empty-hint { font-size: var(--fs-meta); color: var(--fg-dim); max-width: 200px; line-height: 1.45; }
 .rail-empty-hint kbd { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); background: rgb(var(--ink-rgb) / 0.07); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--fg); }
 .rail-empty.is-error svg { color: var(--danger); opacity: .85; }
+
+/* An error is a bounded card at the top of the rail, not a hero illustration
+   floating in the middle of a 1500px void. Danger reads from the left rule and
+   the icon; the copy stays quiet and left-aligned so long messages wrap sanely.
+   Markup is unchanged (svg / title / hint / actions) — placed on a 2-col grid
+   so Somnus's identical error block gets the same treatment for free. */
+.rail-empty.is-error {
+  height: auto; align-self: stretch;
+  margin: 12px var(--rail-pad-x); padding: 11px 13px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 9px; row-gap: 5px; align-items: start; text-align: left;
+  background: rgb(var(--ink-rgb) / 0.04);
+  border: 1px solid var(--border); border-left: 2px solid var(--danger);
+}
+.rail-empty.is-error svg { width: 15px; height: 15px; grid-column: 1; grid-row: 1; margin-top: 1px; }
+.rail-empty.is-error .rail-empty-title { grid-column: 2; grid-row: 1; max-width: none; font-size: var(--fs-meta); line-height: 1.35; }
+.rail-empty.is-error .rail-empty-hint { grid-column: 2; grid-row: 2; max-width: none; }
+.rail-empty.is-error .rail-empty-actions { grid-column: 2; grid-row: 3; margin-top: 3px; }
+.rail-empty.is-error .rail-empty-btn { border-radius: 0; }
+.rail-empty-btn.is-primary { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); color: var(--accent); }
+
 .rail-empty-actions { display: flex; gap: 8px; margin-top: 4px; }
 .rail-empty-btn { font: inherit; font-size: var(--fs-meta); font-weight: 600; cursor: pointer; padding: 5px 12px; border-radius: 7px; color: var(--fg); background: rgb(var(--ink-rgb) / 0.06); border: 1px solid var(--border); transition: background 120ms ease, border-color 120ms ease; }
 .rail-empty-btn:hover { background: rgb(var(--ink-rgb) / 0.12); border-color: color-mix(in srgb, var(--accent, #7aa2f7) 50%, var(--border)); }

@@ -113,6 +113,21 @@ async fn github_incident(client: &reqwest::Client) -> Option<String> {
     status_note(&resp.json::<serde_json::Value>().await.ok()?)
 }
 
+/// reqwest's Display for a send failure is a URL dump ("error sending request
+/// for url (https://api.github.com/…&per_page=100)") — unreadable in a 300px
+/// rail. Shape it like the HTTP errors below: "github: <cause> — <remedy>".
+fn transport_err(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        "github: request timed out — GitHub or your network is slow; retry".into()
+    } else if e.is_connect() {
+        "github: can't reach github.com — check your internet connection".into()
+    } else {
+        // ponytail: one bucket for the rest (body/decode/redirect); split it
+        // only if the logs show a case where the remedy actually differs.
+        "github: request failed — check your connection and retry".into()
+    }
+}
+
 async fn gh_get(
     client: &reqwest::Client,
     token: &str,
@@ -125,7 +140,7 @@ async fn gh_get(
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|e| format!("github request failed: {e}"))?;
+        .map_err(|e| transport_err(&e))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.unwrap_or_default();
     if !(200..300).contains(&status) {
@@ -167,7 +182,7 @@ async fn gh_post(client: &reqwest::Client, token: &str, url: &str) -> Result<(),
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|e| format!("github request failed: {e}"))?;
+        .map_err(|e| transport_err(&e))?;
     let status = resp.status().as_u16();
     if (200..300).contains(&status) {
         return Ok(());
@@ -392,7 +407,7 @@ async fn gh_get_text(client: &reqwest::Client, token: &str, url: &str) -> Result
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|e| format!("github request failed: {e}"))?;
+        .map_err(|e| transport_err(&e))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.unwrap_or_default();
     if !(200..300).contains(&status) {
@@ -679,6 +694,18 @@ pub fn parse_owner_repo(remote_url: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A dead port is the offline case: the shaped message must carry the
+    /// remedy and never leak reqwest's URL dump into the rail.
+    #[tokio::test]
+    async fn transport_errors_are_shaped_not_dumped() {
+        let client = reqwest::Client::new();
+        let e = client.get("http://127.0.0.1:1/x").send().await.unwrap_err();
+        let msg = transport_err(&e);
+        assert!(msg.starts_with("github: "), "{msg}");
+        assert!(msg.contains(" — "), "{msg}");
+        assert!(!msg.contains("http://"), "{msg}");
+    }
 
     /// Standing in a nested folder of a remote-less umbrella must still surface
     /// the sibling repos (the worktree-inside-umbrella case).
