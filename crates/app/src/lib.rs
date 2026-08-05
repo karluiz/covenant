@@ -45,7 +45,6 @@ mod history_import;
 mod lsp_commands;
 mod mac_wake;
 mod main_lag;
-mod webkit_hygiene;
 mod mcp_server;
 mod mcp_stdio;
 mod memory;
@@ -68,6 +67,7 @@ pub mod provider_resolve;
 mod providers_cmd;
 mod pty_perception;
 mod rc_agent;
+mod rc_guest;
 mod resources;
 mod safety;
 mod score_auth_commands;
@@ -91,6 +91,7 @@ mod term_share;
 mod theme;
 mod ui_vitals;
 mod vitals;
+mod webkit_hygiene;
 mod world;
 
 use std::collections::HashMap;
@@ -357,6 +358,11 @@ pub(crate) struct AppState {
     /// remote `open_tab` frames are honored and emit `rc://tab/open`.
     /// Not persisted (resets to off on every app launch).
     allow_remote_open: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Collaborative terminal share — per-session guest driver grants +
+    /// the live rc_agent out-channel used to announce control changes.
+    /// `std::sync::Mutex` (never held across an `.await`): `revoke_driver`
+    /// is called from `write_to_session`'s sync owner-wins hook.
+    pub(crate) rc_guest: std::sync::Arc<std::sync::Mutex<rc_guest::RcGuestState>>,
 }
 
 impl AppState {
@@ -1071,11 +1077,27 @@ async fn spawn_session(
 
 #[tauri::command]
 async fn write_to_session(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     id: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
     let id = parse_id(&id)?;
+    // Owner typed locally: an active remote driver loses control instantly.
+    // Lock scoped to this block so the std Mutex guard is dropped before
+    // `revoke_driver` (below) re-acquires the same lock — holding it here
+    // would deadlock.
+    {
+        let has_driver = state
+            .rc_guest
+            .lock()
+            .ok()
+            .map(|st| st.drivers.contains_key(&id))
+            .unwrap_or(false);
+        if has_driver {
+            rc_guest::revoke_driver(&app, id);
+        }
+    }
     // User typed into a watched PTY → invalidate any pending WAIT/loop
     // escalation. The prompt the operator might have been about to
     // answer just got answered by the human. No-op when not attached.
@@ -1285,14 +1307,74 @@ async fn rc_get_armed(state: State<'_, AppState>, session_id: String) -> Result<
     Ok(managed.armed.load(std::sync::atomic::Ordering::Relaxed))
 }
 
+/// Grant a connected collab guest write control over `session_id`. Owner-
+/// initiated only — there is no guest-side request-to-drive command.
+#[tauri::command]
+async fn rc_grant_driver(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    conn_id: u64,
+    login: String,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    {
+        let mut st = state.rc_guest.lock().map_err(|e| e.to_string())?;
+        st.drivers.insert(
+            id,
+            rc_guest::GuestDriver {
+                conn_id,
+                login: login.clone(),
+                line: String::new(),
+            },
+        );
+        rc_guest::send_frame(
+            &st,
+            format!(
+                "{{\"t\":\"control_granted\",\"session_id\":\"{id}\",\"conn_id\":{conn_id},\"login\":{}}}",
+                serde_json::to_string(&login).map_err(|e| e.to_string())?
+            ),
+        );
+    }
+    use tauri::Emitter;
+    let _ = app.emit(
+        "rc://guest/driver",
+        serde_json::json!({ "sessionId": session_id, "login": login }),
+    );
+    tracing::info!(session = %id, %conn_id, "guest driver granted");
+    Ok(())
+}
+
+/// Revoke whatever guest currently drives `session_id` (no-op if none).
+#[tauri::command]
+async fn rc_revoke_driver(app: tauri::AppHandle, session_id: String) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    rc_guest::revoke_driver(&app, id);
+    Ok(())
+}
+
 // Kill-switch backend. The user-facing button/shortcut lands with the RC-1b banner.
 #[tauri::command]
-async fn rc_disarm_all(state: State<'_, AppState>) -> Result<(), String> {
+async fn rc_disarm_all(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let sessions = state.sessions.lock().await;
     for managed in sessions.values() {
         managed
             .armed
             .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+    drop(sessions);
+    // Kill switch also strips any live collab-guest write control — the
+    // whole point is "nothing remote can touch my PTYs right now."
+    let driver_ids: Vec<karl_session::SessionId> = state
+        .rc_guest
+        .lock()
+        .map_err(|e| e.to_string())?
+        .drivers
+        .keys()
+        .copied()
+        .collect();
+    for id in driver_ids {
+        rc_guest::revoke_driver(&app, id);
     }
     tracing::info!("remote control: disarmed all tabs");
     Ok(())
@@ -5621,6 +5703,9 @@ pub fn run() {
                 resources: resources::ResourcesState::default(),
                 file_search_cache: crate::file_search::FileSearchCache::new(),
                 allow_remote_open: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                rc_guest: std::sync::Arc::new(std::sync::Mutex::new(
+                    rc_guest::RcGuestState::default(),
+                )),
             });
 
             rc_agent::spawn(app.handle().clone());
@@ -5936,6 +6021,8 @@ pub fn run() {
             rc_get_armed,
             rc_disarm_all,
             rc_pairing_token,
+            rc_grant_driver,
+            rc_revoke_driver,
             is_operator_enabled,
             list_operator_decisions,
             set_operator_live,
