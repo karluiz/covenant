@@ -13,15 +13,16 @@ const SPARK_W = 60;
 const SPARK_H = 18;
 const SPARK_PAD = 1;
 
-/// Map a raw model id to a friendly display name. Prefix-match because
-/// Anthropic appends date suffixes (e.g. `claude-haiku-4-5-20251001`).
+/// Map a raw model id to a friendly display name. Parses the
+/// `claude-<family>-<major>[-<minor>]` shape so new models work without
+/// a table update; the minor group is capped at 2 digits to skip date
+/// suffixes (e.g. `claude-haiku-4-5-20251001` → "Haiku 4.5").
 export function prettifyModel(raw: string): string {
-  const id = raw.toLowerCase();
-  if (id.startsWith("claude-sonnet-4-6")) return "Sonnet 4.6";
-  if (id.startsWith("claude-opus-4-8")) return "Opus 4.8";
-  if (id.startsWith("claude-opus-4-7")) return "Opus 4.7";
-  if (id.startsWith("claude-haiku-4-5")) return "Haiku 4.5";
-  if (id.startsWith("claude-sonnet-4-5")) return "Sonnet 4.5";
+  const m = raw.toLowerCase().match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-|$)/);
+  if (m) {
+    const family = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+    return m[3] ? `${family} ${m[2]}.${m[3]}` : `${family} ${m[2]}`;
+  }
   // Fallback: first 12 chars, capitalized.
   const trim = raw.slice(0, 12);
   return trim.charAt(0).toUpperCase() + trim.slice(1);

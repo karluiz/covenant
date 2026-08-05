@@ -33,6 +33,8 @@ describe("prettifyModel", () => {
     expect(prettifyModel("claude-opus-4-8")).toBe("Opus 4.8");
     expect(prettifyModel("claude-opus-4-7")).toBe("Opus 4.7");
     expect(prettifyModel("claude-haiku-4-5-20251001")).toBe("Haiku 4.5");
+    expect(prettifyModel("claude-fable-5")).toBe("Fable 5");
+    expect(prettifyModel("claude-opus-5")).toBe("Opus 5");
   });
   it("falls back gracefully on unknown ids", () => {
     expect(prettifyModel("gpt-4-turbo")).toBe("Gpt-4-turbo");
