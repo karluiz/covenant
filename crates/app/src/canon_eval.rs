@@ -493,7 +493,8 @@ pub async fn run_baseline(
     run_scenario_in(sbox.path(), scenario, started, timeout, cancel_key).await
 }
 
-const JUDGE_SYSTEM: &str = "You are a strict compliance judge. You are given a SCENARIO, a list of \
+const JUDGE_SYSTEM: &str =
+    "You are a strict compliance judge. You are given a SCENARIO, a list of \
 CRITERIA, and a TRANSCRIPT of an AI agent's response to the scenario. For EACH criterion decide, \
 all-or-nothing, whether the transcript satisfies it. Judge ONLY the stated criteria; do not invent \
 extra ones. Reply with ONLY a JSON array, no prose and no code fences, one entry per criterion, in \
@@ -1203,8 +1204,16 @@ pub(crate) fn spawn_auto_run_if_stale(
     let kind_slug = kind.slug().to_string();
     let name = name.to_string();
     tokio::spawn(async move {
-        if let Err(e) =
-            run_evals_inner(app, settings, cwd, kind_slug.clone(), name.clone(), None, None).await
+        if let Err(e) = run_evals_inner(
+            app,
+            settings,
+            cwd,
+            kind_slug.clone(),
+            name.clone(),
+            None,
+            None,
+        )
+        .await
         {
             tracing::warn!(
                 target: "canon",
@@ -1752,10 +1761,20 @@ mod tests {
             max_score: 100,
             baseline_score: Some(10),
         };
-        karl_canon::write_result(dir.path(), karl_canon::ContextKind::Skill, "s", &mk("a", 100, false))
-            .unwrap();
-        karl_canon::write_result(dir.path(), karl_canon::ContextKind::Skill, "s", &mk("b", 0, true))
-            .unwrap();
+        karl_canon::write_result(
+            dir.path(),
+            karl_canon::ContextKind::Skill,
+            "s",
+            &mk("a", 100, false),
+        )
+        .unwrap();
+        karl_canon::write_result(
+            dir.path(),
+            karl_canon::ContextKind::Skill,
+            "s",
+            &mk("b", 0, true),
+        )
+        .unwrap();
         let agg = eval_aggregate(dir.path(), karl_canon::ContextKind::Skill, "s").unwrap();
         assert_eq!(agg["score"], 100);
         assert_eq!(agg["max_score"], 100); // stale row excluded
@@ -1938,7 +1957,8 @@ mod tests {
 
     #[test]
     fn parse_drafts_accepts_criteria_shape() {
-        let text = r#"[{"id":"a","scenario":"s","criteria":[{"id":"c1","text":"t","points":100}]}]"#;
+        let text =
+            r#"[{"id":"a","scenario":"s","criteria":[{"id":"c1","text":"t","points":100}]}]"#;
         let ds = parse_drafts(text).unwrap();
         assert_eq!(ds[0].criteria.len(), 1);
         assert!(karl_canon::validate_eval(&ds[0]).is_ok());
@@ -1955,7 +1975,10 @@ mod tests {
         let text = r#"ok: [{"area":"triggers","suggestion":"add 'Use when'"},{"area":"description","suggestion":"name the output"}]"#;
         let s = parse_review(text).unwrap();
         assert_eq!(s.len(), 2);
-        let many = format!("[{}]", vec![r#"{"area":"a","suggestion":"s"}"#; 12].join(","));
+        let many = format!(
+            "[{}]",
+            vec![r#"{"area":"a","suggestion":"s"}"#; 12].join(",")
+        );
         assert_eq!(parse_review(&many).unwrap().len(), 7);
     }
 
@@ -2508,5 +2531,4 @@ mod tests {
         assert!(run_b.cancelled);
         assert_eq!(run_b.cases[0].reason, "cancelled");
     }
-
 }
