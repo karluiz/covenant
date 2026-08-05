@@ -112,6 +112,18 @@ fn registry_insert(snapshot: EvalRunSnapshot) {
     }
 }
 
+/// True if a live (registered, not yet finished) run already covers this
+/// exact cwd + kind + unit. `spawn_auto_run_if_stale` uses this to refuse a
+/// second concurrent run of the same unit: both runs would share the same
+/// `unit_key` cancel flag, and the second run's startup `clear_cancel` would
+/// silently revive a cancellation the first run is still checking against —
+/// plus it doubles the sandbox + LLM cost for no reason. Pure over the
+/// registry snapshot so it's testable without an `AppHandle`.
+fn has_live_run(reg: &[EvalRunSnapshot], cwd: &str, kind: &str, name: &str) -> bool {
+    reg.iter()
+        .any(|r| !r.done && r.cwd == cwd && r.kind == kind && r.name == name)
+}
+
 fn registry_update(run_id: &str, mutate: impl FnOnce(&mut EvalRunSnapshot)) {
     let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(r) = reg.iter_mut().find(|r| r.run_id == run_id) {
@@ -1199,9 +1211,20 @@ pub(crate) fn spawn_auto_run_if_stale(
     if fresh || karl_canon::read_evals(repo_root, kind, name).is_empty() {
         return;
     }
-    let app = app.clone();
     let cwd = repo_root.to_string_lossy().into_owned();
     let kind_slug = kind.slug().to_string();
+    {
+        let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        if has_live_run(&reg, &cwd, &kind_slug, name) {
+            tracing::info!(
+                target: "canon",
+                kind = %kind_slug, name = %name,
+                "auto-run-on-publish skipped: a run for this unit is already in flight"
+            );
+            return;
+        }
+    }
+    let app = app.clone();
     let name = name.to_string();
     tokio::spawn(async move {
         if let Err(e) = run_evals_inner(
@@ -2530,5 +2553,48 @@ mod tests {
             .unwrap();
         assert!(run_b.cancelled);
         assert_eq!(run_b.cases[0].reason, "cancelled");
+    }
+
+    /// `has_live_run` is the guard `spawn_auto_run_if_stale` checks before
+    /// spawning a second concurrent run of the same unit — it must match on
+    /// the exact cwd+kind+name and ignore already-finished runs.
+    #[test]
+    fn has_live_run_matches_only_the_same_unit_while_still_running() {
+        let running = EvalRunSnapshot {
+            run_id: "live-test-a".into(),
+            kind: "skill".into(),
+            name: "horizon".into(),
+            cwd: "/repo-live-test".into(),
+            started_at_ms: 1,
+            done: false,
+            cancelled: false,
+            cases: vec![],
+        };
+        let mut finished = running.clone();
+        finished.run_id = "live-test-b".into();
+        finished.done = true;
+
+        assert!(has_live_run(
+            &[running.clone()],
+            "/repo-live-test",
+            "skill",
+            "horizon"
+        ));
+        assert!(
+            !has_live_run(&[finished], "/repo-live-test", "skill", "horizon"),
+            "a finished run must not block a fresh one"
+        );
+        assert!(
+            !has_live_run(&[running.clone()], "/other-repo", "skill", "horizon"),
+            "different cwd is a different unit"
+        );
+        assert!(
+            !has_live_run(&[running.clone()], "/repo-live-test", "agent", "horizon"),
+            "different kind is a different unit"
+        );
+        assert!(
+            !has_live_run(&[running], "/repo-live-test", "skill", "other"),
+            "different name is a different unit"
+        );
     }
 }
