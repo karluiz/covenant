@@ -1428,10 +1428,13 @@ impl Storage {
             let mut recent = Vec::new();
             for row in rows {
                 let (command, exit_code, output_text) = row?;
+                // Secrets land in argv as often as in output (e.g. `--api-key sk-…`),
+                // so mask both before this leaves the storage boundary — this text
+                // is pasted into a third-party CLI agent by `continueWithHarness`.
                 recent.push(RecentBlockDto {
-                    command,
+                    command: crate::safety::mask_secrets(&command),
                     exit_code,
-                    tail: tail_4kb(&output_text),
+                    tail: crate::safety::mask_secrets(&tail_4kb(&output_text)),
                 });
             }
             // Surface oldest-first so the reader sees chronological order.
@@ -4049,6 +4052,53 @@ mod tests {
 
         let (sessions, blocks) = s.counts().await.unwrap();
         assert_eq!((sessions, blocks), (1, 1));
+    }
+
+    /// `read_session_excerpt` feeds `@session:` chips and `continueWithHarness`'s
+    /// prompt to the destination agent — a third-party CLI. Both `command` and
+    /// `tail` must come back with token-shaped substrings redacted, matching
+    /// every other reader of raw block text (`mcp_server`, `read_terminal_screen`).
+    #[tokio::test]
+    async fn read_session_excerpt_masks_secrets_in_command_and_tail() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        s.save_session(session, 1).await.unwrap();
+        s.save_block(
+            BlockId::new(),
+            session,
+            "curl -H 'Authorization: Bearer sk-ant-api03-aaaaaaaaaaaaaaaaaaaa' https://api".into(),
+            Some("/tmp".to_string()),
+            Some(0),
+            10,
+            100,
+            "token leaked: sk-ant-api03-bbbbbbbbbbbbbbbbbbbb\n".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let excerpt = s.read_session_excerpt(session.to_string(), 5).await.unwrap();
+        assert_eq!(excerpt.recent.len(), 1);
+        let block = &excerpt.recent[0];
+        assert!(
+            !block.command.contains("sk-ant-"),
+            "command must not carry the raw token: {}",
+            block.command
+        );
+        assert!(
+            block.command.contains("[REDACTED:anthropic]"),
+            "command must show the redaction marker: {}",
+            block.command
+        );
+        assert!(
+            !block.tail.contains("sk-ant-"),
+            "tail must not carry the raw token: {}",
+            block.tail
+        );
+        assert!(
+            block.tail.contains("[REDACTED:anthropic]"),
+            "tail must show the redaction marker: {}",
+            block.tail
+        );
     }
 
     async fn insert_finished_block(s: &Storage, session: SessionId, cmd: &str, finished: u64) {
