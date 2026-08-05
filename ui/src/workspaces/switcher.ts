@@ -10,8 +10,9 @@ import { chordFor } from "../platform";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { TabManager } from "../tabs/manager";
 import { attachTooltip } from "../tooltip/tooltip";
+import { pushInfoToast } from "../notifications/toast";
 import { buildActions } from "./actions";
-import { openConfirmPrompt } from "./confirm-prompt";
+import { openConfirmTyped } from "./confirm-typed";
 import { CommandPalette } from "./palette";
 import { openRenamePrompt } from "./rename-prompt";
 import { WorkspaceManager } from "./manager";
@@ -51,13 +52,10 @@ export class WorkspaceSwitcher {
     private readonly ws: WorkspaceManager,
     tabManager: TabManager,
   ) {
-    const actions = buildActions(
-      ws,
-      tabManager,
-      (id) => this.startInlineRename(id),
-      (id) => this.confirmDelete(id),
-    );
-    this.palette = new CommandPalette(document.body, ws, tabManager, actions);
+    this.palette = new CommandPalette(document.body, ws, tabManager, buildActions(), undefined, {
+      deleteWorkspace: (id) => this.deleteWorkspace(id),
+      deleteBlocked: (id) => this.deleteBlocked(id),
+    });
   }
 
   /// Mount the chip into the given host element. Returns the chip so
@@ -98,14 +96,13 @@ export class WorkspaceSwitcher {
     this.palette.toggle();
   }
 
-  /// Create a new workspace and switch to it. Bound to ⌘⌥N in main.ts.
-  /// Auto-names "Workspace N" — Tauri's webview suppresses window.prompt,
-  /// so we skip it and let the user rename via the row context menu.
-  async createAndSwitch(): Promise<void> {
-    const existing = this.ws.list().length;
-    const name = `Workspace ${existing + 1}`;
-    const id = this.ws.create(name);
-    await this.runSwitch(id, name);
+  /// Start creating a workspace. Bound to ⌘⌥N in main.ts.
+  ///
+  /// This opens the palette instead of minting `Workspace N`: creation is a
+  /// query that matched no workspace, so the name is whatever the user
+  /// types and there is nothing to rename afterwards.
+  startCreate(): void {
+    if (!this.palette.isOpen()) this.palette.open();
   }
 
   /// Wraps switchTo with a busy state on the chip. The workspace-switch
@@ -156,17 +153,46 @@ export class WorkspaceSwitcher {
     });
   }
 
-  /// Delete a workspace behind a centered confirm card. The manager
-  /// refuses to delete the last workspace and switches to the
-  /// most-recently-used one first when deleting the active workspace.
-  private confirmDelete(id: string): void {
+  /// Why this workspace can't be deleted, or null. Surfaced in the palette
+  /// footer next to a dimmed key — the manager's refusal used to be a bare
+  /// `return`, i.e. a click that did nothing and said nothing.
+  private deleteBlocked(id: string): string | null {
+    if (this.ws.list().length <= 1) return "last workspace";
+    if (!this.ws.list().some((w) => w.id === id)) return "gone";
+    return null;
+  }
+
+  /// Delete policy. Severity follows what's at stake, not the object type:
+  /// an agent session isn't restorable by reopening a cold tab, so that
+  /// case keeps a type-the-name confirm. Everything else deletes at once
+  /// and hands back an undo window.
+  private async deleteWorkspace(id: string): Promise<void> {
     const ws = this.ws.list().find((w) => w.id === id);
-    if (!ws || this.ws.list().length <= 1) return;
-    openConfirmPrompt({
-      label: "Delete workspace",
-      message: `Delete "${ws.name}"? Its tabs will be closed.`,
-      confirmText: "Delete",
-      onConfirm: () => void this.ws.delete(id),
+    if (!ws || this.deleteBlocked(id)) return;
+    if (this.ws.hasAgentTabs(id)) {
+      const unit = ws.tab_count === 1 ? "tab" : "tabs";
+      openConfirmTyped({
+        label: "Delete workspace",
+        message: `"${ws.name}" holds an agent session. Deleting it kills the agent and closes ${ws.tab_count} ${unit}.`,
+        expected: ws.name,
+        confirmText: "Delete",
+        onConfirm: () => void this.deleteWithUndo(id),
+      });
+      return;
+    }
+    await this.deleteWithUndo(id);
+  }
+
+  private async deleteWithUndo(id: string): Promise<void> {
+    const removed = await this.ws.delete(id);
+    if (!removed) return;
+    const n = removed.tabs.length;
+    const unit = n === 1 ? "tab" : "tabs";
+    // The undo restores the record, not the sessions — the PTYs are already
+    // disposed. Say "closed" so the toast never promises live tabs back.
+    pushInfoToast({
+      message: `Deleted ${removed.name} · ${n} ${unit} closed — click to undo`,
+      onClick: () => this.ws.restore(removed),
     });
   }
 
@@ -256,7 +282,7 @@ export class WorkspaceSwitcher {
           else if (picked === null) this.ws.setRootDir(id, null);
         });
       } else if (action === "delete") {
-        this.confirmDelete(id);
+        void this.deleteWorkspace(id);
       }
     });
   }

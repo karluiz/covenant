@@ -1,51 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildActions } from "./actions";
 
-function fakeManager() {
-  return {
-    create: vi.fn().mockReturnValue("new-id"),
-    switchTo: vi.fn().mockResolvedValue(undefined),
-    list: vi.fn().mockReturnValue([]),
-    activeId_: vi.fn().mockReturnValue("cur"),
-    rename: vi.fn(),
-  };
-}
-
 describe("buildActions", () => {
-  it("New workspace creates + switches", async () => {
-    const m = fakeManager();
-    const tm = { closeActiveTab: vi.fn() };
-    const actions = buildActions(m as never, tm as never);
-    const a = actions.find((x) => x.id === "new-workspace")!;
-    await a.run();
-    expect(m.create).toHaveBeenCalled();
-    expect(m.switchTo).toHaveBeenCalledWith("new-id");
+  it("carries no implicit-target verbs — those are row-scoped now", () => {
+    const ids = buildActions().map((a) => a.id);
+    expect(ids).not.toContain("new-workspace");
+    expect(ids).not.toContain("rename-workspace");
+    expect(ids).not.toContain("delete-workspace");
+    expect(ids).not.toContain("close-tab");
   });
 
-  it("Close current tab calls tabManager.closeActiveTab", async () => {
-    const m = fakeManager();
-    const tm = { closeActiveTab: vi.fn() };
-    const actions = buildActions(m as never, tm as never);
-    const a = actions.find((x) => x.id === "close-tab")!;
-    await a.run();
-    expect(tm.closeActiveTab).toHaveBeenCalled();
-  });
-
-  it("Rename current workspace exists and is invokable", () => {
-    const m = fakeManager();
-    const tm = { closeActiveTab: vi.fn() };
-    const actions = buildActions(m as never, tm as never);
-    expect(actions.find((x) => x.id === "rename-workspace")).toBeDefined();
-  });
-
-  it("Delete current workspace delegates to the host callback with the active id", async () => {
-    const m = fakeManager();
-    const tm = { closeActiveTab: vi.fn() };
-    const onDelete = vi.fn();
-    const actions = buildActions(m as never, tm as never, undefined, onDelete);
-    const a = actions.find((x) => x.id === "delete-workspace")!;
-    expect(a).toBeDefined();
-    await a.run();
-    expect(onDelete).toHaveBeenCalledWith("cur");
+  it("Vitals dispatches the open event", () => {
+    const spy = vi.fn();
+    window.addEventListener("covenant:open-vitals", spy);
+    const a = buildActions().find((x) => x.id === "open-vitals")!;
+    void a.run();
+    expect(spy).toHaveBeenCalled();
+    window.removeEventListener("covenant:open-vitals", spy);
   });
 });

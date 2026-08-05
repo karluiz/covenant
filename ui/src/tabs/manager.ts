@@ -7018,6 +7018,7 @@ export class TabManager {
   /// resolves from runtime spawn sequence, not persisted in the manifest)
   /// + group/active info, indexed by position in the current tab list.
   snapshotForFinder(): Array<{
+    id: string;
     index: number;
     title: string;
     groupId: string | null;
@@ -7025,6 +7026,7 @@ export class TabManager {
     lastActiveAt: number | null;
   }> {
     return this.tabs.map((t, index) => ({
+      id: t.id,
       index,
       title: tabDisplayName(t),
       groupId: t.groupId,

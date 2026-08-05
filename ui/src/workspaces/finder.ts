@@ -9,6 +9,10 @@ export interface TabRow {
   groupName: string | null;
   groupColor: string | null;
   tabIndex: number;
+  /// Live TabManager id, when there is one. Only the active workspace has
+  /// live Tab objects, so rows from background workspaces report null —
+  /// which is what gates the row-scoped rename/close verbs off for them.
+  tabId: string | null;
   title: string;
   isActiveTabInWorkspace: boolean;
   /// Last activation timestamp (ms). Only live tabs in the active
