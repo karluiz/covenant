@@ -51,6 +51,19 @@ fn body_after_frontmatter(md: &str) -> &str {
     }
 }
 
+/// True if `md` opens with a frontmatter block — the same open/close line
+/// scan `parse_frontmatter_str` uses, so "has frontmatter" agrees with what
+/// the description/name checks below actually see. A doc with no such block
+/// (most repo specs) shouldn't be told to add a `description:` line to
+/// nothing.
+fn has_frontmatter_block(md: &str) -> bool {
+    let lines: Vec<&str> = md.lines().collect();
+    let Some(open) = lines.iter().position(|l| l.trim() == "---") else {
+        return false;
+    };
+    lines[open + 1..].iter().any(|l| l.trim() == "---")
+}
+
 /// Run every deterministic check for one context unit and return its
 /// findings. Never errors on a bad/missing unit — that is itself a finding
 /// (a single `Error` with an unreadable-source message); the `Result` is
@@ -76,44 +89,75 @@ pub fn lint_unit(
         }
     };
 
-    match parse_frontmatter_str(&src, "description") {
-        None => findings.push(finding(
-            LintSeverity::Error,
-            "frontmatter is missing a description",
-            "add a description: line to the frontmatter",
-        )),
-        Some(desc) => {
-            if !(20..=500).contains(&desc.chars().count()) {
-                findings.push(finding(
-                    LintSeverity::Warn,
-                    format!(
-                        "description is {} chars (expected 20-500)",
-                        desc.chars().count()
-                    ),
-                    "tighten or expand the description to land between 20 and 500 characters",
-                ));
-            }
-            if matches!(
-                kind,
-                ContextKind::Skill | ContextKind::Command | ContextKind::Agent
-            ) && !desc.to_lowercase().contains("use when")
-            {
-                findings.push(finding(
-                    LintSeverity::Warn,
-                    "description has no 'use when' trigger clause",
-                    "start the trigger clause with 'Use when …' so agents know when to load it",
-                ));
-            }
-        }
-    }
-
-    if let Some(fm_name) = parse_frontmatter_str(&src, "name") {
-        if fm_name != name {
+    // MCP servers are JSON config, not frontmatter'd markdown — the
+    // frontmatter/description/use-when checks below are impossible to follow
+    // for a JSON file and would just be nonsense. The only checks that make
+    // sense are "readable" (above) and "valid JSON" in its place.
+    if kind == ContextKind::Mcp {
+        if let Err(e) = serde_json::from_str::<serde_json::Value>(&src) {
             findings.push(finding(
                 LintSeverity::Error,
-                format!("frontmatter name {fm_name:?} does not match folder name {name:?}"),
-                "rename the frontmatter name: to match the folder, or vice versa",
+                format!("invalid JSON: {e}"),
+                "fix the JSON syntax — an MCP server config must parse",
             ));
+        }
+        return Ok(findings);
+    }
+
+    // A spec is the repo's own doc, not Canon-authored content, and most
+    // carry no frontmatter at all — that's normal, not an error. Only run
+    // the description/name checks when a spec actually has a frontmatter
+    // block to check; otherwise flag the absence as a mild Warn instead of
+    // an Error advising "add a description: line" to a file with no
+    // frontmatter section to add it to.
+    let has_frontmatter = has_frontmatter_block(&src);
+    let skip_frontmatter_checks = kind == ContextKind::Spec && !has_frontmatter;
+    if skip_frontmatter_checks {
+        findings.push(finding(
+            LintSeverity::Warn,
+            "no frontmatter block — description checks skipped",
+            "add a frontmatter block with a description: line if this spec should be indexable",
+        ));
+    } else {
+        match parse_frontmatter_str(&src, "description") {
+            None => findings.push(finding(
+                LintSeverity::Error,
+                "frontmatter is missing a description",
+                "add a description: line to the frontmatter",
+            )),
+            Some(desc) => {
+                if !(20..=500).contains(&desc.chars().count()) {
+                    findings.push(finding(
+                        LintSeverity::Warn,
+                        format!(
+                            "description is {} chars (expected 20-500)",
+                            desc.chars().count()
+                        ),
+                        "tighten or expand the description to land between 20 and 500 characters",
+                    ));
+                }
+                if matches!(
+                    kind,
+                    ContextKind::Skill | ContextKind::Command | ContextKind::Agent
+                ) && !desc.to_lowercase().contains("use when")
+                {
+                    findings.push(finding(
+                        LintSeverity::Warn,
+                        "description has no 'use when' trigger clause",
+                        "start the trigger clause with 'Use when …' so agents know when to load it",
+                    ));
+                }
+            }
+        }
+
+        if let Some(fm_name) = parse_frontmatter_str(&src, "name") {
+            if fm_name != name {
+                findings.push(finding(
+                    LintSeverity::Error,
+                    format!("frontmatter name {fm_name:?} does not match folder name {name:?}"),
+                    "rename the frontmatter name: to match the folder, or vice versa",
+                ));
+            }
         }
     }
 
@@ -221,5 +265,73 @@ mod tests {
             .find(|x| x.message.contains("chars"))
             .expect("length finding");
         assert_eq!(d.severity, LintSeverity::Warn);
+    }
+
+    // --- MCP: JSON config, not frontmatter'd markdown -----------------------
+
+    #[test]
+    fn lint_valid_mcp_json_has_no_frontmatter_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        write_unit(
+            dir.path(),
+            ContextKind::Mcp,
+            "demo",
+            r#"{"command": "covenant", "args": ["mcp-stdio"]}"#,
+        );
+        let f = lint_unit(dir.path(), ContextKind::Mcp, "demo").unwrap();
+        assert!(
+            f.is_empty(),
+            "valid MCP JSON must not get frontmatter/description advice: {f:?}"
+        );
+    }
+
+    #[test]
+    fn lint_invalid_mcp_json_is_a_single_error_not_frontmatter_advice() {
+        let dir = tempfile::tempdir().unwrap();
+        write_unit(dir.path(), ContextKind::Mcp, "demo", "{ not json");
+        let f = lint_unit(dir.path(), ContextKind::Mcp, "demo").unwrap();
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].severity, LintSeverity::Error);
+        assert!(f[0].message.contains("JSON"));
+        assert!(
+            !f[0].message.contains("description"),
+            "must not be the nonsense 'add a description: line' advice"
+        );
+    }
+
+    // --- Spec: repo doc, frontmatter optional -------------------------------
+
+    #[test]
+    fn lint_frontmatterless_spec_warns_instead_of_erroring() {
+        let dir = tempfile::tempdir().unwrap();
+        write_unit(
+            dir.path(),
+            ContextKind::Spec,
+            "demo",
+            "# A plain spec\n\nSome content.\n",
+        );
+        let f = lint_unit(dir.path(), ContextKind::Spec, "demo").unwrap();
+        assert!(
+            !f.iter().any(|x| x.severity == LintSeverity::Error),
+            "a frontmatter-less spec must never render an Error: {f:?}"
+        );
+        assert!(f.iter().any(|x| x.message.contains("frontmatter")));
+    }
+
+    #[test]
+    fn lint_spec_with_frontmatter_still_gets_description_checks() {
+        let dir = tempfile::tempdir().unwrap();
+        write_unit(
+            dir.path(),
+            ContextKind::Spec,
+            "demo",
+            "---\nname: demo\n---\n\nBody.\n",
+        );
+        let f = lint_unit(dir.path(), ContextKind::Spec, "demo").unwrap();
+        assert!(
+            f.iter()
+                .any(|x| x.severity == LintSeverity::Error && x.message.contains("description")),
+            "a spec that opts into frontmatter still owes a description: {f:?}"
+        );
     }
 }
