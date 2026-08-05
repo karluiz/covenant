@@ -277,7 +277,9 @@ pub(crate) fn mcp_synced(repo_root: &Path, tool: &str, servers: &[(String, McpSe
         out
     }
     match tool {
-        "claude" => {
+        // Kimi Code reads the project-root `.mcp.json` verbatim (Claude-compatible),
+        // so claude's projection already covers it — no separate write.
+        "claude" | "kimi" => {
             let expected: BTreeMap<String, serde_json::Value> = servers
                 .iter()
                 .map(|(n, s)| (format!("canon-{n}"), claude_value(s)))

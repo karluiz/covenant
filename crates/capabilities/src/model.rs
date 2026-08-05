@@ -7,6 +7,7 @@ pub enum Tool {
     Copilot,
     Opencode,
     Codex,
+    Kimi,
     Shared,
 }
 
@@ -16,6 +17,10 @@ pub enum Kind {
     SlashCommand,
     Hook,
     McpServer,
+    /// A standalone agent profile in its own dir (Kimi's `agents/*.md`). Not
+    /// the same as a skill: opencode's "agent" files ARE its skills and keep
+    /// using `Skill`.
+    Agent,
 }
 
 #[derive(Debug, Error)]
