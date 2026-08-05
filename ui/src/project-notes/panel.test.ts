@@ -17,6 +17,8 @@ vi.mock("./notes-tab", () => ({
     mount(parent: HTMLElement) {
       const el = document.createElement("div");
       el.className = "pn-notes-tab";
+      // Stands in for the composer, so a test can prove the draft survives.
+      el.innerHTML = `<textarea class="pn-note-input"></textarea>`;
       parent.appendChild(el);
       return this;
     }
@@ -97,6 +99,27 @@ describe("ProjectNotesPanel", () => {
     const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "G1" }).mount(host);
     p.switchTab("prompts");
     expect(host.querySelector(".pn-prompt-tab")).not.toBeNull();
+  });
+
+  it("keeps a tab's draft across a switch away and back", () => {
+    const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "G1" }).mount(host);
+    p.switchTab("notes");
+    const input = host.querySelector(".pn-note-input") as HTMLTextAreaElement;
+    input.value = "half-written thought";
+    p.switchTab("commands");
+    p.switchTab("notes");
+    // Same element, same value — the tab was toggled, not rebuilt.
+    expect(host.querySelectorAll(".pn-notes-tab").length).toBe(1);
+    expect((host.querySelector(".pn-note-input") as HTMLTextAreaElement).value)
+      .toBe("half-written thought");
+  });
+
+  it("shows only the active tab's host", () => {
+    const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "G1" }).mount(host);
+    p.switchTab("notes");
+    const hosts = Array.from(host.querySelectorAll(".pn-tabhost")) as HTMLElement[];
+    expect(hosts.length).toBe(2); // commands (default) + notes
+    expect(hosts.filter((h) => !h.hidden).length).toBe(1);
   });
 
   it("flushes the body padding for all tabs", () => {

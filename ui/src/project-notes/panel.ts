@@ -48,6 +48,8 @@ export class ProjectNotesPanel {
   private tabButtons: Record<PanelTab, HTMLButtonElement>;
   private currentTab: PanelTab;
   private expandRoot: HTMLElement | null = null;
+  private tabHosts: Partial<Record<PanelTab, HTMLElement>> = {};
+  private tabViews: Partial<Record<PanelTab, { refresh?(): unknown }>> = {};
 
   constructor(private opts: PanelOpts) {
     this.currentTab = opts.defaultTab ?? readLastTab(opts.groupId);
@@ -177,20 +179,15 @@ export class ProjectNotesPanel {
     const content = document.createElement("section");
     content.className = "canon-cockpit-content";
 
-    // In-flow inside each tab's sticky sec-head (same fix as the Canon
-    // cockpit): overlaying the pill above scrolling content made it
-    // flicker on WebKit when hover effects repainted beneath it.
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "canon-cockpit-close";
-    close.setAttribute("aria-label", "Close (Esc)");
-    close.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
-    close.addEventListener("click", () => this.collapseExpanded());
-
     const buttons: Partial<Record<PanelTab, HTMLButtonElement>> = {};
-    const select = (key: PanelTab, label: string, desc: string): void => {
-      for (const b of nav.querySelectorAll(".canon-cockpit-nav-btn")) b.classList.remove("is-active");
-      buttons[key]?.classList.add("is-active");
+    // Sections are built once and toggled, for the same reason the rail's tabs
+    // are: replaceChildren() on every nav click discarded whatever was typed.
+    // Each section owns its own esc pill — one shared button can only ever live
+    // in one head.
+    const wraps: Partial<Record<PanelTab, HTMLElement>> = {};
+    const views: Partial<Record<PanelTab, { refresh?(): unknown }>> = {};
+
+    const build = (key: PanelTab, label: string, desc: string): HTMLElement => {
       const wrap = document.createElement("div");
       wrap.className = "canon-cockpit-section-wrap";
       const head = document.createElement("header");
@@ -206,15 +203,40 @@ export class ProjectNotesPanel {
       text.append(h, p);
       const actions = document.createElement("div");
       actions.className = "canon-cockpit-sec-actions";
+      // In-flow inside the sticky sec-head (same fix as the Canon cockpit):
+      // overlaying the pill above scrolling content made it flicker on WebKit
+      // when hover effects repainted beneath it.
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "canon-cockpit-close";
+      close.setAttribute("aria-label", "Close (Esc)");
+      close.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
+      close.addEventListener("click", () => this.collapseExpanded());
       actions.appendChild(close);
       head.append(text, actions);
       const body = document.createElement("div");
       body.className = "pn-body pn-body--flush";
-      if (key === "commands") new CommandsTab({ groupId: this.opts.groupId }).mount(body);
-      else if (key === "prompts") new PromptsTab({ groupId: this.opts.groupId }).mount(body);
-      else new NotesTab({ groupId: this.opts.groupId }).mount(body);
+      const opts = { groupId: this.opts.groupId };
+      views[key] =
+        key === "commands" ? new CommandsTab(opts).mount(body)
+        : key === "prompts" ? new PromptsTab(opts).mount(body)
+        : new NotesTab(opts).mount(body);
       wrap.append(head, body);
-      content.replaceChildren(wrap);
+      return wrap;
+    };
+
+    const select = (key: PanelTab, label: string, desc: string): void => {
+      for (const b of nav.querySelectorAll(".canon-cockpit-nav-btn")) b.classList.remove("is-active");
+      buttons[key]?.classList.add("is-active");
+      const existed = !!wraps[key];
+      if (!existed) {
+        wraps[key] = build(key, label, desc);
+        content.appendChild(wraps[key]!);
+      }
+      for (const k of Object.keys(wraps) as PanelTab[]) {
+        wraps[k]!.hidden = k !== key;
+      }
+      if (existed) void views[key]?.refresh?.();
     };
 
     for (const g of groups) {
@@ -250,19 +272,36 @@ export class ProjectNotesPanel {
     else this.close();
   };
 
+  /** Tabs are built once and toggled. Rebuilding them on every switch threw
+   *  away the notes composer's draft, the list scroll, and any open editor. */
   private updateTabUI(): void {
     for (const t of Object.keys(this.tabButtons) as PanelTab[]) {
       this.tabButtons[t].classList.toggle("is-active", t === this.currentTab);
     }
-    this.body.replaceChildren();
     this.body.classList.add("pn-body--flush");
-    if (this.currentTab === "commands") {
-      new CommandsTab({ groupId: this.opts.groupId }).mount(this.body);
-    } else if (this.currentTab === "prompts") {
-      new PromptsTab({ groupId: this.opts.groupId }).mount(this.body);
-    } else {
-      new NotesTab({ groupId: this.opts.groupId }).mount(this.body);
+    const existed = !!this.tabHosts[this.currentTab];
+    this.ensureTab(this.currentTab);
+    for (const t of Object.keys(this.tabHosts) as PanelTab[]) {
+      this.tabHosts[t]!.hidden = t !== this.currentTab;
     }
+    // A fresh tab already fetched on mount; only a revisit needs a re-read
+    // (an agent may have appended over MCP while it was hidden).
+    if (existed) void this.tabViews[this.currentTab]?.refresh?.();
+  }
+
+  private ensureTab(tab: PanelTab): HTMLElement {
+    const cached = this.tabHosts[tab];
+    if (cached) return cached;
+    const host = document.createElement("div");
+    host.className = "pn-tabhost";
+    this.body.appendChild(host);
+    const opts = { groupId: this.opts.groupId };
+    this.tabViews[tab] =
+      tab === "commands" ? new CommandsTab(opts).mount(host)
+      : tab === "prompts" ? new PromptsTab(opts).mount(host)
+      : new NotesTab(opts).mount(host);
+    this.tabHosts[tab] = host;
+    return host;
   }
 
   // Exposed for subsequent tasks to plug in.

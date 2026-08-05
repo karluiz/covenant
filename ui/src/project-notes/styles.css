@@ -96,6 +96,8 @@ body.tabbar-left .pn-panel {
 }
 /* List tabs run rail-* rows edge-to-edge; docs keeps the padded surface. */
 .pn-body--flush { padding: 0; }
+/* One host per tab, built once and toggled — see ProjectNotesPanel.ensureTab. */
+.pn-tabhost[hidden], .canon-cockpit-section-wrap[hidden] { display: none; }
 
 /* ── Section labels (split layout) ───────────────────────────────── */
 .pn-section-label {
@@ -139,15 +141,24 @@ body.tabbar-left .pn-panel {
 
 /* ── Notes tab ───────────────────────────────────────────────────── */
 .pn-notes-tab { display: flex; flex-direction: column; }
+/* The composer grows with the draft (height set from scrollHeight in JS) and
+   stops at a third of the viewport. It used to ship at rows=2 with
+   `resize: vertical` and no cap — too small to write in, so people dragged the
+   handle, and the dragged height stuck for the session and pushed the list off
+   screen. No handle now; the cap is the contract. */
 .pn-note-input {
   width: auto;
+  box-sizing: border-box;
   margin: 10px var(--rail-pad-x) 0;
   background: var(--pn-subtle-1);
   color: inherit;
   border: 1px solid var(--border, #2a2d35);
   border-radius: 0;
   padding: 10px 12px;
-  resize: vertical;
+  resize: none;
+  overflow-y: auto;
+  min-height: calc(3 * 1.5em + 22px);
+  max-height: 34vh;
   font-family: inherit;
   font-size: var(--fs-body);
   line-height: 1.5;
@@ -157,20 +168,103 @@ body.tabbar-left .pn-panel {
   outline: none;
   border-color: var(--pn-accent, var(--accent, #6aa9ff));
 }
+.pn-note-controls[hidden] { display: none; }
 .pn-note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
-/* Notes ride the shared rail-row chrome; only the body needs a clamp. */
+.pn-note-day { position: sticky; top: 0; z-index: 1; background: var(--bg-overlay, var(--bg)); }
+
+/* Notes ride the shared rail-row chrome. Bodies render markdown through the
+   shared renderer, so the fold is a max-height (a -webkit-line-clamp box
+   breaks block children) revealed by .pn-note-fold. */
 .pn-note-body {
   font-size: var(--fs-body);
   color: var(--fg);
-  white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  line-height: 1.45;
 }
-.pn-note-source { font-size: var(--fs-meta); color: var(--fg-muted, #8a8aa8); margin-top: 2px; }
+.pn-note-card.is-folded .pn-note-body {
+  max-height: calc(3 * 1.45em);
+  overflow: hidden;
+  cursor: pointer;
+}
+.pn-note-fold {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-meta);
+  color: var(--pn-accent, var(--accent, #6aa9ff));
+}
+.pn-note-fold:hover { text-decoration: underline; }
+.pn-note-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.pn-note-source {
+  font-size: var(--fs-meta);
+  color: var(--fg-muted, #8a8aa8);
+  border: 1px solid var(--border, #2a2d35);
+  padding: 0 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+/* Recoverable delete — the row is gone from the list, the delete is not yet
+   committed. Sits at the top of the list for UNDO_MS. */
+.pn-note-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px var(--rail-pad-x);
+  border-bottom: 1px solid var(--border, #2a2d35);
+  background: rgb(var(--ink-rgb) / 0.04);
+  font-size: var(--fs-meta);
+  color: var(--fg-muted, #8a8aa8);
+}
+.pn-note-undo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid var(--pn-accent, var(--accent, #6aa9ff));
+  border-radius: 0;
+  color: var(--pn-accent, var(--accent, #6aa9ff));
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-meta);
+  padding: 2px 8px;
+}
+.pn-note-undo-btn:hover { background: rgb(var(--ink-rgb) / 0.06); }
+
+.pn-note-more {
+  margin: 0;
+  padding: 10px var(--rail-pad-x);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border, #2a2d35);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-meta);
+  color: var(--fg-muted, #8a8aa8);
+  text-align: left;
+}
+.pn-note-more:hover { background: rgb(var(--ink-rgb) / 0.04); color: var(--fg); }
+.pn-note-more[hidden] { display: none; }
+
+.pn-note-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
 /* Inline note editor — same chrome as the composer above the list.
    While it is open the row drops its hover actions and clamped body. */
 .pn-note-card.is-editing { cursor: default; padding-right: var(--rail-pad-x); }
