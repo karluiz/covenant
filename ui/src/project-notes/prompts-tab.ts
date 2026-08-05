@@ -167,9 +167,10 @@ export class PromptsTab {
       <div class="pn-prompt-status" hidden></div>
       <div class="pn-prompt-editor-actions">
         <button class="pn-prompt-improve">${Icons.sparkles({ size: 12 })}<span>Improve</span></button>
-        <span class="pn-prompt-spacer"></span>
-        <button class="pn-prompt-save">Save</button>
-        <button class="pn-prompt-cancel">Cancel</button>
+        <span class="pn-prompt-editor-actions-end">
+          <button class="pn-prompt-save">Save</button>
+          <button class="pn-prompt-cancel">Cancel</button>
+        </span>
       </div>
     `;
     const titleInput =
