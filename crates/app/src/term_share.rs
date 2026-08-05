@@ -11,6 +11,40 @@ pub struct TermShare {
     pub share_id: i64,
     pub token: String,
     pub url: String,
+    pub mode: String,
+}
+
+/// One live token per (session, mode) — ro and collab links coexist on one
+/// session. `|` cannot appear in a ULID or a mode string, so it's a safe
+/// separator.
+pub(crate) fn store_key(session_id: &str, mode: &str) -> String {
+    format!("{session_id}|{mode}")
+}
+
+/// Splits a store key back into (session_id, mode). Stores written before
+/// mode existed have bare session-id keys — treat those as `"ro"`.
+fn split_key(k: &str) -> (&str, &str) {
+    k.split_once('|').unwrap_or((k, "ro"))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TermShareEntry {
+    pub session_id: String,
+    pub mode: String,
+}
+
+fn list_entries(shares: &HashMap<String, TermShare>) -> Vec<TermShareEntry> {
+    shares
+        .keys()
+        .map(|k| {
+            let (sid, mode) = split_key(k);
+            TermShareEntry {
+                session_id: sid.to_string(),
+                mode: mode.to_string(),
+            }
+        })
+        .collect()
 }
 
 pub fn load_shares(path: &Path) -> HashMap<String, TermShare> {
@@ -65,9 +99,9 @@ async fn send_authed(
         .map_err(|e| e.to_string())
 }
 
-async fn post_share(session_id: &str) -> Result<serde_json::Value, String> {
+async fn post_share(session_id: &str, mode: &str) -> Result<serde_json::Value, String> {
     let url = format!("{}/term-shares", auth::backend_url());
-    let body = serde_json::json!({ "session_id": session_id });
+    let body = serde_json::json!({ "session_id": session_id, "mode": mode });
     send_authed(|j| client().post(&url).bearer_auth(j).json(&body))
         .await?
         .json()
@@ -81,33 +115,47 @@ async fn post_revoke(id: i64) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_mode(mode: &str) -> Result<(), String> {
+    match mode {
+        "ro" | "collab" => Ok(()),
+        other => Err(format!("invalid share mode: {other}")),
+    }
+}
+
 #[tauri::command]
 pub async fn term_share_get(
     app: tauri::AppHandle,
     session_id: String,
+    mode: String,
 ) -> Result<Option<TermShare>, String> {
-    Ok(load_shares(&shares_path(&app)?).get(&session_id).cloned())
+    validate_mode(&mode)?;
+    Ok(load_shares(&shares_path(&app)?)
+        .get(&store_key(&session_id, &mode))
+        .cloned())
 }
 
 /// All locally-known shared sessions — lets the UI badge tabs
-/// without a per-tab round-trip.
+/// without a per-tab round-trip. Migration shim: keys written before mode
+/// existed have no `|` and are surfaced as `mode: "ro"`.
 #[tauri::command]
-pub async fn term_share_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
-    Ok(load_shares(&shares_path(&app)?).into_keys().collect())
+pub async fn term_share_list(app: tauri::AppHandle) -> Result<Vec<TermShareEntry>, String> {
+    Ok(list_entries(&load_shares(&shares_path(&app)?)))
 }
 
 #[tauri::command]
 pub async fn term_share_create(
     app: tauri::AppHandle,
     session_id: String,
+    mode: String,
 ) -> Result<TermShare, String> {
+    validate_mode(&mode)?;
     let _guard = STORE_LOCK.lock().await;
     let file = shares_path(&app)?;
     let mut shares = load_shares(&file);
     // Always ask the server: it returns the existing live token for a
     // re-share, and a fresh one if the old was revoked out-of-band — the
     // local file is a cache, not the truth.
-    let resp = post_share(&session_id).await?;
+    let resp = post_share(&session_id, &mode).await?;
     let share_id = resp["id"].as_i64().ok_or("missing id in response")?;
     let token = resp["token"]
         .as_str()
@@ -117,20 +165,27 @@ pub async fn term_share_create(
         share_id,
         token: token.clone(),
         url: format!("{}/t/{}", auth::backend_url(), token),
+        mode: mode.clone(),
     };
-    shares.insert(session_id, share.clone());
+    shares.insert(store_key(&session_id, &mode), share.clone());
     save_shares(&file, &shares)?;
     Ok(share)
 }
 
 #[tauri::command]
-pub async fn term_share_revoke(app: tauri::AppHandle, session_id: String) -> Result<(), String> {
+pub async fn term_share_revoke(
+    app: tauri::AppHandle,
+    session_id: String,
+    mode: String,
+) -> Result<(), String> {
+    validate_mode(&mode)?;
     let _guard = STORE_LOCK.lock().await;
     let file = shares_path(&app)?;
     let mut shares = load_shares(&file);
-    let share = shares.get(&session_id).cloned().ok_or("not shared")?;
+    let key = store_key(&session_id, &mode);
+    let share = shares.get(&key).cloned().ok_or("not shared")?;
     post_revoke(share.share_id).await?;
-    shares.remove(&session_id);
+    shares.remove(&key);
     save_shares(&file, &shares)
 }
 
@@ -164,14 +219,75 @@ mod tests {
         let mut m = load_shares(&p);
         assert!(m.is_empty());
         m.insert(
-            "01SESSION".into(),
+            store_key("01SESSION", "ro"),
             TermShare {
                 share_id: 7,
                 token: "t".into(),
                 url: "u".into(),
+                mode: "ro".into(),
             },
         );
         save_shares(&p, &m).unwrap();
-        assert_eq!(load_shares(&p).get("01SESSION").unwrap().share_id, 7);
+        assert_eq!(
+            load_shares(&p)
+                .get(&store_key("01SESSION", "ro"))
+                .unwrap()
+                .share_id,
+            7
+        );
+    }
+
+    #[test]
+    fn store_keeps_ro_and_collab_separately() {
+        let dir = std::env::temp_dir().join(format!("cov-tshare2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("term_shares.json");
+        let mut m = load_shares(&p);
+        m.insert(
+            store_key("S1", "ro"),
+            TermShare {
+                share_id: 1,
+                token: "a".into(),
+                url: "u1".into(),
+                mode: "ro".into(),
+            },
+        );
+        m.insert(
+            store_key("S1", "collab"),
+            TermShare {
+                share_id: 2,
+                token: "b".into(),
+                url: "u2".into(),
+                mode: "collab".into(),
+            },
+        );
+        save_shares(&p, &m).unwrap();
+        let back = load_shares(&p);
+        assert_eq!(back.get(&store_key("S1", "ro")).unwrap().share_id, 1);
+        assert_eq!(back.get(&store_key("S1", "collab")).unwrap().share_id, 2);
+    }
+
+    #[test]
+    fn list_entries_migrates_legacy_keys_without_mode() {
+        // Old stores wrote bare session-id keys (pre-mode). list must treat
+        // those as ro.
+        let dir = std::env::temp_dir().join(format!("cov-tshare3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("term_shares.json");
+        let mut m: HashMap<String, TermShare> = HashMap::new();
+        m.insert(
+            "LEGACY_SID".into(),
+            TermShare {
+                share_id: 9,
+                token: "z".into(),
+                url: "u".into(),
+                mode: "ro".into(),
+            },
+        );
+        save_shares(&p, &m).unwrap();
+        let entries = list_entries(&load_shares(&p));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].session_id, "LEGACY_SID");
+        assert_eq!(entries[0].mode, "ro");
     }
 }

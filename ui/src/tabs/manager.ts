@@ -139,6 +139,8 @@ import {
   TERM_SHARE_EVENT,
   ensureTermSharesLoaded,
   isTermShared,
+  isRoShared,
+  isCollabShared,
   shareSession,
   copyTermShareLink,
   stopSharing,
@@ -9493,25 +9495,44 @@ export class TabManager {
         },
       });
     }
-    // Terminal Share: read-only broadcast of this session's PTY output.
+    // Terminal Share: read-only broadcast and/or collaborative (driver) link.
     if (ctxSessionId) {
       items.push({ divider: true });
-      if (isTermShared(ctxSessionId)) {
+      if (isRoShared(ctxSessionId)) {
         items.push({
-          label: "Copy share link",
+          label: "Copy share link (read-only)",
           icon: Icons.share(),
-          onClick: () => void copyTermShareLink(ctxSessionId),
+          onClick: () => void copyTermShareLink(ctxSessionId, "ro"),
         });
         items.push({
-          label: "Stop sharing",
+          label: "Stop read-only share",
           icon: Icons.x(),
-          onClick: () => void stopSharing(ctxSessionId),
+          onClick: () => void stopSharing(ctxSessionId, "ro"),
         });
       } else {
         items.push({
           label: "Share read-only…",
           icon: Icons.share(),
-          onClick: () => void shareSession(ctxSessionId),
+          onClick: () => void shareSession(ctxSessionId, "ro"),
+        });
+      }
+      if (isCollabShared(ctxSessionId)) {
+        items.push({
+          label: "Copy collab link",
+          icon: Icons.share(),
+          onClick: () => void copyTermShareLink(ctxSessionId, "collab"),
+        });
+        items.push({
+          label: "Stop collab share",
+          icon: Icons.x(),
+          onClick: () => void stopSharing(ctxSessionId, "collab"),
+        });
+      } else {
+        items.push({
+          label: "Share collaborative…",
+          icon: Icons.share(),
+          danger: true,
+          onClick: () => void shareSession(ctxSessionId, "collab"),
         });
       }
     }
