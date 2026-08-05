@@ -14144,37 +14144,37 @@ body[data-aom-phase="triaging"]
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28);
 }
 
-/* ── Collab share: remote-driver chip ──
-   Sits in the tab pill's action cluster (beside spec badge / split glyph /
-   ×) whenever a guest holds the driver seat on this session. Loud on
-   purpose — an accent outline, not a quiet dot, because a guest typing
-   into your terminal is the one state you must not miss. Doubles as the
-   revoke control: clicking it takes control back. */
+/* ── Collab share: remote-driver indicator ──
+   Two surfaces, because the tab row cannot carry a name: an icon-only
+   revoke button in the tab pill's action cluster (beside spec badge /
+   split glyph / ×), and the accent below on the driven pane itself. The
+   guest's login rides the tooltip — labelling the button inline starved
+   the tab title to one glyph and overran the ×, since a login has no
+   bounded width. Clicking takes control back. */
 .remote-driver-chip {
   border: 1px solid var(--running);
   color: var(--running);
   background: transparent;
   border-radius: 0;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  padding: 2px 8px;
+  padding: 2px 3px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  line-height: 0;
   flex-shrink: 0;
 }
 .remote-driver-chip:hover {
   background: color-mix(in srgb, var(--running) 14%, transparent);
 }
-.remote-driver-chip-icon {
-  display: inline-flex;
-  line-height: 0;
+.remote-driver-chip svg { display: block; }
+
+/* The unmistakable half: the terminal being driven is outlined, so "someone
+   else is typing in here" reads from the pane, not from a 14px button in
+   the sidebar. Inset shadow rather than `border` — a border would relayout
+   the pane and re-wrap the grid mid-session. */
+.pane-host[data-remote-driver] {
+  box-shadow: inset 0 0 0 1px var(--running);
 }
-.remote-driver-chip-icon svg { display: block; }
-/* Uppercase the static label only — the CSS-uppercase rule (DESIGN.md #6)
-   must not touch the guest's actual login, which keeps its authored case. */
-.remote-driver-chip-label { text-transform: uppercase; }
 
 /* ── Spec-link contextual menu ── */
 .spec-link-menu {

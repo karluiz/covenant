@@ -2650,7 +2650,10 @@ export class TabManager {
     // Collab share: a guest was granted/revoked control, or the roster
     // changed — repaint so the remote-driver chip and guest count badge
     // stay in sync.
-    window.addEventListener(COLLAB_EVENT, () => this.renderTabbar());
+    window.addEventListener(COLLAB_EVENT, () => {
+      this.renderTabbar();
+      this.applyDriverAccents();
+    });
     // A supervision finding landed — repaint so the supervised group's
     // ring goes red and grows its unread count.
     window.addEventListener(GROUP_FINDINGS_EVENT, () => this.renderTabbar());
@@ -2917,6 +2920,22 @@ export class TabManager {
       liveWorktree: this.isLiveWorktree(tab),
       shared: p.sessionId !== null && isTermShared(p.sessionId),
     };
+  }
+
+  /// Mark every pane a remote guest currently drives, so the terminal the
+  /// guest is typing into carries the signal — not just a button in the tab
+  /// row. Stamped on the pane-host itself (an in-flow attribute, not an
+  /// absolutely-positioned overlay, which flickers under WebKit when it
+  /// sits over hover-animated content).
+  private applyDriverAccents(): void {
+    for (const tab of this.tabs) {
+      for (const pane of tab.panes) {
+        if (!pane.el) continue;
+        const login = pane.sessionId ? getDriver(pane.sessionId) : null;
+        if (login) pane.el.dataset.remoteDriver = login;
+        else delete pane.el.dataset.remoteDriver;
+      }
+    }
   }
 
   /// The state slot's contents, or null when the tab has nothing to say.
@@ -9376,14 +9395,18 @@ export class TabManager {
     if (splitGlyph) pill.appendChild(splitGlyph);
 
     // Remote collaborator has been granted control of this session (collab
-    // terminal share). Rendered as a full labelled chip rather than folded
-    // into the tab-state ladder's one atom — "someone else is typing here"
-    // needs a name, not a dot — and doubles as the one-click revoke.
+    // terminal share) — an icon-only revoke button, because the tab row has
+    // no horizontal room: a labelled "REMOTE DRIVER: <login>" chip here
+    // starved the title down to one glyph and overran the × (the login is
+    // unbounded, so no truncation width is safe). The name lives in the
+    // tooltip, and the unmistakable-at-a-glance signal is the accent on the
+    // driven pane itself (`data-remote-driver`, applied by
+    // `applyDriverAccents`) — which is where the spec put it.
     //
     // Scans every pane of the tab (not just the active one, unlike
     // `pillPane` above) — same pattern as `onPtyPerceptionAnswer` — so a
-    // driven INACTIVE split pane still surfaces the chip instead of showing
-    // nothing just because the focused half isn't the driven one.
+    // driven INACTIVE split pane still surfaces the button instead of
+    // showing nothing just because the focused half isn't the driven one.
     const drivenPane = tab.panes.find((p) => p.sessionId && getDriver(p.sessionId));
     const driverSessionId = drivenPane?.sessionId ?? null;
     const driverLogin = driverSessionId ? getDriver(driverSessionId) : null;
@@ -9391,15 +9414,11 @@ export class TabManager {
       const driverChip = document.createElement("button");
       driverChip.type = "button";
       driverChip.className = "remote-driver-chip";
-      const driverIcon = document.createElement("span");
-      driverIcon.className = "remote-driver-chip-icon";
-      driverIcon.innerHTML = Icons.link2({ size: 11 });
-      const driverLabel = document.createElement("span");
-      driverLabel.className = "remote-driver-chip-label";
-      driverLabel.textContent = "Remote driver:";
-      driverChip.append(driverIcon, driverLabel, document.createTextNode(` ${driverLogin}`));
-      attachTooltip(driverChip, "Click to take back control");
-      driverChip.addEventListener("click", () => {
+      driverChip.setAttribute("aria-label", `Remote driver: ${driverLogin}`);
+      driverChip.innerHTML = Icons.link2({ size: 11 });
+      attachTooltip(driverChip, `Remote driver: ${driverLogin} — click to take back control`);
+      driverChip.addEventListener("click", (e) => {
+        e.stopPropagation();
         if (driverSessionId) revokeDriver(driverSessionId);
       });
       pill.appendChild(driverChip);
