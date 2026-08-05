@@ -23,9 +23,17 @@ export interface MentionHit {
   /// files → rel_path; sessions → "session:<short_id>";
   /// commands → "cmd:<block_id>"; teammates → "teammate:<name>".
   token: string;
+  /// Short, tabular identifier rendered before `primary` in its own slot
+  /// (spec id, tab number). Kept out of `primary` so the strongest slot
+  /// in the row belongs to the name, and so match offsets need no
+  /// prefix-length arithmetic.
+  tag?: string;
   primary: string;
   secondary: string;
   matchIndices: number[];
+  /// Match offsets inside `secondary`, for the case where the query hit
+  /// the description rather than the name.
+  secondaryIndices?: number[];
   payload:
     | { kind: "files";     abs: string; rel: string }
     | { kind: "sessions";  session_id: string; cwd: string; shell: string; tab_index: number; block_count: number; last_command: string | null }
@@ -55,47 +63,63 @@ export interface FindMentionsArgs {
 
 const PER_SOURCE_ON_ALL = 3;
 
-export async function findMentions(args: FindMentionsArgs): Promise<MentionHit[]> {
+/// Hits for the active scope, plus how many each scope holds — so the
+/// picker's scope strip can show counts and its empty state can say where
+/// the matches actually are.
+export interface MentionResults {
+  hits: MentionHit[];
+  counts: Record<Tab, number>;
+}
+
+export async function findMentions(args: FindMentionsArgs): Promise<MentionResults> {
   const { query, cwd, activeTab, limit, deps, excludeOperatorId } = args;
-  const want = (s: Source) => activeTab === "all" || activeTab === s;
+  // Every source runs on every query, not just the active scope's — the
+  // counts need them all. No new worst case: the default "all" scope
+  // already fanned out to all five.
+  const filesP: Promise<MentionHit[]> = cwd
+    ? deps.findFiles(cwd, query, limit).then(asFileHits).catch(logZero("findFiles"))
+    : Promise.resolve([]);
 
-  const filesP: Promise<MentionHit[]> =
-    want("files") && cwd
-      ? deps.findFiles(cwd, query, limit).then(asFileHits).catch(logZero("findFiles"))
-      : Promise.resolve([]);
-
-  const specsP: Promise<MentionHit[]> =
-    want("specs") && cwd
-      ? deps.findSpecs(cwd, query, limit).then(asSpecHits).catch(logZero("findSpecs"))
-      : Promise.resolve([]);
+  const specsP: Promise<MentionHit[]> = cwd
+    ? deps.findSpecs(cwd, query, limit).then(asSpecHits).catch(logZero("findSpecs"))
+    : Promise.resolve([]);
 
   const sessionsP: Promise<MentionHit[]> =
-    want("sessions")
-      ? Promise.resolve(filterSessions(safeCall(deps.listOpenSessions, "listOpenSessions"), query))
-      : Promise.resolve([]);
+    Promise.resolve(filterSessions(safeCall(deps.listOpenSessions, "listOpenSessions"), query));
 
   const commandsP: Promise<MentionHit[]> =
-    want("commands")
-      ? deps.findRecentCommands(query, limit).then(asCommandHits).catch(logZero("findRecentCommands"))
-      : Promise.resolve([]);
+    deps.findRecentCommands(query, limit).then(asCommandHits).catch(logZero("findRecentCommands"));
 
   const teammatesP: Promise<MentionHit[]> =
-    want("teammates")
-      ? deps.listOperators().then((ops) => filterTeammates(ops, query, excludeOperatorId)).catch(logZero("listOperators"))
-      : Promise.resolve([]);
+    deps.listOperators().then((ops) => filterTeammates(ops, query, excludeOperatorId)).catch(logZero("listOperators"));
 
   const [files, specs, sessions, commands, teammates] = await Promise.all([filesP, specsP, sessionsP, commandsP, teammatesP]);
+  const bySource: Record<Source, MentionHit[]> = { files, specs, sessions, commands, teammates };
 
-  if (activeTab !== "all") {
-    return ({ files, specs, sessions, commands, teammates } as Record<Source, MentionHit[]>)[activeTab].slice(0, limit);
-  }
-  return [
-    ...files.slice(0, PER_SOURCE_ON_ALL),
-    ...specs.slice(0, PER_SOURCE_ON_ALL),
-    ...sessions.slice(0, PER_SOURCE_ON_ALL),
-    ...commands.slice(0, PER_SOURCE_ON_ALL),
-    ...teammates.slice(0, PER_SOURCE_ON_ALL),
-  ].slice(0, limit);
+  // ponytail: a count saturates at `limit` because each source is asked
+  // for at most that many. Fine for a picker strip; if a real total ever
+  // matters, the sources have to report one.
+  const counts = {
+    all:       0,
+    files:     files.length,
+    specs:     specs.length,
+    sessions:  sessions.length,
+    commands:  commands.length,
+    teammates: teammates.length,
+  } as Record<Tab, number>;
+  counts.all = files.length + specs.length + sessions.length + commands.length + teammates.length;
+
+  const hits = activeTab !== "all"
+    ? bySource[activeTab].slice(0, limit)
+    : [
+        ...files.slice(0, PER_SOURCE_ON_ALL),
+        ...specs.slice(0, PER_SOURCE_ON_ALL),
+        ...sessions.slice(0, PER_SOURCE_ON_ALL),
+        ...commands.slice(0, PER_SOURCE_ON_ALL),
+        ...teammates.slice(0, PER_SOURCE_ON_ALL),
+      ].slice(0, limit);
+
+  return { hits, counts };
 }
 
 function logZero(name: string): (e: unknown) => MentionHit[] {
@@ -121,11 +145,17 @@ function asSpecHits(hits: SpecHit[]): MentionHit[] {
   return hits.map((h) => ({
     kind: "specs",
     token: `spec:${h.id}`,
-    primary: `${h.id}  ${h.title}`,
+    tag: h.id,
+    primary: h.title,
     secondary: h.goal || "(no description)",
-    matchIndices: h.match_indices.map((i) => i + h.id.length + 2), // offset for "ID  " prefix
+    matchIndices:      h.match?.field === "title" ? run(h.match.start, h.match.len) : [],
+    secondaryIndices:  h.match?.field === "goal"  ? run(h.match.start, h.match.len) : [],
     payload: { kind: "specs", abs: h.abs_path, id: h.id, title: h.title, goal: h.goal },
   }));
+}
+
+function run(start: number, len: number): number[] {
+  return Array.from({ length: len }, (_, i) => start + i);
 }
 
 function asCommandHits(hits: CommandHit[]): MentionHit[] {
@@ -151,7 +181,8 @@ function filterSessions(sessions: OpenSessionInfo[], query: string): MentionHit[
     .map((s) => ({
       kind: "sessions",
       token: `session:${s.short_id}`,
-      primary: `tab ${s.tab_index} · ${s.shell}`,
+      tag: `tab ${s.tab_index}`,
+      primary: s.shell,
       secondary: `${shortCwd(s.cwd)} · ${s.block_count} blocks${s.last_command ? ` · last: ${s.last_command}` : ""}`,
       matchIndices: [],
       payload: {

@@ -12,7 +12,7 @@ import type { ReadResult } from "../api";
 import type { MentionHit, MentionSourcesDeps, Tab, Source } from "./mention-sources";
 import { findMentions } from "./mention-sources";
 import type { ComposerInput, ChipSpec } from "./composer-input";
-import { attachTooltip } from "../tooltip/tooltip";
+import { Icons } from "../icons";
 import { formatChord } from "../platform";
 
 export type FindFilesFn = (cwd: string, query: string, limit: number) => Promise<import("../api").FileHit[]>;
@@ -299,10 +299,14 @@ interface PopupState {
   query: string;
   activeTab: Tab;
   hits: MentionHit[];
+  counts: Record<Tab, number>;
   selected: number;
   loading: boolean;
   cwd: string | null;
 }
+
+const NO_COUNTS: Record<Tab, number> =
+  { all: 0, files: 0, specs: 0, sessions: 0, commands: 0, teammates: 0 };
 
 export interface MentionPopupDeps {
   input:   ComposerInput;
@@ -339,7 +343,11 @@ export class MentionPopup {
       start: m.start, query: m.query,
       activeTab: this.state?.activeTab ?? "all",
       hits: this.state?.hits ?? [],
-      selected: 0, loading: true, cwd,
+      counts: this.state?.counts ?? NO_COUNTS,
+      // Keep the row the user is on while the next fetch is in flight;
+      // `runFetch` re-anchors it by token once results land.
+      selected: this.state?.selected ?? 0,
+      loading: true, cwd,
     });
     this.scheduleFetch();
   }
@@ -353,14 +361,19 @@ export class MentionPopup {
     if (!this.state) return;
     const my = ++this.reqId;
     const { query, cwd, activeTab } = this.state;
-    const hits = await findMentions({
+    const prevToken = this.state.hits[this.state.selected]?.token ?? null;
+    const { hits, counts } = await findMentions({
       query, cwd, activeTab, limit: POPUP_LIMIT, deps: this.deps.sources,
       excludeOperatorId: this.deps.getExcludeOperatorId?.() ?? null,
     });
     if (my !== this.reqId || !this.state) return;
     this.state.hits = hits;
+    this.state.counts = counts;
     this.state.loading = false;
-    this.state.selected = 0;
+    // Narrowing a query usually keeps the row you were aiming at. Follow
+    // it to its new index instead of yanking the cursor back to the top.
+    const kept = prevToken === null ? -1 : hits.findIndex((h) => h.token === prevToken);
+    this.state.selected = kept >= 0 ? kept : 0;
     this.render();
   }
 
@@ -378,13 +391,15 @@ export class MentionPopup {
       this.state.selected = (this.state.selected - 1 + hits.length) % hits.length;
       this.render(); return;
     }
-    if ((e.key === "Enter" || e.key === "Tab") && hits.length && !e.shiftKey) {
+    if (e.key === "Enter" && hits.length && !e.shiftKey) {
       e.preventDefault();
       this.pick(hits[this.state.selected]); return;
     }
-    if (e.key === "Tab" && e.shiftKey) {
+    // Tab cycles scopes both ways. It used to be a second binding for
+    // insert, which left no keyboard way to move *forward* through them.
+    if (e.key === "Tab") {
       e.preventDefault();
-      this.setTab(prevTab(this.state.activeTab)); return;
+      this.setTab(stepTab(this.state.activeTab, e.shiftKey ? -1 : 1)); return;
     }
   }
 
@@ -428,43 +443,39 @@ export class MentionPopup {
 
   private render(): void {
     if (!this.el || !this.state) return;
-    const { hits, selected, loading, cwd, activeTab, query } = this.state;
-    const rail = TABS.map((t) =>
-      `<div class="tmt-mp-rail-item${t.id === activeTab ? " is-active" : ""}" data-tab="${t.id}">`
-      + `<span class="tmt-mp-rail-ico">${tabIcon(t.id)}</span>`
-      + `<span class="tmt-mp-rail-label">${t.label}</span></div>`,
+    const { hits, selected, loading, cwd, activeTab, query, counts } = this.state;
+    const scopes = TABS.map((t) =>
+      `<button type="button" class="tmt-mp-scope${t.id === activeTab ? " is-active" : ""}"`
+      + ` role="tab" aria-selected="${t.id === activeTab}" data-tab="${t.id}"`
+      + ` data-empty="${counts[t.id] === 0 ? "1" : "0"}">`
+      + tabIcon(t.id)
+      + `<span>${t.label}</span>`
+      + `<span class="tmt-mp-scope__n">${counts[t.id]}</span></button>`,
     ).join("");
     let body = "";
     if (loading && hits.length === 0) {
       body = `<div class="tmt-mp-empty">Searching…</div>`;
     } else if (hits.length === 0) {
-      const msg = !cwd && (activeTab === "files" || activeTab === "all")
-        ? "No matches. (No active session — file mentions unavailable.)"
-        : `No matches${query ? ` for “${escapeHtml(query)}”` : ""}.`;
-      body = `<div class="tmt-mp-empty">${msg}</div>`;
+      body = `<div class="tmt-mp-empty">${emptyMessage(activeTab, query, cwd, counts)}</div>`;
     } else {
       body = renderRows(hits, selected, activeTab);
     }
     this.el.innerHTML = `
-      <div class="tmt-mp-wrap">
-        <nav class="tmt-mp-rail">${rail}</nav>
-        <div class="tmt-mp-list">${body}</div>
-      </div>
+      <div class="tmt-mp-scopes" role="tablist" aria-label="Mention scope">${scopes}</div>
+      <div class="tmt-mp-list">${body}</div>
       <div class="tmt-mp-foot">
-        <span><kbd>↑↓</kbd> nav</span>
-        <span><kbd>${formatChord(["tab"])}</kbd>/<kbd>${formatChord(["enter"])}</kbd> insert</span>
+        <span><kbd>↑↓</kbd> move</span>
+        <span><kbd>${formatChord(["tab"])}</kbd> scope</span>
+        <span><kbd>${formatChord(["enter"])}</kbd> insert</span>
+        <span class="tmt-mp-foot__gap"></span>
         <span><kbd>esc</kbd> close</span>
       </div>
     `;
-    this.el.querySelectorAll<HTMLElement>(".tmt-mp-rail-item").forEach((t) => {
+    this.el.querySelectorAll<HTMLElement>(".tmt-mp-scope").forEach((t) => {
       t.addEventListener("mousedown", (e) => {
         e.preventDefault();
         this.setTab(t.dataset.tab as Tab);
       });
-      // Label survives as a hover tooltip for the collapsed (icon-only)
-      // rail in tight composers; harmless when the label is visible.
-      const tab = TABS.find((x) => x.id === t.dataset.tab);
-      if (tab) attachTooltip(t, tab.label);
     });
     this.el.querySelectorAll<HTMLElement>(".tmt-mp-row").forEach((row, idx) => {
       row.addEventListener("mousedown", (e) => {
@@ -472,12 +483,28 @@ export class MentionPopup {
         if (this.state) { this.state.selected = idx; this.pick(this.state.hits[idx]); }
       });
     });
+    const active = this.el.querySelector<HTMLElement>(".tmt-mp-row.is-selected");
+    active?.scrollIntoView?.({ block: "nearest" });
   }
 }
 
-function prevTab(t: Tab): Tab {
+function stepTab(t: Tab, dir: 1 | -1): Tab {
   const i = TABS.findIndex((x) => x.id === t);
-  return TABS[(i - 1 + TABS.length) % TABS.length].id;
+  return TABS[(i + dir + TABS.length) % TABS.length].id;
+}
+
+/// Empty state that names a next step instead of apologising, and says
+/// where the matches actually are when this scope has none.
+function emptyMessage(tab: Tab, query: string, cwd: string | null, counts: Record<Tab, number>): string {
+  if (!cwd && (tab === "files" || tab === "specs")) {
+    return `<b>No active session.</b> ${labelFor(tab as Source)} are resolved against a session's working directory.`;
+  }
+  const q = query ? ` matches “${escapeHtml(query)}”` : ` to mention`;
+  const head = `<b>Nothing in ${tab === "all" ? "any scope" : labelFor(tab as Source)}${q}.</b>`;
+  if (tab !== "all" && counts.all > 0) {
+    return `${head} <kbd>${formatChord(["tab"])}</kbd> for the ${counts.all} elsewhere.`;
+  }
+  return head;
 }
 
 function renderRows(hits: MentionHit[], selected: number, tab: Tab): string {
@@ -489,13 +516,17 @@ function renderRows(hits: MentionHit[], selected: number, tab: Tab): string {
       lastGroup = h.kind;
     }
     parts.push(
-      `<div class="tmt-mp-row tmt-mp-row--${h.kind}${i === selected ? " is-selected" : ""}" data-idx="${i}">
-        <div class="tmt-mp-row__ico">${iconFor(h.kind)}</div>
-        <div class="tmt-mp-row__main">
-          <div class="tmt-mp-row__name">${highlight(h.primary, h.matchIndices)}</div>
-          <div class="tmt-mp-row__meta">${escapeHtml(h.secondary)}</div>
-        </div>
-      </div>`,
+      `<div class="tmt-mp-row tmt-mp-row--${h.kind}${i === selected ? " is-selected" : ""}"`
+      + ` role="option" aria-selected="${i === selected}" data-idx="${i}">`
+      + `<span class="tmt-mp-row__ico">${iconFor(h.kind)}</span>`
+      + `<span class="tmt-mp-row__title">`
+      + (h.tag ? `<span class="tmt-mp-row__tag">${escapeHtml(h.tag)}</span>` : "")
+      + `<span class="tmt-mp-row__name">${highlight(h.primary, h.matchIndices)}</span></span>`
+      // The token is the grammar the composer inserts — shown on the
+      // selected row, which is the only place it is ever taught.
+      + `<span class="tmt-mp-row__token">@${escapeHtml(h.token)}</span>`
+      + `<span class="tmt-mp-row__meta">${highlight(h.secondary, h.secondaryIndices ?? [])}</span>`
+      + `</div>`,
     );
   });
   return parts.join("");
@@ -504,24 +535,49 @@ function renderRows(hits: MentionHit[], selected: number, tab: Tab): string {
 function labelFor(k: Source): string {
   return ({ files: "Files", specs: "Specs", sessions: "Sessions", commands: "Recent commands", teammates: "Teammates" } as const)[k];
 }
+const ICON_SIZE = 14;
 function iconFor(k: Source): string {
-  return ({ files: "⌗", specs: "§", sessions: "▮", commands: "$", teammates: "@" } as const)[k];
+  return ({
+    files:     Icons.fileText({ size: ICON_SIZE }),
+    specs:     Icons.markdown({ size: ICON_SIZE }),
+    sessions:  Icons.terminalSquare({ size: ICON_SIZE }),
+    commands:  Icons.terminal({ size: ICON_SIZE }),
+    teammates: Icons.headphones({ size: ICON_SIZE }),
+  } as const)[k];
 }
-/// Rail glyph per tab. Mirrors `iconFor` but adds the "all" scope, which
+/// Scope icon per tab. Mirrors `iconFor` but adds the "all" scope, which
 /// has no single source kind.
 function tabIcon(t: Tab): string {
-  return ({ all: "✱", files: "⌗", specs: "§", sessions: "▮", commands: "$", teammates: "@" } as const)[t];
+  return t === "all" ? Icons.boxes({ size: 13 }) : iconFor(t);
 }
 
-function highlight(text: string, indices: number[]): string {
+/// Mark where the query matched, as contiguous runs.
+///
+/// Sources report per-character offsets, which a subsequence matcher
+/// scatters across the string. Marking each one individually renders as
+/// confetti (`Eval*s* ex*pe*rie*nc*e`), so adjacent offsets are merged and
+/// lone characters are kept only when they start a word — a single bolded
+/// letter mid-word carries no information and reads as a bug.
+export function highlight(text: string, indices: number[]): string {
   if (indices.length === 0) return escapeHtml(text);
-  const set = new Set(indices);
-  let out = "";
-  for (let i = 0; i < text.length; i++) {
-    const ch = escapeHtml(text[i]);
-    out += set.has(i) ? "<b>" + ch + "</b>" : ch;
+  const runs: Array<{ start: number; end: number }> = [];
+  for (const i of [...indices].sort((a, b) => a - b)) {
+    const last = runs[runs.length - 1];
+    if (last && i === last.end + 1) last.end = i;
+    else runs.push({ start: i, end: i });
   }
-  return out;
+  const wordStart = (i: number) => i === 0 || /[\s/._:·-]/.test(text[i - 1]);
+  const keep = runs.filter((r) => r.end > r.start || wordStart(r.start));
+  if (keep.length === 0) return escapeHtml(text);
+
+  let out = "";
+  let at = 0;
+  for (const r of keep) {
+    out += escapeHtml(text.slice(at, r.start));
+    out += "<mark>" + escapeHtml(text.slice(r.start, r.end + 1)) + "</mark>";
+    at = r.end + 1;
+  }
+  return out + escapeHtml(text.slice(at));
 }
 
 function escapeHtml(s: string): string {

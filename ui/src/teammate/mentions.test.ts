@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Operator, ReadResult } from "../api";
 import {
-  activeMentionAt, collectMentionedPaths, expandMentions, MentionPopup,
+  activeMentionAt, collectMentionedPaths, expandMentions, highlight, MentionPopup,
   type MentionRegistry,
 } from "./mentions";
 import { ComposerInput } from "./composer-input";
@@ -173,6 +173,30 @@ describe("expandMentions", () => {
   });
 });
 
+describe("highlight", () => {
+  it("marks a contiguous run as one span", () => {
+    expect(highlight("Evals experience overhaul", [6, 7, 8, 9])).toBe(
+      "Evals <mark>expe</mark>rience overhaul",
+    );
+  });
+
+  it("drops mid-word singletons but keeps a genuine two-char run", () => {
+    // A subsequence matcher's report for "spec" over this title: s(4),
+    // p(8), e(9), c(14). The lone s and c carry nothing and go; "pe" is
+    // adjacent, so it stays. Killing the rest of that confetti is the
+    // `findSpecs` fix — specs no longer report subsequence offsets at all.
+    expect(highlight("Evals experience", [4, 8, 9, 14])).toBe("Evals ex<mark>pe</mark>rience");
+  });
+
+  it("keeps a single character when it starts a word", () => {
+    expect(highlight("ui/src/api.ts", [3])).toBe("ui/<mark>s</mark>rc/api.ts");
+  });
+
+  it("escapes while marking", () => {
+    expect(highlight("<b>x</b>", [0, 1, 2])).toBe("<mark>&lt;b&gt;</mark>x&lt;/b&gt;");
+  });
+});
+
 describe("MentionPopup v2", () => {
   it("opens on @ even when no source returns hits", async () => {
     const { popup, input } = harness();
@@ -184,14 +208,20 @@ describe("MentionPopup v2", () => {
     expect(popup.currentEl()?.querySelector(".tmt-mp-foot")).toBeTruthy();
   });
 
-  it("renders 6 rail categories and shows footer key hints", async () => {
+  it("renders 6 labelled scopes with counts and shows footer key hints", async () => {
     const { popup, input } = harness({ listOperators: async () => [fakeOp()] });
     input.element().textContent = "@";
     placeCaretAtEnd(input.element());
     input.element().dispatchEvent(new InputEvent("input"));
     await flush();
-    expect(popup.currentEl()!.querySelectorAll(".tmt-mp-rail-item").length).toBe(6);
-    expect(popup.currentEl()!.textContent).toMatch(/nav/);
+    const scopes = popup.currentEl()!.querySelectorAll(".tmt-mp-scope");
+    expect(scopes.length).toBe(6);
+    // Every scope carries a label and a count — no unlabelled glyphs.
+    expect(Array.from(scopes).map((s) => s.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining("Teammates")]),
+    );
+    expect(popup.currentEl()!.querySelector(".tmt-mp-scope__n")).toBeTruthy();
+    expect(popup.currentEl()!.textContent).toMatch(/insert/);
   });
 
   it("null cwd does not silently kill the picker — other sources still render", async () => {
@@ -203,6 +233,25 @@ describe("MentionPopup v2", () => {
     expect(popup.isOpen()).toBe(true);
     const txt = popup.currentEl()!.textContent ?? "";
     expect(txt).toMatch(/claude|teammate|no active session/i);
+  });
+
+  it("Tab cycles scopes forward instead of inserting", async () => {
+    const { popup, input, onPick } = harness({ listOperators: async () => [fakeOp()] });
+    input.element().textContent = "@";
+    placeCaretAtEnd(input.element());
+    input.element().dispatchEvent(new InputEvent("input"));
+    await flush();
+    const activeScope = () =>
+      popup.currentEl()!.querySelector(".tmt-mp-scope.is-active")!.getAttribute("data-tab");
+    expect(activeScope()).toBe("all");
+    input.element().dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+    await flush();
+    expect(activeScope()).toBe("files");
+    input.element().dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true }));
+    await flush();
+    expect(activeScope()).toBe("all");
+    expect(onPick).not.toHaveBeenCalled();
+    expect(popup.isOpen()).toBe(true);
   });
 
   it("Esc closes", async () => {
