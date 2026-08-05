@@ -36,8 +36,16 @@ describe("prettifyModel", () => {
     expect(prettifyModel("claude-fable-5")).toBe("Fable 5");
     expect(prettifyModel("claude-opus-5")).toBe("Opus 5");
   });
+  it("prettifies openai and gemini ids", () => {
+    expect(prettifyModel("gpt-4o")).toBe("GPT-4o");
+    expect(prettifyModel("gpt-4o-mini")).toBe("GPT-4o Mini");
+    expect(prettifyModel("gpt-4-turbo")).toBe("GPT-4 Turbo");
+    expect(prettifyModel("gpt-4.1")).toBe("GPT-4.1");
+    expect(prettifyModel("gemini-2.5-pro")).toBe("Gemini 2.5 Pro");
+    expect(prettifyModel("gemini-2.0-flash")).toBe("Gemini 2.0 Flash");
+  });
   it("falls back gracefully on unknown ids", () => {
-    expect(prettifyModel("gpt-4-turbo")).toBe("Gpt-4-turbo");
+    expect(prettifyModel("mistral-large-latest")).toBe("Mistral-larg");
   });
 });
 

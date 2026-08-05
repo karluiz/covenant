@@ -13,19 +13,32 @@ const SPARK_W = 60;
 const SPARK_H = 18;
 const SPARK_PAD = 1;
 
-/// Map a raw model id to a friendly display name. Parses the
-/// `claude-<family>-<major>[-<minor>]` shape so new models work without
-/// a table update; the minor group is capped at 2 digits to skip date
-/// suffixes (e.g. `claude-haiku-4-5-20251001` → "Haiku 4.5").
+/// Map a raw model id to a friendly display name. Parses id shapes per
+/// provider so new models work without a table update:
+/// - `claude-<family>-<major>[-<minor>]` (minor capped at 2 digits to
+///   skip date suffixes: `claude-haiku-4-5-20251001` → "Haiku 4.5")
+/// - `gpt-<version>[-words]` → "GPT-4o Mini"
+/// - `gemini-<version>-<words>` → "Gemini 2.5 Pro"
 export function prettifyModel(raw: string): string {
-  const m = raw.toLowerCase().match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-|$)/);
-  if (m) {
-    const family = m[1].charAt(0).toUpperCase() + m[1].slice(1);
-    return m[3] ? `${family} ${m[2]}.${m[3]}` : `${family} ${m[2]}`;
+  const id = raw.toLowerCase();
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const words = (s: string) =>
+    s
+      .split("-")
+      .filter(Boolean)
+      .map((w) => ` ${cap(w)}`)
+      .join("");
+  const claude = id.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-|$)/);
+  if (claude) {
+    const family = cap(claude[1]);
+    return claude[3] ? `${family} ${claude[2]}.${claude[3]}` : `${family} ${claude[2]}`;
   }
+  const gpt = id.match(/^gpt-([\w.]+)((?:-[a-z]+)*)$/);
+  if (gpt) return `GPT-${gpt[1]}${words(gpt[2])}`;
+  const gemini = id.match(/^gemini-(\d+(?:\.\d+)?)((?:-[a-z]+)+)/);
+  if (gemini) return `Gemini ${gemini[1]}${words(gemini[2])}`;
   // Fallback: first 12 chars, capitalized.
-  const trim = raw.slice(0, 12);
-  return trim.charAt(0).toUpperCase() + trim.slice(1);
+  return cap(raw.slice(0, 12));
 }
 
 export function formatTokPerMin(n: number): string {
