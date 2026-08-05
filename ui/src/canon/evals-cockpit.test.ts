@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { EvalsCockpit, scoreSummary } from "./evals-cockpit";
+import { EvalsCockpit, runScoreLabel, scoreSummary } from "./evals-cockpit";
 import {
-  canonCancelEvals, canonEvalDetail, canonListEvalRuns, canonListEvals,
+  canonCancelEvals, canonEvalDetail, canonListEvalRuns, canonListEvals, canonRunEvals,
 } from "../api";
 
 vi.mock("../api", () => ({
@@ -38,8 +38,10 @@ const history = [
   // Legacy record (pre-`cases`) — falls back to the unit's last recorded state.
   { kind: "command", name: "green", passed: 2, total: 2, at_ms: Date.now() - 7_200_000, cases: [] },
   // Two runs of the same unit, each carrying its own per-case verdicts.
+  // The newer one carries a weighted-criteria score; the older predates it.
   {
     kind: "skill", name: "horizon", passed: 2, total: 2, at_ms: Date.now() - 3_600_000,
+    score: 180, max_score: 200,
     cases: [
       { eval_id: "dirty-tree", pass: true, reason: "newer refusal", duration_ms: 30_000 },
       { eval_id: "no-push", pass: true, reason: "held the push", duration_ms: 20_000 },
@@ -90,6 +92,13 @@ describe("scoreSummary", () => {
     expect(scoreSummary({ score: 0, max_score: 0 } as never)).toBeNull();
     expect(scoreSummary({ score: 50, max_score: 100, baseline_score: null } as never))
       .toEqual({ pct: 50, basePct: null, lift: null });
+  });
+});
+
+describe("runScoreLabel", () => {
+  it("renders pct only when criteria data exists", () => {
+    expect(runScoreLabel({ score: 150, max_score: 200 } as never)).toBe("75%");
+    expect(runScoreLabel({ score: 0, max_score: 0 } as never)).toBe("");
   });
 });
 
@@ -157,6 +166,29 @@ describe("EvalsCockpit", () => {
     (newer as HTMLButtonElement).click();
     dots = [...document.querySelectorAll(".evc-case .evc-dot")].map((d) => d.className);
     expect(dots[0]).toContain("is-pass");
+    c.close();
+  });
+
+  it("history rows show a score chip only when weighted-criteria data exists", async () => {
+    const c = await openCockpit();
+    const rows = [...document.querySelectorAll(".evc-run-row")].filter((r) =>
+      r.textContent!.includes("horizon") && r.textContent!.includes("pass"));
+    const newer = rows.find((r) => r.textContent!.includes("2/2"))!;
+    const older = rows.find((r) => r.textContent!.includes("1/2"))!;
+    expect(newer.textContent).toContain("90%");
+    expect(older.textContent).not.toMatch(/%/);
+    c.close();
+  });
+
+  it("retrying a case runs just that eval id without changing the current selection", async () => {
+    const c = await openCockpit();
+    (document.querySelectorAll(".evc-case")[2] as HTMLButtonElement).click(); // select "later"
+    expect(document.querySelectorAll(".evc-case")[2]!.classList.contains("is-selected")).toBe(true);
+    const retry = document.querySelectorAll(".evc-case")[0]!.querySelector(".evc-case-retry") as HTMLElement;
+    retry.click();
+    expect(canonRunEvals).toHaveBeenCalledWith("/repo", "skill", "horizon", { only: "dirty-tree" });
+    expect(document.querySelectorAll(".evc-case")[2]!.classList.contains("is-selected")).toBe(true);
+    expect(document.querySelectorAll(".evc-case")[0]!.classList.contains("is-selected")).toBe(false);
     c.close();
   });
 

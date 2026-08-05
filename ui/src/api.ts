@@ -2069,6 +2069,10 @@ export interface EvalUnitSummary {
   /** Previous completed run's aggregate, for a pass-rate delta. */
   prev_passed?: number | null;
   prev_total?: number | null;
+  /** Points earned/available across non-stale stored results. Optional only
+   *  for older test fixtures; the backend always sends it. */
+  score?: number;
+  max_score?: number;
 }
 
 export interface CanonEvalProgress {
@@ -2124,6 +2128,10 @@ export interface EvalHistoryRecord {
   at_ms: number;
   /** Per-case verdicts of this run; empty on records written before v0.11.29. */
   cases: EvalCaseRecord[];
+  /** Points earned/available across this run's cases. Optional only for
+   *  older test fixtures and pre-criteria records; the backend always sends it. */
+  score?: number;
+  max_score?: number;
 }
 
 export interface EvalRunsList {

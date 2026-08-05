@@ -141,6 +141,17 @@ body.tabbar-left .evc-frame { left: var(--tabbar-w); }
   font-size: 11px; color: var(--fg-dim, #888);
   font-variant-numeric: tabular-nums;
 }
+.evc-case-retry {
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 0;
+  padding: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--fg-dim, #888); cursor: pointer;
+}
+.evc-case-retry:hover { border-color: var(--accent, #6ea8ff); color: var(--accent, #6ea8ff); }
+.evc-case-retry.is-busy { opacity: 0.5; cursor: default; pointer-events: none; }
+.evc-case-retry:focus-visible { outline: 1px solid var(--accent, #6ea8ff); outline-offset: -1px; }
 
 .evc-tabs { display: flex; border-bottom: 1px solid var(--border); }
 .evc-tab {

@@ -649,6 +649,10 @@ pub struct EvalUnitSummary {
     /// The previous completed run's aggregate, for a pass-rate delta.
     pub prev_passed: Option<usize>,
     pub prev_total: Option<usize>,
+    /// Points earned across non-stale stored results.
+    pub score: u32,
+    /// Total points available across non-stale stored results.
+    pub max_score: u32,
 }
 
 fn emit_progress(
@@ -1126,6 +1130,8 @@ pub async fn canon_run_evals(
                     max_score: r.max_score,
                 })
                 .collect(),
+            score: fresh_results.iter().map(|r| r.score).sum(),
+            max_score: fresh_results.iter().map(|r| r.max_score).sum(),
         };
         if let Err(e) = karl_canon::append_history(&repo_root, &record) {
             tracing::warn!(target: "canon", error = %e, "append_history failed");
@@ -1441,6 +1447,12 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 Some((p, t)) => (Some(p), Some(t)),
                 None => (None, None),
             };
+            let score: u32 = inner.values().filter(|r| !r.stale).map(|r| r.score).sum();
+            let max_score: u32 = inner
+                .values()
+                .filter(|r| !r.stale)
+                .map(|r| r.max_score)
+                .sum();
             EvalUnitSummary {
                 authored: authored.remove(&format!("{kind}/{name}")).unwrap_or(0),
                 kind,
@@ -1453,6 +1465,8 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
                 last_ran_at_ms,
                 prev_passed,
                 prev_total,
+                score,
+                max_score,
             }
         })
         .collect();
@@ -1472,6 +1486,8 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
             last_ran_at_ms: None,
             prev_passed: None,
             prev_total: None,
+            score: 0,
+            max_score: 0,
         });
     }
     Ok(out)
@@ -2148,6 +2164,8 @@ mod tests {
                     total: 2,
                     at_ms: at,
                     cases: vec![],
+                    score: 0,
+                    max_score: 0,
                 },
             )
             .unwrap();

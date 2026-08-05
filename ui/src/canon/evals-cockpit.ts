@@ -12,6 +12,7 @@ import {
   canonEvalDetail,
   canonListEvalRuns,
   canonListEvals,
+  canonRunEvals,
   onCanonEvalProgress,
   type CanonEvalProgress,
   type CanonEvalRunDetail,
@@ -39,6 +40,13 @@ export function scoreSummary(
     ? null
     : Math.round((d.baseline_score / d.max_score) * 100);
   return { pct, basePct, lift: basePct == null ? null : pct - basePct };
+}
+
+/** "75%" from a run's score/max_score, or "" when no criteria data exists
+ *  (legacy record, `max_score` zero/absent) — callers render nothing then. */
+export function runScoreLabel(r: { score?: number; max_score?: number }): string {
+  if (!r.max_score) return "";
+  return `${Math.round(((r.score ?? 0) / r.max_score) * 100)}%`;
 }
 
 /** What the rail selects: a live registry run, or one history record (a past
@@ -83,6 +91,9 @@ export class EvalsCockpit {
   private unitCases = new Map<string, string[]>();
   /** Last-run detail per `<kind>/<name>/<eval_id>`; null = fetched, none. */
   private details = new Map<string, CanonEvalRunDetail | null>();
+  /** Case keys (`<kind>/<name>/<eval_id>`) with an in-flight retry — disables
+   *  that case's retry button until the request settles. */
+  private retrying = new Set<string>();
   private unlisten: UnlistenFn | null = null;
   private ticker: ReturnType<typeof setInterval> | undefined;
 
@@ -127,6 +138,7 @@ export class EvalsCockpit {
     this.selCase = null;
     this.unitCases.clear();
     this.details.clear();
+    this.retrying.clear();
   }
 
   private async refresh(focus?: { kind: string; name: string }): Promise<void> {
@@ -300,6 +312,13 @@ export class EvalsCockpit {
     }
   }
 
+  /** The history record a just-finished live run appended, if any — carries
+   *  the aggregate score the live registry snapshot itself doesn't track. */
+  private historyFor(run: EvalRunSnapshot): EvalHistoryRecord | undefined {
+    return this.data?.history.find((h) =>
+      h.kind === run.kind && h.name === run.name && h.at_ms >= run.started_at_ms);
+  }
+
   private railRunRow(run: EvalRunSnapshot): HTMLElement {
     const row = el("button", "evc-run-row") as HTMLButtonElement;
     row.type = "button";
@@ -312,7 +331,9 @@ export class EvalsCockpit {
     name.textContent = run.name;
     const meta = el("span", "evc-run-meta");
     if (run.done) {
-      meta.textContent = `${run.kind} · ${passed}/${run.cases.length} pass${run.cancelled ? " · stopped" : ""}`;
+      const scoreLabel = runScoreLabel(this.historyFor(run) ?? {});
+      const scoreBit = scoreLabel ? ` · ${scoreLabel}` : "";
+      meta.textContent = `${run.kind} · ${passed}/${run.cases.length} pass${scoreBit}${run.cancelled ? " · stopped" : ""}`;
     } else {
       meta.textContent = `${run.kind} · ${settled}/${run.cases.length} · `;
       const elapsed = el("span", "");
@@ -339,7 +360,9 @@ export class EvalsCockpit {
     const name = el("span", "evc-run-name");
     name.textContent = h.name;
     const meta = el("span", "evc-run-meta");
-    meta.textContent = `${h.kind} · ${h.passed}/${h.total} pass · ${timeAgo(h.at_ms)}`;
+    const scoreLabel = runScoreLabel(h);
+    const scoreBit = scoreLabel ? ` · ${scoreLabel}` : "";
+    meta.textContent = `${h.kind} · ${h.passed}/${h.total} pass${scoreBit} · ${timeAgo(h.at_ms)}`;
     row.append(dot, name, meta);
     row.addEventListener("click", () => {
       this.sel = { type: "unit", kind: h.kind, name: h.name, atMs: h.at_ms };
@@ -398,7 +421,7 @@ export class EvalsCockpit {
     host.appendChild(list);
 
     if (run) {
-      for (const c of run.cases) list.appendChild(this.caseRow(c.eval_id, c));
+      for (const c of run.cases) list.appendChild(this.caseRow(c.eval_id, c, unit.kind, unit.name));
       return;
     }
     // A pinned history record carries its own per-case verdicts — render THAT
@@ -412,7 +435,7 @@ export class EvalsCockpit {
           arm: "",
           duration_ms: c.duration_ms,
           started_at_ms: null,
-        }));
+        }, unit.kind, unit.name));
       }
       return;
     }
@@ -443,7 +466,7 @@ export class EvalsCockpit {
             started_at_ms: null,
           }
         : null;
-      list.appendChild(this.caseRow(id, pseudo));
+      list.appendChild(this.caseRow(id, pseudo, unit.kind, unit.name));
       // Prefetch the verdict so dots fill in without a click.
       if (d === undefined) this.fetchDetail(unit.kind, unit.name, id);
     }
@@ -454,7 +477,7 @@ export class EvalsCockpit {
     }
   }
 
-  private caseRow(id: string, c: EvalRunCase | null): HTMLElement {
+  private caseRow(id: string, c: EvalRunCase | null, kind: string, name: string): HTMLElement {
     const row = el("button", "evc-case") as HTMLButtonElement;
     row.type = "button";
     row.classList.toggle("is-selected", this.selCase === id);
@@ -476,7 +499,29 @@ export class EvalsCockpit {
     } else {
       dur.textContent = "—";
     }
-    row.append(dot, label, note, dur);
+    // A span, not a button — `row` is already a <button> and nested buttons
+    // are invalid HTML (see the same pattern in canon/panel.ts's org rename).
+    const retryKey = `${kind}/${name}/${id}`;
+    const busy = this.retrying.has(retryKey);
+    const retry = el("span", `evc-case-retry${busy ? " is-busy" : ""}`);
+    retry.innerHTML = Icons.refresh({ size: 12 });
+    retry.setAttribute("role", "button");
+    retry.setAttribute("aria-label", "Re-run this case");
+    retry.setAttribute("aria-disabled", String(busy));
+    attachTooltip(retry, "Re-run this case");
+    retry.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.retrying.has(retryKey)) return;
+      this.retrying.add(retryKey);
+      this.render();
+      canonRunEvals(this.cwd, kind, name, { only: id })
+        .catch((err) => pushInfoToast({ message: `Retry failed: ${String(err)}` }))
+        .finally(() => {
+          this.retrying.delete(retryKey);
+          this.render();
+        });
+    });
+    row.append(dot, label, note, dur, retry);
     row.addEventListener("click", () => {
       this.selCase = id;
       this.render();

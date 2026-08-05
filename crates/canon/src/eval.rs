@@ -192,6 +192,13 @@ pub struct EvalRunRecord {
     /// field existed — the UI falls back to unit-level (last-run) state.
     #[serde(default)]
     pub cases: Vec<EvalCaseRecord>,
+    /// Points earned across all cases in this run. Zero on records written
+    /// before weighted criteria existed.
+    #[serde(default)]
+    pub score: u32,
+    /// Total points available across all cases in this run.
+    #[serde(default)]
+    pub max_score: u32,
 }
 
 /// `.covenant/canon/evals/<kind>/<name>/` — one tree for every evaluable kind,
@@ -1115,6 +1122,8 @@ mod tests {
                 score: 0,
                 max_score: 0,
             }],
+            score: 0,
+            max_score: 0,
         };
         append_history(root, &rec(3, 1)).unwrap();
         append_history(root, &rec(7, 2)).unwrap();
@@ -1144,6 +1153,14 @@ mod tests {
         let old = r#"{"eval_id":"a","pass":true,"reason":"ok","ran_at_ms":1,"duration_ms":2}"#;
         let r: EvalResult = serde_json::from_str(old).unwrap();
         assert_eq!((r.score, r.max_score, r.baseline_score), (0, 0, None));
+    }
+
+    #[test]
+    fn old_run_record_json_deserializes_with_zero_scores() {
+        let old = r#"{"kind":"skill","name":"horizon","passed":3,"total":8,"at_ms":1}"#;
+        let r: EvalRunRecord = serde_json::from_str(old).unwrap();
+        assert_eq!((r.score, r.max_score), (0, 0));
+        assert!(r.cases.is_empty());
     }
 
     #[test]
