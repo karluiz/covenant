@@ -6,6 +6,15 @@ export const CONTINUE_BLOCK_COUNT = 5;
 export const CONTINUE_INJECT_TIMEOUT_MS = 8_000;
 export const CONTINUE_INJECT_POLL_MS = 200;
 
+export interface ContinueWithArgs {
+  sourceSessionId: string;
+  sourceExecutor: string;
+  cwd: string;
+  groupId: string | null;
+  color: string | null;
+  dest: SpawnSpec;
+}
+
 export interface ContinuePromptInput {
   sourceExecutor: string;
   destLabel: string;

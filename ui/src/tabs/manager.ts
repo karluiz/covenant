@@ -108,6 +108,8 @@ import { attachFileDrop } from "../structure/file-drop";
 import { StructureEditor } from "../structure/editor";
 import { pushInfoToast } from "../notifications/toast";
 import { isolateCwd, isSilentWorktreeFailure } from "../spawns/worktree-launch";
+import type { SpawnSpec } from "../spawns/types";
+import { eligibleContinueSpawns, type ContinueWithArgs } from "../continue-with";
 import { Icons } from "../icons";
 import { brandIconSvg } from "../icons/brands";
 import { ContextMenu, COLOR_SWATCHES, COLOR_SWATCHES_PASTEL, type MenuItem } from "../menu/context-menu";
@@ -2183,6 +2185,42 @@ export class TabManager {
       "NEW",
     );
 
+    if (sessionId && pane?.executor && this.continueWithHarness && this.listContinueSpawns) {
+      const sourceExecutor = pane.executor;
+      const continueCb = this.continueWithHarness;
+      const listFn = this.listContinueSpawns;
+      const cwd = pane.cwd ?? this.activeCwd() ?? "";
+      let continueSpecs: SpawnSpec[] = [];
+      try {
+        continueSpecs = eligibleContinueSpawns(await listFn(), sourceExecutor);
+      } catch {
+        continueSpecs = [];
+      }
+      if (continueSpecs.length > 0) {
+        addSubmenu(
+          "Continue with…",
+          continueSpecs.map((s) => {
+            const execName =
+              detectExecutor([s.command, ...s.args].join(" ")) ?? s.label;
+            return {
+              label: s.label,
+              icon: brandIconSvg(execName, 16) ?? Icons.sparkles(),
+              action: () =>
+                continueCb({
+                  sourceSessionId: sessionId,
+                  sourceExecutor,
+                  cwd,
+                  groupId,
+                  color: tab.color,
+                  dest: s,
+                }),
+            };
+          }),
+          Icons.sparkles(),
+        );
+      }
+    }
+
     // Split actions (only when the feature is on / a split exists). Splits
     // spawn PTY panes — meaningless on acp/pi/browser tabs, so hide them.
     if (flag && isSingle && tab.kind === "shell") {
@@ -2326,6 +2364,11 @@ export class TabManager {
   /// main.ts (which owns spawn specs + theme resolution); used by the pane
   /// context menu's "Start agent" / "Start agent in worktree" items.
   public runDefaultAgent: ((sessionId: SessionId) => void) | null = null;
+
+  /// Pane menu → Continue with… — hand context to another PTY harness.
+  public continueWithHarness: ((args: ContinueWithArgs) => void) | null = null;
+  /// Supplies the user's spawn list for the Continue with… submenu.
+  public listContinueSpawns: (() => Promise<SpawnSpec[]>) | null = null;
 
   /// Launches the default agent in the given session, at the given cwd,
   /// WITHOUT cutting a worktree — work directly on the checkout the pane is
