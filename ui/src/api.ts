@@ -2175,6 +2175,21 @@ export interface CanonEvalRunDetail {
   judge_model: string | null;
   transcript: string;
   baseline_transcript: string | null;
+  /** Weighted-criteria score. `max_score === 0` marks a legacy record
+   *  (pre-criteria) — render today's pass/fail-only detail unchanged. */
+  score: number;
+  max_score: number;
+  baseline_score: number | null;
+  criteria: CanonCriterionVerdict[];
+  baseline_criteria: CanonCriterionVerdict[];
+}
+
+/** One rubric criterion's verdict against a single run. */
+export interface CanonCriterionVerdict {
+  id: string;
+  pass: boolean;
+  reason: string;
+  points: number;
 }
 
 export async function canonEvalDetail(

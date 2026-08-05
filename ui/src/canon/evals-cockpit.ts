@@ -24,7 +24,22 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { Icons } from "../icons";
 import { renderMarkdown } from "../ui/markdown";
 import { pushInfoToast } from "../notifications/toast";
+import { attachTooltip } from "../tooltip/tooltip";
 import { openEvalManager } from "./evals";
+
+/** Total/baseline percentages + lift derived from a detail's weighted-criteria
+ *  score. Null for a legacy record (`max_score === 0`) — the case detail
+ *  falls back to today's pass/fail-only rendering, unchanged. */
+export function scoreSummary(
+  d: Pick<CanonEvalRunDetail, "score" | "max_score" | "baseline_score">,
+): { pct: number; basePct: number | null; lift: number | null } | null {
+  if (!d.max_score) return null;
+  const pct = Math.round((d.score / d.max_score) * 100);
+  const basePct = d.baseline_score == null
+    ? null
+    : Math.round((d.baseline_score / d.max_score) * 100);
+  return { pct, basePct, lift: basePct == null ? null : pct - basePct };
+}
 
 /** What the rail selects: a live registry run, or one history record (a past
  *  run, pinned by `atMs`). `atMs: null` = unit focus with no specific run —
@@ -554,6 +569,9 @@ export class EvalsCockpit {
       return;
     }
 
+    const summary = scoreSummary(d);
+    if (summary) host.appendChild(this.criteriaBlock(d, summary));
+
     const tabs = el("div", "evc-tabs");
     const tabDefs: { id: DetailTab; label: string; available: boolean }[] = [
       { id: "transcript", label: "Transcript", available: true },
@@ -600,6 +618,70 @@ export class EvalsCockpit {
     meta.textContent = bits.join(" · ");
     verdict.appendChild(meta);
     host.appendChild(verdict);
+  }
+
+  /** Tessl-style criteria breakdown — one row per rubric criterion, then a
+   *  Total/Baseline/Lift summary. Only rendered when `scoreSummary` finds
+   *  weighted-criteria data; legacy details never reach this. */
+  private criteriaBlock(
+    d: CanonEvalRunDetail,
+    summary: { pct: number; basePct: number | null; lift: number | null },
+  ): HTMLElement {
+    const wrap = el("div", "evc-score-summary");
+    for (const c of d.criteria) {
+      const row = el("div", "evc-crit-row");
+      const dot = el("span", `evc-dot ${c.pass ? "is-pass" : "is-fail"}`);
+      const id = el("span", "evc-crit-id");
+      id.textContent = c.id;
+      const reason = el("span", "evc-crit-reason");
+      reason.textContent = c.reason;
+      const points = el("span", "evc-crit-points");
+      points.textContent = `${c.pass ? c.points : 0}/${c.points}`;
+      row.append(dot, id, reason, points);
+      wrap.appendChild(row);
+      // Attach only when the reason actually overflows its column — a live
+      // DOM read (forces layout), harmless since this row is already mounted.
+      requestAnimationFrame(() => {
+        if (reason.scrollWidth > reason.clientWidth) attachTooltip(reason, c.reason);
+      });
+    }
+
+    const sep = el("div", "evc-crit-sep");
+    wrap.appendChild(sep);
+
+    const total = el("div", "evc-crit-row evc-crit-summary-row");
+    const totalLabel = el("span", "evc-crit-summary-label");
+    totalLabel.textContent = "Total";
+    const totalPoints = el("span", "evc-crit-points");
+    totalPoints.textContent = `${d.score}/${d.max_score} (${summary.pct}%)`;
+    total.append(totalLabel, totalPoints);
+    wrap.appendChild(total);
+
+    const baseline = el("div", "evc-crit-row evc-crit-summary-row");
+    const baselineLabel = el("span", "evc-crit-summary-label");
+    baselineLabel.textContent = "Baseline";
+    const baselinePoints = el("span", "evc-crit-points");
+    baselinePoints.textContent = d.baseline_score == null || summary.basePct == null
+      ? "— not measured"
+      : `${d.baseline_score}/${d.max_score} (${summary.basePct}%)`;
+    baseline.append(baselineLabel, baselinePoints);
+    wrap.appendChild(baseline);
+
+    const lift = el("div", "evc-crit-row evc-crit-summary-row");
+    const liftLabel = el("span", "evc-crit-summary-label");
+    liftLabel.textContent = "Lift";
+    const liftValue = el("span", "evc-crit-points");
+    if (summary.lift == null) {
+      liftValue.textContent = "—";
+    } else {
+      liftValue.textContent = `${summary.lift > 0 ? "+" : ""}${summary.lift}%`;
+      if (summary.lift > 0) liftValue.classList.add("is-pass");
+      else if (summary.lift < 0) liftValue.classList.add("is-fail");
+    }
+    lift.append(liftLabel, liftValue);
+    wrap.appendChild(lift);
+
+    return wrap;
   }
 
   /** Transcript body with a Preview (rendered markdown) / Source (raw) toggle. */

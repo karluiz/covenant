@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { EvalsCockpit } from "./evals-cockpit";
+import { EvalsCockpit, scoreSummary } from "./evals-cockpit";
 import {
   canonCancelEvals, canonEvalDetail, canonListEvalRuns, canonListEvals,
 } from "../api";
@@ -76,6 +76,22 @@ async function openCockpit(): Promise<EvalsCockpit> {
   await c.open("/repo");
   return c;
 }
+
+describe("scoreSummary", () => {
+  it("computes pct, baseline pct and lift", () => {
+    const d = {
+      score: 75, max_score: 100, baseline_score: 15,
+      criteria: [{ id: "a", pass: true, reason: "", points: 75 }],
+    } as never;
+    expect(scoreSummary(d)).toEqual({ pct: 75, basePct: 15, lift: 60 });
+  });
+
+  it("is null for legacy details and lift null without baseline", () => {
+    expect(scoreSummary({ score: 0, max_score: 0 } as never)).toBeNull();
+    expect(scoreSummary({ score: 50, max_score: 100, baseline_score: null } as never))
+      .toEqual({ pct: 50, basePct: null, lift: null });
+  });
+});
 
 describe("EvalsCockpit", () => {
   beforeEach(() => {

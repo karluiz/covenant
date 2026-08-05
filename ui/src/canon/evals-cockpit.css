@@ -190,6 +190,43 @@ body.tabbar-left .evc-frame { left: var(--tabbar-w); }
 }
 .evc-text-val { font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; }
 
+/* Criteria breakdown (Tessl-style) — one row per rubric criterion, then a
+   Total/Baseline/Lift summary. Only shown for weighted-criteria details;
+   legacy records skip straight to the tabs below. */
+.evc-score-summary {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.evc-crit-row {
+  display: flex; align-items: baseline; gap: 9px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.evc-crit-row .evc-dot { align-self: center; }
+.evc-crit-id {
+  font-family: var(--mono, ui-monospace, monospace);
+  flex: none; min-width: 0; max-width: 40%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.evc-crit-reason {
+  flex: 1; min-width: 0;
+  color: var(--fg-dim, #888);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.evc-crit-points {
+  flex: none; margin-left: auto;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+.evc-crit-points.is-pass { color: var(--ok, #3fb950); }
+.evc-crit-points.is-fail { color: var(--fail, #e5534b); }
+.evc-crit-sep { border-top: 1px solid var(--border); margin: 8px 0; }
+.evc-crit-summary-row { font-weight: 600; }
+.evc-crit-summary-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--fg-dim, #888);
+}
+
 .evc-verdict {
   display: flex; align-items: baseline; gap: 14px;
   padding: 10px 18px;
