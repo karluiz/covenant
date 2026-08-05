@@ -9,6 +9,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { pushConfirmToast, pushInfoToast } from "../notifications/toast";
+import { isCollabShared } from "./share";
 
 export interface RosterGuest {
   connId: number;
@@ -78,14 +79,18 @@ export function revokeDriver(sessionId: string): void {
 // only one collab request is ever "in flight" (shown as a toast) at a time,
 // everything else queues behind it.
 //
-// Known accepted edge (not fixed here): if some OTHER, non-collab confirm
-// toast (e.g. the quit guard) happens to be showing when we dequeue and call
-// pushConfirmToast, the singleton still swallows ours — there is no return
-// signal from pushConfirmToast to detect that and retry. Rare in practice
-// (quit guard is a one-shot on ⌘Q) and out of scope: fixing it needs a
-// richer contract on the shared toast host, not queueing logic in here.
+// Self-healed edge: if some OTHER, non-collab confirm toast (e.g. the quit
+// guard) happens to be showing when we dequeue and call pushConfirmToast,
+// the singleton swallows ours — there is no return signal from
+// pushConfirmToast to detect that synchronously. Left unhandled,
+// `inFlightRequest` would stay set with callbacks nobody can ever invoke:
+// a permanent deadlock of every future request. `dequeueNextRequest` below
+// schedules a DOM poll (`RETRY_DELAY_MS`) after pushing — if our card never
+// actually rendered, it clears the wedge and retries at the front of the
+// queue, which naturally keeps polling until the blocking toast is gone.
 let pendingRequests: RequestEvt[] = [];
 let inFlightRequest: RequestEvt | null = null;
+const RETRY_DELAY_MS = 1500;
 
 function sameRequest(a: RequestEvt, b: RequestEvt): boolean {
   return a.sessionId === b.sessionId && a.connId === b.connId;
@@ -118,11 +123,31 @@ function dequeueNextRequest(tabTitle: (sessionId: string) => string): void {
     const next = pendingRequests.shift()!;
     if (!guestStillPresent(next)) continue;
     inFlightRequest = next;
+
+    const message = `${next.login} wants control of ${tabTitle(next.sessionId)}`;
+    // Guards against the retry timer firing after the guest already
+    // confirmed/cancelled (toast.ts dismisses the card synchronously on
+    // click, but the timer is only cleared from inside these callbacks) —
+    // and against the callbacks firing after a retry already re-queued
+    // `next` under a NEW inFlightRequest (a stale toast's buttons must be
+    // a no-op at that point, not a double-dequeue).
+    let settled = false;
+    let retryTimer: ReturnType<typeof window.setTimeout> | undefined;
+    const clearRetry = (): void => {
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+        retryTimer = undefined;
+      }
+    };
+
     pushConfirmToast({
-      message: `${next.login} wants control of ${tabTitle(next.sessionId)}`,
+      message,
       confirmLabel: "Grant control",
       cancelLabel: "Decline",
       onConfirm: () => {
+        if (settled) return;
+        settled = true;
+        clearRetry();
         void invoke("rc_grant_driver", {
           sessionId: next.sessionId,
           connId: next.connId,
@@ -133,8 +158,33 @@ function dequeueNextRequest(tabTitle: (sessionId: string) => string): void {
       // Decline stays a pure no-op toward the guest (no denial frame exists
       // on the guest page — see the deferred finding) beyond advancing our
       // own queue to whoever's next.
-      onCancel: () => dequeueNextRequest(tabTitle),
+      onCancel: () => {
+        if (settled) return;
+        settled = true;
+        clearRetry();
+        dequeueNextRequest(tabTitle);
+      },
     });
+
+    // `pushConfirmToast` gives no signal of whether our card actually
+    // rendered (the singleton silently swallows it if another confirm
+    // toast — e.g. the quit guard — is already showing). Poll the DOM: if
+    // no card carrying our message exists after the delay, our push was
+    // swallowed. Clear the wedge and retry at the FRONT of the queue —
+    // the retry naturally keeps polling for as long as the blocking toast
+    // is up.
+    retryTimer = window.setTimeout(() => {
+      if (settled) return;
+      const rendered = Array.from(
+        document.querySelectorAll<HTMLElement>(".toast-confirm .toast-msg"),
+      ).some((el) => el.textContent === message);
+      if (rendered) return;
+      settled = true;
+      inFlightRequest = null;
+      pendingRequests.unshift(next);
+      dequeueNextRequest(tabTitle);
+    }, RETRY_DELAY_MS);
+
     return;
   }
 }
@@ -143,6 +193,11 @@ function handleGuestRequest(
   e: RequestEvt,
   tabTitle: (sessionId: string) => string,
 ): void {
+  // I1: a forged/stale request naming a session that isn't (or is no
+  // longer) collab-shared must never surface a grant-control toast — the
+  // UI-side half of the relay-compromise defense (the desktop command
+  // itself also refuses to grant in that case).
+  if (!isCollabShared(e.sessionId)) return;
   if (isDuplicateRequest(e)) return;
   pendingRequests.push(e);
   if (!inFlightRequest) dequeueNextRequest(tabTitle);

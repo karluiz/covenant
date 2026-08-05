@@ -9334,7 +9334,14 @@ export class TabManager {
     // terminal share). Rendered as a full labelled chip rather than folded
     // into the tab-state ladder's one atom — "someone else is typing here"
     // needs a name, not a dot — and doubles as the one-click revoke.
-    const driverLogin = pillPane.sessionId ? getDriver(pillPane.sessionId) : null;
+    //
+    // Scans every pane of the tab (not just the active one, unlike
+    // `pillPane` above) — same pattern as `onPtyPerceptionAnswer` — so a
+    // driven INACTIVE split pane still surfaces the chip instead of showing
+    // nothing just because the focused half isn't the driven one.
+    const drivenPane = tab.panes.find((p) => p.sessionId && getDriver(p.sessionId));
+    const driverSessionId = drivenPane?.sessionId ?? null;
+    const driverLogin = driverSessionId ? getDriver(driverSessionId) : null;
     if (driverLogin) {
       const driverChip = document.createElement("button");
       driverChip.type = "button";
@@ -9348,8 +9355,7 @@ export class TabManager {
       driverChip.append(driverIcon, driverLabel, document.createTextNode(` ${driverLogin}`));
       attachTooltip(driverChip, "Click to take back control");
       driverChip.addEventListener("click", () => {
-        const sid = pillPane.sessionId;
-        if (sid) revokeDriver(sid);
+        if (driverSessionId) revokeDriver(driverSessionId);
       });
       pill.appendChild(driverChip);
     }
