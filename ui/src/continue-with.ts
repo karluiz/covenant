@@ -23,7 +23,25 @@ export interface ContinuePromptInput {
   recent: Array<{ command: string; exit_code: number | null; tail: string }>;
 }
 
-export function buildContinuePrompt(input: ContinuePromptInput): string {
+/// Clips `text` to `maxChars`, keeping the head and appending a truncation
+/// marker. Generic — callers decide WHAT to hand it. `buildContinuePrompt`
+/// hands it only the "Recent terminal context" body, never the whole
+/// assembled prompt, so a header/instruction section placed after the
+/// clipped text is never a truncation casualty.
+export function clipContinuePrompt(
+  text: string,
+  maxChars: number = MAX_CONTINUE_PROMPT_CHARS,
+): string {
+  if (text.length <= maxChars) return text;
+  const marker = "\n\n[truncated]\n";
+  const keep = Math.max(0, maxChars - marker.length);
+  return text.slice(0, keep) + marker;
+}
+
+export function buildContinuePrompt(
+  input: ContinuePromptInput,
+  maxChars: number = MAX_CONTINUE_PROMPT_CHARS,
+): string {
   const sourceLine = input.branch
     ? `Source: ${input.sourceExecutor} · cwd ${input.cwd} · branch ${input.branch}`
     : `Source: ${input.sourceExecutor} · cwd ${input.cwd}`;
@@ -42,27 +60,31 @@ export function buildContinuePrompt(input: ContinuePromptInput): string {
       ? blocks.join("\n").trimEnd()
       : "(no recent finished blocks)";
 
-  return [
-    "Continue this work from another harness.",
-    "",
-    sourceLine,
-    `Why: user asked to continue with ${input.destLabel}.`,
-    "",
-    "## Recent terminal context (oldest → newest)",
-    context,
-    "",
-    "## Instruction",
-    "Pick up where the previous harness left off. Prefer the existing worktree/branch; don't re-scaffold. Summarize what you understood, then continue.",
-  ].join("\n");
-}
+  // The frame (everything except the context body) is fixed-size for a
+  // given input; `## Instruction` lives in it, at the end. Budgeting the
+  // context body against the frame's own length — rather than clipping the
+  // fully-assembled string — guarantees the instruction always survives,
+  // even though five ~4 KB block tails routinely blow past `maxChars`.
+  const frame = (ctx: string): string =>
+    [
+      "Continue this work from another harness.",
+      "",
+      sourceLine,
+      `Why: user asked to continue with ${input.destLabel}.`,
+      "",
+      "## Recent terminal context (oldest → newest)",
+      ctx,
+      "",
+      "## Instruction",
+      "Pick up where the previous harness left off. Prefer the existing worktree/branch; don't re-scaffold. Summarize what you understood, then continue.",
+    ].join("\n");
 
-export function clipContinuePrompt(
-  text: string,
-  maxChars: number = MAX_CONTINUE_PROMPT_CHARS,
-): string {
-  if (text.length <= maxChars) return text;
-  const keep = Math.max(0, maxChars - "\n\n[truncated]\n".length);
-  return text.slice(0, keep) + "\n\n[truncated]\n";
+  const full = frame(context);
+  if (full.length <= maxChars) return full;
+
+  const overhead = frame("").length;
+  const contextBudget = Math.max(0, maxChars - overhead);
+  return frame(clipContinuePrompt(context, contextBudget));
 }
 
 export function eligibleContinueSpawns(

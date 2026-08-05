@@ -113,13 +113,12 @@ import { buildSpawnCmdline, acpExecutorFor, quickCallAcp } from "./spawns/shortc
 import { resolveLaunch, isolateCwd, isSilentWorktreeFailure } from "./spawns/worktree-launch";
 import {
   buildContinuePrompt,
-  clipContinuePrompt,
   CONTINUE_BLOCK_COUNT,
   waitForExecutor,
   type ContinuePromptInput,
   type ContinueWithArgs,
 } from "./continue-with";
-import { sendPromptToSession } from "./project-notes/paste";
+import { pasteBlock, sendPromptToSession } from "./project-notes/paste";
 import { worktreeCreate, worktreeRetire } from "./api";
 import { beaconFailurePrompt } from "./api";
 import {
@@ -1583,34 +1582,38 @@ async function boot(): Promise<void> {
         const { dest } = args;
         if (!dest.command) return;
 
+        // The tab launches at `args.cwd` (see `createTab` below) — that's
+        // where the destination agent's `pwd` actually is, so it (not the
+        // last finished block's cwd, which may be stale or from an earlier
+        // directory) drives the Source line and the branch lookup. The
+        // excerpt's blocks are still used verbatim.
         let recent: ContinuePromptInput["recent"] = [];
-        let excerptCwd = args.cwd;
+        let excerptCwd: string | null = null;
         try {
           const excerpt = await readSessionExcerpt(args.sourceSessionId, CONTINUE_BLOCK_COUNT);
           recent = excerpt.recent;
-          if (excerpt.cwd) excerptCwd = excerpt.cwd;
+          excerptCwd = excerpt.cwd || null;
         } catch {
           pushInfoToast({ message: "No recent blocks — launching with a minimal brief" });
         }
+        const promptCwd = args.cwd || excerptCwd || "(unknown)";
 
         let branch: string | null = null;
         try {
-          if (excerptCwd) {
-            branch = (await gitRepoSummary(excerptCwd)).current_branch;
+          if (promptCwd !== "(unknown)") {
+            branch = (await gitRepoSummary(promptCwd)).current_branch;
           }
         } catch {
           /* omit branch */
         }
 
-        const prompt = clipContinuePrompt(
-          buildContinuePrompt({
-            sourceExecutor: args.sourceExecutor,
-            destLabel: dest.label,
-            cwd: excerptCwd || args.cwd || "(unknown)",
-            branch,
-            recent,
-          }),
-        );
+        const prompt = buildContinuePrompt({
+          sourceExecutor: args.sourceExecutor,
+          destLabel: dest.label,
+          cwd: promptCwd,
+          branch,
+          recent,
+        });
 
         const cmdline = buildSpawnCmdline(dest, claudeTheme()) + "\n";
         let tab;
@@ -1652,12 +1655,19 @@ async function boot(): Promise<void> {
         });
 
         try {
-          await sendPromptToSession(destSessionId, prompt);
-          pushInfoToast({
-            message: ready
-              ? `Continuing with ${dest.label}`
-              : `Continuing with ${dest.label} (agent may still be starting)`,
-          });
+          if (ready) {
+            await sendPromptToSession(destSessionId, prompt);
+            pushInfoToast({ message: `Continuing with ${dest.label}` });
+          } else {
+            // No executor detected within the timeout: the PTY may still be
+            // a bare shell, where the CR `sendPromptToSession` sends after
+            // its paste would execute the brief — including verbatim block
+            // tails — as a command list. Paste only; the user submits.
+            await writeToSession(destSessionId, new TextEncoder().encode(pasteBlock(prompt)));
+            pushInfoToast({
+              message: `${dest.label} didn’t start in time — context pasted, press Enter to send`,
+            });
+          }
         } catch (e) {
           pushInfoToast({
             message: `Tab ready — couldn’t send context: ${

@@ -63,6 +63,32 @@ describe("buildContinuePrompt", () => {
     expect(text).toContain("Continue this work from another harness");
     expect(text).toContain("cwd /r");
   });
+
+  it("clips only the recent-context body when oversized, so ## Instruction always survives", () => {
+    // Five ~4 KB tails (the real shape: CONTINUE_BLOCK_COUNT blocks of
+    // tail_4kb output) blow well past MAX_CONTINUE_PROMPT_CHARS.
+    const recent = Array.from({ length: 5 }, (_, i) => ({
+      command: `cmd-${i}`,
+      exit_code: 0,
+      tail: "x".repeat(4000),
+    }));
+    const text = buildContinuePrompt({
+      sourceExecutor: "claude",
+      destLabel: "Cursor",
+      cwd: "/repo",
+      branch: "main",
+      recent,
+    });
+    expect(text.length).toBeLessThanOrEqual(MAX_CONTINUE_PROMPT_CHARS);
+    expect(text).toContain("[truncated]");
+    expect(text).toContain("## Instruction");
+    expect(text).toContain("Pick up where the previous harness left off");
+    // The instruction is the last section — clipping the context body must
+    // not have eaten into it.
+    expect(text.indexOf("## Instruction")).toBeGreaterThan(
+      text.indexOf("## Recent terminal context"),
+    );
+  });
 });
 
 describe("clipContinuePrompt", () => {
@@ -70,7 +96,7 @@ describe("clipContinuePrompt", () => {
     expect(clipContinuePrompt("hi", 100)).toBe("hi");
   });
 
-  it("truncates from the middle context and notes truncation", () => {
+  it("truncates from the tail of the given text and notes truncation", () => {
     const huge = "x".repeat(MAX_CONTINUE_PROMPT_CHARS + 500);
     const out = clipContinuePrompt(huge);
     expect(out.length).toBeLessThanOrEqual(MAX_CONTINUE_PROMPT_CHARS);
