@@ -60,9 +60,13 @@ pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<Str
                 fwd.push(b);
             }
             _ => {
-                if b >= 0x20 {
+                // ASCII-only scan (blocklist patterns are ASCII): bytes
+                // outside 0x20..=0x7e — including UTF-8 continuation/lead
+                // bytes for multibyte characters — are excluded from the
+                // line buffer but still forwarded to the PTY unchanged.
+                if (0x20..=0x7e).contains(&b) {
                     line.push(b as char);
-                } // ASCII-only scan; blocklist patterns are ASCII
+                }
                 fwd.push(b);
             }
         }
@@ -156,5 +160,22 @@ mod tests {
         let (fwd, blocked) = gate_guest_bytes(&mut line, b"rm -rf /\rls\r");
         assert_eq!(fwd, b"rm -rf /", "typed chars echo, the submit never lands");
         assert!(blocked.is_some());
+    }
+
+    #[test]
+    fn multibyte_utf8_forwards_but_stays_out_of_the_scan_buffer() {
+        // "é" is 0xC3 0xA9 in UTF-8 — both bytes are > 0x7f.
+        let mut line = String::new();
+        let (fwd, blocked) = gate_guest_bytes(&mut line, "café".as_bytes());
+        assert_eq!(
+            fwd,
+            "café".as_bytes(),
+            "every byte must reach the PTY unchanged"
+        );
+        assert_eq!(blocked, None);
+        assert_eq!(
+            line, "caf",
+            "continuation/lead bytes are excluded from the ASCII scan buffer"
+        );
     }
 }
