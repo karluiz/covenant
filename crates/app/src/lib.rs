@@ -46,6 +46,7 @@ mod lsp_commands;
 mod mac_wake;
 mod main_lag;
 mod mcp_server;
+mod mcp_stdio;
 mod memory;
 mod mission_pair;
 mod mission_persistence;
@@ -4845,35 +4846,47 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
 }
 
 pub fn run() {
-    tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with(fmt::layer().with_target(false))
-        .init();
-
-    // Early-arg handling for CLI subcommands before Tauri builder / single-instance.
-    // `covenant mcp-config` prints the MCP entry for external agents and exits.
-    if std::env::args().nth(1).as_deref() == Some("mcp-config") {
-        // Same dir tauri's app_data_dir resolves to; keep in sync with mcp_server::discovery_path.
-        let path = dirs::data_dir().map(|d| d.join("com.karluiz.covenant").join("mcp.json"));
-        match path.and_then(|p| std::fs::read_to_string(p).ok()) {
-            Some(raw) => {
-                let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
-                let output = serde_json::to_string_pretty(&serde_json::json!({
-                    "covenant": {
-                        "type": "http",
-                        "url": v["url"],
-                        "headers": { "Authorization": format!("Bearer {}", v["token"].as_str().unwrap_or_default()) }
-                    }
-                })).unwrap_or_default();
-                println!("{}", output);
-                std::process::exit(0);
+    // Early-arg handling for CLI subcommands, before the tracing subscriber
+    // (whose fmt layer writes to stdout — which `mcp-stdio` owns as protocol
+    // framing) and before the Tauri builder / single-instance plugin.
+    match std::env::args().nth(1).as_deref() {
+        // Prints the MCP entry to paste into a hand-opened harness.
+        Some("mcp-config") => {
+            match mcp_server::discovery_path_cli().and_then(|p| std::fs::read_to_string(p).ok()) {
+                Some(raw) => {
+                    let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+                    let output = serde_json::to_string_pretty(&serde_json::json!({
+                        "covenant": {
+                            "type": "http",
+                            "url": v["url"],
+                            "headers": { "Authorization": format!("Bearer {}", v["token"].as_str().unwrap_or_default()) }
+                        }
+                    })).unwrap_or_default();
+                    println!("{}", output);
+                    std::process::exit(0);
+                }
+                None => {
+                    eprintln!("Covenant is not running (no mcp.json discovery file).");
+                    std::process::exit(1);
+                }
             }
+        }
+        // Bridges stdio to the running app's streamable-http MCP endpoint, so a
+        // static Canon entry can name a server whose url+token rotate per boot.
+        Some("mcp-stdio") => match mcp_server::discovery_path_cli() {
+            Some(p) => mcp_stdio::run(&p),
             None => {
                 eprintln!("Covenant is not running (no mcp.json discovery file).");
                 std::process::exit(1);
             }
-        }
+        },
+        _ => {}
     }
+
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(fmt::layer().with_target(false))
+        .init();
 
     install_crash_logger();
     raise_fd_limit();

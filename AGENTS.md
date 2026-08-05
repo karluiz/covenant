@@ -388,7 +388,19 @@ app instead of just being watched by it. `crates/app/src/mcp_server.rs`.
   `dispatch_acp` path does not get the injection yet.
 - **External agents**: `covenant mcp-config` prints the ready-to-paste MCP
   config entry for a hand-opened harness; exits 1 if the app isn't running
-  (no discovery file).
+  (no discovery file). Both CLI subcommands run *before* the tracing
+  subscriber is installed — its fmt layer writes to stdout, which
+  `mcp-stdio` owns as protocol framing.
+- **Canon entry**: `covenant mcp-stdio` (`crates/app/src/mcp_stdio.rs`) is a
+  stdio↔streamable-http bridge that resolves url+token from the discovery
+  file at spawn time. It exists because the endpoint rotates every boot, so
+  no static config can name it — with the bridge, Canon ships a fixed
+  `.covenant/canon/mcp/covenant.json` (`{"command":"covenant","args":
+  ["mcp-stdio"]}`) that projects to every executor. It is a dumb JSON-RPC
+  pipe: new tools need no change there. Requires the CLI shim
+  (`/usr/local/bin/covenant`, installed from Settings). Ceilings: no GET
+  stream (no server→client sampling/progress), and each response body is
+  read to completion before being written out.
 - **Security posture**: the server can complete/create tasks and write notes
   — it does **not** execute commands. Keep it that way; extending it toward
   execution needs a safety review against the blocklist above
