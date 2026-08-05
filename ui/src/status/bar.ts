@@ -858,8 +858,13 @@ export class StatusBar {
       this.scoreChip.setOnClick(() => {
         window.dispatchEvent(new CustomEvent("covenant:open-covenant-settings"));
       });
+      // Refresh on creation + a slow timer, NEVER per render(): render fires
+      // on every tab switch / dir change, and each refresh is a full scan of
+      // score.sqlite (320MB+) — this exact line was the 1-2.5s
+      // first-switch-after-idle beachball until 2026-08-04.
+      void this.scoreChip.refresh();
+      setInterval(() => void this.scoreChip?.refresh(), 60_000);
     }
-    void this.scoreChip.refresh();
     right.appendChild(this.scoreChip.el);
     right.appendChild(
       versionSegment(__APP_VERSION__, () => this.onVersionChipClick?.()),
