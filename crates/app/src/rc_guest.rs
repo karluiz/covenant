@@ -6,16 +6,15 @@ use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub struct GuestDriver {
-    /// Read by Task 7's rc_agent frame wiring to route inbound `send_input`
-    /// frames to the right websocket connection.
-    #[allow(dead_code)]
+    /// Read by rc_agent's guest frame handling to route inbound
+    /// `guest_input`/`guest_release` frames to the right websocket
+    /// connection.
     pub conn_id: u64,
     pub login: String,
     /// Best-effort line assembly for the blocklist scan. TUIs/editors and
     /// escape sequences evade it by design — the real trust boundary is
     /// the explicit grant to a known identity. Threaded through
-    /// `gate_guest_bytes` by Task 7's rc_agent wiring.
-    #[allow(dead_code)]
+    /// `gate_guest_bytes` by rc_agent's `handle_guest_input`.
     pub line: String,
 }
 
@@ -34,8 +33,8 @@ pub fn send_frame(st: &RcGuestState, json: String) {
 
 /// Forward guest bytes, suppressing any line terminator whose assembled
 /// line matches the blocklist. Returns (bytes to write, blocked message).
-/// Wired into the inbound `send_input` path by Task 7's rc_agent frame
-/// handling; exercised directly by the unit tests below until then.
+/// Wired into the inbound `guest_input` path by rc_agent's
+/// `handle_guest_input`; also exercised directly by the unit tests below.
 ///
 /// The scan buffer clears only on a clean (non-blocked) submit, or on
 /// ^C / ^U — the two keystrokes that genuinely invalidate the shell's
@@ -54,7 +53,6 @@ pub fn send_frame(st: &RcGuestState, json: String) {
 /// close. We are not fixing it: the trust boundary is the explicit
 /// driver grant to a known identity, and this gate is a tripwire for a
 /// naive dangerous one-liner, not a wall against a determined bypass.
-#[allow(dead_code)]
 pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<String>) {
     let mut fwd = Vec::with_capacity(bytes.len());
     for &b in bytes {
