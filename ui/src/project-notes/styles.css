@@ -348,8 +348,8 @@ body.tabbar-left .pn-panel {
   outline: none;
   border-color: var(--pn-accent, var(--accent));
 }
-.pn-prompt-editor-actions { display: flex; gap: 8px; align-items: center; }
-.pn-prompt-spacer { flex: 1; }
+.pn-prompt-editor-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pn-prompt-editor-actions-end { display: flex; gap: 8px; margin-left: auto; }
 .pn-prompt-editor-actions button {
   font-size: var(--fs-meta);
   padding: 5px 12px;
