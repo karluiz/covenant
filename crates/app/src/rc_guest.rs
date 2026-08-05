@@ -39,11 +39,21 @@ pub fn send_frame(st: &RcGuestState, json: String) {
 ///
 /// The scan buffer clears only on a clean (non-blocked) submit, or on
 /// ^C / ^U — the two keystrokes that genuinely invalidate the shell's
-/// current line. ESC and everything that isn't one of those (arrow
-/// keys, other control sequences) leaves the buffer as-is or lets it
-/// accumulate garbage; the buffer can therefore only ever over-block
-/// (false positive), never silently forget a still-buffered dangerous
-/// command (false negative) — see the doctrine note in `safety.rs`.
+/// current line. ESC and CSI tails (arrow keys, etc.) leave the buffer
+/// as-is or let it accumulate garbage, which only biases toward
+/// over-blocking (false positive) — the safe direction per the doctrine
+/// note in `safety.rs`.
+///
+/// That said, this is best-effort line assembly, not a line-editor
+/// emulation, and it has a known, accepted gap: cursor-repositioning
+/// sequences (^A / Home / arrow-left, etc.) move the shell's cursor
+/// without moving ours, so a guest who repositions and then backspaces
+/// can shrink our buffer past what the real line actually lost (the
+/// real shell no-ops a backspace at column 0; ours still pops). That
+/// under-tracks the real line — the false negative this module doesn't
+/// close. We are not fixing it: the trust boundary is the explicit
+/// driver grant to a known identity, and this gate is a tripwire for a
+/// naive dangerous one-liner, not a wall against a determined bypass.
 #[allow(dead_code)]
 pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<String>) {
     let mut fwd = Vec::with_capacity(bytes.len());
