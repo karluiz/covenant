@@ -6,6 +6,48 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.30 — Operator awareness terrain brake + mcp-stdio + UI fixes
+
+### Added
+
+- **Operator awareness — terrain collision brake**: group supervision now
+  detects two supervised sessions standing on the same working tree
+  (`crates/app/src/group_supervision.rs`) and brakes the supervisor before
+  it acts on shared terrain, downgrading the braked group to observe-only.
+  The brake is level-triggered (re-evaluated each pass, no longer failing
+  open) and the inner mutex no longer nests under the world-model lock.
+  A toast surfaces the downgrade in the UI (`ui/src/notifications/toast.ts`,
+  `ui/src/tabs/manager.ts`); design + plan recorded under
+  `docs/superpowers/`.
+
+- **`covenant mcp-stdio`**: two complementary bridges for stdio-only MCP
+  clients — a native stdio↔streamable-http proxy in
+  `crates/app/src/mcp_stdio.rs`, and an `mcp-remote`-based fallback wired
+  into `scripts/covenant-cli.sh` — so hand-opened harnesses can reach the
+  embedded Covenant MCP server without HTTP support.
+
+### Changed
+
+- **Beacon transport errors**: reqwest send failures now render as shaped
+  "github: <cause> — <remedy>" messages (timeout / offline / generic)
+  instead of reqwest's URL dump overflowing the 300px rail
+  (`crates/app/src/beacon.rs`, `ui/src/beacon/panel.ts`).
+
+### Fixed
+
+- **Status bar at narrow widths**: the single-row grid used auto columns
+  that can't shrink below min-content, so the bar overflowed and clipped
+  its trailing chrome; it now sheds gracefully (`ui/src/styles.css`), and
+  the titlebar hides the COVENANT wordmark via a container query on the
+  real gap.
+
+- **Terminal bottom row**: the last row no longer renders underneath the
+  status bar (`ui/src/styles.css`).
+
+- **SpecScore**: the engine recognizes numbered section headings
+  (`ui/src/spec-score/engine.ts`), and published specs show the SpecScore
+  bar in the Set spec preview (`ui/src/mission/page.ts`).
+
 ## v0.11.29 — Evals history per run + markdown transcripts
 
 ### Added
