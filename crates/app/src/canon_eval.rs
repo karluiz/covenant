@@ -898,6 +898,10 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
                                     &karl_canon::BaselineVerdict {
                                         pass: bv.pass,
                                         judged_at_ms: chrono::Utc::now().timestamp_millis(),
+                                        criteria_hash: String::new(),
+                                        score: 0,
+                                        max_score: 0,
+                                        criteria: Vec::new(),
                                     },
                                 );
                                 baseline_transcript = Some(base.transcript);
@@ -922,6 +926,9 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         stale: false,
         executor_model: Some(EXECUTOR_MODEL.to_string()),
         judge_model: judge_model.clone(),
+        score: 0,
+        max_score: 0,
+        baseline_score: None,
     };
     if let Err(e) = karl_canon::write_result(repo_root, *unit_kind, name, &result) {
         tracing::warn!(target: "canon", error = %e, "write_result failed");
@@ -944,6 +951,11 @@ async fn run_one_eval(ctx: &RunCtx, ev: &karl_canon::Eval) -> Option<karl_canon:
         baseline_transcript: baseline_transcript
             .as_deref()
             .map(crate::safety::mask_secrets),
+        score: result.score,
+        max_score: result.max_score,
+        baseline_score: result.baseline_score,
+        criteria: Vec::new(),
+        baseline_criteria: Vec::new(),
     };
     if let Err(e) = karl_canon::write_run_detail(repo_root, *unit_kind, name, &detail) {
         tracing::warn!(target: "canon", error = %e, "write_run_detail failed");
@@ -1094,6 +1106,8 @@ pub async fn canon_run_evals(
                     pass: r.pass,
                     reason: r.reason.clone(),
                     duration_ms: r.duration_ms,
+                    score: r.score,
+                    max_score: r.max_score,
                 })
                 .collect(),
         };

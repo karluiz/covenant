@@ -17,8 +17,8 @@ pub use eval::{
     append_history, authored_counts, criteria_hash, delete_eval, effective_criteria,
     mark_result_stale, overwrite_eval, pass_rate, read_baseline_cache, read_evals, read_history,
     read_results, read_run_detail, scenario_hash, unit_key, validate_eval, write_baseline_verdict,
-    write_eval, write_result, write_run_detail, BaselineVerdict, Criterion, Eval, EvalCaseRecord,
-    EvalResult, EvalRunDetail, EvalRunRecord,
+    write_eval, write_result, write_run_detail, BaselineVerdict, Criterion, CriterionVerdict, Eval,
+    EvalCaseRecord, EvalResult, EvalRunDetail, EvalRunRecord,
 };
 pub use install::{
     adopt, adopt_new_skills, content_version, delete_unit, install_from_dir, install_local,

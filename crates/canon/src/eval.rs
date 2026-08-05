@@ -19,6 +19,15 @@ pub struct Criterion {
     pub points: u32,
 }
 
+/// One criterion's judged verdict against a transcript.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CriterionVerdict {
+    pub id: String,
+    pub pass: bool,
+    pub reason: String,
+    pub points: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Eval {
     pub id: String,
@@ -105,6 +114,17 @@ pub struct EvalResult {
     /// Model that judged the transcript (provenance).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub judge_model: Option<String>,
+    /// Points earned across all judged criteria. Zero on records written
+    /// before weighted criteria existed.
+    #[serde(default)]
+    pub score: u32,
+    /// Total points available across all judged criteria.
+    #[serde(default)]
+    pub max_score: u32,
+    /// The baseline (bare-sandbox) arm's score, when judged. None when the
+    /// baseline was skipped, cached, or opted out.
+    #[serde(default)]
+    pub baseline_score: Option<u32>,
 }
 
 /// Full record of one eval run — everything needed to understand a verdict.
@@ -131,6 +151,19 @@ pub struct EvalRunDetail {
     /// cached, or opted out.
     #[serde(default)]
     pub baseline_transcript: Option<String>,
+    #[serde(default)]
+    pub score: u32,
+    #[serde(default)]
+    pub max_score: u32,
+    #[serde(default)]
+    pub baseline_score: Option<u32>,
+    /// Per-criterion verdicts for the with-unit arm. Empty on records written
+    /// before weighted criteria existed, or for legacy rubric-only evals.
+    #[serde(default)]
+    pub criteria: Vec<CriterionVerdict>,
+    /// Per-criterion verdicts for the baseline arm.
+    #[serde(default)]
+    pub baseline_criteria: Vec<CriterionVerdict>,
 }
 
 /// One case's verdict inside a history record — enough to reconstruct that
@@ -141,6 +174,10 @@ pub struct EvalCaseRecord {
     pub pass: bool,
     pub reason: String,
     pub duration_ms: u64,
+    #[serde(default)]
+    pub score: u32,
+    #[serde(default)]
+    pub max_score: u32,
 }
 
 /// One line of the append-only run log: a completed suite run's aggregate.
@@ -390,6 +427,16 @@ pub fn overwrite_eval(
 pub struct BaselineVerdict {
     pub pass: bool,
     pub judged_at_ms: i64,
+    /// Digest of the criteria this verdict was judged against — a cached
+    /// verdict is only reusable when the criteria set is unchanged.
+    #[serde(default)]
+    pub criteria_hash: String,
+    #[serde(default)]
+    pub score: u32,
+    #[serde(default)]
+    pub max_score: u32,
+    #[serde(default)]
+    pub criteria: Vec<CriterionVerdict>,
 }
 
 fn baseline_cache_path(repo_root: &Path) -> std::path::PathBuf {
@@ -928,6 +975,11 @@ mod tests {
                 judge_model: None,
                 transcript: "t".into(),
                 baseline_transcript: None,
+                score: 0,
+                max_score: 0,
+                baseline_score: None,
+                criteria: Vec::new(),
+                baseline_criteria: Vec::new(),
             },
         )
         .unwrap();
@@ -991,6 +1043,16 @@ mod tests {
             judge_model: Some("claude-sonnet-4-6".into()),
             transcript: "the agent said things".into(),
             baseline_transcript: Some("bare arm".into()),
+            score: 40,
+            max_score: 100,
+            baseline_score: Some(20),
+            criteria: vec![CriterionVerdict {
+                id: "c1".into(),
+                pass: false,
+                reason: "missed it".into(),
+                points: 40,
+            }],
+            baseline_criteria: Vec::new(),
         };
         write_run_detail(root, crate::ContextKind::Skill, "kyc", &d).unwrap();
         assert_eq!(
@@ -1015,6 +1077,10 @@ mod tests {
             &BaselineVerdict {
                 pass: true,
                 judged_at_ms: 9,
+                criteria_hash: String::new(),
+                score: 0,
+                max_score: 0,
+                criteria: Vec::new(),
             },
         )
         .unwrap();
@@ -1022,7 +1088,11 @@ mod tests {
             read_baseline_cache(root).get(&h),
             Some(&BaselineVerdict {
                 pass: true,
-                judged_at_ms: 9
+                judged_at_ms: 9,
+                criteria_hash: String::new(),
+                score: 0,
+                max_score: 0,
+                criteria: Vec::new(),
             })
         );
     }
@@ -1042,6 +1112,8 @@ mod tests {
                 pass: true,
                 reason: "refused".into(),
                 duration_ms: 41_000,
+                score: 0,
+                max_score: 0,
             }],
         };
         append_history(root, &rec(3, 1)).unwrap();
@@ -1065,6 +1137,21 @@ mod tests {
         assert_eq!(all[0].cases.len(), 1);
         assert!(all[2].cases.is_empty(), "legacy line reads with no cases");
         assert!(read_history(tempfile::tempdir().unwrap().path()).is_empty());
+    }
+
+    #[test]
+    fn old_results_json_deserializes_with_zero_scores() {
+        let old = r#"{"eval_id":"a","pass":true,"reason":"ok","ran_at_ms":1,"duration_ms":2}"#;
+        let r: EvalResult = serde_json::from_str(old).unwrap();
+        assert_eq!((r.score, r.max_score, r.baseline_score), (0, 0, None));
+    }
+
+    #[test]
+    fn old_baseline_cache_entry_has_empty_criteria_hash() {
+        let old = r#"{"pass":true,"judged_at_ms":5}"#;
+        let v: BaselineVerdict = serde_json::from_str(old).unwrap();
+        assert!(v.criteria_hash.is_empty());
+        assert_eq!(v.max_score, 0);
     }
 
     #[test]
