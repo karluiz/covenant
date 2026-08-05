@@ -103,9 +103,24 @@
 .spec-score-pop .spec-score-breakdown {
   margin-bottom: 0;
 }
+/* Shares .markdown-doc's measure (max-width 720px, centered) so the chip's
+ * left edge lines up with the title below it instead of sitting flush at the
+ * pane's own padding while the doc content drifts right on a wide pane. */
 .mission-page-preview-score {
   display: flex;
-  margin-bottom: 10px;
+  max-width: 720px;
+  margin: 0 auto 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* Same reason, scoped to this pane only — .spec-score-breakdown is also used
+ * unconstrained inside the Spec Creator's narrower column (immersive.ts),
+ * where it's meant to fill that column and must stay untouched. */
+.mission-page-preview > .spec-score-breakdown {
+  max-width: 720px;
+  margin: 0 auto 14px;
+  width: 100%;
+  box-sizing: border-box;
 }
 .spec-score-deep-note {
   font-size: 10px;
