@@ -515,7 +515,13 @@ export async function openEvalManager(
       idEl = id;
     }
     const scenario = draftField("Scenario", ev.scenario);
-    const rubric = draftField("Rubric", ev.rubric);
+    const hasCriteria = !!(ev.criteria && ev.criteria.length > 0);
+    // Weighted criteria are drafted, not hand-edited here — editing weights is
+    // YAGNI until asked for (matches the draft review drawer). Show them
+    // read-only and carry them through untouched; only legacy rubric-only
+    // evals get the editable textarea.
+    const rubric = hasCriteria ? undefined : draftField("Rubric", ev.rubric);
+    const criteriaEl = hasCriteria ? criteriaList(ev.criteria as CanonEvalCriterion[]) : undefined;
     const actions = document.createElement("div");
     actions.className = "canon-eval-manage-actions";
 
@@ -528,7 +534,9 @@ export async function openEvalManager(
     saveBtn.textContent = "Save";
     saveBtn.addEventListener("click", () => {
       const id = currentId();
-      const draft = { id, scenario: scenario.input.value, rubric: rubric.input.value };
+      const draft: CanonEvalDraft = hasCriteria
+        ? { id, scenario: scenario.input.value, rubric: ev.rubric, criteria: ev.criteria }
+        : { id, scenario: scenario.input.value, rubric: rubric!.input.value };
       saveBtn.disabled = true;
       const write = isNew
         ? canonWriteEvals(cwd, kind, name, [draft]).then(() => undefined)
@@ -583,7 +591,7 @@ export async function openEvalManager(
       viewBtn.addEventListener("click", () => { void openEvalDetail(cwd, kind, name, ev.id); });
       actions.appendChild(viewBtn);
     }
-    body.append(idEl, scenario.wrap, rubric.wrap, actions);
+    body.append(idEl, scenario.wrap, (criteriaEl ?? rubric!.wrap), actions);
     row.appendChild(body);
     list.appendChild(row);
   };

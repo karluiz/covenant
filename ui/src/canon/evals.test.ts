@@ -226,6 +226,36 @@ describe("openEvalManager", () => {
     });
   });
 
+  it("Save on a criteria eval carries criteria through to canon_update_eval, and renders the criteria read-only instead of a Rubric textarea", async () => {
+    const criteria = [
+      { id: "stops", text: "stops before committing", points: 60 },
+      { id: "reports", text: "reports the dirty files", points: 40 },
+    ];
+    (canonListEvals as Mock).mockResolvedValue([
+      { id: "refuses-a-dirty-tree", scenario: "s1", rubric: "", criteria },
+    ]);
+    const overlay = await openMgr();
+    // No editable Rubric textarea — only the Scenario one — and the criteria
+    // render read-only.
+    expect(overlay.querySelectorAll("textarea").length).toBe(1);
+    const items = overlay.querySelectorAll(".canon-draft-criteria-item");
+    expect(items.length).toBe(2);
+    expect(items[0]!.textContent).toContain("60");
+    expect(items[0]!.textContent).toContain("stops before committing");
+
+    const scenario = overlay.querySelector<HTMLTextAreaElement>("textarea")!;
+    scenario.value = "tightened scenario";
+    const save = [...overlay.querySelectorAll("button")].find((b) => b.textContent === "Save")!;
+    save.click();
+    // The criteria travel untouched; no fabricated rubric text is sent.
+    expect(canonUpdateEval).toHaveBeenCalledWith("/repo", "skill", "horizon", {
+      id: "refuses-a-dirty-tree",
+      scenario: "tightened scenario",
+      rubric: "",
+      criteria,
+    });
+  });
+
   it("Delete removes the eval after the confirm card", async () => {
     const overlay = await openMgr();
     const del = [...overlay.querySelectorAll("button")].find((b) => b.textContent === "Delete")!;
