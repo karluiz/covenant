@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { EvalsCockpit, runScoreLabel, scoreSummary } from "./evals-cockpit";
+import { EvalsCockpit, renderFindings, runScoreLabel, scoreSummary } from "./evals-cockpit";
 import {
-  canonCancelEvals, canonEvalDetail, canonListEvalRuns, canonListEvals, canonRunEvals,
+  canonCancelEvals, canonEvalDetail, canonListEvalRuns, canonListEvals, canonLintUnit,
+  canonReviewUnit, canonRunEvals,
 } from "../api";
 
 vi.mock("../api", () => ({
@@ -11,6 +12,8 @@ vi.mock("../api", () => ({
   canonEvalDetail: vi.fn().mockRejectedValue(new Error("no run recorded")),
   canonListEvalRuns: vi.fn().mockResolvedValue({ live: [], history: [] }),
   canonListEvals: vi.fn().mockResolvedValue([]),
+  canonLintUnit: vi.fn().mockResolvedValue([]),
+  canonReviewUnit: vi.fn().mockResolvedValue([]),
   canonRunEvals: vi.fn().mockResolvedValue(undefined),
   canonUpdateEval: vi.fn().mockResolvedValue(undefined),
   canonWriteEvals: vi.fn().mockResolvedValue([]),
@@ -102,6 +105,26 @@ describe("runScoreLabel", () => {
   });
 });
 
+describe("renderFindings", () => {
+  it("orders errors before warnings", () => {
+    const host = document.createElement("div");
+    renderFindings(host, [
+      { severity: "warn", message: "w", hint: "" },
+      { severity: "error", message: "e", hint: "fix" },
+    ] as never);
+    const rows = host.querySelectorAll(".evc-lint-row");
+    expect(rows[0].textContent).toContain("e");
+    expect(rows).toHaveLength(2);
+  });
+
+  it("renders a quiet line for an empty finding list", () => {
+    const host = document.createElement("div");
+    renderFindings(host, []);
+    expect(host.querySelectorAll(".evc-lint-row")).toHaveLength(0);
+    expect(host.textContent).toContain("No lint findings.");
+  });
+});
+
 describe("EvalsCockpit", () => {
   beforeEach(() => {
     document.body.replaceChildren();
@@ -111,6 +134,10 @@ describe("EvalsCockpit", () => {
     (canonEvalDetail as Mock).mockResolvedValue(detail);
     (canonCancelEvals as Mock).mockClear();
     (canonListEvals as Mock).mockClear();
+    (canonLintUnit as Mock).mockClear();
+    (canonLintUnit as Mock).mockResolvedValue([]);
+    (canonReviewUnit as Mock).mockClear();
+    (canonReviewUnit as Mock).mockResolvedValue([]);
   });
 
   it("renders RUNNING and HISTORY rail sections and auto-selects the live run", async () => {
@@ -242,6 +269,52 @@ describe("EvalsCockpit", () => {
       expect(document.querySelector(".evc-case-id")!.textContent).toBe("g1");
     });
     expect(canonListEvals).toHaveBeenCalledWith("/repo", "command", "green");
+    c.close();
+  });
+
+  it("lints the selected unit automatically and runs review only on click", async () => {
+    (canonLintUnit as Mock).mockResolvedValue([
+      { severity: "error", message: "missing frontmatter", hint: "add a title" },
+    ]);
+    let resolveReview: (v: { area: string; suggestion: string }[]) => void = () => {};
+    (canonReviewUnit as Mock).mockReturnValue(
+      new Promise((resolve) => { resolveReview = resolve; }),
+    );
+    const c = await openCockpit();
+    // Lint fires without any click — cheap and local.
+    expect(canonLintUnit).toHaveBeenCalledWith("/repo", "skill", "horizon");
+    expect(canonReviewUnit).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".evc-lint-row")!.textContent).toContain("missing frontmatter");
+    });
+
+    const btn = document.querySelector(".evc-review-btn") as HTMLButtonElement;
+    expect(btn.textContent).toBe("Run review");
+    btn.click();
+    // The click handler calls render(), which rebuilds the case-list column
+    // (host.innerHTML = "" in renderCases) — re-query, the old node is stale.
+    const busyBtn = document.querySelector(".evc-review-btn") as HTMLButtonElement;
+    expect(busyBtn.disabled).toBe(true);
+    expect(busyBtn.textContent).toBe("Reviewing…");
+    expect(canonReviewUnit).toHaveBeenCalledWith("/repo", "skill", "horizon");
+
+    resolveReview([{ area: "clarity", suggestion: "name the failure mode" }]);
+    await vi.waitFor(() => {
+      expect(document.querySelector(".evc-review-area")!.textContent).toBe("clarity");
+    });
+    expect(document.querySelector(".evc-review-suggestion")!.textContent).toBe("name the failure mode");
+    expect((document.querySelector(".evc-review-btn") as HTMLButtonElement).disabled).toBe(false);
+    c.close();
+  });
+
+  it("a failed lint call renders one dimmed line, not a toast", async () => {
+    (canonLintUnit as Mock).mockRejectedValue(new Error("read failed"));
+    const c = await openCockpit();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".evc-lint-error")).not.toBeNull();
+    });
+    expect(document.querySelector(".evc-lint-error")!.textContent).toContain("read failed");
+    expect(document.querySelector(".evc-lint-row")).toBeNull();
     c.close();
   });
 

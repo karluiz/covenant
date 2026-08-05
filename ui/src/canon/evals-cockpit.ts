@@ -12,10 +12,14 @@ import {
   canonEvalDetail,
   canonListEvalRuns,
   canonListEvals,
+  canonLintUnit,
+  canonReviewUnit,
   canonRunEvals,
   onCanonEvalProgress,
   type CanonEvalProgress,
   type CanonEvalRunDetail,
+  type CanonLintFinding,
+  type CanonReviewSuggestion,
   type EvalHistoryRecord,
   type EvalRunCase,
   type EvalRunSnapshot,
@@ -78,6 +82,78 @@ function dotClass(status: string): string {
   return "is-idle";
 }
 
+// --- Review section: static lint (automatic) + LLM review (on demand) ------
+//
+// Pure renderers shared by two mounts: this cockpit's own case-list column
+// (renderReview below, keyed off the same selectedUnit() the Manage button
+// uses) and the Canon panel's unit-detail reader (ui/src/canon/panel.ts,
+// openMarkdownReader) — one renderer, two mounts, so severity/chip styling
+// only exists once.
+
+type FetchState<T> =
+  | { status: "loading" }
+  | { status: "ok"; value: T }
+  | { status: "error"; message: string };
+
+/** Lint findings, errors before warnings, one row each: severity glyph +
+ *  message + dimmed hint. Empty input renders one quiet line rather than an
+ *  empty section. */
+export function renderFindings(host: HTMLElement, findings: CanonLintFinding[]): void {
+  host.innerHTML = "";
+  if (findings.length === 0) {
+    const empty = el("div", "evc-empty");
+    empty.textContent = "No lint findings.";
+    host.appendChild(empty);
+    return;
+  }
+  const sorted = [...findings].sort((a, b) =>
+    a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1);
+  for (const f of sorted) {
+    const row = el("div", "evc-lint-row");
+    const glyph = el("span", `evc-lint-glyph is-${f.severity}`);
+    glyph.innerHTML = Icons.alertTriangle({ size: 12 });
+    const msg = el("span", "evc-lint-msg");
+    msg.textContent = f.message;
+    row.append(glyph, msg);
+    if (f.hint) {
+      const hint = el("span", "evc-lint-hint");
+      hint.textContent = f.hint;
+      row.appendChild(hint);
+    }
+    host.appendChild(row);
+  }
+}
+
+/** LLM review suggestions — one row per `{area, suggestion}`, area rendered
+ *  as an uppercase chip (same sharp-cornered family as the criteria/lift
+ *  chips elsewhere in this module). */
+export function renderSuggestions(host: HTMLElement, suggestions: CanonReviewSuggestion[]): void {
+  host.innerHTML = "";
+  if (suggestions.length === 0) {
+    const empty = el("div", "evc-empty");
+    empty.textContent = "No suggestions.";
+    host.appendChild(empty);
+    return;
+  }
+  for (const s of suggestions) {
+    const row = el("div", "evc-review-row");
+    const area = el("span", "evc-review-area");
+    area.textContent = s.area;
+    const text = el("span", "evc-review-suggestion");
+    text.textContent = s.suggestion;
+    row.append(area, text);
+    host.appendChild(row);
+  }
+}
+
+/** A single dimmed line for a failed lint/review call — never a toast loop. */
+export function renderCallError(host: HTMLElement, message: string): void {
+  host.innerHTML = "";
+  const line = el("div", "evc-lint-error");
+  line.textContent = message;
+  host.appendChild(line);
+}
+
 export class EvalsCockpit {
   private host: HTMLElement;
   private open_ = false;
@@ -94,6 +170,11 @@ export class EvalsCockpit {
   /** Case keys (`<kind>/<name>/<eval_id>`) with an in-flight retry — disables
    *  that case's retry button until the request settles. */
   private retrying = new Set<string>();
+  /** Lint/review state per unit key (`<kind>/<name>`) — cached so the Review
+   *  section doesn't refetch on every render() (progress events, case
+   *  selection, and the elapsed-time ticker all call render()). */
+  private lint = new Map<string, FetchState<CanonLintFinding[]>>();
+  private review = new Map<string, FetchState<CanonReviewSuggestion[]>>();
   private unlisten: UnlistenFn | null = null;
   private ticker: ReturnType<typeof setInterval> | undefined;
 
@@ -139,6 +220,8 @@ export class EvalsCockpit {
     this.unitCases.clear();
     this.details.clear();
     this.retrying.clear();
+    this.lint.clear();
+    this.review.clear();
   }
 
   private async refresh(focus?: { kind: string; name: string }): Promise<void> {
@@ -419,6 +502,9 @@ export class EvalsCockpit {
 
     const list = el("div", "evc-case-list");
     host.appendChild(list);
+    // Appended to `host` directly (not `list`) so it survives every branch
+    // below, several of which `return` right after finishing the case list.
+    this.renderReview(host, unit);
 
     if (run) {
       for (const c of run.cases) list.appendChild(this.caseRow(c.eval_id, c, unit.kind, unit.name));
@@ -475,6 +561,53 @@ export class EvalsCockpit {
       empty.textContent = "No evals authored for this unit.";
       list.appendChild(empty);
     }
+  }
+
+  /** Review section for the selected unit: lint fires automatically (cached
+   *  per unit, so re-selecting doesn't refetch); the LLM review only runs
+   *  when "Run review" is clicked — never automatic. */
+  private renderReview(host: HTMLElement, unit: { kind: string; name: string }): void {
+    const key = `${unit.kind}/${unit.name}`;
+    const wrap = el("div", "evc-review");
+    // Not `section()` (`.evc-section`) — that class is the rail's Running/
+    // History header and other callers query it by exact count.
+    const heading = el("div", "evc-review-head");
+    heading.textContent = "Review";
+    wrap.appendChild(heading);
+
+    const lintHost = el("div", "evc-lint-list");
+    wrap.appendChild(lintHost);
+    let lintState = this.lint.get(key);
+    if (!lintState) {
+      lintState = { status: "loading" };
+      this.lint.set(key, lintState);
+      canonLintUnit(this.cwd, unit.kind, unit.name)
+        .then((findings) => { this.lint.set(key, { status: "ok", value: findings }); this.render(); })
+        .catch((e) => { this.lint.set(key, { status: "error", message: String(e) }); this.render(); });
+    }
+    if (lintState.status === "ok") renderFindings(lintHost, lintState.value);
+    else if (lintState.status === "error") renderCallError(lintHost, lintState.message);
+
+    const btn = el("button", "evc-review-btn") as HTMLButtonElement;
+    btn.type = "button";
+    const reviewState = this.review.get(key);
+    const busy = reviewState?.status === "loading";
+    btn.disabled = busy;
+    btn.textContent = busy ? "Reviewing…" : "Run review";
+    const suggestHost = el("div", "evc-review-list");
+    btn.addEventListener("click", () => {
+      if (this.review.get(key)?.status === "loading") return;
+      this.review.set(key, { status: "loading" });
+      this.render();
+      canonReviewUnit(this.cwd, unit.kind, unit.name)
+        .then((suggestions) => { this.review.set(key, { status: "ok", value: suggestions }); this.render(); })
+        .catch((e) => { this.review.set(key, { status: "error", message: String(e) }); this.render(); });
+    });
+    wrap.append(btn, suggestHost);
+    if (reviewState?.status === "ok") renderSuggestions(suggestHost, reviewState.value);
+    else if (reviewState?.status === "error") renderCallError(suggestHost, reviewState.message);
+
+    host.appendChild(wrap);
   }
 
   private caseRow(id: string, c: EvalRunCase | null, kind: string, name: string): HTMLElement {
