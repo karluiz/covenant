@@ -960,9 +960,17 @@ export class StatusBar {
     pop.setAttribute("role", "dialog");
     pop.setAttribute("aria-label", "Git branch switcher and worktrees");
     pop.innerHTML = `<div class="status-git-pop-loading">Loading git context…</div>`;
-    document.body.appendChild(pop);
-    this.positionBranchPopover(pop, anchor);
     this.branchPopover = pop;
+
+    // Mount only once there is something worth showing: the populated
+    // summary (fast path — one entrance, no loading→content jump) or,
+    // past 150ms, the loading placeholder so slow repos still get feedback.
+    const reveal = (): void => {
+      if (this.branchPopover !== pop || pop.isConnected) return;
+      document.body.appendChild(pop);
+      this.positionBranchPopover(pop, anchor);
+    };
+    const slowTimer = setTimeout(reveal, 150);
 
     const onDocClick = (e: MouseEvent): void => {
       if (!this.branchPopover) return;
@@ -978,6 +986,7 @@ export class StatusBar {
       document.addEventListener("keydown", onKey);
     }, 0);
     (pop as HTMLElement & { _cleanup?: () => void })._cleanup = () => {
+      clearTimeout(slowTimer);
       document.removeEventListener("click", onDocClick);
       document.removeEventListener("keydown", onKey);
     };
@@ -987,11 +996,13 @@ export class StatusBar {
       .then((summary) => {
         if (ticket !== this.branchPopoverTicket || this.branchPopover !== pop) return;
         this.renderBranchPopoverSummary(pop, summary, cwd);
+        reveal();
         this.positionBranchPopover(pop, anchor);
       })
       .catch((err) => {
         if (ticket !== this.branchPopoverTicket || this.branchPopover !== pop) return;
         this.renderBranchPopoverError(pop, String(err));
+        reveal();
         this.positionBranchPopover(pop, anchor);
       });
   }
@@ -1005,10 +1016,16 @@ export class StatusBar {
       Math.max(margin, rect.left),
       Math.max(margin, window.innerWidth - width - margin),
     );
-    const above = rect.top - height - 6;
-    const top = above >= margin ? above : Math.min(window.innerHeight - height - margin, rect.bottom + 6);
     pop.style.left = `${left}px`;
-    pop.style.top = `${Math.max(margin, top)}px`;
+    if (rect.top - height - 6 >= margin) {
+      // Anchor the bottom edge so async content growth expands upward
+      // instead of repositioning the whole popover.
+      pop.style.top = "auto";
+      pop.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+    } else {
+      pop.style.bottom = "auto";
+      pop.style.top = `${Math.max(margin, Math.min(window.innerHeight - height - margin, rect.bottom + 6))}px`;
+    }
   }
 
   private renderBranchPopoverSummary(pop: HTMLElement, summary: GitRepoSummary, cwd: string): void {
