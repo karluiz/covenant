@@ -6,6 +6,29 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.31 — WebKit hygiene sweep: the idle-freeze cure, shipped as prevention
+
+### Changed
+
+- **COVENANT_NO_HMR dev knob**: `COVENANT_NO_HMR=1 npm run tauri:dev` runs
+  the dev app without the Vite HMR websocket, for network-traffic isolation
+  experiments. `vite.config.ts`.
+
+### Fixed
+
+- **Aging WebKit state swept at every boot**: the months-long post-idle
+  tab-switch freeze traced to accumulated per-bundle-id WebKit state — an
+  aged `WKWebsiteDataStore`, network caches, and `HTTPStorages` cookies
+  with crash-orphaned tmp files. The identical binary, config and session
+  state under a fresh bundle id switched tabs at 40ms; purging the
+  accumulated state cured the installed app in place. Covenant now removes
+  that state before any webview exists, on every launch: `WebsiteData`
+  except `LocalStorage` (zoom, tabbar and view preferences survive), the
+  network cache (worthless for custom-scheme content), and the cookie
+  storage plus its crash orphans — so no user's install ever ages into the
+  freeze. `crates/app/src/webkit_hygiene.rs`.
+
+
 ## v0.11.30 — Operator awareness terrain brake + mcp-stdio + UI fixes
 
 ### Added
