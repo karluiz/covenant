@@ -56,13 +56,21 @@ export default defineConfig(async () => ({
     // get connection-refused — cached index.html then paints the boot
     // splash forever with no JS. Must match tauri.conf.json devUrl.
     host: host || "127.0.0.1",
-    hmr: host
-      ? {
-          protocol: "ws",
-          host,
-          port: 1421,
-        }
-      : undefined,
+    // COVENANT_NO_HMR=1 disables the HMR websocket entirely — the isolation
+    // knob for the idle-freeze investigation: dev builds never show the
+    // FB24145989 wake-gate freeze, and the HMR socket's periodic traffic
+    // into WebContent is the prime suspect for why. Flip it off, idle,
+    // switch: if the freeze appears in dev, the shield is named.
+    // @ts-expect-error process is a nodejs global
+    hmr: process.env.COVENANT_NO_HMR
+      ? false
+      : host
+        ? {
+            protocol: "ws",
+            host,
+            port: 1421,
+          }
+        : undefined,
     watch: {
       ignored: ["**/crates/**", "**/target/**"],
     },
