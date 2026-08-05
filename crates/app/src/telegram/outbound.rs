@@ -49,12 +49,16 @@ pub struct OutboundContext<'a> {
 
 /// A short, human-readable trigger label for the message header so the user
 /// instantly sees *why* they were pinged. Maps each `EscalationKind` to one
-/// of two user-facing classes: a safety `blocked` (we refused to run
-/// something) vs. a generic `needs you` (the executor is stuck / out of
-/// budget / waiting).
+/// of three user-facing classes: a safety `blocked` (we refused to run
+/// something), a generic `needs you` (the executor is stuck / out of
+/// budget / waiting), and `supervision` — an authority change the
+/// supervisor is announcing, not a question it is asking. (The summary
+/// itself opens with "stepped back", so the label stays generic to avoid
+/// stuttering.)
 fn trigger_label(kind: &EscalationKind) -> &'static str {
     match kind {
         EscalationKind::Blocklist => "blocked",
+        EscalationKind::TerrainCollision => "supervision",
         EscalationKind::Loop | EscalationKind::Blocked | EscalationKind::BudgetExhausted => {
             "needs you"
         }

@@ -23,6 +23,22 @@ export interface GroupSupervisionFinding {
   timestamp_unix_ms: number;
 }
 
+/// Payload for `group-supervision-braked` — two supervised sessions share
+/// one git working tree. `braked: true` means the terrain collided and the
+/// group must go observe-only; `braked: false` means it came back clean.
+/// Not a `GroupSupervisionFinding` (no `timestamp_unix_ms`) — it's a change
+/// of authority, not a correlation finding, so it isn't retained via
+/// `recordGroupFinding`.
+interface TerrainBrake {
+  group_id: string;
+  operator_id: string;
+  operator_name: string;
+  braked: boolean;
+  root: string;
+  session_count: number;
+  message: string;
+}
+
 interface ToastOptions {
   /// Called when the user clicks a cross-session finding toast. The
   /// finding is passed back so callers can route it (e.g. open the
@@ -107,6 +123,7 @@ export class ToastHost {
   private container: HTMLElement;
   private unlisten?: UnlistenFn;
   private unlistenGroupSupervision?: UnlistenFn;
+  private unlistenTerrainBrake?: UnlistenFn;
 
   constructor(
     private readonly mountHost: HTMLElement,
@@ -136,6 +153,28 @@ export class ToastHost {
         this.showGroupSupervision(event.payload);
       },
     );
+    this.unlistenTerrainBrake = await listen<TerrainBrake>(
+      "group-supervision-braked",
+      (event) => {
+        // The manager owns the intervene gate; the toast host only has
+        // the Tauri listener, so it forwards and shows the reason.
+        window.dispatchEvent(
+          new CustomEvent("group-supervision:braked", {
+            detail: {
+              groupId: event.payload.group_id,
+              braked: event.payload.braked,
+            },
+          }),
+        );
+        this.showGroupSupervision({
+          group_id: event.payload.group_id,
+          operator_id: event.payload.operator_id,
+          operator_name: event.payload.operator_name,
+          message: event.payload.message,
+          timestamp_unix_ms: Date.now(),
+        });
+      },
+    );
   }
 
   stop(): void {
@@ -146,6 +185,10 @@ export class ToastHost {
     if (this.unlistenGroupSupervision) {
       this.unlistenGroupSupervision();
       this.unlistenGroupSupervision = undefined;
+    }
+    if (this.unlistenTerrainBrake) {
+      this.unlistenTerrainBrake();
+      this.unlistenTerrainBrake = undefined;
     }
   }
 

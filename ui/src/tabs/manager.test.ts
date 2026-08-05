@@ -5,6 +5,7 @@ import {
   shouldRetire,
   shouldRefocusAfterScrub,
   panesForIntervene,
+  applyTerrainBrake,
   type TabManifestV1,
 } from "./manager";
 import type { Pane } from "./pane";
@@ -877,6 +878,46 @@ describe("panesForIntervene", () => {
       { groupId: "g2", panes: [ivPane({ sessionId: "s5" })] },              // other group → out
     ];
     expect(panesForIntervene(tabs, "g1").map((p) => p.sessionId)).toEqual(["s1"]);
+  });
+
+  it("never claims a pane the USER armed AOM on", () => {
+    const tabs = [
+      // The user turned AOM on himself: enabled, no supervisorAom flag.
+      // Claiming it would flag it, and the next unapply (or the automatic
+      // terrain re-arm, which needs no user action at all) would then turn
+      // his own AOM off.
+      { groupId: "g1", panes: [ivPane({ sessionId: "s1", operatorEnabled: true })] },
+      // Already ours — still eligible, so apply stays idempotent.
+      {
+        groupId: "g1",
+        panes: [ivPane({ sessionId: "s2", operatorEnabled: true, supervisorAom: true })],
+      },
+      { groupId: "g1", panes: [ivPane({ sessionId: "s3" })] },
+    ];
+    expect(panesForIntervene(tabs, "g1").map((p) => p.sessionId)).toEqual(["s2", "s3"]);
+  });
+});
+
+// Task 3 — terrain brake → intervene gate. Pure mapping from the
+// group-supervision-braked payload onto setGroupIntervene; kept free of
+// TabManager so it's testable without a live tab tree.
+describe("applyTerrainBrake", () => {
+  it("downgrades the group to observe-only when braked", () => {
+    const setGroupIntervene = vi.fn();
+    applyTerrainBrake({ groupId: "g1", braked: true }, setGroupIntervene);
+    expect(setGroupIntervene).toHaveBeenCalledWith("g1", false);
+  });
+
+  it("re-arms the group when terrain is clean again", () => {
+    const setGroupIntervene = vi.fn();
+    applyTerrainBrake({ groupId: "g1", braked: false }, setGroupIntervene);
+    expect(setGroupIntervene).toHaveBeenCalledWith("g1", true);
+  });
+
+  it("ignores a payload with no group", () => {
+    const setGroupIntervene = vi.fn();
+    applyTerrainBrake({ groupId: "", braked: true }, setGroupIntervene);
+    expect(setGroupIntervene).not.toHaveBeenCalled();
   });
 });
 

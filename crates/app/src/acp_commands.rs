@@ -597,6 +597,14 @@ impl AcpRegistry {
         self.inner.lock().await.remove(id)
     }
 
+    /// Working directory of a live ACP tab. Group supervision's terrain
+    /// check needs it: ACP sessions are in `registry.session_groups` but
+    /// have no PTY `SessionWorldModel`, so without this fallback a mixed
+    /// group under-counts its members and never sees the collision.
+    pub async fn cwd_of(&self, id: &SessionId) -> Option<PathBuf> {
+        self.inner.lock().await.get(id).map(|t| t.cwd.clone())
+    }
+
     /// Per-live-ACP-tab metadata — Convergence card + attention inputs.
     pub async fn list_meta(&self) -> Vec<AcpMeta> {
         let g = self.inner.lock().await;
