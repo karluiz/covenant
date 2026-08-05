@@ -2909,8 +2909,15 @@ async function boot(): Promise<void> {
       switcher.togglePopover();
       return;
     }
-    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "n" || e.key === "N" || e.key === "˜")) {
-      // macOS substitutes ⌥N with "˜" (dead-key for n-with-tilde); accept both.
+    if (
+      e.metaKey &&
+      e.altKey &&
+      !e.shiftKey &&
+      (e.code === "KeyN" || e.key === "n" || e.key === "N" || e.key === "˜")
+    ) {
+      // ⌥N is a DEAD KEY (n-with-tilde): WebKit reports `key: "Dead"`, so the
+      // `key` comparisons alone never matched and this chord was inert. Same
+      // trap as ⌘⌥E (evals cockpit) — `code` is the reliable side.
       e.preventDefault();
       switcher.startCreate();
       return;
