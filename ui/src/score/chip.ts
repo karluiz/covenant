@@ -13,7 +13,9 @@ function renderChipText(s: Summary, u: { login: string; avatar_url: string } | n
   if (!u) return `${s.total_prompts} prompts${streak}`;
   const safeLogin = u.login.replace(/[<>"&]/g, "");
   const safeAvatar = u.avatar_url.replace(/"/g, "");
-  return `<img class="score-chip-avatar" src="${safeAvatar}" alt=""> ${safeLogin}${streak}`;
+  // .score-chip-label so narrow-window CSS can drop the text but keep the
+  // avatar as the click target (see styles.css status-bar shedding).
+  return `<img class="score-chip-avatar" src="${safeAvatar}" alt=""> <span class="score-chip-label">${safeLogin}${streak}</span>`;
 }
 
 export function makeScoreChip(): ScoreChip {

@@ -34,6 +34,21 @@ case "${1:-}" in
   mcp-config | mcp-stdio) exec "$app_binary" "$1" ;;
 esac
 
+# `covenant mcp-stdio` — stdio transport for the app's MCP server, so
+# executor configs can point at a stable command even though the HTTP
+# endpoint rebinds (fresh port + token) on every app boot. Reads the
+# discovery file at connect time and delegates the transport to mcp-remote.
+if [ "${1:-}" = "mcp-stdio" ]; then
+  disc="$HOME/Library/Application Support/com.karluiz.covenant/mcp.json"
+  if [ ! -f "$disc" ]; then
+    echo "covenant: app not running (no discovery file at $disc)" >&2
+    exit 1
+  fi
+  url=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['url'])" "$disc")
+  token=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['token'])" "$disc")
+  exec npx -y mcp-remote "$url" --header "Authorization: Bearer $token" --transport http-only
+fi
+
 target="${1:-.}"
 if [ ! -e "$target" ]; then
   echo "covenant: no such file or directory: $target" >&2
