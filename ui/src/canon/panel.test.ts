@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, type Mock } from "vitest";
-import { CanonPanel, asDoc, cleanDescription, descriptionFromMd, liftBadgeEl, slugify } from "./panel";
+import { CanonPanel, asDoc, cleanDescription, descriptionFromMd, evalScoreLabel, liftBadgeEl, slugify } from "./panel";
 import { liftClass } from "./cockpit/lift";
 import { canonLintUnit } from "../api";
 import type { Operator } from "../api";
@@ -436,6 +436,16 @@ describe("liftBadgeEl", () => {
     const el = liftBadgeEl(liftClass({ kind: "skill", name: "x", passed: 8, total: 10, baseline_passed: 6, baseline_total: 10 }));
     expect(el.className).toContain("lift-earning");
     expect(el.textContent).toContain("+20");
+  });
+});
+
+describe("evalScoreLabel", () => {
+  it("formats score, lift and staleness", () => {
+    expect(evalScoreLabel({ eval_score: 75, eval_max_score: 100, eval_baseline_score: 15, eval_fresh: true } as never))
+      .toBe("Score 75% · Lift +60");
+    expect(evalScoreLabel({ eval_score: 75, eval_max_score: 100, eval_baseline_score: null, eval_fresh: false } as never))
+      .toBe("Score 75% · evals stale");
+    expect(evalScoreLabel({ eval_max_score: 0 } as never)).toBe("");
   });
 });
 

@@ -39,6 +39,16 @@ pub struct PkgMeta {
     pub eval_passed: i64,
     #[serde(default)]
     pub eval_total: i64,
+    /// Criteria-eval score aggregate (Task 13's server fields). Absent on a
+    /// pre-upgrade server → None → hidden, same pattern as eval_passed above.
+    #[serde(default)]
+    pub eval_score: Option<i64>,
+    #[serde(default)]
+    pub eval_max_score: Option<i64>,
+    #[serde(default)]
+    pub eval_baseline_score: Option<i64>,
+    #[serde(default)]
+    pub eval_fresh: Option<bool>,
 }
 
 #[allow(dead_code)] // description/sha/publisher_login/kind are part of the server JSON contract

@@ -1875,6 +1875,11 @@ export interface PkgMeta {
   /** Cross-org eval aggregate for this version. 0/0 when nobody has run them. */
   eval_passed: number;
   eval_total: number;
+  /** Criteria-eval score aggregate. Absent on a pre-upgrade server → undefined → hidden. */
+  eval_score?: number | null;
+  eval_max_score?: number | null;
+  eval_baseline_score?: number | null;
+  eval_fresh?: boolean | null;
 }
 export async function canonMyOrgs(): Promise<Org[]> {
   return invoke<Org[]>("canon_my_orgs");

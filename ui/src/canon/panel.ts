@@ -385,6 +385,39 @@ interface RailRowSpec {
   liftName?: string;
 }
 
+/** Fields a registry row needs to render its criteria-eval score chip —
+ *  a subset of `PkgMeta`, kept narrow so callers don't need the full type. */
+interface EvalScoreFields {
+  eval_score?: number | null;
+  eval_max_score?: number | null;
+  eval_baseline_score?: number | null;
+  eval_fresh?: boolean | null;
+}
+
+/** The criteria-eval score segment for a registry card meta line — plain
+ *  text, appended into `skillCard`'s already-muted `.canon-meta` span (no new
+ *  styling needed for the "stale" suffix to read as dimmed).
+ *
+ *  "" when `eval_max_score` is 0/absent — nobody has run a criteria eval for
+ *  this version yet, same "unmeasured, not broken" reasoning as `evalChip`'s
+ *  0/0 case. Lift only appears when a baseline score is present (org has an
+ *  A/B to compare against); the "evals stale" suffix appears independently
+ *  when the score was computed against an older unit hash. */
+export function evalScoreLabel(p: EvalScoreFields): string {
+  const max = p.eval_max_score ?? 0;
+  if (max <= 0) return "";
+  const score = p.eval_score ?? 0;
+  const pct = Math.round((score / max) * 100);
+  const parts = [`Score ${pct}%`];
+  if (p.eval_baseline_score !== null && p.eval_baseline_score !== undefined) {
+    const basePct = Math.round((p.eval_baseline_score / max) * 100);
+    const lift = pct - basePct;
+    parts.push(`Lift ${lift >= 0 ? "+" : ""}${lift}`);
+  }
+  if (p.eval_fresh === false) parts.push("evals stale");
+  return parts.join(" · ");
+}
+
 /** A small lift chip for a skill row — `canon-lift-badge lift-<kind>` + short text. */
 export function liftBadgeEl(b: LiftBadge): HTMLSpanElement {
   const el = document.createElement("span");

@@ -42,7 +42,7 @@ import {
   operatorDelete,
 } from "../../api";
 import { scoreCurrentUser } from "../../score/api";
-import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
+import { skillCard, iconButton, statCell, meterRow, fmtTokens, evalScoreLabel } from "../panel";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
 import { openConfirmTyped } from "../../workspaces/confirm-typed";
@@ -2203,8 +2203,9 @@ export class CanonCockpitView {
         });
         const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
         const evals = evalChip(r);
+        const score = evalScoreLabel(r);
         const meta = wire === "skill"
-          ? [r.version, installs, evals, r.publisher_login].filter(Boolean).join(" · ")
+          ? [r.version, installs, evals, score, r.publisher_login].filter(Boolean).join(" · ")
           : `${installs} · ${r.publisher_login}`;
         const stats = wire === "skill"
           ? [`shared by ${r.publisher_login}`, `v${r.version}`, installs, r.sha.slice(0, 7)]
