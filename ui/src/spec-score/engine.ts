@@ -76,7 +76,7 @@ function sectionsByAlias(doc: string): Map<SpecSectionKey, string> {
     const m = /^##\s+(.+?)\s*$/.exec(line);
     if (m) {
       flush();
-      const t = m[1].toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const t = m[1].toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/^(\d+ )+/, '');
       cur = SECTION_ALIASES.find(([, re]) => re.test(t))?.[0] ?? null;
       buf = [];
     } else if (cur) {

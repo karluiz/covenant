@@ -568,9 +568,10 @@ export class MissionPage {
       ? `<div class="mission-page-preview-truncated">⚠ Truncated (file > 200 KB)</div>`
       : "";
     main.innerHTML = `${truncatedNote}<article class="mission-page-preview-body markdown-body markdown-doc">${renderMarkdown(this.previewBody)}</article>`;
-    // SpecScore header — only for docs that are actually specs (canonical Goal
-    // heading); arbitrary markdown previews stay unscored.
-    if (/^##\s+Goal\s*$/m.test(this.previewBody)) {
+    // SpecScore header — any published spec (it already has a badge in the
+    // list) or any doc with a Goal heading, numbered or not; other arbitrary
+    // markdown previews stay unscored.
+    if (this.scoreCache.get(this.previewPath) || /^#{1,3}\s+(?:\d+[.)]\s*)?Goal\b/m.test(this.previewBody)) {
       const body = this.previewBody;
       let score = scoreSpec(body);
       const bar = document.createElement("div");
