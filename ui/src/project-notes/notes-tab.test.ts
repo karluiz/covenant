@@ -20,10 +20,28 @@ vi.mock("./api", () => {
         return n ?? null;
       }),
       listNotes: vi.fn(async () => []),
+      setPinned: vi.fn(async (id: string, pinned: boolean) => {
+        const n = state.notes.find((n: any) => n.id === id);
+        if (n) n.pinned = pinned;
+        return n ?? null;
+      }),
     },
     __state: state,
   };
 });
+
+/** Both modifier bits set, so the assertion holds on macOS (Command) and on
+ *  the Ctrl platforms `modHeld`/`appModHeld` fall back to. */
+function chord(key: string, shift = false): KeyboardEvent {
+  return new KeyboardEvent("keydown", {
+    key,
+    metaKey: true,
+    ctrlKey: true,
+    shiftKey: shift,
+    bubbles: true,
+    cancelable: true,
+  });
+}
 
 describe("NotesTab", () => {
   let host: HTMLElement;
@@ -198,11 +216,13 @@ describe("NotesTab", () => {
   it("folds a long note and unfolds it in place, without opening the editor", async () => {
     const apiMod = (await import("./api")) as any;
     apiMod.__state.notes = [
-      { id: "a", group_id: "g1", body: "l1\nl2\nl3\nl4\nl5", source: null, created_at_unix_ms: Date.now() },
+      { id: "a", group_id: "g1", body: "title line\nl2\nl3\nl4\nl5\nl6", source: null, created_at_unix_ms: Date.now() },
     ];
     const tab = new NotesTab({ groupId: "g1" }).mount(host);
     await tab.refresh();
     const fold = () => host.querySelector(".pn-note-fold") as HTMLButtonElement;
+    // Line 1 became the title, so the fold counts the 5 lines under it.
+    expect(host.querySelector(".pn-note-title")?.textContent).toBe("title line");
     expect(host.querySelector(".pn-note-card")!.classList).toContain("is-folded");
     expect(fold().textContent).toBe("+2 lines");
 
@@ -210,6 +230,116 @@ describe("NotesTab", () => {
     expect(host.querySelector(".pn-note-card")!.classList).not.toContain("is-folded");
     expect(fold().textContent).toBe("Show less");
     expect(host.querySelector(".pn-note-editor")).toBeNull();
+  });
+
+  it("derives a title from a markdown heading and drops the marker", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "## Tenant model\n\nla jerarquía es plana", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    expect(host.querySelector(".pn-note-title")?.textContent).toBe("Tenant model");
+    expect(host.querySelector(".pn-note-body")?.textContent).toContain("jerarquía");
+    expect(host.querySelector(".pn-note-body")?.textContent).not.toContain("Tenant model");
+  });
+
+  it("gives no title to a one-liner or to a note that opens with a list", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "just one line", source: null, created_at_unix_ms: Date.now() },
+      { id: "b", group_id: "g1", body: "- uno\n- dos", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    expect(host.querySelectorAll(".pn-note-title").length).toBe(0);
+    // The list note keeps every item in the body.
+    expect(host.querySelectorAll(".pn-note-card")[1].querySelectorAll("li").length).toBe(2);
+  });
+
+  it("pins a note to the top under a PINNED divider, and unpins it", async () => {
+    const apiMod = (await import("./api")) as any;
+    const now = Date.now();
+    apiMod.__state.notes = [
+      { id: "new", group_id: "g1", body: "newest", source: null, created_at_unix_ms: now, pinned: false },
+      { id: "old", group_id: "g1", body: "oldest", source: null, created_at_unix_ms: now - 5 * 86_400_000, pinned: false },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    const rowFor = (id: string) => host.querySelector(`.pn-note-card[data-id="${id}"]`) as HTMLElement;
+
+    (rowFor("old").querySelector(".pn-note-pin") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiMod.projectNotesApi.setPinned).toHaveBeenCalledWith("old", true);
+    expect(host.querySelector(".pn-note-day")?.textContent).toBe("pinned");
+    // The old note now leads, ahead of the newer one.
+    const order = Array.from(host.querySelectorAll(".pn-note-card")).map((e) => (e as HTMLElement).dataset.id);
+    expect(order).toEqual(["old", "new"]);
+    expect(rowFor("old").classList).toContain("is-pinned");
+
+    (rowFor("old").querySelector(".pn-note-pin") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiMod.projectNotesApi.setPinned).toHaveBeenLastCalledWith("old", false);
+    expect(host.querySelector(".pn-note-day")?.textContent).not.toBe("pinned");
+  });
+
+  it("row grammar: arrows move the cursor, ⌘E edits it, ⌘⌫ deletes it", async () => {
+    const apiMod = (await import("./api")) as any;
+    const now = Date.now();
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "first", source: null, created_at_unix_ms: now },
+      { id: "b", group_id: "g1", body: "second", source: null, created_at_unix_ms: now - 1000 },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    const list = host.querySelector(".pn-note-list") as HTMLElement;
+    const down = () => list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+
+    down();
+    expect((host.querySelector(".is-cursor") as HTMLElement).dataset.id).toBe("a");
+    down();
+    expect((host.querySelector(".is-cursor") as HTMLElement).dataset.id).toBe("b");
+
+    list.dispatchEvent(chord("e"));
+    const editor = host.querySelector(".pn-note-editor-input") as HTMLTextAreaElement;
+    expect(editor).not.toBeNull();
+    expect(editor.value).toBe("second"); // the cursor row, not the first row
+    (host.querySelector(".pn-note-cancel") as HTMLButtonElement).click();
+
+    list.dispatchEvent(chord("Backspace", true));
+    expect(host.querySelector('.pn-note-card[data-id="b"]')).toBeNull();
+    expect(host.querySelector(".pn-note-undo")).not.toBeNull();
+  });
+
+  it("row grammar does not fire while typing in the composer", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "keep", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    const list = host.querySelector(".pn-note-list") as HTMLElement;
+    list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(host.querySelector(".is-cursor")).not.toBeNull();
+
+    // Same chord, dispatched from the textarea: the field keeps it.
+    const input = host.querySelector(".pn-note-input") as HTMLTextAreaElement;
+    input.dispatchEvent(chord("Backspace", true));
+    expect(host.querySelector('.pn-note-card[data-id="a"]')).not.toBeNull();
+    expect(apiMod.projectNotesApi.deleteNote).not.toHaveBeenCalled();
+  });
+
+  it("⌘F jumps to the filter", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "one", source: null, created_at_unix_ms: Date.now() },
+      { id: "b", group_id: "g1", body: "two", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    const filter = host.querySelector(".rail-search input") as HTMLInputElement;
+    (host.querySelector(".pn-note-list") as HTMLElement).dispatchEvent(chord("f"));
+    expect(document.activeElement).toBe(filter);
   });
 
   it("leaves a short note unfolded with no affordance", async () => {

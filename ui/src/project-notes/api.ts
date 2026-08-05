@@ -16,6 +16,8 @@ export interface Note {
   body: string;
   source?: string | null;
   created_at_unix_ms: number;
+  /** Sorts to the top of the list regardless of age. */
+  pinned?: boolean;
 }
 
 export interface Snapshot {
@@ -40,6 +42,8 @@ export const projectNotesApi = {
     invoke<Note>("project_note_append", { groupId, body, source: source ?? null }),
   updateNote: (id: string, body: string) =>
     invoke<Note | null>("project_note_update", { id, body }),
+  setPinned: (id: string, pinned: boolean) =>
+    invoke<Note | null>("project_note_set_pinned", { id, pinned }),
   deleteNote: (id: string) => invoke<void>("project_note_delete", { id }),
   listNotes: (groupId: string, limit: number, beforeTs?: number) =>
     invoke<Note[]>("project_note_list", { groupId, limit, beforeTs }),

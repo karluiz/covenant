@@ -1,6 +1,6 @@
 import { projectNotesApi, type Note } from "./api";
 import { Icons } from "../icons";
-import { formatChord } from "../platform";
+import { appModHeld, formatChord, modHeld } from "../platform";
 import { renderMarkdown } from "../ui/markdown";
 
 export interface NotesTabHooks {
@@ -38,6 +38,10 @@ export class NotesTab {
   private pending: PendingDelete | null = null;
   /** True once `listNotes` returns a short page — no older notes left. */
   private exhausted = false;
+  /** Cursor row, tracked by id so it survives filtering and deletion. */
+  private cursorId: string | null = null;
+  /** What `render` last put on screen, in cursor-traversal order. */
+  private visible: Note[] = [];
 
   constructor(private hooks: NotesTabHooks) {
     this.container = document.createElement("div");
@@ -89,6 +93,107 @@ export class NotesTab {
     this.live.setAttribute("aria-live", "polite");
 
     this.container.append(this.input, this.controls, this.list, this.more, this.live);
+    this.container.addEventListener("keydown", this.onKey);
+  }
+
+  /** Row grammar, borrowed from the command palette: the target is always the
+   *  row under the cursor, never an implicit "current note". Typing surfaces
+   *  keep their own keys — the guard below hands them back. */
+  private onKey = (e: KeyboardEvent): void => {
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    const typing = tag === "TEXTAREA" || tag === "INPUT";
+
+    if (modHeld(e) && !e.shiftKey && (e.key === "f" || e.key === "F")) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.filter.focus();
+      this.filter.select();
+      return;
+    }
+    if (typing) {
+      // From the filter, ↓ walks into the list; everything else is the field's.
+      if (e.target === this.filter && e.key === "ArrowDown" && this.visible.length) {
+        e.preventDefault();
+        this.moveCursor(0, true);
+      }
+      return;
+    }
+    if (e.key === "ArrowDown") { e.preventDefault(); this.moveCursor(1); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); this.moveCursor(-1); return; }
+
+    const n = this.cursorNote();
+    if (!n) return;
+    if (modHeld(e) && (e.key === "e" || e.key === "E")) {
+      e.preventDefault();
+      const li = this.rowEl(n.id);
+      if (li) this.beginEdit(li, n);
+      return;
+    }
+    if (appModHeld(e) && e.key === "Backspace") {
+      e.preventDefault();
+      this.delete(n);
+      return;
+    }
+    if (modHeld(e) && e.shiftKey && (e.key === "p" || e.key === "P" || e.code === "KeyP")) {
+      e.preventDefault();
+      void this.togglePin(n);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      this.toggleFold(n.id);
+    }
+  };
+
+  private cursorNote(): Note | null {
+    return this.visible.find((n) => n.id === this.cursorId) ?? null;
+  }
+
+  private rowEl(id: string): HTMLElement | null {
+    return this.list.querySelector<HTMLElement>(`.pn-note-card[data-id="${id}"]`);
+  }
+
+  /** `absolute` jumps to index `delta` instead of stepping from the cursor. */
+  private moveCursor(delta: number, absolute = false): void {
+    if (this.visible.length === 0) return;
+    const at = this.visible.findIndex((n) => n.id === this.cursorId);
+    const next = absolute
+      ? delta
+      : at < 0
+        ? (delta > 0 ? 0 : this.visible.length - 1)
+        : (at + delta + this.visible.length) % this.visible.length;
+    this.cursorId = this.visible[next]?.id ?? null;
+    this.highlight();
+  }
+
+  private highlight(): void {
+    for (const el of this.list.querySelectorAll<HTMLElement>(".pn-note-card")) {
+      const on = el.dataset.id === this.cursorId;
+      el.classList.toggle("is-cursor", on);
+      if (on) {
+        el.focus();
+        el.scrollIntoView?.({ block: "nearest" });
+      }
+    }
+  }
+
+  private toggleFold(id: string): void {
+    if (this.expanded.has(id)) this.expanded.delete(id);
+    else this.expanded.add(id);
+    this.render();
+  }
+
+  private async togglePin(n: Note): Promise<void> {
+    const next = !n.pinned;
+    try {
+      const updated = await projectNotesApi.setPinned(n.id, next);
+      const i = this.notes.findIndex((x) => x.id === n.id);
+      if (i >= 0) this.notes[i] = updated ?? { ...n, pinned: next };
+      this.render();
+      this.announce(next ? "Note pinned" : "Note unpinned");
+    } catch (err) {
+      console.error("note pin failed", err);
+    }
   }
 
   mount(parent: HTMLElement): this {
@@ -272,18 +377,30 @@ export class NotesTab {
       return;
     }
 
+    // Pinned rows lead, ungrouped — they are deliberately out of chronological
+    // order, so a day divider over them would be a lie.
+    const pinned = visible.filter((n) => n.pinned);
+    const rest = visible.filter((n) => !n.pinned);
+    this.visible = [...pinned, ...rest];
+
+    if (pinned.length) {
+      this.list.appendChild(divider("pinned"));
+      for (const n of pinned) this.list.appendChild(this.noteRow(n));
+    }
     let day = "";
-    for (const n of visible) {
+    for (const n of rest) {
       const label = dayLabel(n.created_at_unix_ms);
       if (label !== day) {
         day = label;
-        const d = document.createElement("li");
-        d.className = "rail-divider pn-note-day";
-        d.textContent = label;
-        this.list.appendChild(d);
+        this.list.appendChild(divider(label));
       }
       this.list.appendChild(this.noteRow(n));
     }
+    // A cursor whose row got filtered or deleted away stops being a cursor.
+    if (this.cursorId && !this.visible.some((n) => n.id === this.cursorId)) {
+      this.cursorId = null;
+    }
+    this.highlight();
   }
 
   private undoRow(): HTMLElement {
@@ -303,16 +420,21 @@ export class NotesTab {
     const li = document.createElement("li");
     li.className = "rail-row pn-note-card";
     li.dataset.id = n.id;
-    const fold = foldInfo(n.body);
+    li.tabIndex = -1;
+    if (n.pinned) li.classList.add("is-pinned");
+    const { title, rest } = splitTitle(n.body);
+    const fold = foldInfo(rest);
     const open = this.expanded.has(n.id);
     li.innerHTML = `
       <div class="pn-note-meta">
         <span class="pn-note-source"></span>
         <span class="rail-meta pn-note-stamp"></span>
       </div>
+      <div class="pn-note-title"></div>
       <div class="pn-note-body markdown-doc"></div>
       <button class="pn-note-fold" type="button"></button>
       <div class="rail-row-actions">
+        <button class="rail-row-action pn-note-pin" aria-label="${n.pinned ? "Unpin note" : "Pin note"}">${Icons.pin({ size: 13 })}</button>
         <button class="rail-row-action pn-note-edit" aria-label="Edit note">${Icons.pencil({ size: 13 })}</button>
         <button class="rail-row-action pn-note-del" aria-label="Delete note">${Icons.trash({ size: 13 })}</button>
       </div>
@@ -320,8 +442,12 @@ export class NotesTab {
     (li.querySelector(".pn-note-stamp") as HTMLElement).textContent =
       formatStamp(n.created_at_unix_ms);
 
+    const titleEl = li.querySelector(".pn-note-title") as HTMLElement;
+    if (title) titleEl.textContent = title;
+    else titleEl.remove();
+
     const bodyEl = li.querySelector(".pn-note-body") as HTMLElement;
-    bodyEl.innerHTML = renderMarkdown(n.body);
+    bodyEl.innerHTML = renderMarkdown(rest);
 
     const srcEl = li.querySelector(".pn-note-source") as HTMLElement;
     if (n.source) srcEl.textContent = n.source;
@@ -331,21 +457,49 @@ export class NotesTab {
     if (fold.long) {
       li.classList.toggle("is-folded", !open);
       foldBtn.textContent = open ? "Show less" : fold.label;
-      const toggle = () => {
-        if (this.expanded.has(n.id)) this.expanded.delete(n.id);
-        else this.expanded.add(n.id);
-        this.render();
-      };
-      foldBtn.addEventListener("click", toggle);
-      bodyEl.addEventListener("click", toggle);
+      foldBtn.addEventListener("click", () => this.toggleFold(n.id));
+      bodyEl.addEventListener("click", () => this.toggleFold(n.id));
     } else {
       foldBtn.remove();
     }
 
+    // Clicking a row makes it the cursor row, so ⌘E / ⌘⌫ / ⌘⇧P act on what you
+    // just pointed at.
+    li.addEventListener("mousedown", () => {
+      this.cursorId = n.id;
+      this.highlight();
+    });
+    li.querySelector(".pn-note-pin")!.addEventListener("click", () => void this.togglePin(n));
     li.querySelector(".pn-note-del")!.addEventListener("click", () => this.delete(n));
     li.querySelector(".pn-note-edit")!.addEventListener("click", () => this.beginEdit(li, n));
     return li;
   }
+}
+
+function divider(label: string): HTMLElement {
+  const d = document.createElement("li");
+  d.className = "rail-divider pn-note-day";
+  d.textContent = label;
+  return d;
+}
+
+/** A note's first line becomes its title when it reads like one. Nothing is
+ *  stored — a title column would be a second copy of the body's first line to
+ *  keep in sync forever.
+ *  ponytail: heuristic. A one-liner has no title (it IS the title), and a first
+ *  line that opens a list, quote or code block belongs to the body. Widen only
+ *  if real notes come out wrong. */
+function splitTitle(body: string): { title: string | null; rest: string } {
+  const lines = body.split("\n");
+  const first = (lines[0] ?? "").trim();
+  const rest = lines.slice(1).join("\n").trim();
+  if (!rest) return { title: null, rest: body };
+  const heading = first.match(/^#{1,6}\s+(.*)$/);
+  if (heading) return { title: heading[1]!.trim(), rest };
+  if (first.length <= 80 && !/^([-*+>|]|\d+\.|```)/.test(first)) {
+    return { title: first, rest };
+  }
+  return { title: null, rest: body };
 }
 
 function emptyNotes(): HTMLElement {
@@ -379,7 +533,10 @@ function emptyFilter(q: string): HTMLElement {
  *  line count visibly disagrees with what the row renders. */
 function foldInfo(body: string): { long: boolean; label: string } {
   const lines = body.split("\n").filter((l) => l.trim()).length;
-  if (lines > FOLD_LINES) return { long: true, label: `+${lines - FOLD_LINES} lines` };
+  if (lines > FOLD_LINES) {
+    const hidden = lines - FOLD_LINES;
+    return { long: true, label: `+${hidden} ${hidden === 1 ? "line" : "lines"}` };
+  }
   if (body.length > 240) return { long: true, label: "Show more" };
   return { long: false, label: "" };
 }

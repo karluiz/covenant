@@ -6306,6 +6306,7 @@ pub fn run() {
             project_notes::project_note_delete,
             project_notes::project_note_list,
             project_notes::project_note_update,
+            project_notes::project_note_set_pinned,
             prompts::prompt_list,
             prompts::prompt_create,
             prompts::prompt_update,

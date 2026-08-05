@@ -175,12 +175,32 @@ body.tabbar-left .pn-panel {
 /* Notes ride the shared rail-row chrome. Bodies render markdown through the
    shared renderer, so the fold is a max-height (a -webkit-line-clamp box
    breaks block children) revealed by .pn-note-fold. */
+/* Derived from the body's first line, never stored. Carries the scan weight so
+   twenty rows can be read without reading twenty paragraph openings. */
+.pn-note-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--fg);
+  word-break: break-word;
+  line-height: 1.35;
+}
 .pn-note-body {
   font-size: var(--fs-body);
   color: var(--fg);
   word-break: break-word;
   line-height: 1.45;
 }
+/* Cursor row: the target of ⌘E / ⌘⌫ / ⌘⇧P. Programmatic .focus() doesn't
+   reliably trigger :focus-visible, so the class carries the state. */
+.pn-note-card { outline: none; }
+.pn-note-card.is-cursor {
+  background: rgb(var(--ink-rgb) / 0.06);
+  box-shadow: inset 2px 0 0 var(--pn-accent, var(--accent, #6aa9ff));
+}
+.pn-note-card.is-pinned .pn-note-pin { color: var(--pn-accent, var(--accent, #6aa9ff)); }
+/* Pinned rows are the one place actions stay visible without hover — the pin
+   is state, not just a verb. */
+.pn-note-card.is-pinned .pn-note-pin { visibility: visible; opacity: 1; }
 .pn-note-card.is-folded .pn-note-body {
   max-height: calc(3 * 1.45em);
   overflow: hidden;
