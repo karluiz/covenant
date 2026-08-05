@@ -2368,18 +2368,14 @@ async function boot(): Promise<void> {
     if (operator.isOpen()) operator.close();
     void settings.open("covenant");
   });
-  // Statusbar Telegram pill click → open Settings, scroll to Telegram section.
+  // Statusbar Telegram pill click → open Settings on the Telegram tab.
+  // Settings is tabbed now: sections other than the active tab are
+  // display:none, so the old open() + scrollIntoView landed on Providers.
   window.addEventListener("covenant:open-telegram-settings", () => {
     if (docsPanel.isOpen()) docsPanel.close();
     if (draftsPanel.isOpen()) draftsPanel.close();
     if (operator.isOpen()) operator.close();
-    void settings.open().then(() => {
-      // Defer so the panel is mounted before we look up the section.
-      requestAnimationFrame(() => {
-        const sec = document.getElementById("sec-telegram");
-        sec?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    });
+    void settings.open("telegram");
   });
   // First-run onboarding takes precedence over the "What's new" modal:
   // on a clean install we want the welcome wizard, not a changelog dump.
