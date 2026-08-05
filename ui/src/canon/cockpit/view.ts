@@ -43,6 +43,7 @@ import {
 } from "../../api";
 import { scoreCurrentUser } from "../../score/api";
 import { skillCard, iconButton, statCell, meterRow, fmtTokens } from "../panel";
+import { openMcpReader } from "../mcp-reader";
 import { resolveActiveOrg, orgInitials, orgHue } from "../org";
 import { openCreateOrgExperience } from "../create-org/view";
 import { openConfirmTyped } from "../../workspaces/confirm-typed";
@@ -1803,6 +1804,11 @@ export class CanonCockpitView {
             className: detected ? "canon-skill-row is-detected" : "canon-skill-row",
             leadIcon: spec.icon(15),
             fetchPreview: () => canonReadSource(cwd, spec.kind, u.name),
+            // An MCP config has no prose to render as markdown — expand opens
+            // the tool explorer instead.
+            onExpand: spec.kind === "mcp"
+              ? () => openMcpReader(u.name, () => canonReadSource(cwd, "mcp", u.name))
+              : undefined,
             actions,
           }));
         }

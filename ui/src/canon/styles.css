@@ -1446,3 +1446,251 @@ body.theme-light .canon-stat.is-hero .canon-stat-val {
   background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
 }
+
+/* ── MCP reader ─────────────────────────────────────────────────────────
+   The MCP kind opens `openMcpReader` (canon/mcp-reader.ts) instead of the
+   markdown reader: a config JSON has no prose to render, and the useful
+   content is the server's tool inventory. Reuses `.canon-reader`'s shell —
+   only the body is bespoke. Sharp corners throughout (DESIGN.md rule). */
+.mcp-reader .mcp-head-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+/* The body is a stack of labelled bands, not a centered prose column. */
+.mcp-reader-body {
+  padding: 0 0 64px;
+}
+.mcp-band {
+  padding: 18px max(24px, calc(50% - 460px));
+  border-bottom: 1px solid var(--canon-line);
+}
+.mcp-band:last-child { border-bottom: 0; }
+.mcp-band-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: var(--fs-micro, 10px);
+  font-weight: 500;
+  letter-spacing: var(--ls-title, 0.09em);
+  text-transform: uppercase;
+  color: var(--text-tertiary, #5c626c);
+}
+.mcp-band-count {
+  font-family: var(--mono, ui-monospace, monospace);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg-dim, #8b929b);
+}
+
+/* Pills: transport + live tool count in the header, read/write per tool row. */
+.mcp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--canon-line);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: var(--fs-micro, 10px);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fg-dim, #8b929b);
+  white-space: nowrap;
+}
+.mcp-pill-icon { display: inline-flex; }
+/* Semantic, deliberately not the accent: this is state, not emphasis. */
+.mcp-pill.is-live,
+.mcp-pill.is-read {
+  color: var(--ok, #9ece6a);
+  border-color: color-mix(in srgb, var(--ok, #9ece6a) 40%, transparent);
+}
+.mcp-pill.is-write {
+  color: var(--running, #e0af68);
+  border-color: color-mix(in srgb, var(--running, #e0af68) 40%, transparent);
+}
+
+/* Identity band: a definition grid, so the description wraps as prose
+   instead of running off the right edge inside a code fence. */
+.mcp-spec {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 9px 16px;
+  align-items: baseline;
+  margin: 0;
+}
+.mcp-spec dt {
+  font-size: var(--fs-micro, 10px);
+  letter-spacing: var(--ls-title, 0.09em);
+  text-transform: uppercase;
+  color: var(--text-tertiary, #5c626c);
+}
+.mcp-spec dd { margin: 0; min-width: 0; }
+.mcp-invoke {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 5px 9px;
+  white-space: nowrap;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-primary, #f5f6f7);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
+  border: 1px solid var(--canon-line);
+}
+.mcp-prose {
+  margin: 0;
+  max-width: 68ch;
+  line-height: 1.6;
+  font-size: 12px;
+  color: var(--fg-dim, #8b929b);
+}
+.mcp-note {
+  margin: 0;
+  max-width: 68ch;
+  line-height: 1.6;
+  font-size: 12px;
+  color: var(--text-tertiary, #5c626c);
+}
+.mcp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mcp-chip {
+  padding: 3px 7px;
+  border: 1px solid var(--canon-line);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: var(--fs-micro, 10px);
+  color: var(--fg-dim, #8b929b);
+}
+
+/* Tools band — the point of the screen. */
+.mcp-tools {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--canon-line);
+}
+.mcp-tool + .mcp-tool { border-top: 1px solid var(--canon-line); }
+.mcp-tool-head {
+  display: grid;
+  grid-template-columns: 14px 170px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 12px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.mcp-tool-head:hover { background: rgb(var(--ink-rgb, 255 255 255) / 0.04); }
+.mcp-tool-head:focus-visible {
+  outline: 1px solid var(--accent, #7aa2f7);
+  outline-offset: -1px;
+}
+.mcp-chev {
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary, #5c626c);
+  transition: transform 140ms ease;
+}
+.mcp-tool[data-open="true"] > .mcp-tool-head .mcp-chev { transform: rotate(90deg); }
+.mcp-tool-name {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-primary, #f5f6f7);
+}
+/* Truncated here to stay scannable; the panel repeats it in full. */
+.mcp-tool-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--fg-dim, #8b929b);
+}
+.mcp-tool-panel { display: none; padding: 2px 12px 14px 38px; }
+.mcp-tool[data-open="true"] > .mcp-tool-panel { display: block; }
+.mcp-tool-full {
+  margin: 0 0 12px;
+  max-width: 68ch;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--fg-dim, #8b929b);
+}
+.mcp-no-params {
+  margin: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-tertiary, #5c626c);
+}
+.mcp-args-scroll { overflow-x: auto; }
+.mcp-args {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 660px;
+  font-size: 11px;
+}
+.mcp-args th {
+  padding: 0 12px 6px 0;
+  text-align: left;
+  font-weight: 400;
+  font-size: var(--fs-micro, 10px);
+  letter-spacing: var(--ls-title, 0.09em);
+  text-transform: uppercase;
+  color: var(--text-tertiary, #5c626c);
+  border-bottom: 1px solid var(--canon-line);
+}
+.mcp-args td {
+  padding: 6px 12px 6px 0;
+  vertical-align: top;
+  color: var(--fg-dim, #8b929b);
+  border-bottom: 1px solid var(--canon-line);
+}
+.mcp-args tbody tr:last-child td { border-bottom: 0; }
+.mcp-args .mcp-arg {
+  font-family: var(--mono, ui-monospace, monospace);
+  white-space: nowrap;
+  color: var(--text-primary, #f5f6f7);
+}
+.mcp-args .mcp-type {
+  font-family: var(--mono, ui-monospace, monospace);
+  white-space: nowrap;
+  color: var(--accent, #7aa2f7);
+}
+
+/* Raw config: kept, demoted. */
+.mcp-raw > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--fs-micro, 10px);
+  letter-spacing: var(--ls-title, 0.09em);
+  text-transform: uppercase;
+  color: var(--text-tertiary, #5c626c);
+}
+.mcp-raw > summary::-webkit-details-marker { display: none; }
+.mcp-raw > summary:hover { color: var(--fg-dim, #8b929b); }
+.mcp-raw > summary:focus-visible {
+  outline: 1px solid var(--accent, #7aa2f7);
+  outline-offset: 3px;
+}
+.mcp-raw[open] > summary { margin-bottom: 10px; }
+.mcp-raw[open] > summary .mcp-chev { transform: rotate(90deg); }
+.mcp-raw pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-dim, #8b929b);
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.04);
+  border: 1px solid var(--canon-line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcp-chev { transition: none; }
+}

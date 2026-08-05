@@ -190,6 +190,9 @@ export function skillCard(opts: {
   /** Reader heading, when `name` is too terse to identify the file (specs
    *  show just "3.12" in the row but open as "3.12-operators-…"). */
   readerTitle?: string;
+  /** Kind-specific full-screen reader. Only markdown units want the markdown
+   *  reader; MCP rows open the tool explorer instead (canon/mcp-reader.ts). */
+  onExpand?: () => void;
 }): HTMLElement {
   const card = document.createElement("div");
   card.className = opts.className;
@@ -242,7 +245,9 @@ export function skillCard(opts: {
   const expand = iconButton(
     Icons.maximize({ size: 14 }),
     "Open full screen",
-    () => openMarkdownReader(opts.readerTitle ?? opts.name ?? opts.idx ?? "", opts.fetchPreview, opts.stats),
+    () => opts.onExpand
+      ? opts.onExpand()
+      : openMarkdownReader(opts.readerTitle ?? opts.name ?? opts.idx ?? "", opts.fetchPreview, opts.stats),
   );
   const actionsBox = document.createElement("div");
   actionsBox.className = "canon-card-actions";

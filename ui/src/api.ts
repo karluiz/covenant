@@ -1953,6 +1953,32 @@ export async function canonUnitPath(
   return invoke<string>("canon_unit_path", { cwd, kind, name });
 }
 
+/** One MCP tool as the reader shows it — the input schema is already
+ *  flattened into `params` on the Rust side. */
+export interface McpToolInfo {
+  name: string;
+  description: string;
+  params: { name: string; ty: string; required: boolean; doc: string }[];
+  /** Mutates Covenant state (task_complete/task_create/notes_append). */
+  writes: boolean;
+}
+
+/** Tools this app's own MCP server exposes. Read off the router in-process —
+ *  no connection, so it works even before any executor has attached. */
+export async function mcpLocalTools(): Promise<McpToolInfo[]> {
+  return invoke<McpToolInfo[]>("mcp_local_tools");
+}
+
+/** Tools of a streamable-http MCP server: one initialize + tools/list, 3s
+ *  budget. HTTP only — stdio servers would have to be spawned to be probed. */
+export async function mcpProbeHttp(
+  name: string,
+  url: string,
+  headers: [string, string][],
+): Promise<McpToolInfo[]> {
+  return invoke<McpToolInfo[]>("mcp_probe_http", { name, url, headers });
+}
+
 /** Delete a Canon-managed unit and re-project. Skills go through
  *  `canonUninstallSkill` instead — they carry manifest + lockfile entries. */
 export async function canonDeleteUnit(

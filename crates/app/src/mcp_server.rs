@@ -694,9 +694,186 @@ async fn serve(app: tauri::AppHandle, token: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// ── Tool inventory for the MCP reader ────────────────────────────────
+//
+// The reader shows what a server can *do*, not its config JSON. For our
+// own server that costs nothing: the router already holds every tool with
+// its description and arg schema, so no spawn and no handshake — we read
+// the same inventory the transport would have served.
+
+/// Tools that change Covenant state. Display-only (the reader's per-row
+/// pill) — the real gate is the server's own surface, which never executes
+/// commands. Adding a tool without classifying it fails
+/// `every_tool_is_classified`, so this list cannot silently rot.
+const WRITE_TOOLS: &[&str] = &["task_complete", "task_create", "notes_append"];
+const READ_TOOLS: &[&str] = &[
+    "task_list",
+    "session_list",
+    "session_output",
+    "notes_read",
+    "commands_list",
+    "somnus_list",
+    // GET/HEAD only, and the gate is in the tool itself — a read.
+    "somnus_run",
+];
+
+/// One tool, flattened for display: no JSON Schema walking in the frontend.
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct McpToolInfo {
+    pub name: String,
+    pub description: String,
+    pub params: Vec<McpParamInfo>,
+    /// `true` for [`WRITE_TOOLS`]; unclassified tools report `true` so an
+    /// unreviewed addition reads as the cautious case, never as safe.
+    pub writes: bool,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct McpParamInfo {
+    pub name: String,
+    /// JSON Schema type, or `"any"` when the schema doesn't say.
+    pub ty: String,
+    pub required: bool,
+    /// The arg's doc comment, when schemars carried one through.
+    pub doc: String,
+}
+
+/// Pull a displayable type name out of one property schema. schemars renders
+/// `Option<T>` as either `"type": ["T","null"]` or an `anyOf` with a null
+/// branch, so both shapes collapse to `T`.
+fn schema_type(prop: &serde_json::Value) -> String {
+    fn from_type(v: &serde_json::Value) -> Option<String> {
+        match v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Array(items) => items
+                .iter()
+                .filter_map(|i| i.as_str())
+                .find(|s| *s != "null")
+                .map(str::to_string),
+            _ => None,
+        }
+    }
+    if let Some(t) = prop.get("type").and_then(from_type) {
+        return t;
+    }
+    prop.get("anyOf")
+        .and_then(|v| v.as_array())
+        .and_then(|branches| branches.iter().find_map(|b| b.get("type").and_then(from_type)))
+        .unwrap_or_else(|| "any".to_string())
+}
+
+/// Flatten an input schema's `properties` into display rows: required first,
+/// then alphabetical (schemars emits properties unordered, so a stable sort
+/// beats whatever order the map happens to have).
+fn params_of(schema: &serde_json::Map<String, serde_json::Value>) -> Vec<McpParamInfo> {
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    let Some(props) = schema.get("properties").and_then(|v| v.as_object()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<McpParamInfo> = props
+        .iter()
+        .map(|(name, prop)| McpParamInfo {
+            name: name.clone(),
+            ty: schema_type(prop),
+            required: required.contains(&name.as_str()),
+            doc: prop
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        })
+        .collect();
+    out.sort_by(|a, b| b.required.cmp(&a.required).then(a.name.cmp(&b.name)));
+    out
+}
+
+fn tool_info(t: &rmcp::model::Tool) -> McpToolInfo {
+    McpToolInfo {
+        name: t.name.to_string(),
+        description: t.description.as_deref().unwrap_or_default().to_string(),
+        params: params_of(&t.input_schema),
+        // "A writer, or not yet classified" — an unreviewed tool reads as the
+        // cautious case rather than silently claiming to be read-only.
+        writes: WRITE_TOOLS.contains(&t.name.as_ref()) || !READ_TOOLS.contains(&t.name.as_ref()),
+    }
+}
+
+/// The tools this app's own MCP server exposes. Read straight off the
+/// router — the reader needs no connection to list them.
+#[tauri::command]
+pub fn mcp_local_tools() -> Vec<McpToolInfo> {
+    let mut tools: Vec<McpToolInfo> = CovenantMcp::tool_router()
+        .list_all()
+        .iter()
+        .map(tool_info)
+        .collect();
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
+    tools
+}
+
+/// Tools of a user-configured streamable-http MCP server, via one
+/// `initialize` + `tools/list` (3s budget, see `McpConn::connect`).
+/// HTTP only: probing a stdio server means spawning a process from config,
+/// which needs a safety review against the blocklist, not a reader feature.
+#[tauri::command]
+pub async fn mcp_probe_http(
+    name: String,
+    url: String,
+    headers: Vec<(String, String)>,
+) -> Result<Vec<McpToolInfo>, String> {
+    let conn = crate::teammate::mcp_client::McpConn::connect(&name, &url, &headers).await?;
+    Ok(conn.tools.iter().map(tool_info).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_tool_is_classified() {
+        // A new tool must land in READ_TOOLS or WRITE_TOOLS. Without this,
+        // an unclassified mutating tool would render as "reads".
+        for t in CovenantMcp::tool_router().list_all() {
+            let n = t.name.as_ref();
+            let read = READ_TOOLS.contains(&n);
+            let write = WRITE_TOOLS.contains(&n);
+            assert!(
+                read ^ write,
+                "tool {n:?} must be in exactly one of READ_TOOLS/WRITE_TOOLS"
+            );
+        }
+    }
+
+    #[test]
+    fn local_tools_carry_descriptions_and_flattened_params() {
+        let tools = mcp_local_tools();
+        assert_eq!(tools.len(), READ_TOOLS.len() + WRITE_TOOLS.len());
+        assert!(tools.iter().all(|t| !t.description.is_empty()));
+
+        let out = tools
+            .iter()
+            .find(|t| t.name == "session_output")
+            .expect("session_output listed");
+        assert!(!out.writes);
+        // required first, then alphabetical
+        let names: Vec<&str> = out.params.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["session_id", "max_blocks", "max_output_chars"]);
+        let id = &out.params[0];
+        assert_eq!(id.ty, "string");
+        assert!(id.required);
+        assert!(id.doc.contains("session_list"), "doc comment: {:?}", id.doc);
+        // Option<u32> collapses to its inner type and is not required.
+        let max = &out.params[1];
+        assert_eq!(max.ty, "integer");
+        assert!(!max.required);
+
+        assert!(tools.iter().find(|t| t.name == "notes_append").unwrap().writes);
+        assert!(tools.iter().find(|t| t.name == "session_list").unwrap().params.is_empty());
+    }
 
     #[test]
     fn server_info_advertises_tools_capability() {
