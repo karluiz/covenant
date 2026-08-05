@@ -61,6 +61,7 @@ import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
 import { MissionPage } from "./mission/page";
 import { pushConfirmToast, pushInfoToast, pushPerceptionToast, setSharedToastHost, ToastHost } from "./notifications/toast";
+import { initCollabShare } from "./term-share/collab";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
 import { ReleasePanel } from "./release/panel";
@@ -2517,6 +2518,11 @@ async function boot(): Promise<void> {
   });
   await toasts.start();
   setSharedToastHost(toasts);
+
+  // Collab terminal-share: a guest's "request control" arrives as a
+  // confirm toast naming the tab; the tab strip's driver chip + guest
+  // count badge read the resulting state back via getDriver/getGuestCount.
+  initCollabShare((sessionId) => manager.tabTitleForSession(sessionId) ?? "a terminal");
 
   // PTY Perception signature: every auto-answered Claude Code prompt
   // arrives signed — WHO (effective operator), what option, on which

@@ -46,8 +46,42 @@ enum InFrame {
     MirrorStop {
         session_id: String,
     },
+    /// A guest clicked the collab share's "request control" affordance.
+    /// Owner-side UI decides whether to grant it (Task 8).
+    GuestRequestControl {
+        session_id: String,
+        conn_id: u64,
+        login: String,
+        avatar: String,
+    },
+    /// Raw keystrokes from the currently-granted guest driver, base64'd on
+    /// the wire since PTY input is arbitrary bytes, not necessarily UTF-8.
+    GuestInput {
+        session_id: String,
+        conn_id: u64,
+        b64: String,
+    },
+    /// The driving guest gave up control (or disconnected cleanly).
+    GuestRelease {
+        session_id: String,
+        conn_id: u64,
+    },
+    /// The relay's live list of connected guests for a share — used to
+    /// detect a driver that vanished (disconnect) without an explicit
+    /// `guest_release`.
+    GuestRoster {
+        session_id: String,
+        guests: Vec<GuestRosterEntry>,
+    },
     #[serde(other)]
     Unknown,
+}
+
+#[derive(Debug, Deserialize)]
+struct GuestRosterEntry {
+    conn_id: u64,
+    login: String,
+    avatar: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -220,6 +254,13 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
     // Outbound fan-in: all handlers (and per-mirror tasks) push frames here;
     // a single write task owns the sink so concurrent senders don't race.
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    // Make the live out-channel visible to rc_guest so its handlers (grant/
+    // revoke, gated guest input) can push frames to the relay without
+    // threading the sender through every call site.
+    if let Some(state) = app.try_state::<crate::AppState>() {
+        let mut st = state.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
+        st.out = Some(out_tx.clone());
+    }
     let write = tokio::spawn(async move {
         while let Some(m) = out_rx.recv().await {
             if sink.send(m).await.is_err() {
@@ -298,6 +339,63 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                 Ok(InFrame::MirrorStop { session_id }) => {
                     stop_mirror(&session_id, &mut mirrors);
                 }
+                Ok(InFrame::GuestRequestControl {
+                    session_id,
+                    conn_id,
+                    login,
+                    avatar,
+                }) => {
+                    use tauri::Emitter;
+                    let _ = app.emit(
+                        "rc://guest/request",
+                        serde_json::json!({
+                            "sessionId": session_id, "connId": conn_id,
+                            "login": login, "avatar": avatar,
+                        }),
+                    );
+                }
+                Ok(InFrame::GuestRelease {
+                    session_id,
+                    conn_id,
+                }) => {
+                    handle_guest_release(app, &session_id, conn_id).await;
+                }
+                Ok(InFrame::GuestInput {
+                    session_id,
+                    conn_id,
+                    b64,
+                }) => {
+                    handle_guest_input(app, &session_id, conn_id, &b64).await;
+                }
+                Ok(InFrame::GuestRoster { session_id, guests }) => {
+                    use tauri::Emitter;
+                    let _ = app.emit(
+                        "rc://guest/roster",
+                        serde_json::json!({
+                            "sessionId": session_id,
+                            "guests": guests.iter().map(|g| serde_json::json!({
+                                "connId": g.conn_id, "login": g.login, "avatar": g.avatar,
+                            })).collect::<Vec<_>>(),
+                        }),
+                    );
+                    // A driver that vanished from the roster disconnected — revoke.
+                    if let Ok(u) = ulid::Ulid::from_str(&session_id) {
+                        let id = karl_session::SessionId(u);
+                        let stale = app
+                            .try_state::<crate::AppState>()
+                            .map(|s| {
+                                let st = s.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
+                                st.drivers
+                                    .get(&id)
+                                    .map(|d| !guests.iter().any(|g| g.conn_id == d.conn_id))
+                                    .unwrap_or(false)
+                            })
+                            .unwrap_or(false);
+                        if stale {
+                            crate::rc_guest::revoke_driver(app, id);
+                        }
+                    }
+                }
                 Ok(InFrame::Unknown) => {}
                 Err(e) => tracing::debug!(target: "rc_agent", error=%e, "bad frame"),
             },
@@ -307,6 +405,30 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
     };
     for (_, h) in mirrors.drain() {
         h.abort();
+    }
+    // A relay drop disconnects every guest, so no driver grant survives it —
+    // clear the out-channel and every driver, and tell the UI each affected
+    // session reset (no owner-side click drove this, so the UI never hears
+    // about it otherwise).
+    if let Some(state) = app.try_state::<crate::AppState>() {
+        let cleared: Vec<karl_session::SessionId> = {
+            let mut st = state.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
+            st.out = None;
+            let ids: Vec<_> = st.drivers.keys().copied().collect();
+            st.drivers.clear();
+            ids
+        };
+        use tauri::Emitter;
+        for id in cleared {
+            let _ = app.emit(
+                "rc://guest/driver",
+                serde_json::json!({ "sessionId": id.to_string(), "login": null }),
+            );
+            let _ = app.emit(
+                "rc://guest/roster",
+                serde_json::json!({ "sessionId": id.to_string(), "guests": Vec::<serde_json::Value>::new() }),
+            );
+        }
     }
     write.abort();
     res
@@ -449,6 +571,88 @@ fn stop_mirror(
         if let Some(h) = mirrors.remove(&karl_session::SessionId(u)) {
             h.abort();
         }
+    }
+}
+
+/// A guest-initiated release of driver control. Only revokes when the
+/// requesting `conn_id` actually matches the current driver — a stale or
+/// forged release for a connection that already lost/never had control
+/// is a no-op, not an implicit revoke of whoever holds it now.
+async fn handle_guest_release(app: &AppHandle, session_id: &str, conn_id: u64) {
+    let Ok(u) = ulid::Ulid::from_str(session_id) else {
+        return;
+    };
+    let id = karl_session::SessionId(u);
+    let matches_driver = app
+        .try_state::<crate::AppState>()
+        .map(|s| {
+            let st = s.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
+            st.drivers
+                .get(&id)
+                .map(|d| d.conn_id == conn_id)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+    if matches_driver {
+        crate::rc_guest::revoke_driver(app, id);
+    }
+}
+
+/// Driver-gated raw input. Non-driver frames are dropped silently (same
+/// posture as the armed gate). Dangerous line submits are suppressed and
+/// reported to the guest via input_blocked.
+async fn handle_guest_input(app: &AppHandle, session_id: &str, conn_id: u64, b64: &str) {
+    use base64::Engine;
+    let Ok(u) = ulid::Ulid::from_str(session_id) else {
+        return;
+    };
+    let id = karl_session::SessionId(u);
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) else {
+        return;
+    };
+    if bytes.is_empty() || bytes.len() > 4096 {
+        return;
+    }
+    let Some(state) = app.try_state::<crate::AppState>() else {
+        return;
+    };
+    // Gate + line-assembly under the lock; never hold it across the write
+    // await below, and never do the risky-action disk write in here either —
+    // that's a synchronous SQLite transaction, and this std Mutex is also
+    // taken by UI-reachable commands (rc_grant_driver, rc_set_armed,
+    // rc_disarm_all, write_to_session), which would stall on it. A poisoned
+    // lock must not fail open (silently forward ungated bytes) or fail
+    // closed with no signal — recover it like every other rc_guest access
+    // and keep going.
+    //
+    // The actual driver/conn_id/blocklist decision lives in
+    // `rc_guest::decide_guest_input` (pure, unit-tested); this just applies
+    // its verdict under the lock.
+    let (fwd, blocked) = {
+        let mut st = state.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
+        match crate::rc_guest::decide_guest_input(&mut st, id, conn_id, &bytes) {
+            crate::rc_guest::GuestInputVerdict::Drop => return,
+            crate::rc_guest::GuestInputVerdict::Forward(fwd) => (fwd, None),
+            crate::rc_guest::GuestInputVerdict::Blocked { forward, message } => {
+                crate::rc_guest::send_frame(
+                    &st,
+                    serde_json::to_string(&serde_json::json!({
+                        "t": "input_blocked", "session_id": session_id, "message": &message,
+                    }))
+                    .unwrap_or_default(),
+                );
+                (forward, Some(message))
+            }
+        }
+    };
+    if blocked.is_some() {
+        karl_score::record_risky_action(karl_score::RiskyOutcome::Blocked);
+    }
+    if fwd.is_empty() {
+        return;
+    }
+    if let Err(e) = crate::operator::inject_to_session(app, id, &fwd).await {
+        tracing::warn!(target: "rc_agent", error = %e, "guest input inject failed");
     }
 }
 
@@ -967,5 +1171,37 @@ mod tests {
             next_frame(&mut s, Duration::from_secs(1)).await.unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn guest_frames_parse() {
+        assert!(matches!(
+            serde_json::from_str::<InFrame>(
+                r#"{"t":"guest_request_control","session_id":"s1","conn_id":4,"login":"nico","avatar":"a"}"#
+            )
+            .unwrap(),
+            InFrame::GuestRequestControl { conn_id: 4, .. }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<InFrame>(
+                r#"{"t":"guest_input","session_id":"s1","conn_id":4,"b64":"bHM="}"#
+            )
+            .unwrap(),
+            InFrame::GuestInput { .. }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<InFrame>(
+                r#"{"t":"guest_release","session_id":"s1","conn_id":4}"#
+            )
+            .unwrap(),
+            InFrame::GuestRelease { .. }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<InFrame>(
+                r#"{"t":"guest_roster","session_id":"s1","guests":[{"conn_id":4,"login":"nico","avatar":"a"}]}"#
+            )
+            .unwrap(),
+            InFrame::GuestRoster { .. }
+        ));
     }
 }

@@ -141,11 +141,20 @@ import {
   TERM_SHARE_EVENT,
   ensureTermSharesLoaded,
   isTermShared,
+  isRoShared,
+  isCollabShared,
   shareSession,
   copyTermShareLink,
   stopSharing,
   revokeIfShared,
 } from "../term-share/share";
+import {
+  COLLAB_EVENT,
+  getDriver,
+  getGuestCount,
+  getGuestLogins,
+  revokeDriver,
+} from "../term-share/collab";
 import type { Pane, TabLayout, SplitOrientation } from "./pane";
 import { activePane, assertLayoutValid } from "./pane";
 import {
@@ -2638,6 +2647,10 @@ export class TabManager {
     // same GIST_SHARES_EVENT pattern).
     ensureTermSharesLoaded();
     window.addEventListener(TERM_SHARE_EVENT, () => this.renderTabbar());
+    // Collab share: a guest was granted/revoked control, or the roster
+    // changed — repaint so the remote-driver chip and guest count badge
+    // stay in sync.
+    window.addEventListener(COLLAB_EVENT, () => this.renderTabbar());
     // A supervision finding landed — repaint so the supervised group's
     // ring goes red and grows its unread count.
     window.addEventListener(GROUP_FINDINGS_EVENT, () => this.renderTabbar());
@@ -2914,13 +2927,17 @@ export class TabManager {
     const st = resolveTabState(this.tabStateInput(tab));
     if (!st.kind) return null;
 
+    const guestCount = pane.sessionId ? getGuestCount(pane.sessionId) : 0;
+
     const el = document.createElement("span");
     el.className = "tab-state";
     el.dataset.state = st.kind;
     // Lets the incremental path skip rebuilding an unchanged atom. Port is
     // in the key because it can land a scan after the process name, and
-    // that transition is what adds the click handler.
-    el.dataset.key = `${st.all.join(",")}:${pane.busyPort ?? ""}`;
+    // that transition is what adds the click handler. Guest count is in
+    // the key too — otherwise a roster change with the ladder unchanged
+    // (still "shared") would leave the incremental path's diff blind to it.
+    el.dataset.key = `${st.all.join(",")}:${pane.busyPort ?? ""}:${guestCount}`;
 
     const atom = document.createElement("span");
     atom.className = "tab-state__atom";
@@ -2930,6 +2947,17 @@ export class TabManager {
       n.className = "tab-state__n";
       n.textContent = `+${st.extra}`;
       el.appendChild(n);
+    }
+    // Collab-share guest count: how many guests currently hold a roster
+    // slot on this session's read-only or collab broadcast. Only makes
+    // sense once "shared" already won the slot.
+    if (st.kind === "shared" && guestCount > 0) {
+      const guests = document.createElement("span");
+      guests.className = "tab-state__guests";
+      guests.textContent = `·${guestCount}`;
+      const logins = pane.sessionId ? getGuestLogins(pane.sessionId) : [];
+      attachTooltip(guests, logins.length > 0 ? logins.join(", ") : `${guestCount} guest${guestCount === 1 ? "" : "s"}`);
+      el.appendChild(guests);
     }
     // Thunk: uptime keeps moving, and the tooltip is the only place the
     // states that lost the slot are still named.
@@ -4179,6 +4207,17 @@ export class TabManager {
       return { displayName: cached.name, missionPath: null, open: false };
     }
     return null;
+  }
+
+  /// Full-sessionId lookup for the collab-share grant toast ("nico wants
+  /// control of <this>"). Same activePane-only convention as
+  /// `tabBySessionShort` — a split pane's inactive half never surfaces a
+  /// share prompt in the current UI, so it's not searched here either.
+  /// Null when the session belongs to no open tab (closed between the
+  /// guest's request and the toast arriving).
+  tabTitleForSession(sessionId: string): string | null {
+    const tab = this.tabs.find((t) => activePane(t).sessionId === sessionId);
+    return tab ? tabDisplayName(tab) : null;
   }
 
   /// PTY Perception auto-answered a prompt in `sessionId`. Marks the
@@ -9336,6 +9375,36 @@ export class TabManager {
     const splitGlyph = this.buildSplitGlyph(tab);
     if (splitGlyph) pill.appendChild(splitGlyph);
 
+    // Remote collaborator has been granted control of this session (collab
+    // terminal share). Rendered as a full labelled chip rather than folded
+    // into the tab-state ladder's one atom — "someone else is typing here"
+    // needs a name, not a dot — and doubles as the one-click revoke.
+    //
+    // Scans every pane of the tab (not just the active one, unlike
+    // `pillPane` above) — same pattern as `onPtyPerceptionAnswer` — so a
+    // driven INACTIVE split pane still surfaces the chip instead of showing
+    // nothing just because the focused half isn't the driven one.
+    const drivenPane = tab.panes.find((p) => p.sessionId && getDriver(p.sessionId));
+    const driverSessionId = drivenPane?.sessionId ?? null;
+    const driverLogin = driverSessionId ? getDriver(driverSessionId) : null;
+    if (driverLogin) {
+      const driverChip = document.createElement("button");
+      driverChip.type = "button";
+      driverChip.className = "remote-driver-chip";
+      const driverIcon = document.createElement("span");
+      driverIcon.className = "remote-driver-chip-icon";
+      driverIcon.innerHTML = Icons.link2({ size: 11 });
+      const driverLabel = document.createElement("span");
+      driverLabel.className = "remote-driver-chip-label";
+      driverLabel.textContent = "Remote driver:";
+      driverChip.append(driverIcon, driverLabel, document.createTextNode(` ${driverLogin}`));
+      attachTooltip(driverChip, "Click to take back control");
+      driverChip.addEventListener("click", () => {
+        if (driverSessionId) revokeDriver(driverSessionId);
+      });
+      pill.appendChild(driverChip);
+    }
+
     const close = document.createElement("span");
     close.className = "tab-close";
     close.textContent = "×";
@@ -9538,25 +9607,44 @@ export class TabManager {
         },
       });
     }
-    // Terminal Share: read-only broadcast of this session's PTY output.
+    // Terminal Share: read-only broadcast and/or collaborative (driver) link.
     if (ctxSessionId) {
       items.push({ divider: true });
-      if (isTermShared(ctxSessionId)) {
+      if (isRoShared(ctxSessionId)) {
         items.push({
-          label: "Copy share link",
+          label: "Copy share link (read-only)",
           icon: Icons.share(),
-          onClick: () => void copyTermShareLink(ctxSessionId),
+          onClick: () => void copyTermShareLink(ctxSessionId, "ro"),
         });
         items.push({
-          label: "Stop sharing",
+          label: "Stop read-only share",
           icon: Icons.x(),
-          onClick: () => void stopSharing(ctxSessionId),
+          onClick: () => void stopSharing(ctxSessionId, "ro"),
         });
       } else {
         items.push({
           label: "Share read-only…",
           icon: Icons.share(),
-          onClick: () => void shareSession(ctxSessionId),
+          onClick: () => void shareSession(ctxSessionId, "ro"),
+        });
+      }
+      if (isCollabShared(ctxSessionId)) {
+        items.push({
+          label: "Copy collab link",
+          icon: Icons.share(),
+          onClick: () => void copyTermShareLink(ctxSessionId, "collab"),
+        });
+        items.push({
+          label: "Stop collab share",
+          icon: Icons.x(),
+          onClick: () => void stopSharing(ctxSessionId, "collab"),
+        });
+      } else {
+        items.push({
+          label: "Share collaborative…",
+          icon: Icons.share(),
+          danger: true,
+          onClick: () => void shareSession(ctxSessionId, "collab"),
         });
       }
     }
