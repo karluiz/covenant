@@ -1493,6 +1493,109 @@ pub async fn canon_eval_summary(cwd: String) -> Result<Vec<EvalUnitSummary>, Str
     Ok(out)
 }
 
+/// Deterministic static lint over one context unit — no LLM, no network.
+/// Unlike the eval/review paths this accepts every kind `lib.rs`'s
+/// `parse_unit_kind` knows (including `mcp`/`spec`): `lint_unit` only reads
+/// text and frontmatter, so there's no harness-security reason to restrict it
+/// to the evaluable five the way `canon_draft_evals`/`canon_review_unit` do.
+#[tauri::command]
+pub async fn canon_lint_unit(
+    cwd: String,
+    kind: String,
+    name: String,
+) -> Result<Vec<karl_canon::LintFinding>, String> {
+    let unit_kind = crate::parse_unit_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    let repo_root = std::path::PathBuf::from(&cwd);
+    let n = name.clone();
+    tokio::task::spawn_blocking(move || karl_canon::lint_unit(&repo_root, unit_kind, &n))
+        .await
+        .map_err(|e| format!("lint_unit join: {e}"))?
+}
+
+const REVIEW_SYSTEM: &str = "You audit an AI agent context unit (skill, command, agent, context \
+doc, or memory) for quality. Given its source, return 3-7 concrete, actionable suggestions \
+covering: trigger quality (does the description say when to use it), description completeness, \
+clarity and structure of the body, and anything misleading. Reply with ONLY a JSON array, no prose \
+and no code fences: [{\"area\": \"triggers|description|clarity|structure\", \"suggestion\": \"one \
+sentence, imperative\"}, ...]";
+
+/// One LLM-suggested quality improvement for a context unit.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct ReviewSuggestion {
+    pub area: String,
+    pub suggestion: String,
+}
+
+/// Extract the reviewer's JSON array, tolerating prose or fences around it.
+/// Drops entries missing an area/suggestion, caps at 7 (the prompt asks for
+/// 3-7 but a model can still over-deliver).
+pub fn parse_review(text: &str) -> Result<Vec<ReviewSuggestion>, String> {
+    let start = text.find('[').ok_or("review output had no JSON array")?;
+    let end = text.rfind(']').ok_or("review output had no JSON array")?;
+    if end < start {
+        return Err("review output had no JSON array".into());
+    }
+    let mut suggestions: Vec<ReviewSuggestion> = serde_json::from_str(&text[start..=end])
+        .map_err(|e| format!("review output unparseable: {e}"))?;
+    suggestions.retain(|s| !s.area.trim().is_empty() && !s.suggestion.trim().is_empty());
+    suggestions.truncate(7);
+    Ok(suggestions)
+}
+
+/// On-demand LLM quality audit for a unit: read its source, ask the
+/// Summary-role model for 3-7 actionable suggestions. Mirrors
+/// `canon_draft_evals`'s dispatch shape. Nothing calls this automatically —
+/// it's a manual "Review" click in the cockpit, so a failed or empty
+/// response is simply re-clickable and not worth retrying here.
+#[tauri::command]
+pub async fn canon_review_unit(
+    state: State<'_, crate::AppState>,
+    cwd: String,
+    kind: String,
+    name: String,
+) -> Result<Vec<ReviewSuggestion>, String> {
+    let unit_kind = parse_evaluable_kind(&kind)?;
+    if !karl_canon::valid_pkg_name(&name) {
+        return Err(format!("{name:?} is not a valid unit name"));
+    }
+    let repo_root = std::path::PathBuf::from(&cwd);
+    let body = {
+        let repo = repo_root.clone();
+        let n = name.clone();
+        tokio::task::spawn_blocking(move || karl_canon::read_source(&repo, unit_kind, &n))
+            .await
+            .map_err(|e| format!("read_source join: {e}"))?
+            .map_err(|e| e.to_string())?
+    };
+    let resolved = {
+        let s = state.settings.lock().await;
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(ResolveError::NoRoute(_)) => {
+                return Err("no LLM route configured for review".into())
+            }
+            Err(e) => return Err(format!("review provider unavailable: {e}")),
+        }
+    };
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: REVIEW_SYSTEM.to_string(),
+        user_message: format!("## UNIT ({kind} \"{name}\")\n\n{body}"),
+        max_tokens: 1024,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    // ponytail: no retry — review is on-demand and re-clickable.
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?;
+    parse_review(&resp.text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1714,6 +1817,15 @@ mod tests {
     fn parse_drafts_still_accepts_legacy_rubric_shape() {
         let text = r#"[{"id":"a","scenario":"s","rubric":"must"}]"#;
         assert!(karl_canon::validate_eval(&parse_drafts(text).unwrap()[0]).is_ok());
+    }
+
+    #[test]
+    fn parse_review_extracts_suggestions_and_caps_at_seven() {
+        let text = r#"ok: [{"area":"triggers","suggestion":"add 'Use when'"},{"area":"description","suggestion":"name the output"}]"#;
+        let s = parse_review(text).unwrap();
+        assert_eq!(s.len(), 2);
+        let many = format!("[{}]", vec![r#"{"area":"a","suggestion":"s"}"#; 12].join(","));
+        assert_eq!(parse_review(&many).unwrap().len(), 7);
     }
 
     #[test]

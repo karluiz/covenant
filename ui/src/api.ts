@@ -2268,6 +2268,29 @@ export async function canonEvalSummary(cwd: string): Promise<EvalUnitSummary[]> 
   return invoke<EvalUnitSummary[]>("canon_eval_summary", { cwd });
 }
 
+/** One deterministic-lint finding (no LLM) for a context unit. */
+export interface CanonLintFinding {
+  severity: "error" | "warn";
+  message: string;
+  hint: string;
+}
+
+/** Static lint over one unit's source — works for every kind, including `mcp`/`spec`. */
+export async function canonLintUnit(cwd: string, kind: string, name: string): Promise<CanonLintFinding[]> {
+  return invoke<CanonLintFinding[]>("canon_lint_unit", { cwd, kind, name });
+}
+
+/** One LLM-suggested quality improvement for a context unit. */
+export interface CanonReviewSuggestion {
+  area: string;
+  suggestion: string;
+}
+
+/** On-demand LLM quality audit (3-7 suggestions) via the Summary-role model. */
+export async function canonReviewUnit(cwd: string, kind: string, name: string): Promise<CanonReviewSuggestion[]> {
+  return invoke<CanonReviewSuggestion[]>("canon_review_unit", { cwd, kind, name });
+}
+
 export async function onCanonEvalProgress(
   handler: (e: CanonEvalProgress) => void,
 ): Promise<UnlistenFn> {

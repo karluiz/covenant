@@ -6018,6 +6018,8 @@ pub fn run() {
             canon_eval::canon_eval_detail,
             canon_eval::canon_eval_summary,
             canon_eval::canon_list_eval_runs,
+            canon_eval::canon_lint_unit,
+            canon_eval::canon_review_unit,
             canon_local_status,
             canon_install_local,
             canon_my_orgs,
