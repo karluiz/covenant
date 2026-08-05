@@ -221,6 +221,7 @@ export class WorkspaceManager {
             groupName: g?.name ?? null,
             groupColor: g?.color ?? null,
             tabIndex: t.index,
+            tabId: t.id,
             title: t.title,
             isActiveTabInWorkspace: t.isActive,
             lastActiveAt: t.lastActiveAt,
@@ -238,6 +239,7 @@ export class WorkspaceManager {
             groupName: g?.name ?? null,
             groupColor: g?.color ?? null,
             tabIndex: i,
+            tabId: null,
             // Background workspaces don't have live TabManager state, so read
             // the persisted title: custom_name → default_title (the live
             // screen title captured at save) → cwd basename for pre-
@@ -489,13 +491,16 @@ export class WorkspaceManager {
     this.emitChange();
   }
 
-  async delete(id: string): Promise<void> {
+  /// Delete a workspace and return the record that was removed, so a caller
+  /// can offer undo (see `restore`). Null means nothing was deleted — the
+  /// last workspace, or an unknown id.
+  async delete(id: string): Promise<Workspace | null> {
     if (this.workspaces.length <= 1) {
       // Refuse: at least one workspace must always exist.
-      return;
+      return null;
     }
     const idx = this.workspaces.findIndex((w) => w.id === id);
-    if (idx < 0) return;
+    if (idx < 0) return null;
     if (id === this.activeId) {
       // Switch to most-recently-used other workspace first.
       const next = this.workspaces
@@ -506,7 +511,7 @@ export class WorkspaceManager {
       }
     }
     const realIdx = this.workspaces.findIndex((w) => w.id === id);
-    if (realIdx >= 0) this.workspaces.splice(realIdx, 1);
+    const removed = realIdx >= 0 ? this.workspaces.splice(realIdx, 1)[0] : null;
     // If this workspace had been visited this session, its tabs are
     // hibernated in memory — close their PTYs now that the workspace
     // is gone for good.
@@ -514,6 +519,32 @@ export class WorkspaceManager {
     this.pendingMoves.delete(id);
     await this.saveAll();
     this.emitChange();
+    return removed ?? null;
+  }
+
+  /// Put back a workspace that `delete` removed. The PTYs are already gone
+  /// (delete disposed them), so its tabs come back cold — undo restores the
+  /// record, never the live sessions. ponytail: keeping the processes alive
+  /// for the length of a toast is not worth the orphan risk.
+  restore(ws: Workspace): void {
+    if (this.workspaces.some((w) => w.id === ws.id)) return;
+    this.workspaces.push(ws);
+    void this.saveAll();
+    this.emitChange();
+  }
+
+  /// Does this workspace hold agent work? Drives the delete severity: an
+  /// agent's session isn't restorable by reopening a cold tab, so that case
+  /// keeps a typed confirm while everything else gets an undo window.
+  /// ponytail: `kind === "acp"` plus the live operator signal are what's
+  /// knowable without a new persisted field — a shell tab where the user ran
+  /// `claude` by hand is invisible here. Persist an executor on
+  /// SerializedTab if that gap starts mattering.
+  hasAgentTabs(id: string): boolean {
+    const ws = this.workspaces.find((w) => w.id === id);
+    if (!ws) return false;
+    if (id === this.activeId && this.tabManager.presenceSnapshot().operatorLive) return true;
+    return ws.tabs.some((t) => t.kind === "acp");
   }
 
   duplicate(id: string): string {

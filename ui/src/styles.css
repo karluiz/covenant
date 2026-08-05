@@ -5970,6 +5970,33 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
   align-items: center;
   gap: 5px;
 }
+/* A verb the focused row doesn't have: the key is shown with its reason
+   instead of being omitted, so the grammar stays legible. */
+.cp-hint-dim {
+  opacity: 0.45;
+}
+/* Rename in place — the row's title becomes this input. */
+.command-palette-item .cp-rename-input {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 0;
+  padding: 1px 5px;
+  outline: none;
+}
+/* While renaming, the row's trailing chrome would compete with the input. */
+.command-palette-item.renaming .cp-enter,
+.command-palette-item.renaming .cp-sub {
+  display: none;
+}
+.command-palette-item.cp-kind-create .cp-title {
+  color: var(--accent);
+}
 .command-palette-empty {
   padding: 14px;
   text-align: center;

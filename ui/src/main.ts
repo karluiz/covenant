@@ -2894,7 +2894,10 @@ async function boot(): Promise<void> {
   //          workspaces, tabs, and actions). macOS substitutes ⌥T with
   //          the dead-key "†"; accept both. Kept distinct from ⌘⇧P for
   //          muscle memory; both open the same palette.
-  //   ⌘⌥N — new workspace (⌘⇧N is the Notch overlay, ⌘⇧J is Project Notes, ⌘N is spec-chat).
+  //   ⌘⌥N — new workspace: opens the palette, where the name you type IS the
+  //          workspace (⌘⏎). It no longer mints "Workspace N" for you to
+  //          rename afterwards. (⌘⇧N is the Notch overlay, ⌘⇧J is Project
+  //          Notes, ⌘N is spec-chat.)
   window.addEventListener("keydown", (e) => {
     if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "P" || e.key === "p")) {
       e.preventDefault();
@@ -2906,10 +2909,17 @@ async function boot(): Promise<void> {
       switcher.togglePopover();
       return;
     }
-    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "n" || e.key === "N" || e.key === "˜")) {
-      // macOS substitutes ⌥N with "˜" (dead-key for n-with-tilde); accept both.
+    if (
+      e.metaKey &&
+      e.altKey &&
+      !e.shiftKey &&
+      (e.code === "KeyN" || e.key === "n" || e.key === "N" || e.key === "˜")
+    ) {
+      // ⌥N is a DEAD KEY (n-with-tilde): WebKit reports `key: "Dead"`, so the
+      // `key` comparisons alone never matched and this chord was inert. Same
+      // trap as ⌘⌥E (evals cockpit) — `code` is the reliable side.
       e.preventDefault();
-      void switcher.createAndSwitch();
+      switcher.startCreate();
       return;
     }
   });
