@@ -617,10 +617,14 @@ async fn handle_guest_input(app: &AppHandle, session_id: &str, conn_id: u64, b64
         return;
     };
     // Gate + line-assembly under the lock; never hold it across the write
-    // await below. A poisoned lock must not fail open (silently forward
-    // ungated bytes) or fail closed with no signal — recover it like every
-    // other rc_guest access and keep going.
-    let (fwd, _blocked) = {
+    // await below, and never do the risky-action disk write in here either —
+    // that's a synchronous SQLite transaction, and this std Mutex is also
+    // taken by UI-reachable commands (rc_grant_driver, rc_set_armed,
+    // rc_disarm_all, write_to_session), which would stall on it. A poisoned
+    // lock must not fail open (silently forward ungated bytes) or fail
+    // closed with no signal — recover it like every other rc_guest access
+    // and keep going.
+    let (fwd, blocked) = {
         let mut st = state.rc_guest.lock().unwrap_or_else(|e| e.into_inner());
         let Some(driver) = st.drivers.get_mut(&id) else {
             return;
@@ -637,10 +641,12 @@ async fn handle_guest_input(app: &AppHandle, session_id: &str, conn_id: u64, b64
                 }))
                 .unwrap_or_default(),
             );
-            karl_score::record_risky_action(karl_score::RiskyOutcome::Blocked);
         }
         (fwd, blocked)
     };
+    if blocked.is_some() {
+        karl_score::record_risky_action(karl_score::RiskyOutcome::Blocked);
+    }
     if fwd.is_empty() {
         return;
     }
