@@ -19,7 +19,7 @@ pub mod operator_ref;
 
 pub use operator_ref::{OperatorAction, OperatorRef, ProjectRef, VoiceToneSnapshot};
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
@@ -724,7 +724,19 @@ async fn pump(
                         // with no shell, so OSC 7 never fires and the cwd
                         // would stay stuck at spawn time. Ask the kernel.
                         if let Some(cwd) = shell_pid.and_then(karl_pty::process_cwd) {
-                            if cwd != current_cwd {
+                            // PROC_PIDVNODEPATHINFO reconstructs a path by
+                            // walking the vnode's cached parent chain. If an
+                            // ancestor directory was deleted out from under
+                            // the process (e.g. its own worktree just got
+                            // removed), that walk can't complete and XNU
+                            // returns "/" instead of erroring. A real dev
+                            // shell is never legitimately at the filesystem
+                            // root, so treat that as an unresolved poll —
+                            // not a real `cd` — and keep the last known cwd.
+                            let bogus_root = cwd == Path::new("/")
+                                && !current_cwd.as_os_str().is_empty()
+                                && current_cwd != Path::new("/");
+                            if !bogus_root && cwd != current_cwd {
                                 current_cwd = cwd.clone();
                                 let _ = events_tx.send(SessionEvent::CwdChanged {
                                     session: id,
