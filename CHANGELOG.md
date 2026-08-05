@@ -6,6 +6,58 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.33 — Continue with… context handoff + fixes
+
+### Added
+
+- **Continue with…**: a pane context-menu action hands off the current
+  session to a fresh tab, built from a prompt drawn from the pane's recent
+  output. Gated on a live `pane.executor` and lists only eligible non-ACP
+  spawns; the new tab opens at the same placement and injects the excerpt
+  via `sendPromptToSession` once its executor is ready. `ui/src/continue-with.ts`,
+  `ui/src/tabs/manager.ts`, `ui/src/main.ts`.
+- **Canon MCP reader**: opening an MCP unit now answers "what can this
+  server do" — a three-band tools layout — instead of rendering its raw
+  config JSON as an unwrapped, truncating code fence. `ui/src/canon/mcp-reader.ts`.
+- **Model-id prettifying for OpenAI/Gemini**: the vitals pill now renders
+  `gpt-4o` → `GPT-4o`, `gemini-2.5-pro` → `Gemini 2.5 Pro`, sourced from
+  opencode's `modelID`; unknown providers keep the previous 12-char
+  fallback. `ui/src/status/vitals.ts`.
+
+### Fixed
+
+- **`process_cwd`'s kernel poll landing tabs at "/"**: `PROC_PIDVNODEPATHINFO`
+  reconstructs a path by walking the vnode's cached parent chain; when an
+  ancestor directory is deleted out from under the process (e.g. its own
+  worktree just got removed), that walk can't complete and XNU returns `/`
+  instead of erroring. A dev shell is never legitimately at the filesystem
+  root, so a bare `/` is now treated as an unresolved poll rather than a
+  real `cd`, keeping the last known cwd. `crates/session/src/lib.rs`.
+- **"Continue with…" could auto-submit into a bare shell**: on a readiness
+  timeout the built prompt now pastes without a trailing CR — toasting that
+  Enter must be pressed manually — instead of auto-submitting into whatever
+  shell happened to be sitting there. The prompt builder also budgets only
+  its "Recent terminal context" section against the char cap, so
+  `## Instruction` always survives truncation. `ui/src/continue-with.ts`,
+  `ui/src/main.ts`.
+- **Secrets leaking through session excerpts**: `read_session_excerpt`
+  returned raw command/tail text, which feeds both "Continue with…"'s
+  prompt and `@session:` chip expansion — now masked with the same
+  `mask_secrets` pass every other raw-block reader uses.
+  `crates/app/src/storage.rs`.
+- **Editor overlay ignored Special Themes**: the editor host, header and
+  body hardcoded navy colors instead of `--bg-overlay`/`--bg-panel`, reading
+  as a fixed slab next to themed chrome.
+- **Prompt editor Save/Cancel overflow in the notes rail**: wrapped as a
+  button group instead of overflowing the panel edge.
+  `ui/src/project-notes/prompts-tab.ts`.
+- **Git popover two-phase mount**: now mounts once already populated
+  (placeholder only past 150ms), anchors its bottom edge, and fades+rises
+  in 0.18s instead of visibly repositioning after load. `ui/src/status/bar.ts`.
+- **Claude model-id parsing hardcoded table**: replaced with a generic
+  `claude-<family>-<major>[-<minor>]` regex so `claude-fable-5` renders as
+  "Fable 5" instead of falling through to the raw id. `ui/src/status/vitals.ts`.
+
 ## v0.11.32 — Idle-beachball root cause: score DB scans off the main thread
 
 ### Fixed
