@@ -192,8 +192,17 @@ names are recorded; commit message bodies and diffs are not.
 
 Covenant can push all CDLC metrics to any OpenTelemetry-compatible backend
 (Grafana/Prometheus, Datadog, Honeycomb, New Relic, etc.) via the standard
-OTLP gRPC protocol. This is opt-in: set the `OTEL_EXPORTER_OTLP_ENDPOINT`
-environment variable before launching Covenant.
+OTLP gRPC protocol. This is opt-in, via either:
+
+1. **Settings → Metrics → OpenTelemetry export** — paste the collector URL
+   (persisted as `otlp_endpoint` in `config.json`). Takes effect on the next
+   launch; the app only reads it at boot.
+2. **`OTEL_EXPORTER_OTLP_ENDPOINT`** in the environment — always wins over
+   the setting, so a shell override still works. Note a Finder/Dock launch
+   inherits no shell env, which is why the setting exists.
+
+Resolution lives in `settings::resolve_otlp_endpoint` (unit-tested); the app
+exports the resolved value into the env at setup, before `otel::start`.
 
 ### Quick start
 

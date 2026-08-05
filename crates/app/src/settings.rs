@@ -298,6 +298,13 @@ pub struct Settings {
     #[serde(default)]
     pub eval: EvalConfig,
 
+    /// OTLP collector endpoint for CDLC metrics export (e.g.
+    /// `http://localhost:4317`). `None` = export off. Applied at boot by
+    /// exporting `OTEL_EXPORTER_OTLP_ENDPOINT` when that env var isn't
+    /// already set, so a shell override still wins. Requires a restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub otlp_endpoint: Option<String>,
+
     /// 3.7 status bar — when false, the bar isn't rendered and no
     /// detection runs. Default true; controlled by a single toggle in
     /// the Settings → Appearance section.
@@ -818,6 +825,7 @@ impl Default for Settings {
             experimental: ExperimentalConfig::default(),
             notifications: NotificationConfig::default(),
             eval: EvalConfig::default(),
+            otlp_endpoint: None,
             status_bar_enabled: default_status_bar_enabled(),
             notch_enabled: default_notch_enabled(),
             notch_corner: NotchCorner::default(),
@@ -1923,6 +1931,33 @@ mod tab_styles_config_tests {
         assert_eq!(back["shape"], "rounded");
         assert_eq!(back["bg_mode"], "gradient");
         assert_eq!(back["indicator"], "underline");
+    }
+}
+
+/// Endpoint to export as `OTEL_EXPORTER_OTLP_ENDPOINT`, or `None` to leave
+/// the env untouched (export off). A shell-set env var always wins; a blank
+/// config value means off.
+pub fn resolve_otlp_endpoint(env: Option<&str>, cfg: Option<&str>) -> Option<String> {
+    if env.is_some() {
+        return None;
+    }
+    match cfg.map(str::trim) {
+        Some(ep) if !ep.is_empty() => Some(ep.to_string()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod otlp_endpoint_tests {
+    use super::resolve_otlp_endpoint as r;
+
+    #[test]
+    fn precedence_and_blank_handling() {
+        assert_eq!(r(None, None), None, "unset everywhere → off");
+        assert_eq!(r(None, Some("  ")), None, "blank config → off");
+        assert_eq!(r(None, Some(" http://h:4317 ")), Some("http://h:4317".into()));
+        // Shell wins: we must not overwrite what the user exported.
+        assert_eq!(r(Some("http://env:4317"), Some("http://cfg:4317")), None);
     }
 }
 
