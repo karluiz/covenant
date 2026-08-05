@@ -18535,6 +18535,14 @@ body.theme-light .teammate-bubble-operator {
   gap: 2px;
   padding: 5px 5px 4px;
   border-bottom: 1px solid var(--border);
+  /* Never shrink: at a tight composer width the six chips wrap to two
+     rows, and a shrinkable header would get squeezed under the popup's
+     max-height while its second row painted outside the box, over the
+     list. Wrapping now costs the list height instead. */
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+  background: var(--bg-overlay, var(--bg-panel));
 }
 .tmt-mp-scope {
   display: inline-flex;
@@ -18570,7 +18578,10 @@ body.theme-light .teammate-bubble-operator {
 .tmt-mp-scope.is-active .tmt-mp-scope__n { color: var(--accent); }
 .tmt-mp-scope:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-.tmt-mp-list { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; padding: 3px; }
+/* No top padding: `position: sticky` offsets are measured from the
+   padding box, so a 3px top pad left a sliver above the stuck group
+   header through which the row scrolling under it stayed visible. */
+.tmt-mp-list { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; padding: 0 3px 3px; }
 .tmt-mp-group {
   padding: 7px 8px 3px;
   color: var(--fg-muted, #5d6577);
