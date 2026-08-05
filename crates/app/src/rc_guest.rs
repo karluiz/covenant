@@ -36,6 +36,14 @@ pub fn send_frame(st: &RcGuestState, json: String) {
 /// line matches the blocklist. Returns (bytes to write, blocked message).
 /// Wired into the inbound `send_input` path by Task 7's rc_agent frame
 /// handling; exercised directly by the unit tests below until then.
+///
+/// The scan buffer clears only on a clean (non-blocked) submit, or on
+/// ^C / ^U — the two keystrokes that genuinely invalidate the shell's
+/// current line. ESC and everything that isn't one of those (arrow
+/// keys, other control sequences) leaves the buffer as-is or lets it
+/// accumulate garbage; the buffer can therefore only ever over-block
+/// (false positive), never silently forget a still-buffered dangerous
+/// command (false negative) — see the doctrine note in `safety.rs`.
 #[allow(dead_code)]
 pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<String>) {
     let mut fwd = Vec::with_capacity(bytes.len());
@@ -54,8 +62,8 @@ pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<Str
                     // let the still-buffered command execute. Keep the
                     // buffer so every subsequent terminator re-scans and
                     // re-blocks until the guest edits the line (backspace)
-                    // or aborts it (^C / ESC, which do clear — the shell
-                    // line is genuinely gone at that point).
+                    // or genuinely invalidates it (^C / ^U, which do clear
+                    // — see below).
                     return (fwd, Some(d.message));
                 }
                 line.clear();
@@ -65,9 +73,24 @@ pub fn gate_guest_bytes(line: &mut String, bytes: &[u8]) -> (Vec<u8>, Option<Str
                 line.pop();
                 fwd.push(b);
             }
-            // ^C aborts the line; ESC starts a sequence we can't track —
-            // reset the buffer either way (documented best-effort gap).
-            0x03 | 0x1b => {
+            // ^C aborts the line; ^U (kill-whole-line, bash/zsh emacs mode)
+            // erases it. Both genuinely empty the shell's current line, so
+            // clearing our buffer to match is correct here.
+            //
+            // ESC is deliberately NOT in this arm. A bare ESC is just a
+            // meta-prefix in bash/zsh emacs mode — it does NOT touch the
+            // shell's line editor by itself. If we cleared our buffer on
+            // ESC, a guest could bypass a block with `rm -rf /`, Enter
+            // (blocked, buffer persists), ESC (buffer wrongly cleared),
+            // Enter (buffer now empty → passes → the still-buffered
+            // dangerous command in the real shell executes). ESC instead
+            // falls through to the default arm below: forwarded, but any
+            // printable bytes that follow it (e.g. an arrow key's `[A`
+            // CSI tail) still accumulate into the scan buffer as garbage.
+            // That only biases toward false positives (over-blocking),
+            // which is the safe direction per safety.rs doctrine: "false
+            // positives are fine, false negatives are not."
+            0x03 | 0x15 => {
                 line.clear();
                 fwd.push(b);
             }
@@ -202,6 +225,68 @@ mod tests {
     }
 
     #[test]
+    fn esc_then_enter_does_not_unblock() {
+        // The bypass this test guards against: block a dangerous line,
+        // press bare ESC (which must NOT clear the buffer — see
+        // `esc_forwards_but_does_not_clear_the_buffer`), then Enter again.
+        // The real shell never lost "rm -rf /" (ESC alone doesn't touch
+        // its line editor either), so the second Enter must still block.
+        let mut line = String::new();
+        gate_guest_bytes(&mut line, b"rm -rf /");
+        let (_fwd1, blocked1) = gate_guest_bytes(&mut line, b"\r");
+        assert!(blocked1.is_some());
+
+        gate_guest_bytes(&mut line, &[0x1b]); // bare ESC
+
+        let (fwd2, blocked2) = gate_guest_bytes(&mut line, b"\r");
+        assert!(
+            fwd2.is_empty(),
+            "ESC must not have unblocked the buffered command"
+        );
+        assert!(blocked2.is_some(), "must still block after a bare ESC");
+    }
+
+    #[test]
+    fn arrow_key_after_block_keeps_blocking() {
+        // An arrow key is ESC + CSI tail (e.g. `\x1b[A`). The ESC byte
+        // doesn't touch the buffer; the tail bytes `[`/`A` are printable
+        // ASCII and accumulate as garbage — over-blocking, never
+        // under-blocking.
+        let mut line = String::new();
+        gate_guest_bytes(&mut line, b"rm -rf /");
+        let (_fwd1, blocked1) = gate_guest_bytes(&mut line, b"\r");
+        assert!(blocked1.is_some());
+
+        gate_guest_bytes(&mut line, b"\x1b[A"); // up-arrow
+
+        let (fwd2, blocked2) = gate_guest_bytes(&mut line, b"\r");
+        assert!(fwd2.is_empty());
+        assert!(
+            blocked2.is_some(),
+            "an arrow key must not unblock the buffered command"
+        );
+    }
+
+    #[test]
+    fn ctrl_u_clears_and_allows_clean_line() {
+        let mut line = String::new();
+        gate_guest_bytes(&mut line, b"rm -rf /");
+        let (_fwd1, blocked1) = gate_guest_bytes(&mut line, b"\r");
+        assert!(blocked1.is_some());
+
+        gate_guest_bytes(&mut line, &[0x15]); // ^U kills the whole line
+        assert!(line.is_empty());
+
+        let (fwd2, blocked2) = gate_guest_bytes(&mut line, b"ls");
+        assert_eq!(fwd2, b"ls");
+        assert_eq!(blocked2, None);
+
+        let (fwd3, blocked3) = gate_guest_bytes(&mut line, b"\r");
+        assert_eq!(fwd3, b"\r", "the clean line's Enter must pass");
+        assert_eq!(blocked3, None);
+    }
+
+    #[test]
     fn newline_is_gated_like_cr() {
         let mut line = "sudo reboot".to_string();
         let (fwd, blocked) = gate_guest_bytes(&mut line, b"\n");
@@ -218,15 +303,33 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_c_and_esc_reset_the_buffer_but_forward() {
+    fn ctrl_c_and_ctrl_u_reset_the_buffer_and_forward() {
+        // ^C aborts the line; ^U (kill-whole-line) erases it. Both
+        // genuinely invalidate the shell's current line, so clearing our
+        // copy to match is correct.
         let mut line = "half-typed".to_string();
         let (fwd, _) = gate_guest_bytes(&mut line, &[0x03]);
         assert_eq!(fwd, &[0x03]);
-        assert!(line.is_empty());
-        line.push_str("x");
-        let (fwd2, _) = gate_guest_bytes(&mut line, &[0x1b]);
-        assert_eq!(fwd2, &[0x1b]);
-        assert!(line.is_empty());
+        assert!(line.is_empty(), "^C must clear the buffer");
+
+        line.push_str("more-half-typed");
+        let (fwd2, _) = gate_guest_bytes(&mut line, &[0x15]);
+        assert_eq!(fwd2, &[0x15]);
+        assert!(line.is_empty(), "^U must clear the buffer");
+    }
+
+    #[test]
+    fn esc_forwards_but_does_not_clear_the_buffer() {
+        // A bare ESC is just a meta-prefix in bash/zsh emacs mode — it does
+        // NOT touch the shell's real line editor, so clearing our copy on
+        // ESC would desync us from what the shell still holds.
+        let mut line = "half-typed".to_string();
+        let (fwd, _) = gate_guest_bytes(&mut line, &[0x1b]);
+        assert_eq!(fwd, &[0x1b], "ESC must still reach the PTY");
+        assert_eq!(
+            line, "half-typed",
+            "ESC alone must not clear the scan buffer"
+        );
     }
 
     #[test]
