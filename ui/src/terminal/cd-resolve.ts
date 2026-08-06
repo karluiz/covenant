@@ -55,8 +55,27 @@ export function resolveCdArg(
   return { listDir: join(cwd, dirPart.replace(/\/+$/, "")), prefix };
 }
 
-/** Keep directories whose name starts with `prefix` (case-insensitive). */
+/**
+ * Keep directories matching `prefix` (case-insensitive) anywhere in the name,
+ * prefix hits before mid-name hits. Substring rather than `startsWith`: with
+ * prefix-only, `soporte-ti-knowledgebase` was unreachable from "knowledge",
+ * so you had to remember how a name *starts* to find it at all.
+ */
 export function filterDirs(entries: DirEntry[], prefix: string): DirEntry[] {
+  const dirs = entries.filter((e) => e.kind === "dir");
   const p = prefix.toLowerCase();
-  return entries.filter((e) => e.kind === "dir" && e.name.toLowerCase().startsWith(p));
+  if (!p) return dirs;
+  const head: DirEntry[] = [];
+  const mid: DirEntry[] = [];
+  for (const e of dirs) {
+    const at = e.name.toLowerCase().indexOf(p);
+    if (at === 0) head.push(e);
+    else if (at > 0) mid.push(e);
+  }
+  return [...head, ...mid];
+}
+
+/** Where `prefix` matches in `name`, or -1. Drives the rendered emphasis. */
+export function matchAt(name: string, prefix: string): number {
+  return prefix ? name.toLowerCase().indexOf(prefix.toLowerCase()) : -1;
 }

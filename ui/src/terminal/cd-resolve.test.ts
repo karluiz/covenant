@@ -39,4 +39,13 @@ describe("filterDirs", () => {
   const entries = [dir("Apps"), dir("apple"), file("app.txt"), dir("Desktop")];
   it("dirs only, case-insensitive prefix", () => expect(filterDirs(entries, "app").map((e) => e.name)).toEqual(["Apps", "apple"]));
   it("empty prefix returns all dirs", () => expect(filterDirs(entries, "").map((e) => e.name)).toEqual(["Apps", "apple", "Desktop"]));
+  it("matches mid-name, prefix hits ranked first", () => {
+    const es = [dir("soporte-ti-knowledgebase"), dir("knowledge"), file("knowledge.md")];
+    expect(filterDirs(es, "knowledge").map((e) => e.name)).toEqual([
+      "knowledge", // starts with it
+      "soporte-ti-knowledgebase", // …then the mid-name hit, unreachable before
+    ]);
+  });
+  it("non-matching names are still dropped", () =>
+    expect(filterDirs(entries, "zzz")).toEqual([]));
 });
