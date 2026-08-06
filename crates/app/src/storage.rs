@@ -168,7 +168,8 @@ CREATE TABLE IF NOT EXISTS project_notes (
     body               TEXT NOT NULL,
     source             TEXT,
     created_at_unix_ms INTEGER NOT NULL,
-    pinned             INTEGER NOT NULL DEFAULT 0
+    pinned             INTEGER NOT NULL DEFAULT 0,
+    agent_hidden       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_project_notes_group_created
     ON project_notes(group_id, created_at_unix_ms DESC);
@@ -754,6 +755,13 @@ impl Storage {
         // the notes redesign needs.
         let _ = conn.execute(
             "ALTER TABLE project_notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        // Notes wave 3: keep a note without feeding it to executors. Default 0
+        // (visible), so every existing note keeps reaching agents exactly as it
+        // did — the MCP `notes_read` tool is what honours this.
+        let _ = conn.execute(
+            "ALTER TABLE project_notes ADD COLUMN agent_hidden INTEGER NOT NULL DEFAULT 0",
             [],
         );
         // 3.13 Operator Learning: link a decision back to the memory

@@ -18,6 +18,8 @@ export interface Note {
   created_at_unix_ms: number;
   /** Sorts to the top of the list regardless of age. */
   pinned?: boolean;
+  /** Kept in the panel but withheld from executors — MCP `notes_read` skips it. */
+  agent_hidden?: boolean;
 }
 
 export interface Snapshot {
@@ -44,6 +46,8 @@ export const projectNotesApi = {
     invoke<Note | null>("project_note_update", { id, body }),
   setPinned: (id: string, pinned: boolean) =>
     invoke<Note | null>("project_note_set_pinned", { id, pinned }),
+  setAgentHidden: (id: string, hidden: boolean) =>
+    invoke<Note | null>("project_note_set_agent_hidden", { id, hidden }),
   deleteNote: (id: string) => invoke<void>("project_note_delete", { id }),
   listNotes: (groupId: string, limit: number, beforeTs?: number) =>
     invoke<Note[]>("project_note_list", { groupId, limit, beforeTs }),

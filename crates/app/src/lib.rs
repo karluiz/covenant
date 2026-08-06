@@ -6307,6 +6307,7 @@ pub fn run() {
             project_notes::project_note_list,
             project_notes::project_note_update,
             project_notes::project_note_set_pinned,
+            project_notes::project_note_set_agent_hidden,
             prompts::prompt_list,
             prompts::prompt_create,
             prompts::prompt_update,

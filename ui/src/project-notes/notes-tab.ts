@@ -32,6 +32,7 @@ export class NotesTab {
   private previewing = false;
   private controls: HTMLElement;
   private filter: HTMLInputElement;
+  private count!: HTMLElement;
   private list: HTMLUListElement;
   private more: HTMLButtonElement;
   private live: HTMLElement;
@@ -107,7 +108,9 @@ export class NotesTab {
       this.render();
     });
     search.appendChild(this.filter);
-    this.controls.appendChild(search);
+    this.count = document.createElement("span");
+    this.count.className = "pn-note-count";
+    this.controls.append(search, this.count);
 
     this.list = document.createElement("ul");
     this.list.className = "pn-note-list";
@@ -233,6 +236,21 @@ export class NotesTab {
     if (this.expanded.has(id)) this.expanded.delete(id);
     else this.expanded.add(id);
     this.render();
+  }
+
+  /** Withhold a note from executors without deleting it. Notes reach agents by
+   *  pull (MCP `notes_read`), so this flag is honoured there, not here. */
+  private async toggleAgentHidden(n: Note): Promise<void> {
+    const next = !n.agent_hidden;
+    try {
+      const updated = await projectNotesApi.setAgentHidden(n.id, next);
+      const i = this.notes.findIndex((x) => x.id === n.id);
+      if (i >= 0) this.notes[i] = updated ?? { ...n, agent_hidden: next };
+      this.render();
+      this.announce(next ? "Note hidden from agents" : "Note visible to agents");
+    } catch (err) {
+      console.error("note agent visibility failed", err);
+    }
   }
 
   private async togglePin(n: Note): Promise<void> {
@@ -434,6 +452,14 @@ export class NotesTab {
     // Nothing to filter until there is more than one note to filter through.
     this.controls.hidden = this.notes.length < 2 && !this.query;
     this.more.hidden = !!this.query || this.exhausted || this.notes.length < PAGE;
+    // Deliberately no "N notes" total — `notes` is what has been loaded, not
+    // what exists, and `Load older` is right there saying so. Only the two
+    // facts that are true get said.
+    const hidden = this.notes.filter((n) => n.agent_hidden).length;
+    this.count.textContent = [
+      this.query ? `${visible.length} of ${this.notes.length}` : "",
+      hidden ? `${hidden} hidden from agents` : "",
+    ].filter(Boolean).join(" · ");
 
     if (this.pending) this.list.appendChild(this.undoRow());
 
@@ -487,6 +513,7 @@ export class NotesTab {
     li.dataset.id = n.id;
     li.tabIndex = -1;
     if (n.pinned) li.classList.add("is-pinned");
+    if (n.agent_hidden) li.classList.add("is-agent-hidden");
     const { title, rest } = splitTitle(n.body);
     const fold = foldInfo(rest);
     const open = this.expanded.has(n.id);
@@ -494,11 +521,13 @@ export class NotesTab {
       <div class="pn-note-meta">
         <span class="pn-note-source"></span>
         <span class="rail-meta pn-note-stamp"></span>
+        <span class="pn-note-agent-off">not for agents</span>
       </div>
       <div class="pn-note-title"></div>
       <div class="pn-note-body pn-md markdown-doc"></div>
       <button class="pn-note-fold" type="button"></button>
       <div class="rail-row-actions">
+        <button class="rail-row-action pn-note-agent" aria-label="${n.agent_hidden ? "Make visible to agents" : "Hide from agents"}">${(n.agent_hidden ? Icons.botOff : Icons.bot)({ size: 13 })}</button>
         <button class="rail-row-action pn-note-pin" aria-label="${n.pinned ? "Unpin note" : "Pin note"}">${Icons.pin({ size: 13 })}</button>
         <button class="rail-row-action pn-note-edit" aria-label="Edit note">${Icons.pencil({ size: 13 })}</button>
         <button class="rail-row-action pn-note-del" aria-label="Delete note">${Icons.trash({ size: 13 })}</button>
@@ -520,6 +549,8 @@ export class NotesTab {
     if (n.source) srcEl.textContent = n.source;
     else srcEl.remove();
 
+    if (!n.agent_hidden) (li.querySelector(".pn-note-agent-off") as HTMLElement).remove();
+
     const foldBtn = li.querySelector(".pn-note-fold") as HTMLButtonElement;
     if (fold.long) {
       li.classList.toggle("is-folded", !open);
@@ -536,6 +567,10 @@ export class NotesTab {
       this.cursorId = n.id;
       this.highlight();
     });
+    li.querySelector(".pn-note-agent")!.addEventListener(
+      "click",
+      () => void this.toggleAgentHidden(n),
+    );
     li.querySelector(".pn-note-pin")!.addEventListener("click", () => void this.togglePin(n));
     li.querySelector(".pn-note-del")!.addEventListener("click", () => this.delete(n));
     li.querySelector(".pn-note-edit")!.addEventListener("click", () => this.beginEdit(li, n));

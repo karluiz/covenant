@@ -25,6 +25,11 @@ vi.mock("./api", () => {
         if (n) n.pinned = pinned;
         return n ?? null;
       }),
+      setAgentHidden: vi.fn(async (id: string, hidden: boolean) => {
+        const n = state.notes.find((n: any) => n.id === id);
+        if (n) n.agent_hidden = hidden;
+        return n ?? null;
+      }),
     },
     __state: state,
   };
@@ -367,6 +372,52 @@ describe("NotesTab", () => {
     expect((host.querySelector(".pn-note-input") as HTMLTextAreaElement).value).toBe("rescued text");
     expect(tab.draft).toBe("rescued text");
     expect((host.querySelector(".pn-note-preview-toggle") as HTMLButtonElement).hidden).toBe(false);
+  });
+
+  it("withholds a note from agents: chip, dim, and a count of what is hidden", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "for me only", source: null, created_at_unix_ms: Date.now() },
+      { id: "b", group_id: "g1", body: "for everyone", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    const row = () => host.querySelector('.pn-note-card[data-id="a"]') as HTMLElement;
+    const count = () => host.querySelector(".pn-note-count") as HTMLElement;
+
+    // Nothing hidden — nothing claimed.
+    expect(count().textContent).toBe("");
+    expect(row().querySelector(".pn-note-agent-off")).toBeNull();
+
+    (row().querySelector(".pn-note-agent") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiMod.projectNotesApi.setAgentHidden).toHaveBeenCalledWith("a", true);
+    expect(row().classList).toContain("is-agent-hidden");
+    expect(row().querySelector(".pn-note-agent-off")?.textContent).toBe("not for agents");
+    expect(count().textContent).toBe("1 hidden from agents");
+    // Still in the panel — hiding is not deleting.
+    expect(host.querySelectorAll(".pn-note-card").length).toBe(2);
+
+    (row().querySelector(".pn-note-agent") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiMod.projectNotesApi.setAgentHidden).toHaveBeenLastCalledWith("a", false);
+    expect(row().classList).not.toContain("is-agent-hidden");
+    expect(count().textContent).toBe("");
+  });
+
+  it("counts filter matches against what is loaded", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "tenant one", source: null, created_at_unix_ms: Date.now() },
+      { id: "b", group_id: "g1", body: "tenant two", source: null, created_at_unix_ms: Date.now() },
+      { id: "c", group_id: "g1", body: "unrelated", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    const filter = host.querySelector(".rail-search input") as HTMLInputElement;
+    filter.value = "tenant";
+    filter.dispatchEvent(new Event("input"));
+    expect(host.querySelector(".pn-note-count")?.textContent).toBe("2 of 3");
   });
 
   it("⌘F jumps to the filter", async () => {

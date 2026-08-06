@@ -275,6 +275,31 @@ body.tabbar-left .pn-panel {
 /* Pinned state is carried by the PINNED divider, not by a button that camps in
    the layout — the pin only tints once hover reveals it. */
 .pn-note-card.is-pinned .pn-note-pin { color: var(--pn-accent, var(--accent, #6aa9ff)); }
+
+/* Withheld from executors. The chip is the persistent marker (row actions only
+   appear on hover), and the body dims so a scan reads which notes an agent
+   will never see. */
+.pn-note-agent-off {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted, #8a8aa8);
+  border: 1px dashed var(--border, #2a2d35);
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.pn-note-card.is-agent-hidden .pn-note-title,
+.pn-note-card.is-agent-hidden .pn-note-body { opacity: 0.72; }
+/* `.rail-search` is width:100%, so the count needs flex:none or it gets
+   squeezed to nothing. .rail-controls already owns the horizontal padding. */
+.pn-note-count {
+  flex: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  color: var(--fg-muted, #8a8aa8);
+  white-space: nowrap;
+}
 .pn-note-card.is-folded .pn-note-body {
   max-height: calc(3 * 1.45em);
   overflow: hidden;

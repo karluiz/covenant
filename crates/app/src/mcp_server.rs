@@ -573,7 +573,10 @@ impl CovenantMcp {
         }
     }
 
-    #[rmcp::tool(description = "Read recent Covenant project notes for a group, newest first.")]
+    #[rmcp::tool(
+        description = "Read recent Covenant project notes for a group, newest first. \
+                       Notes the user marked as not-for-agents are omitted."
+    )]
     async fn notes_read(
         &self,
         params: Parameters<NotesReadArgs>,
@@ -581,7 +584,7 @@ impl CovenantMcp {
         let limit = params.0.limit.unwrap_or(20) as usize;
         match self
             .notes()
-            .list_notes(&params.0.group_id, limit, None)
+            .list_notes_for_agent(&params.0.group_id, limit)
             .await
         {
             Ok(notes) => Ok(CallToolResult::success(vec![ContentBlock::text(

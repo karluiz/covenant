@@ -38,6 +38,10 @@ pub struct Note {
     pub created_at_unix_ms: i64,
     /// Sorts to the top of the list, regardless of age.
     pub pinned: bool,
+    /// Kept in the panel but withheld from executors — `notes_read` over MCP
+    /// skips it. Notes reach agents by pull, not push, so this is the one place
+    /// the flag has to be honoured.
+    pub agent_hidden: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -50,11 +54,13 @@ pub struct Snapshot {
 enum NoteWrite {
     Body(String),
     Pinned(bool),
+    AgentHidden(bool),
 }
 
 /// Every note SELECT reads the same columns in the same order, so they all
 /// share `row_to_note`.
-const NOTE_COLS: &str = "id, group_id, body, source, created_at_unix_ms, pinned";
+const NOTE_COLS: &str =
+    "id, group_id, body, source, created_at_unix_ms, pinned, agent_hidden";
 
 fn row_to_note(r: &rusqlite::Row<'_>) -> rusqlite::Result<Note> {
     Ok(Note {
@@ -64,6 +70,7 @@ fn row_to_note(r: &rusqlite::Row<'_>) -> rusqlite::Result<Note> {
         source: r.get(3)?,
         created_at_unix_ms: r.get(4)?,
         pinned: r.get(5)?,
+        agent_hidden: r.get(6)?,
     })
 }
 
@@ -280,6 +287,7 @@ impl Store {
                 source,
                 created_at_unix_ms: now,
                 pinned: false,
+                agent_hidden: false,
             })
         })
         .await
@@ -294,6 +302,35 @@ impl Store {
     pub async fn set_note_pinned(&self, id: &str, pinned: bool) -> Result<Option<Note>> {
         self.write_note(id, "pinned = ?2", NoteWrite::Pinned(pinned))
             .await
+    }
+
+    pub async fn set_note_agent_hidden(&self, id: &str, hidden: bool) -> Result<Option<Note>> {
+        self.write_note(id, "agent_hidden = ?2", NoteWrite::AgentHidden(hidden))
+            .await
+    }
+
+    /// What an executor is allowed to read: newest first, hidden notes skipped.
+    /// Separate from `list_notes` so the panel keeps seeing everything while
+    /// the MCP surface does not.
+    pub async fn list_notes_for_agent(&self, group_id: &str, limit: usize) -> Result<Vec<Note>> {
+        let conn = self.conn.clone();
+        let group_id = group_id.to_owned();
+        tokio::task::spawn_blocking(move || -> Result<Vec<Note>> {
+            let conn = conn.blocking_lock();
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {NOTE_COLS}
+                   FROM project_notes
+                  WHERE group_id = ?1 AND agent_hidden = 0
+                  ORDER BY created_at_unix_ms DESC
+                  LIMIT ?2"
+            ))?;
+            let rows = stmt
+                .query_map(params![group_id, limit as i64], row_to_note)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await
+        .map_err(|e| Error::Join(e.to_string()))?
     }
 
     /// One-column update + read-back. `set_clause` is a fixed literal from the
@@ -312,6 +349,7 @@ impl Store {
             let changed = match &value {
                 NoteWrite::Body(b) => conn.execute(&sql, params![&id, b])?,
                 NoteWrite::Pinned(p) => conn.execute(&sql, params![&id, p])?,
+                NoteWrite::AgentHidden(h) => conn.execute(&sql, params![&id, h])?,
             };
             if changed == 0 {
                 return Ok(None);
@@ -709,6 +747,15 @@ pub async fn project_note_set_pinned(
 }
 
 #[tauri::command]
+pub async fn project_note_set_agent_hidden(
+    store: State<'_, Store>,
+    id: String,
+    hidden: bool,
+) -> std::result::Result<Option<Note>, String> {
+    store.set_note_agent_hidden(&id, hidden).await.map_err(map_err)
+}
+
+#[tauri::command]
 pub async fn project_note_delete(
     store: State<'_, Store>,
     id: String,
@@ -837,6 +884,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn agent_hidden_note_stays_in_the_panel_but_leaves_the_mcp_surface() {
+        let s = fresh_store();
+        let g = "g1";
+        let keep = s.append_note(g, "for me only", None).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        s.append_note(g, "for everyone", None).await.unwrap();
+
+        // Default is visible, so existing notes keep reaching agents.
+        assert!(!keep.agent_hidden);
+        assert_eq!(s.list_notes_for_agent(g, 50).await.unwrap().len(), 2);
+
+        let hidden = s
+            .set_note_agent_hidden(&keep.id, true)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(hidden.agent_hidden);
+
+        // Gone from what an executor may read…
+        let agent: Vec<_> = s.list_notes_for_agent(g, 50).await.unwrap();
+        let bodies: Vec<_> = agent.iter().map(|n| n.body.as_str()).collect();
+        assert_eq!(bodies, vec!["for everyone"]);
+
+        // …but still in the panel's own view.
+        let snap = s.snapshot(g).await.unwrap();
+        assert_eq!(snap.notes.len(), 2);
+        assert_eq!(s.list_notes(g, 50, None).await.unwrap().len(), 2);
+
+        s.set_note_agent_hidden(&keep.id, false).await.unwrap();
+        assert_eq!(s.list_notes_for_agent(g, 50).await.unwrap().len(), 2);
+        assert!(s
+            .set_note_agent_hidden("missing-id", true)
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
     async fn snapshot_isolated_per_group() {
         let s = fresh_store();
         s.append_note("g1", "x", None).await.unwrap();
@@ -875,6 +960,7 @@ mod tests {
                 source: None,
                 created_at_unix_ms: now,
                 pinned: false,
+                agent_hidden: false,
             }],
         };
         let out = render_context(&snap, "# Hello", "COVENANT", 2000);
@@ -938,6 +1024,7 @@ mod tests {
                 source: None,
                 created_at_unix_ms: now - (i as i64 * 1000),
                 pinned: false,
+                agent_hidden: false,
             });
         }
         let snap = Snapshot {
