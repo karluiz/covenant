@@ -641,10 +641,16 @@ async function boot(): Promise<void> {
   const somnusBtn = document.getElementById("titlebar-somnus");
   const canonBtn = document.getElementById("titlebar-canon");
   type SidebarTitlebarView = "blocks" | "structure" | "activity" | "recall";
-  const ACTIVITY_KEY = "covenant.sidebar-view-activity";
+  const VIEW_KEY = "covenant.sidebar-view";
   const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
+  // ponytail: Activity is the main rail view, so the key stores the view name
+  // instead of the old activity-on/off flag (a flag can't express "blocks is a
+  // deliberate choice, not the absence of one"). Unknown/legacy values fall
+  // back to activity.
+  const VIEWS: readonly SidebarTitlebarView[] = ["blocks", "structure", "activity", "recall"];
+  const storedView = localStorage.getItem(VIEW_KEY) as SidebarTitlebarView | null;
   let activeSidebarTitlebarView: SidebarTitlebarView =
-    localStorage.getItem(ACTIVITY_KEY) === "1" ? "activity" : "blocks";
+    storedView && VIEWS.includes(storedView) ? storedView : "activity";
 
   // Map every rail target to its titlebar button. Globe is absent on purpose.
   const railButtons: Record<RailTarget, HTMLElement | null> = {
@@ -673,12 +679,12 @@ async function boot(): Promise<void> {
       case "blocks":
       case "structure":
       case "recall":
-        localStorage.removeItem(ACTIVITY_KEY);
+        localStorage.setItem(VIEW_KEY, target);
         activeSidebarTitlebarView = target;
         window.dispatchEvent(new CustomEvent("sidebar-view:set", { detail: { view: target } }));
         break;
       case "activity":
-        localStorage.setItem(ACTIVITY_KEY, "1");
+        localStorage.setItem(VIEW_KEY, "activity");
         activeSidebarTitlebarView = "activity";
         break;
       case "notes":
