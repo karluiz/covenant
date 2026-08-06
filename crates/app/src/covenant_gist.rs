@@ -262,7 +262,10 @@ mod tests {
     use super::*;
     #[test]
     fn note_filename_from_first_line() {
-        assert_eq!(note_filename("# Tenant model — decisiones\n\nbody"), "tenant-model-decisiones.md");
+        assert_eq!(
+            note_filename("# Tenant model — decisiones\n\nbody"),
+            "tenant-model-decisiones.md"
+        );
         assert_eq!(note_filename("just a line"), "just-a-line.md");
         assert_eq!(note_filename("!!!"), "note.md");
         assert_eq!(note_filename(""), "note.md");
@@ -277,7 +280,10 @@ mod tests {
         // The masking itself is safety.rs's contract; this asserts the share
         // path actually calls it rather than shipping the raw body.
         let masked = crate::safety::mask_secrets("token sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFF");
-        assert!(!masked.contains("AAAABBBBCCCCDDDDEEEEFFFF"), "got: {masked}");
+        assert!(
+            !masked.contains("AAAABBBBCCCCDDDDEEEEFFFF"),
+            "got: {masked}"
+        );
     }
 
     #[test]

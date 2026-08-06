@@ -59,8 +59,7 @@ enum NoteWrite {
 
 /// Every note SELECT reads the same columns in the same order, so they all
 /// share `row_to_note`.
-const NOTE_COLS: &str =
-    "id, group_id, body, source, created_at_unix_ms, pinned, agent_hidden";
+const NOTE_COLS: &str = "id, group_id, body, source, created_at_unix_ms, pinned, agent_hidden";
 
 fn row_to_note(r: &rusqlite::Row<'_>) -> rusqlite::Result<Note> {
     Ok(Note {
@@ -752,7 +751,10 @@ pub async fn project_note_set_agent_hidden(
     id: String,
     hidden: bool,
 ) -> std::result::Result<Option<Note>, String> {
-    store.set_note_agent_hidden(&id, hidden).await.map_err(map_err)
+    store
+        .set_note_agent_hidden(&id, hidden)
+        .await
+        .map_err(map_err)
 }
 
 #[tauri::command]
@@ -880,7 +882,11 @@ mod tests {
         let bodies: Vec<_> = snap.notes.iter().map(|n| n.body.as_str()).collect();
         assert_eq!(bodies, vec!["newest", "oldest"]);
 
-        assert!(s.set_note_pinned("missing-id", true).await.unwrap().is_none());
+        assert!(s
+            .set_note_pinned("missing-id", true)
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
