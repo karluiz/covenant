@@ -6,6 +6,48 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.35 — cd picker gives the shell its keys back, Activity rail
+
+### Added
+
+- **cd picker: the shell keeps its keys**: the picker used to claim ↑/↓/⏎/Esc
+  the moment it appeared and execute on select, breaking both contracts a
+  shell prompt makes. It now starts unarmed and forwards every key until Tab
+  or ↓, so `cd ~`, `cd /` and `cd ` (trailing space) submit instead of picking
+  the first child. Select inserts `cd <path>/` backslash-escaped with no
+  newline and re-lists the children — one keystroke per level. Arrows are
+  matched in both encodings (zsh's ZLE emits `ESC O A/B`, not just
+  `ESC [ A/B`), the readdir is cached per path so the 120ms debounce is gone,
+  matching is mid-name with prefix hits ranked first, and the list is anchored
+  to the cursor column and sized to content. `ui/src/terminal/cd-picker.ts`,
+  `ui/src/terminal/cd-resolve.ts`.
+- **Activity as the main right-rail view**: the right rail opens on Activity
+  rather than the previous default. `ui/index.html`, `ui/src/main.ts`.
+
+### Changed
+
+- **Operator-as-harness design on record**: a spec and a six-task
+  implementation plan for inverting tiers 2 and 3 — the operator stops
+  watching an executor and becomes the session, with the harness as its
+  thinking organ and the soul compiling to harness configuration instead of
+  being interpreted by a mind of ours. No runtime change in this release.
+  `docs/superpowers/specs/2026-08-06-operador-como-harness-design.md`,
+  `docs/superpowers/plans/2026-08-06-soul-compiler-and-operator-tab.md`.
+- **Agent scratch dirs ignored**: `.iaterminal/` and `.kimi-code/` join
+  `.claude/` and `.covenant/` in `.gitignore`, so a release's `git add -A`
+  cannot sweep per-tool agent config into the repo.
+
+### Fixed
+
+- **Prompt hint anchored to the `.xterm` inset**: `reposition()` derived `top`
+  from a hardcoded +4 fudge and `left` from a hardcoded 8px, both standing in
+  for the terminal's real inset. That inset lives on the `.xterm` child, so the
+  hint sat 4px above the row it must clear. It now reads the padding where it
+  actually is and keeps the 4px as an explicit gap.
+  `ui/src/terminal/prompt-detect.ts`.
+- **Notes composer spacing**: restored the gap between the composer and the
+  first note's day label. `ui/src/project-notes/styles.css`.
+
 ## v0.11.34 — Read-write terminal share, weighted evals, Notes rebuild
 
 ### Added
