@@ -48,3 +48,5 @@ scratch/
 .claire/
 .cargo/clean.log
 .covenant/
+.iaterminal/
+.kimi-code/
