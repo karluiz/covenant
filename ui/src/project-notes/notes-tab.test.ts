@@ -329,6 +329,46 @@ describe("NotesTab", () => {
     expect(apiMod.projectNotesApi.deleteNote).not.toHaveBeenCalled();
   });
 
+  it("previews the draft through the same renderer, and ⌘↵ saves from preview", async () => {
+    const apiMod = (await import("./api")) as any;
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    const input = host.querySelector(".pn-note-input") as HTMLTextAreaElement;
+    const toggle = () => host.querySelector(".pn-note-preview-toggle") as HTMLButtonElement;
+    const preview = () => host.querySelector(".pn-note-preview") as HTMLElement;
+
+    // No draft, no toggle.
+    expect(toggle().hidden).toBe(true);
+
+    input.value = "# Title\n\n- one\n- two";
+    input.dispatchEvent(new Event("input"));
+    expect(toggle().hidden).toBe(false);
+
+    toggle().click();
+    expect(preview().hidden).toBe(false);
+    expect(input.hidden).toBe(true);
+    expect(preview().querySelector("h1")?.textContent).toBe("Title");
+    expect(preview().querySelectorAll("li").length).toBe(2);
+    expect(toggle().textContent).toBe("Edit");
+
+    // ⌘↵ still saves while the textarea is hidden.
+    host.querySelector(".pn-notes-tab")!.dispatchEvent(chord("Enter"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiMod.projectNotesApi.appendNote).toHaveBeenCalledWith("g1", "# Title\n\n- one\n- two");
+    expect(preview().hidden).toBe(true);
+    expect(toggle().hidden).toBe(true);
+    expect(input.value).toBe("");
+  });
+
+  it("carries the draft in and out through the draft accessor", async () => {
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    tab.draft = "rescued text";
+    expect((host.querySelector(".pn-note-input") as HTMLTextAreaElement).value).toBe("rescued text");
+    expect(tab.draft).toBe("rescued text");
+    expect((host.querySelector(".pn-note-preview-toggle") as HTMLButtonElement).hidden).toBe(false);
+  });
+
   it("⌘F jumps to the filter", async () => {
     const apiMod = (await import("./api")) as any;
     apiMod.__state.notes = [

@@ -169,8 +169,42 @@ body.tabbar-left .pn-panel {
   border-color: var(--pn-accent, var(--accent, #6aa9ff));
 }
 .pn-note-controls[hidden] { display: none; }
+
+/* Composer: the draft, its preview, and the toggle between them. The toggle
+   sits inside the composer's bottom-right corner so it costs no layout row and
+   only exists once there is a draft to preview. */
+.pn-note-composer { position: relative; display: flex; flex-direction: column; }
+.pn-note-preview {
+  margin: 10px var(--rail-pad-x) 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #2a2d35);
+  background: var(--pn-subtle-1);
+  min-height: calc(3 * 1.5em + 22px);
+  max-height: 34vh;
+  overflow-y: auto;
+  cursor: text;
+}
+.pn-note-preview[hidden] { display: none; }
+.pn-note-preview-toggle {
+  position: absolute;
+  right: calc(var(--rail-pad-x) + 6px);
+  bottom: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--border, #2a2d35);
+  border-radius: 0;
+  background: var(--bg-overlay, var(--bg));
+  color: var(--fg-muted, #8a8aa8);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-meta);
+}
+.pn-note-preview-toggle:hover { color: var(--fg); }
+.pn-note-preview-toggle[hidden] { display: none; }
 .pn-note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
-.pn-note-day { position: sticky; top: 0; z-index: 1; background: var(--bg-overlay, var(--bg)); }
+/* Not sticky: a pinned divider is only ~30px while a note row is much taller,
+   so scrolling slid rows under it and left a bald strip of covered text. The
+   rail is short enough that day labels don't need to follow the scroll. */
+.pn-note-day { background: var(--bg-overlay, var(--bg)); }
 
 /* Notes ride the shared rail-row chrome. Bodies render markdown through the
    shared renderer, so the fold is a max-height (a -webkit-line-clamp box
@@ -190,6 +224,37 @@ body.tabbar-left .pn-panel {
   word-break: break-word;
   line-height: 1.45;
 }
+/* .rail-row is a flex column; without this a wide <pre> stretches the row past
+   the rail instead of scrolling inside its own box. */
+.pn-md { min-width: 0; }
+
+/* The shared .markdown-doc treatment is tuned for a full-page reader — 40px
+   list indents, 14px block margins, unbounded code blocks. A 340px rail needs
+   all of that tighter. Scoped overrides only; the global treatment is
+   untouched. Class repeated to outrank `.markdown-doc.markdown-doc <el>`,
+   the same trick that file documents. */
+.pn-md.pn-md.markdown-doc pre {
+  margin: 8px 0;
+  padding: 8px 10px;
+  max-width: 100%;
+  overflow-x: auto;
+  font-size: var(--fs-meta);
+}
+.pn-md.pn-md.markdown-doc p { margin: 6px 0; }
+.pn-md.pn-md.markdown-doc ul,
+.pn-md.pn-md.markdown-doc ol {
+  margin: 6px 0;
+  padding-left: 1.15em;
+}
+.pn-md.pn-md.markdown-doc ul { list-style-type: disc; }
+.pn-md.pn-md.markdown-doc li { margin: 2px 0; }
+.pn-md.pn-md.markdown-doc h1,
+.pn-md.pn-md.markdown-doc h2,
+.pn-md.pn-md.markdown-doc h3 { margin: 10px 0 4px; }
+.pn-md.pn-md.markdown-doc table { font-size: var(--fs-meta); }
+/* No leading or trailing block margin — the row's padding owns that edge. */
+.pn-md.pn-md.markdown-doc > :first-child { margin-top: 0; }
+.pn-md.pn-md.markdown-doc > :last-child { margin-bottom: 0; }
 /* Cursor row: the target of ⌘E / ⌘⌫ / ⌘⇧P. Programmatic .focus() doesn't
    reliably trigger :focus-visible, so the class carries the state. */
 .pn-note-card { outline: none; }
@@ -197,10 +262,19 @@ body.tabbar-left .pn-panel {
   background: rgb(var(--ink-rgb) / 0.06);
   box-shadow: inset 2px 0 0 var(--pn-accent, var(--accent, #6aa9ff));
 }
+/* Actions float over the row on hover instead of reserving a column. The shared
+   primitive reserves 82px on every row with actions; in a 340px rail that costs
+   each note two words of wrap width, for buttons that are invisible until you
+   hover anyway. Notes opt out — the row keeps its normal padding and the
+   buttons overlay it, on an opaque ground per the floating-UI rule. */
+.pn-note-card.rail-row:has(.rail-row-actions) { padding-right: var(--rail-pad-x); }
+.pn-note-card .rail-row-actions {
+  background: var(--bg-overlay, var(--bg));
+  padding-left: 6px;
+}
+/* Pinned state is carried by the PINNED divider, not by a button that camps in
+   the layout — the pin only tints once hover reveals it. */
 .pn-note-card.is-pinned .pn-note-pin { color: var(--pn-accent, var(--accent, #6aa9ff)); }
-/* Pinned rows are the one place actions stay visible without hover — the pin
-   is state, not just a verb. */
-.pn-note-card.is-pinned .pn-note-pin { visibility: visible; opacity: 1; }
 .pn-note-card.is-folded .pn-note-body {
   max-height: calc(3 * 1.45em);
   overflow: hidden;

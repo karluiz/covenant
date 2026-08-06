@@ -14,14 +14,20 @@ vi.mock("./commands-tab", () => ({
 
 vi.mock("./notes-tab", () => ({
   NotesTab: class {
+    private el!: HTMLTextAreaElement;
+    constructor(public opts: { groupId: string }) {}
     mount(parent: HTMLElement) {
-      const el = document.createElement("div");
-      el.className = "pn-notes-tab";
+      const wrap = document.createElement("div");
+      wrap.className = "pn-notes-tab";
+      wrap.dataset.group = this.opts.groupId;
       // Stands in for the composer, so a test can prove the draft survives.
-      el.innerHTML = `<textarea class="pn-note-input"></textarea>`;
-      parent.appendChild(el);
+      wrap.innerHTML = `<textarea class="pn-note-input"></textarea>`;
+      this.el = wrap.querySelector("textarea")!;
+      parent.appendChild(wrap);
       return this;
     }
+    get draft() { return this.el.value; }
+    set draft(v: string) { this.el.value = v; }
   },
 }));
 
@@ -120,6 +126,32 @@ describe("ProjectNotesPanel", () => {
     const hosts = Array.from(host.querySelectorAll(".pn-tabhost")) as HTMLElement[];
     expect(hosts.length).toBe(2); // commands (default) + notes
     expect(hosts.filter((h) => !h.hidden).length).toBe(1);
+  });
+
+  it("follows a group switch: retitles, rebuilds the tab, carries the draft", () => {
+    const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "G1" }).mount(host);
+    p.switchTab("notes");
+    expect((host.querySelector(".pn-notes-tab") as HTMLElement).dataset.group).toBe("g1");
+    (host.querySelector(".pn-note-input") as HTMLTextAreaElement).value = "half-written";
+
+    p.setGroup("g2", "MOTOR-LOYALTY", "#ff0000");
+    expect(p.groupId).toBe("g2");
+    expect(host.querySelector(".rail-title-label")?.textContent).toBe("MOTOR-LOYALTY");
+    // Rebuilt against the new group — one tab host, pointed at g2.
+    const tabs = host.querySelectorAll(".pn-notes-tab");
+    expect(tabs.length).toBe(1);
+    expect((tabs[0] as HTMLElement).dataset.group).toBe("g2");
+    // The draft came along rather than being dropped on the floor.
+    expect((host.querySelector(".pn-note-input") as HTMLTextAreaElement).value).toBe("half-written");
+  });
+
+  it("re-pointing at the same group keeps the tab instance", () => {
+    const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "G1" }).mount(host);
+    p.switchTab("notes");
+    const before = host.querySelector(".pn-notes-tab");
+    p.setGroup("g1", "G1 RENAMED", null);
+    expect(host.querySelector(".pn-notes-tab")).toBe(before);
+    expect(host.querySelector(".rail-title-label")?.textContent).toBe("G1 RENAMED");
   });
 
   it("flushes the body padding for all tabs", () => {

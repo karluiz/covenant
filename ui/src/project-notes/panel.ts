@@ -50,6 +50,11 @@ export class ProjectNotesPanel {
   private expandRoot: HTMLElement | null = null;
   private tabHosts: Partial<Record<PanelTab, HTMLElement>> = {};
   private tabViews: Partial<Record<PanelTab, { refresh?(): unknown }>> = {};
+  private dot!: HTMLElement;
+  private titleLabel!: HTMLElement;
+  /** A composer draft rescued across a group switch, applied when the notes
+   *  tab is next built. */
+  private carriedDraft = "";
 
   constructor(private opts: PanelOpts) {
     this.currentTab = opts.defaultTab ?? readLastTab(opts.groupId);
@@ -79,9 +84,11 @@ export class ProjectNotesPanel {
     dot.setAttribute("aria-hidden", "true");
     // The dot carries the per-group accent color (was the title dot before).
     if (opts.groupColor) dot.style.background = opts.groupColor;
+    this.dot = dot;
     const titleLabel = document.createElement("span");
     titleLabel.className = "rail-title-label";
     titleLabel.textContent = opts.groupLabel;
+    this.titleLabel = titleLabel;
     titleEl.appendChild(dot);
     titleEl.appendChild(titleLabel);
 
@@ -142,6 +149,41 @@ export class ProjectNotesPanel {
     this.currentTab = tab;
     writeLastTab(this.opts.groupId, tab);
     this.updateTabUI();
+  }
+
+  /** Re-point the panel at another group. Called when the active tab moves to a
+   *  different group: the panel is "this project's notes", so it has to follow
+   *  the project, or you write notes into whichever group happened to be active
+   *  when you opened it. */
+  setGroup(
+    groupId: string,
+    groupLabel: string,
+    groupColor: string | null,
+    groupRootDir?: string | null,
+  ): void {
+    const same = groupId === this.opts.groupId;
+    this.opts = { ...this.opts, groupId, groupLabel, groupColor, groupRootDir };
+    this.titleLabel.textContent = groupLabel;
+    this.dot.style.background = groupColor ?? "";
+    if (groupColor) this.root.style.setProperty("--pn-accent", groupColor);
+    this.root.setAttribute("aria-label", `Project Notes — ${groupLabel}`);
+    if (same) return;
+
+    // Carry the draft over rather than dropping it: it is text you are still
+    // writing, and the group switch may well have been incidental.
+    const notes = this.tabViews.notes as { draft?: string } | undefined;
+    this.carriedDraft = notes?.draft ?? "";
+
+    // Every tab's contents are group-scoped, so the whole cache is stale.
+    for (const host of Object.values(this.tabHosts)) host?.remove();
+    this.tabHosts = {};
+    this.tabViews = {};
+    this.updateTabUI();
+    // The cockpit's sections are cached the same way; rebuild it in place.
+    if (this.expandRoot) {
+      this.collapseExpanded();
+      this.openExpanded();
+    }
   }
 
   toggleFullscreen(): void {
@@ -296,11 +338,16 @@ export class ProjectNotesPanel {
     host.className = "pn-tabhost";
     this.body.appendChild(host);
     const opts = { groupId: this.opts.groupId };
-    this.tabViews[tab] =
+    const view =
       tab === "commands" ? new CommandsTab(opts).mount(host)
       : tab === "prompts" ? new PromptsTab(opts).mount(host)
       : new NotesTab(opts).mount(host);
+    this.tabViews[tab] = view;
     this.tabHosts[tab] = host;
+    if (tab === "notes" && this.carriedDraft) {
+      (view as { draft?: string }).draft = this.carriedDraft;
+      this.carriedDraft = "";
+    }
     return host;
   }
 

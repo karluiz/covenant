@@ -25,7 +25,11 @@ interface PendingDelete {
 
 export class NotesTab {
   private container: HTMLElement;
+  private composer!: HTMLElement;
   private input: HTMLTextAreaElement;
+  private preview!: HTMLElement;
+  private previewBtn!: HTMLButtonElement;
+  private previewing = false;
   private controls: HTMLElement;
   private filter: HTMLInputElement;
   private list: HTMLUListElement;
@@ -51,7 +55,11 @@ export class NotesTab {
     this.input.className = "pn-note-input";
     this.input.placeholder = `Write a note, ${formatChord(["mod", "enter"])} to save…`;
     this.input.rows = 1;
-    this.input.addEventListener("input", () => this.autosize());
+    this.input.addEventListener("input", () => {
+      this.autosize();
+      // The toggle only exists once there is something to preview.
+      this.previewBtn.hidden = !this.input.value.trim();
+    });
     this.input.addEventListener("keydown", (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
@@ -63,6 +71,28 @@ export class NotesTab {
         this.input.blur();
       }
     });
+
+    // Preview renders the draft through the same renderer and the same
+    // `.pn-note-body` treatment a saved row uses, so it cannot disagree with
+    // what saving produces.
+    this.preview = document.createElement("div");
+    // `pn-md` carries the rail-tight markdown treatment the saved rows use —
+    // shared class, not shared identity, so the preview is never mistaken for a
+    // note row.
+    this.preview.className = "pn-note-preview pn-md markdown-doc";
+    this.preview.hidden = true;
+    this.preview.addEventListener("click", () => this.setPreview(false));
+
+    this.previewBtn = document.createElement("button");
+    this.previewBtn.type = "button";
+    this.previewBtn.className = "pn-note-preview-toggle";
+    this.previewBtn.textContent = "Preview";
+    this.previewBtn.hidden = true;
+    this.previewBtn.addEventListener("click", () => this.setPreview(!this.previewing));
+
+    this.composer = document.createElement("div");
+    this.composer.className = "pn-note-composer";
+    this.composer.append(this.input, this.preview, this.previewBtn);
 
     this.controls = document.createElement("div");
     this.controls.className = "rail-controls pn-note-controls";
@@ -92,8 +122,22 @@ export class NotesTab {
     this.live.className = "pn-note-live";
     this.live.setAttribute("aria-live", "polite");
 
-    this.container.append(this.input, this.controls, this.list, this.more, this.live);
+    this.container.append(this.composer, this.controls, this.list, this.more, this.live);
     this.container.addEventListener("keydown", this.onKey);
+  }
+
+  private setPreview(on: boolean): void {
+    const draft = this.input.value.trim();
+    this.previewing = on && !!draft;
+    this.preview.hidden = !this.previewing;
+    this.input.hidden = this.previewing;
+    this.previewBtn.hidden = !draft;
+    this.previewBtn.textContent = this.previewing ? "Edit" : "Preview";
+    if (this.previewing) {
+      this.preview.innerHTML = renderMarkdown(this.input.value);
+    } else if (draft) {
+      this.input.focus();
+    }
   }
 
   /** Row grammar, borrowed from the command palette: the target is always the
@@ -102,6 +146,14 @@ export class NotesTab {
   private onKey = (e: KeyboardEvent): void => {
     const tag = (e.target as HTMLElement | null)?.tagName;
     const typing = tag === "TEXTAREA" || tag === "INPUT";
+
+    // While previewing the textarea is hidden, so ⌘↵ has to be caught here for
+    // the chord to keep working from the preview.
+    if (this.previewing && modHeld(e) && e.key === "Enter") {
+      e.preventDefault();
+      void this.append();
+      return;
+    }
 
     if (modHeld(e) && !e.shiftKey && (e.key === "f" || e.key === "F")) {
       e.preventDefault();
@@ -202,6 +254,17 @@ export class NotesTab {
     return this;
   }
 
+  /** The composer's current text. Read/written by the panel so a draft
+   *  survives the list being rebuilt for another group. */
+  get draft(): string {
+    return this.input.value;
+  }
+  set draft(v: string) {
+    this.input.value = v;
+    this.autosize();
+    this.previewBtn.hidden = !v.trim();
+  }
+
   async refresh(): Promise<void> {
     const snap = await projectNotesApi.snapshot(this.hooks.groupId);
     this.notes = snap.notes;
@@ -226,6 +289,7 @@ export class NotesTab {
     const draft = this.input.value;
     this.input.value = "";
     this.autosize();
+    this.setPreview(false);
     try {
       const created = await projectNotesApi.appendNote(this.hooks.groupId, body);
       // Optimistic insert — a full snapshot refetch here rebuilt every row and
@@ -237,6 +301,7 @@ export class NotesTab {
     } catch (err) {
       this.input.value = draft;
       this.autosize();
+      this.previewBtn.hidden = false;
       console.error("note append failed", err);
     }
   }
@@ -431,7 +496,7 @@ export class NotesTab {
         <span class="rail-meta pn-note-stamp"></span>
       </div>
       <div class="pn-note-title"></div>
-      <div class="pn-note-body markdown-doc"></div>
+      <div class="pn-note-body pn-md markdown-doc"></div>
       <button class="pn-note-fold" type="button"></button>
       <div class="rail-row-actions">
         <button class="rail-row-action pn-note-pin" aria-label="${n.pinned ? "Unpin note" : "Pin note"}">${Icons.pin({ size: 13 })}</button>
@@ -443,7 +508,9 @@ export class NotesTab {
       formatStamp(n.created_at_unix_ms);
 
     const titleEl = li.querySelector(".pn-note-title") as HTMLElement;
-    if (title) titleEl.textContent = title;
+    // Through the renderer too, or a title carrying `code` or **bold** shows
+    // its markers raw. CSS flattens the wrapping <p>.
+    if (title) titleEl.innerHTML = renderMarkdown(title);
     else titleEl.remove();
 
     const bodyEl = li.querySelector(".pn-note-body") as HTMLElement;
