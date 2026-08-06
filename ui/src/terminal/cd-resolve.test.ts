@@ -1,13 +1,48 @@
 import { describe, it, expect } from "vitest";
-import { homeFromCwd, resolveCdArg, filterDirs, parseCdLine } from "./cd-resolve";
+import { homeFromCwd, resolveCdArg, filterDirs, parsePathLine, frecency } from "./cd-resolve";
 import type { DirEntry } from "../api";
 
-describe("parseCdLine", () => {
-  it("bare 'cd ' (trailing space) triggers with empty arg", () => expect(parseCdLine("cd ")).toBe(""));
-  it("captures the path arg", () => expect(parseCdLine("cd src/comp")).toBe("src/comp"));
-  it("'cd' without a space is not a trigger", () => expect(parseCdLine("cd")).toBeNull());
-  it("does not match other commands starting with cd", () => expect(parseCdLine("cdk deploy")).toBeNull());
-  it("non-cd line is null", () => expect(parseCdLine("ls -la")).toBeNull());
+describe("parsePathLine", () => {
+  const arg = (l: string): string | null => parsePathLine(l)?.arg ?? null;
+
+  it("bare 'cd ' (trailing space) triggers with empty arg", () => expect(arg("cd ")).toBe(""));
+  it("captures the path arg", () => expect(arg("cd src/comp")).toBe("src/comp"));
+  it("'cd' without a space is not a trigger", () => expect(parsePathLine("cd")).toBeNull());
+  it("does not match other commands starting with cd", () => expect(parsePathLine("cdk deploy")).toBeNull());
+  it("an unlisted verb is null", () => expect(parsePathLine("git status")).toBeNull());
+
+  it("completes the LAST token, keeping the rest of the line", () => {
+    expect(parsePathLine("cp src/a dst/b")).toEqual({
+      arg: "dst/b",
+      linePrefix: "cp src/a ",
+      dirsOnly: false,
+    });
+  });
+  it("a flag is not a path", () => expect(parsePathLine("ls -la")).toBeNull());
+  it("flags before the path don't block it", () =>
+    expect(parsePathLine("ls -la src/")).toMatchObject({ arg: "src/", linePrefix: "ls -la " }));
+  it("an escaped space is one token, unescaped for matching", () =>
+    expect(parsePathLine("cd my\\ dir")).toEqual({
+      arg: "my dir",
+      linePrefix: "cd ",
+      dirsOnly: true,
+    }));
+  it("cd wants directories, cat does not", () => {
+    expect(parsePathLine("cd x")?.dirsOnly).toBe(true);
+    expect(parsePathLine("cat x")?.dirsOnly).toBe(false);
+  });
+});
+
+describe("frecency", () => {
+  const NOW = 1_700_000_000_000;
+  const hAgo = (h: number): number => NOW - h * 3_600_000;
+
+  it("recent beats often-but-old", () =>
+    expect(frecency(1, hAgo(0.5), NOW)).toBeGreaterThan(frecency(3, hAgo(200), NOW)));
+  it("count breaks ties inside a bucket", () =>
+    expect(frecency(5, hAgo(2), NOW)).toBeGreaterThan(frecency(1, hAgo(3), NOW)));
+  it("a future timestamp doesn't blow up the weight", () =>
+    expect(frecency(1, NOW + 10_000, NOW)).toBe(4));
 });
 
 const dir = (name: string): DirEntry => ({ name, path: `/x/${name}`, kind: "dir", is_symlink: false });
@@ -48,4 +83,19 @@ describe("filterDirs", () => {
   });
   it("non-matching names are still dropped", () =>
     expect(filterDirs(entries, "zzz")).toEqual([]));
+  it("dirsOnly: false keeps files", () =>
+    expect(filterDirs(entries, "app", { dirsOnly: false }).map((e) => e.name)).toEqual([
+      "Apps", "apple", "app.txt",
+    ]));
+  it("rank orders within a match group, never across it", () => {
+    const es = [dir("apps"), dir("api"), dir("legacy-app")];
+    const score = new Map([["legacy-app", 99], ["api", 5]]);
+    expect(
+      filterDirs(es, "ap", { rank: (e) => score.get(e.name) ?? 0 }).map((e) => e.name),
+    ).toEqual([
+      "api", // prefix match, ranked 5
+      "apps", // prefix match, unranked
+      "legacy-app", // mid-name: frecency 99 still can't jump a prefix hit
+    ]);
+  });
 });

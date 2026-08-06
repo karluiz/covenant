@@ -2584,6 +2584,18 @@ async fn write_text_file(path: String, contents: String) -> Result<(), String> {
 /// Empty query → most-recent distinct commands. `cwd` is optional;
 /// when provided, commands previously run there get a score boost.
 #[tauri::command]
+async fn recent_cwds(
+    state: State<'_, AppState>,
+    limit: u32,
+) -> Result<Vec<storage::CwdVisit>, String> {
+    state
+        .storage
+        .recent_cwds(limit.clamp(1, 500))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn recall_search(
     state: State<'_, AppState>,
     query: String,
@@ -6124,6 +6136,7 @@ pub fn run() {
             get_blocked_session_ids,
             submit_convergence_reply,
             recall_search,
+            recent_cwds,
             zsh_autosuggestions_status,
             tab_manifest_load,
             tab_manifest_save,

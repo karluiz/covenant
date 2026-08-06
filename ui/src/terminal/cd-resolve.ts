@@ -1,13 +1,67 @@
 import type { DirEntry } from "../api";
 
 /**
- * Parse a shell line into the `cd` argument, or null if it isn't a `cd`
- * command. Must run on the RAW (untrimmed) line: `cd ` (trailing space) is
- * the browse-current-dir trigger and yields "". `cd`/`cdk deploy` → null.
+ * Verbs whose path argument is worth completing, and whether only directories
+ * make sense. Kept short on purpose — adding one is a one-line edit, and a verb
+ * that shouldn't be here is a wrong completion on every keystroke.
+ *
+ * `rm`/`mv` are safe to list because the picker *inserts* the path and never
+ * runs the line; the user still presses Return themselves.
  */
-export function parseCdLine(line: string): string | null {
-  const m = /^cd\s+(.*)$/s.exec(line);
-  return m ? m[1] : null;
+const VERBS: Record<string, { dirsOnly: boolean }> = {
+  cd: { dirsOnly: true },
+  pushd: { dirsOnly: true },
+  rmdir: { dirsOnly: true },
+  ls: { dirsOnly: false },
+  cat: { dirsOnly: false },
+  less: { dirsOnly: false },
+  head: { dirsOnly: false },
+  tail: { dirsOnly: false },
+  open: { dirsOnly: false },
+  code: { dirsOnly: false },
+  vim: { dirsOnly: false },
+  nvim: { dirsOnly: false },
+  source: { dirsOnly: false },
+  cp: { dirsOnly: false },
+  mv: { dirsOnly: false },
+  rm: { dirsOnly: false },
+};
+
+export interface PathArg {
+  /** The token being typed — what resolves to listDir + prefix. */
+  arg: string;
+  /** Everything before it, verbatim. select() retypes the line from this. */
+  linePrefix: string;
+  dirsOnly: boolean;
+}
+
+/**
+ * Parse a shell line into the path token under the cursor, or null when the
+ * line isn't a completable verb. Must run on the RAW (untrimmed) line:
+ * `cd ` (trailing space) is the browse-current-dir trigger and yields "".
+ *
+ * Only the LAST token is the candidate, so `cp a b` completes `b` and leaves
+ * `cp a ` alone. Splitting is on unescaped whitespace — `cd my\ dir` is one
+ * token, which is also what the shell thinks.
+ */
+export function parsePathLine(line: string): PathArg | null {
+  const m = /^([a-z_.][\w.-]*)\s+(.*)$/is.exec(line);
+  if (!m) return null; // no verb, or no space after it (`cd`, `cdk`)
+  const verb = VERBS[m[1]];
+  if (!verb) return null;
+  const rest = m[2];
+  // Start of the last token: after the final unescaped whitespace run.
+  const lastSep = /(?:^|[^\\])\s+(?=\S*$)/.exec(rest);
+  const argStart = lastSep ? lastSep.index + lastSep[0].length : 0;
+  const raw = rest.slice(argStart);
+  if (raw.startsWith("-")) return null; // a flag, not a path
+  return {
+    // Unescape so the token matches the real filesystem name: the user typed
+    // `my\ dir`, the directory is called `my dir`.
+    arg: raw.replace(/\\(.)/g, "$1"),
+    linePrefix: line.slice(0, line.length - rest.length + argStart),
+    dirsOnly: verb.dirsOnly,
+  };
 }
 
 /** Derive the home dir from a cwd under /Users/<n> or /home/<n>. No $HOME env on the frontend. */
@@ -61,18 +115,40 @@ export function resolveCdArg(
  * prefix-only, `soporte-ti-knowledgebase` was unreachable from "knowledge",
  * so you had to remember how a name *starts* to find it at all.
  */
-export function filterDirs(entries: DirEntry[], prefix: string): DirEntry[] {
-  const dirs = entries.filter((e) => e.kind === "dir");
+export function filterDirs(
+  entries: DirEntry[],
+  prefix: string,
+  opts?: { dirsOnly?: boolean; rank?: (e: DirEntry) => number },
+): DirEntry[] {
+  const dirsOnly = opts?.dirsOnly ?? true;
+  const pool = dirsOnly ? entries.filter((e) => e.kind === "dir") : entries;
   const p = prefix.toLowerCase();
-  if (!p) return dirs;
   const head: DirEntry[] = [];
   const mid: DirEntry[] = [];
-  for (const e of dirs) {
-    const at = e.name.toLowerCase().indexOf(p);
+  for (const e of pool) {
+    const at = p ? e.name.toLowerCase().indexOf(p) : 0;
     if (at === 0) head.push(e);
     else if (at > 0) mid.push(e);
   }
+  // Frecency orders WITHIN each group, never across it: a prefix match is a
+  // stronger statement of intent than "you were there yesterday", and a
+  // frecency-first list would reorder under the user mid-keystroke.
+  if (opts?.rank) {
+    const by = (a: DirEntry, b: DirEntry): number => opts.rank!(b) - opts.rank!(a);
+    head.sort(by);
+    mid.sort(by);
+  }
   return [...head, ...mid];
+}
+
+/**
+ * zoxide-style frecency: visit count discounted by how long ago. Buckets, not a
+ * curve — the exact shape doesn't matter, only that today beats last month.
+ */
+export function frecency(count: number, lastUsedMs: number, nowMs: number): number {
+  const hours = Math.max(0, nowMs - lastUsedMs) / 3_600_000;
+  const weight = hours < 1 ? 4 : hours < 24 ? 2 : hours < 168 ? 0.5 : 0.25;
+  return count * weight;
 }
 
 /** Where `prefix` matches in `name`, or -1. Drives the rendered emphasis. */

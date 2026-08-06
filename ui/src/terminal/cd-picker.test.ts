@@ -4,12 +4,13 @@ import type { Terminal } from "@xterm/xterm";
 
 vi.mock("../api", () => ({
   structureListDir: vi.fn(),
+  recentCwds: vi.fn(async () => []),
 }));
 vi.mock("../icons", () => ({
-  Icons: { folder: () => "<svg></svg>" },
+  Icons: { folder: () => "<svg></svg>", fileText: () => "<svg></svg>" },
 }));
 
-import { structureListDir } from "../api";
+import { structureListDir, recentCwds } from "../api";
 
 const listDirMock = vi.mocked(structureListDir);
 
@@ -189,6 +190,59 @@ describe("cd-picker dismiss races", () => {
     const span = host.querySelector(".cd-picker-row span");
     expect(span?.textContent).toBe("<img src=x>");
     expect(span?.querySelector("img")).toBeNull(); // emphasis path must not parse HTML
+    picker.dispose();
+  });
+
+  it("completes a non-cd verb without clobbering the earlier args", async () => {
+    const picker = mountCdPicker(host, makeTerm(), hooks);
+    listDirMock.mockResolvedValue([
+      { name: "notes.md", path: "/x", kind: "file", is_symlink: false },
+    ] as Awaited<ReturnType<typeof structureListDir>>);
+    picker.update(true, "cp -r src/ note", "/Users/x/Sources");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(picker.visible).toBe(true); // a file is a candidate for `cp`
+
+    picker.handleKey("\t");
+    picker.handleKey("\r");
+    // earlier args survive, and a FILE gets no trailing slash
+    expect(written()[0]).toBe("\x15cp -r src/ /Users/x/Sources/notes.md");
+    expect(picker.visible).toBe(false); // a file is a terminal choice
+    picker.dispose();
+  });
+
+  it("`cd` never offers files, and an unlisted verb never opens", async () => {
+    const picker = mountCdPicker(host, makeTerm(), hooks);
+    listDirMock.mockResolvedValue([
+      { name: "notes.md", path: "/x", kind: "file", is_symlink: false },
+    ] as Awaited<ReturnType<typeof structureListDir>>);
+    picker.update(true, "cd note", "/Users/x/Sources");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(picker.visible).toBe(false);
+
+    picker.update(true, "git note", "/Users/x/Sources");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(picker.visible).toBe(false);
+    picker.dispose();
+  });
+
+  it("ranks the directory you actually work in above the alphabet", async () => {
+    vi.mocked(recentCwds).mockResolvedValue([
+      { path: "/Users/x/Sources/second", count: 40, last_used_unix_ms: Date.now() },
+    ]);
+    const picker = mountCdPicker(host, makeTerm(), hooks);
+    listDirMock.mockResolvedValue([
+      { name: "first", path: "/x", kind: "dir", is_symlink: false },
+      { name: "second", path: "/x", kind: "dir", is_symlink: false },
+    ] as Awaited<ReturnType<typeof structureListDir>>);
+
+    picker.update(true, "cd ", "/Users/x/Sources"); // kicks off the visits fetch
+    await vi.advanceTimersByTimeAsync(0);
+    picker.update(true, "cd ", "/Users/x/Sources"); // re-filter with visits loaded
+    await vi.advanceTimersByTimeAsync(0);
+
+    const names = [...host.querySelectorAll(".cd-picker-row span")].map((n) => n.textContent);
+    expect(names).toEqual(["second", "first"]);
+    expect(vi.mocked(recentCwds).mock.calls.length).toBe(1); // fetched once, not per keystroke
     picker.dispose();
   });
 

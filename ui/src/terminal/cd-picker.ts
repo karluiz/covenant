@@ -1,7 +1,9 @@
 import type { Terminal } from "@xterm/xterm";
-import { structureListDir, type DirEntry } from "../api";
+import { structureListDir, recentCwds, type DirEntry } from "../api";
 import { Icons } from "../icons";
-import { homeFromCwd, resolveCdArg, filterDirs, matchAt, parseCdLine } from "./cd-resolve";
+import {
+  homeFromCwd, resolveCdArg, filterDirs, matchAt, parsePathLine, frecency,
+} from "./cd-resolve";
 
 // POSIX single-quote escaping: ' -> '\''
 export function shq(s: string): string {
@@ -78,6 +80,24 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   // so one IPC per directory level is enough; the rest filters locally, which
   // is what let the debounce go. Cleared on reset(), i.e. once per prompt.
   const listings = new Map<string, DirEntry[]>();
+  let dirsOnly = true; // the verb decides: `cd` wants directories, `cat` doesn't
+  let linePrefix = ""; // everything before the token — select() retypes from it
+  // path -> frecency, from the cwd of past blocks. Fetched once per app run:
+  // it only shifts as commands finish, and a stale row costs an ordering, not
+  // a wrong candidate. ponytail: refresh on reset() if that ever matters.
+  let visits: Map<string, number> | null = null;
+  const loadVisits = (): void => {
+    if (visits) return;
+    visits = new Map(); // set first: no second in-flight request while this one runs
+    void recentCwds(300)
+      .then((rows) => {
+        const now = Date.now();
+        visits = new Map(rows.map((r) => [r.path, frecency(r.count, r.last_used_unix_ms, now)]));
+      })
+      .catch(() => {}); // no history → alphabetical, which is what it was before
+  };
+  const rank = (e: DirEntry): number =>
+    visits?.get(`${listDirAbs.replace(/\/+$/, "")}/${e.name}`) ?? 0;
 
   const hide = (): void => {
     el.hidden = true;
@@ -100,7 +120,7 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
     entries.forEach((e, i) => {
       const row = document.createElement("div");
       row.className = "cd-picker-row" + (i === active ? " is-active" : "");
-      row.innerHTML = Icons.folder({ size: 14 });
+      row.innerHTML = e.kind === "dir" ? Icons.folder({ size: 14 }) : Icons.fileText({ size: 14 });
       const span = document.createElement("span");
       // Emphasize the matched run so you can see WHY a row matched and what is
       // left to type. Still built from text nodes, never innerHTML: a directory
@@ -191,7 +211,8 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
     const all = listings.get(listDir);
     if (!all) { runQuery(listDir, prefix); return; }
     matchPrefix = prefix;
-    entries = filterDirs(all, prefix);
+    listDirAbs = listDir; // rank() resolves candidates against it — set before filtering
+    entries = filterDirs(all, prefix, { dirsOnly, rank });
     active = armed && entries.length > 0 ? 0 : -1;
     if (entries.length === 0) { hide(); return; }
     render(listDir);
@@ -206,13 +227,20 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
     // Emit the RESOLVED ABSOLUTE path, backslash-escaped, so filesystem names
     // with shell metacharacters/spaces can't inject or split args.
     const target = `${listDirAbs.replace(/\/+$/, "")}/${e.name}`; // root "/" stays "/etc" etc.
-    const seq = `\x15cd ${shesc(target)}/`; // ^U kill line, retype canonical cd — no newline
+    // Retype the line from its own prefix, replacing only the token being
+    // completed — so `cp a b` keeps `cp a ` and other verbs work at all. A
+    // directory gets the trailing slash that makes the next query its children;
+    // a file is a terminal choice.
+    const isDir = e.kind === "dir";
+    const seq = `\x15${linePrefix}${shesc(target)}${isDir ? "/" : ""}`; // ^U kill line — no newline
     hooks.writeBytes(enc.encode(seq));
     hooks.syncRecall(seq);
-    // Disarm: the line now reads `cd <target>/`, so Return belongs to the
-    // shell again. Re-list from the new directory ourselves — the synthetic
-    // write above never passes through onData, so no update() is coming.
+    // Disarm: the line now names the target, so Return belongs to the shell
+    // again. Re-list from the new directory ourselves — the synthetic write
+    // above never passes through onData, so no update() is coming.
     armed = false;
+    if (!isDir) { hide(); return; }
+    linePrefix = seq.slice(1); // the next token starts after what we just typed
     show(target, "");
   };
 
@@ -240,10 +268,13 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   return {
     get visible() { return visible; },
     update(bare, line, cwd): void {
-      const arg = bare ? parseCdLine(line) : null;
-      if (arg === null) { cancel(); if (visible) hide(); return; }
+      const parsed = bare ? parsePathLine(line) : null;
+      if (!parsed) { cancel(); if (visible) hide(); return; }
+      loadVisits();
+      dirsOnly = parsed.dirsOnly;
+      linePrefix = parsed.linePrefix;
       homeAbs = homeFromCwd(cwd);
-      const resolved = resolveCdArg(arg, cwd, homeAbs);
+      const resolved = resolveCdArg(parsed.arg, cwd, homeAbs);
       if (!resolved) { cancel(); if (visible) hide(); return; }
       show(resolved.listDir, resolved.prefix); // cached dir → instant, no IPC
     },
