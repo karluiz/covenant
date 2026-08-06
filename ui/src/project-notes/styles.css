@@ -200,7 +200,9 @@ body.tabbar-left .pn-panel {
 }
 .pn-note-preview-toggle:hover { color: var(--fg); }
 .pn-note-preview-toggle[hidden] { display: none; }
-.pn-note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+/* margin-top: the composer above only has a top margin, so without this the
+   first day label butts straight against the input box. */
+.pn-note-list { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; }
 /* Not sticky: a pinned divider is only ~30px while a note row is much taller,
    so scrolling slid rows under it and left a bald strip of covered text. The
    rail is short enough that day labels don't need to follow the scroll. */
