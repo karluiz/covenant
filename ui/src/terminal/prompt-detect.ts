@@ -77,8 +77,13 @@ export function mountPromptHint(host: HTMLElement, term: Terminal): PromptHint {
     })._core;
     const cellH = core?._renderService?.dimensions?.css?.cell?.height ?? 17;
     const cy = term.buffer.active.cursorY;
-    el.style.top = `${(cy + 1) * cellH + 4}px`;
-    el.style.left = `8px`;
+    // The terminal's inset lives on the `.xterm` child, not on host
+    // (`.tab-terminal` is padding: 0) — rows start `padTop` below y=0. The
+    // hardcoded 8px used for `left` was the same number, guessed.
+    const pad = getComputedStyle(host.querySelector(".xterm") ?? host);
+    const padTop = parseFloat(pad.paddingTop) || 0;
+    el.style.top = `${padTop + (cy + 1) * cellH + 4}px`; // +4: gap under the line
+    el.style.left = `${parseFloat(pad.paddingLeft) || 0}px`;
   };
 
   return {

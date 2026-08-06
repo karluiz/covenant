@@ -74,6 +74,21 @@ describe("mountPromptHint", () => {
     expect(host.querySelector(".prompt-hint")).toBeNull();
   });
 
+  it("anchors below the input line — the inset lives on .xterm, not on host", () => {
+    const host = document.createElement("div");
+    const xterm = document.createElement("div");
+    xterm.className = "xterm";
+    xterm.style.padding = "8px";
+    host.appendChild(xterm);
+    const hint = mountPromptHint(host, fakeTerm());
+    hint.update(true, "how to reload env");
+    const el = host.querySelector(".prompt-hint") as HTMLElement;
+    // padTop(8) + (cursorY 0 + 1) * cellH(17) + 4 gap; the old fudge gave 21
+    expect(el.style.top).toBe("29px");
+    expect(el.style.left).toBe("8px");
+    hint.dispose();
+  });
+
   it("override() hides and sets overridden; reset() clears it", () => {
     const host = document.createElement("div");
     const hint = mountPromptHint(host, fakeTerm());
