@@ -6,6 +6,86 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.34 — Read-write terminal share, weighted evals, Notes rebuild
+
+### Added
+
+- **Collaborative terminal share (read-write)**: a shared terminal can now
+  hand the keyboard to a guest. The owner grants driver rights from a toast,
+  a remote-driver chip marks the pane being driven, and a roster badge counts
+  who is present. Guest input passes a per-line blocklist gate before it
+  reaches the PTY, and the owner always wins a contested grant.
+  `crates/app/src/rc_agent.rs`, `crates/app/src/rc_guest.rs`,
+  `ui/src/term-share/`.
+- **Weighted eval criteria**: evals score against named, weighted criteria
+  instead of one flat rubric, with per-criterion fields on each record
+  (serde back-compat for legacy rubrics), a criteria-aware baseline cache,
+  and total/baseline/lift in the case detail plus aggregate chips. Per-case
+  retry included. `crates/app/src/canon_eval.rs`,
+  `ui/src/canon/evals-cockpit.ts`.
+- **Canon unit lint + LLM review**: a static lint with actionable findings
+  plus an LLM review section in the cockpit's manage view, so a unit can be
+  checked before it ships.
+- **Eval scores on the registry**: package cards carry an eval score and
+  lift, the publish payload includes the aggregate, and a per-run unit
+  content hash drives an `evals_fresh` staleness check that auto-runs a
+  stale eval before publishing.
+- **Notes rebuild**: the Project panel's Notes tab was rebuilt end to end.
+  The composer grows with the draft and caps at a third of the viewport (it
+  shipped at two rows with a drag handle and no ceiling, which swallowed the
+  list); bodies render through the shared markdown renderer with a fold
+  instead of a dead three-line clamp; delete leaves a six-second undo strip
+  instead of going straight to SQLite; a filter and `Load older` reach notes
+  past the first page of fifty; titles are derived from the first line; notes
+  can be pinned; the command palette's row grammar (`↑↓`, `⌘E`, `⌘⌫`,
+  `⌘⇧P`, `⌘F`) acts on the row under the cursor; a note can be withheld from
+  executors so MCP `notes_read` skips it; and a note can be published
+  view-only, secret-masked on the way out. The panel now follows the active
+  tab's group instead of staying pinned to whichever group was open when it
+  opened. `ui/src/project-notes/`, `crates/app/src/project_notes.rs`,
+  `crates/app/src/covenant_gist.rs`, `crates/app/src/mcp_server.rs`.
+- **@ mention picker rebuild**: real matches, room to read, reachable scopes
+  — a scope strip with counts plus field-aware spec matching.
+- **Row-scoped palette verbs**: create, rename and delete act on the row
+  under the cursor rather than an implicit target. `ui/src/workspaces/palette.ts`.
+- **Set spec picker redesign**: kind tabs, quieter badges, keyboard hints.
+- **Kimi Code as a Canon executor**, first-class alongside the existing
+  harnesses.
+- **OTLP endpoint setting** for OpenTelemetry export.
+
+### Changed
+
+- **Design docs for both large features**: the collaborative-terminal-share
+  spec and plan, and the tessl-style evals design and 14-task plan, are
+  committed under `docs/`.
+
+### Fixed
+
+- **Guest input hardening (`rc_guest`)**: `esc` no longer clears the scan
+  buffer, which closed an `esc`+`enter` resubmit bypass; a blocked line can
+  no longer be resubmitted; non-ASCII bytes are excluded from the blocklist
+  scan buffer; the `0x0f` submit key is handled; a poisoned lock recovers
+  instead of wedging; and blocked guest submits are recorded outside the
+  `rc_guest` lock. The accepted cursor/backspace under-track gap is now
+  named in the gate's own docs rather than implied to be covered.
+- **Collab requests could outlive their share**: requests are gated on a live
+  share, a wedged toast queue self-heals, concurrent guest control requests
+  queue instead of being dropped by a singleton confirm toast, and the driver
+  chip no longer renders on an inactive pane.
+- **`⌘⌥N` was inert**: `⌥N` is a dead key, so the chord has to be read from
+  `e.code`, not `e.key`.
+- **Canon lint rendered nonsense errors** for MCP and spec units.
+- **Evals**: publish no longer auto-runs while a run is in flight, the eval
+  manager preserves weighted criteria on Save, and the draft drawer's write
+  path preserves rubric edits.
+- **Rail render fixes in Notes**: code blocks overflowed the panel (the
+  shared `.markdown-doc` treatment is tuned for a full-page reader), the
+  sticky day divider left a bald strip of covered text while scrolling, and
+  row actions reserved an 82px column for buttons that only appear on hover.
+- **Mention scope strip bled into the list** when it wrapped.
+- **Telegram status chip opened Providers** instead of the Telegram tab.
+- **Context-menu shadow in light theme** dropped.
+
 ## v0.11.33 — Continue with… context handoff + fixes
 
 ### Added
