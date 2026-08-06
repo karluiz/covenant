@@ -1,13 +1,28 @@
 import type { Terminal } from "@xterm/xterm";
 import { structureListDir, type DirEntry } from "../api";
 import { Icons } from "../icons";
-import { homeFromCwd, resolveCdArg, filterDirs, parseCdLine } from "./cd-resolve";
-
-const DEBOUNCE_MS = 120;
+import { homeFromCwd, resolveCdArg, filterDirs, matchAt, parseCdLine } from "./cd-resolve";
 
 // POSIX single-quote escaping: ' -> '\''
 export function shq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+// zsh's ZLE turns on application cursor keys (DECCKM), so xterm emits ESC O A/B
+// there and ESC [ A/B only in normal mode. Matching just one form meant the
+// arrow fell through to the shell, which cleared Recall's shadow buffer and
+// closed the picker — the keys it claims to own never reached it.
+const isUp = (d: string): boolean => d === "\x1b[A" || d === "\x1bOA";
+const isDown = (d: string): boolean => d === "\x1b[B" || d === "\x1bOB";
+
+/**
+ * Backslash-escape for a path the user will keep typing on. shq() can't be
+ * used for that: `cd '/a/b/'c` is broken quoting the moment another character
+ * lands after the closing quote, and the whole point of inserting a trailing
+ * slash is that the next keystroke continues the path.
+ */
+export function shesc(s: string): string {
+  return s.replace(/([^A-Za-z0-9_@%+=:,./-])/g, "\\$1");
 }
 
 export interface CdPicker {
@@ -30,6 +45,16 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   el.hidden = true;
   const header = document.createElement("div");
   header.className = "cd-picker-header";
+  // Three parts, built once: the directory in its real case, how many match,
+  // and which key does what. The old single line uppercased the whole thing —
+  // a path is a case-bearing identifier, so shouting it makes it unverifiable.
+  const hPath = document.createElement("span");
+  hPath.className = "cd-picker-path";
+  const hCount = document.createElement("span");
+  hCount.className = "cd-picker-count";
+  const hKeys = document.createElement("span");
+  hKeys.className = "cd-picker-keys";
+  header.append(hPath, hCount, hKeys);
   const list = document.createElement("div");
   list.className = "cd-picker-list";
   el.append(header, list);
@@ -38,30 +63,66 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   let visible = false;
   let listDirAbs = ""; // resolved absolute dir currently being listed
   let entries: DirEntry[] = [];
-  let active = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  // -1 = nothing selected. An unarmed picker must have no candidate: `cd ~`
+  // resolves to an empty prefix, and with active=0 its Return picked the first
+  // child of home instead of going home.
+  let active = -1;
+  // The picker only owns ↑/↓/⏎/Esc once the user reached for it (Tab or ↓).
+  // Until then it is informational and every key belongs to the shell — ↑ is
+  // history, ⏎ submits the line as typed.
+  let armed = false;
   let queryId = 0; // guards against out-of-order async results
+  let matchPrefix = ""; // what the user typed of the name — drives the emphasis
+  let homeAbs: string | null = null; // to render `~/x` instead of /Users/you/x
+  // listDir -> full readdir. Only the *prefix* changes while a path is typed,
+  // so one IPC per directory level is enough; the rest filters locally, which
+  // is what let the debounce go. Cleared on reset(), i.e. once per prompt.
+  const listings = new Map<string, DirEntry[]>();
 
   const hide = (): void => {
     el.hidden = true;
     visible = false;
     entries = [];
-    active = 0;
+    active = -1;
+    armed = false;
   };
+
+  /** `/Users/you/src` → `~/src`. Exact segment match only, so /Users/you2 stays. */
+  const tilde = (p: string): string =>
+    homeAbs && (p === homeAbs || p.startsWith(`${homeAbs}/`)) ? `~${p.slice(homeAbs.length)}` : p;
 
   const render = (listDir: string): void => {
     listDirAbs = listDir;
-    header.textContent = `CURRENT LOCATION · ${listDir}`;
+    hPath.textContent = tilde(listDir);
+    hCount.textContent = `${entries.length}`;
+    hKeys.textContent = armed ? "⏎ insert · esc cancel" : "tab to complete";
     list.innerHTML = "";
     entries.forEach((e, i) => {
       const row = document.createElement("div");
       row.className = "cd-picker-row" + (i === active ? " is-active" : "");
       row.innerHTML = Icons.folder({ size: 14 });
       const span = document.createElement("span");
-      span.textContent = e.name; // escape: a dir named `<foo>` must not parse as HTML
+      // Emphasize the matched run so you can see WHY a row matched and what is
+      // left to type. Still built from text nodes, never innerHTML: a directory
+      // named `<foo>` must not parse as markup.
+      const at = matchAt(e.name, matchPrefix);
+      if (at < 0) {
+        span.textContent = e.name;
+      } else {
+        const hit = document.createElement("b");
+        hit.textContent = e.name.slice(at, at + matchPrefix.length);
+        span.append(
+          document.createTextNode(e.name.slice(0, at)),
+          hit,
+          document.createTextNode(e.name.slice(at + matchPrefix.length)),
+        );
+      }
       row.appendChild(span);
+      // Only track hover once armed. Highlighting a row the unarmed picker
+      // won't act on is a lie — and arming on hover would let a mouse that
+      // happens to rest here change what Return does.
       row.addEventListener("mousemove", () => {
-        if (active !== i) { active = i; paint(); }
+        if (armed && active !== i) { active = i; paint(); }
       });
       row.addEventListener("mousedown", (ev) => { ev.preventDefault(); select(); });
       list.appendChild(row);
@@ -78,13 +139,28 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
     // prompt-detect.ts uses — host.clientHeight/term.rows drifts from the
     // real row height and misaligns the picker over multiple rows.
     const core = (term as unknown as {
-      _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } };
+      _core?: {
+        _renderService?: { dimensions?: { css?: { cell?: { height?: number; width?: number } } } };
+      };
     })._core;
-    const cellH = core?._renderService?.dimensions?.css?.cell?.height ?? host.clientHeight / term.rows;
-    // host has padding, and absolutely-positioned children anchor to the
-    // padding box — so xterm's actual rows start `padTop` below y=0.
-    const padTop = parseFloat(getComputedStyle(host).paddingTop) || 0;
+    const cell = core?._renderService?.dimensions?.css?.cell;
+    const cellH = cell?.height ?? host.clientHeight / term.rows;
+    // The terminal's 8px inset lives on the `.xterm` child, not on host
+    // (`.tab-terminal` is padding: 0). Read it there — reading host gave 0
+    // and the picker landed 8px high, clipping the input line it must clear.
+    const pad = getComputedStyle(host.querySelector(".xterm") ?? host);
+    const padTop = parseFloat(pad.paddingTop) || 0;
     const cursorY = term.buffer.active.cursorY; // 0-based row within viewport
+
+    // Anchor left to the start of the name being typed, not to the pane edge:
+    // edge-to-edge gave a 60px folder name the visual weight of a dialog. The
+    // element sizes to content (CSS), so clamp against its measured width.
+    const cellW = cell?.width ?? 8;
+    const padLeft = parseFloat(pad.paddingLeft) || 0;
+    const nameStart = Math.max(0, term.buffer.active.cursorX - matchPrefix.length);
+    const wanted = padLeft + nameStart * cellW;
+    const room = host.clientWidth - el.offsetWidth - padLeft;
+    el.style.left = `${Math.max(padLeft, Math.min(wanted, Math.max(padLeft, room)))}px`;
     const lineBottom = padTop + (cursorY + 1) * cellH; // px to bottom of the input line
     const below = host.clientHeight - lineBottom;
     const maxH = Math.round(host.clientHeight * 0.4);
@@ -100,19 +176,44 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   };
 
   const paint = (): void => {
-    [...list.children].forEach((c, i) => c.classList.toggle("is-active", i === active));
+    hKeys.textContent = armed ? "⏎ insert · esc cancel" : "tab to complete"; // arming changes the legend
+    el.classList.toggle("is-armed", armed); // accent stripe: whose keys these are, at a glance
+    [...list.children].forEach((c, i) => {
+      c.classList.toggle("is-active", i === active);
+      // list scrolls (maxHeight 40% of the pane); keep the cursor on screen.
+      // Optional call: jsdom has no scrollIntoView.
+      if (i === active) (c as HTMLElement).scrollIntoView?.({ block: "nearest" });
+    });
   };
 
+  /** Filter a cached listing and render, or hide when nothing matches. */
+  const show = (listDir: string, prefix: string): void => {
+    const all = listings.get(listDir);
+    if (!all) { runQuery(listDir, prefix); return; }
+    matchPrefix = prefix;
+    entries = filterDirs(all, prefix);
+    active = armed && entries.length > 0 ? 0 : -1;
+    if (entries.length === 0) { hide(); return; }
+    render(listDir);
+  };
+
+  // Insert the path, don't run it: the user still owns Return. A trailing
+  // slash means the very next query lists the children, so drilling into
+  // a/b/c is one keystroke per level instead of one command per level.
   const select = (): void => {
     const e = entries[active];
     if (!e) return;
-    // Emit the RESOLVED ABSOLUTE path, single-quoted, so filesystem names
+    // Emit the RESOLVED ABSOLUTE path, backslash-escaped, so filesystem names
     // with shell metacharacters/spaces can't inject or split args.
     const target = `${listDirAbs.replace(/\/+$/, "")}/${e.name}`; // root "/" stays "/etc" etc.
-    const seq = `\x15cd ${shq(target)}\n`; // ^U kill line, retype canonical cd, run
+    const seq = `\x15cd ${shesc(target)}/`; // ^U kill line, retype canonical cd — no newline
     hooks.writeBytes(enc.encode(seq));
     hooks.syncRecall(seq);
-    reset();
+    // Disarm: the line now reads `cd <target>/`, so Return belongs to the
+    // shell again. Re-list from the new directory ourselves — the synthetic
+    // write above never passes through onData, so no update() is coming.
+    armed = false;
+    show(target, "");
   };
 
   const runQuery = (listDir: string, prefix: string): void => {
@@ -120,21 +221,19 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
     void structureListDir(listDir, true) // showIgnored: dotfiles are valid cd targets
       .then((all) => {
         if (id !== queryId) return; // a newer keystroke superseded this
-        entries = filterDirs(all, prefix);
-        active = 0;
-        if (entries.length === 0) { hide(); return; }
-        render(listDir);
+        listings.set(listDir, all);
+        show(listDir, prefix);
       })
       .catch(() => { if (id === queryId) hide(); }); // bad/partial path → silent hide
   };
 
   const cancel = (): void => {
-    if (timer) { clearTimeout(timer); timer = null; }
     queryId++; // invalidate any in-flight async query
   };
 
   const reset = (): void => {
     cancel();
+    listings.clear(); // a new prompt may see a changed filesystem
     hide();
   };
 
@@ -143,19 +242,36 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
     update(bare, line, cwd): void {
       const arg = bare ? parseCdLine(line) : null;
       if (arg === null) { cancel(); if (visible) hide(); return; }
-      const resolved = resolveCdArg(arg, cwd, homeFromCwd(cwd));
+      homeAbs = homeFromCwd(cwd);
+      const resolved = resolveCdArg(arg, cwd, homeAbs);
       if (!resolved) { cancel(); if (visible) hide(); return; }
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => runQuery(resolved.listDir, resolved.prefix), DEBOUNCE_MS);
+      show(resolved.listDir, resolved.prefix); // cached dir → instant, no IPC
     },
     handleKey(data): boolean {
       if (!visible) return false;
-      if (data === "\x1b[A") { active = Math.max(0, active - 1); paint(); return true; }
-      if (data === "\x1b[B") { active = Math.min(entries.length - 1, active + 1); paint(); return true; }
+      // ↓ and Tab are the two keys that already mean "complete this" — either
+      // one arms the picker. Everything else stays the shell's until then.
+      if (isDown(data)) {
+        if (!armed) { armed = true; active = 0; } else { active = Math.min(entries.length - 1, active + 1); }
+        paint();
+        return true;
+      }
+      if (data === "\t") {
+        if (!armed) { armed = true; active = 0; paint(); } else { select(); }
+        return true;
+      }
+      if (!armed) {
+        // The shell is about to replace the line from history — our candidate
+        // list describes a line that will no longer exist.
+        if (isUp(data)) hide();
+        // reset, not hide: an in-flight query would otherwise re-render the
+        // picker after the user dismissed it.
+        if (data === "\x1b") { reset(); return true; }
+        return false; // ↑ history, ⏎ submit, anything else: not ours
+      }
+      if (isUp(data)) { active = Math.max(0, active - 1); paint(); return true; }
       if (data === "\r") { select(); return true; }
-      // reset, not hide: a pending debounce timer or in-flight query would
-    // otherwise re-render the picker after the user dismissed it.
-    if (data === "\x1b") { reset(); return true; }
+      if (data === "\x1b") { armed = false; active = -1; paint(); return true; } // disarm; a second Esc dismisses
       return false;
     },
     reset,

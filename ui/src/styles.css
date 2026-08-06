@@ -2099,8 +2099,12 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
 .cd-picker[hidden] { display: none; }
 .cd-picker {
   position: absolute;
-  left: 0;
-  right: 0;
+  /* `left` is set from the cursor column in position(). Sizing to content
+     keeps a 60px folder name from getting the visual weight of a dialog,
+     which is what edge-to-edge (left:0;right:0) used to give it. */
+  width: max-content;
+  min-width: 260px;
+  max-width: min(520px, 82%);
   z-index: 7;
   pointer-events: auto;
   /* Header lives OUTSIDE the scrollport: sticky-in-scroller lags in
@@ -2121,14 +2125,33 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
 }
 .cd-picker-header {
   flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.45;
   padding: 4px 4px 8px;
   white-space: nowrap;
+}
+/* The path keeps its real case — it is an identifier, not a label. Only the
+   count and the key legend get the uppercase label treatment. */
+.cd-picker-path {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 11px;
+  opacity: 0.5;
+}
+.cd-picker-count {
+  flex: none;
+  opacity: 0.35;
+  font-variant-numeric: tabular-nums;
+}
+.cd-picker-keys {
+  flex: none;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.35;
 }
 .cd-picker-row {
   display: flex;
@@ -2140,8 +2163,15 @@ body:is(.sidebar-view-activity, .sidebar-view-teammate, .sidebar-view-tasker, .s
   white-space: nowrap;
 }
 .cd-picker-row svg { opacity: 0.7; flex: none; }
+/* The matched run — shows why a row matched and what is left to type. */
+.cd-picker-row b { font-weight: 600; color: var(--accent); }
 .cd-picker-row.is-active {
   background: rgb(var(--ink-rgb) / 0.1);
+}
+/* Armed = the picker owns ⏎/↑/↓. Say so on the selected row, so the state
+   isn't carried by the header legend alone. */
+.cd-picker.is-armed .cd-picker-row.is-active {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* ─── Block sidebar (per-tab) ──────────────────────── */
