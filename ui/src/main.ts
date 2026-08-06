@@ -1820,6 +1820,7 @@ async function boot(): Promise<void> {
     statusBar.setActiveTab(info);
     syncBrowserActive();
     syncPerGroupButtons();
+    syncProjectNotesGroup();
   };
   // Tell the vitals aggregator which session's snapshot should drive
   // the status-bar cluster. Other sessions' summariser / fix-proposer
@@ -1944,6 +1945,23 @@ async function boot(): Promise<void> {
   ): void {
     pendingNotesArgs = { groupId, groupLabel, groupColor, defaultTab: opts?.defaultTab };
     rail.open("notes");
+  }
+
+  /// The panel is "this project's notes", so it follows the active tab's group
+  /// instead of staying pinned to whichever group was active when it opened —
+  /// otherwise you end up writing notes into the wrong project. A tab with no
+  /// group leaves the panel where it is; blanking it would be worse than
+  /// showing the last project. `setGroup` no-ops when the group is unchanged.
+  function syncProjectNotesGroup(): void {
+    if (!activeProjectNotesPanel) return;
+    const g = manager.activeGroup();
+    if (!g) return;
+    activeProjectNotesPanel.setGroup(
+      g.id,
+      g.name,
+      g.color ?? null,
+      manager.groupRootDirFor(g.id),
+    );
   }
 
   /// "Dumb" opener invoked by the controller's open("notes"). Uses pending args

@@ -36,12 +36,42 @@ pub struct Note {
     pub body: String,
     pub source: Option<String>,
     pub created_at_unix_ms: i64,
+    /// Sorts to the top of the list, regardless of age.
+    pub pinned: bool,
+    /// Kept in the panel but withheld from executors — `notes_read` over MCP
+    /// skips it. Notes reach agents by pull, not push, so this is the one place
+    /// the flag has to be honoured.
+    pub agent_hidden: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Snapshot {
     pub commands: Vec<Command>,
-    pub notes: Vec<Note>, // newest first, capped to 50
+    pub notes: Vec<Note>, // pinned first, then newest first, capped to 50
+}
+
+/// The single-column writes `write_note` supports.
+enum NoteWrite {
+    Body(String),
+    Pinned(bool),
+    AgentHidden(bool),
+}
+
+/// Every note SELECT reads the same columns in the same order, so they all
+/// share `row_to_note`.
+const NOTE_COLS: &str =
+    "id, group_id, body, source, created_at_unix_ms, pinned, agent_hidden";
+
+fn row_to_note(r: &rusqlite::Row<'_>) -> rusqlite::Result<Note> {
+    Ok(Note {
+        id: r.get(0)?,
+        group_id: r.get(1)?,
+        body: r.get(2)?,
+        source: r.get(3)?,
+        created_at_unix_ms: r.get(4)?,
+        pinned: r.get(5)?,
+        agent_hidden: r.get(6)?,
+    })
 }
 
 #[derive(Debug, Error)]
@@ -111,7 +141,9 @@ impl Store {
                 tx.commit()?;
             }
             let commands = list_commands(&conn, &group_id)?;
-            let notes = list_notes(&conn, &group_id, 50, None)?;
+            // Pinned first, so the first page always carries every pin no
+            // matter how old — that is the whole point of pinning.
+            let notes = list_notes(&conn, &group_id, 50, None, true)?;
             Ok(Snapshot { commands, notes })
         })
         .await
@@ -254,6 +286,8 @@ impl Store {
                 body,
                 source,
                 created_at_unix_ms: now,
+                pinned: false,
+                agent_hidden: false,
             })
         })
         .await
@@ -261,31 +295,69 @@ impl Store {
     }
 
     pub async fn update_note(&self, id: &str, body: &str) -> Result<Option<Note>> {
+        self.write_note(id, "body = ?2", NoteWrite::Body(body.to_owned()))
+            .await
+    }
+
+    pub async fn set_note_pinned(&self, id: &str, pinned: bool) -> Result<Option<Note>> {
+        self.write_note(id, "pinned = ?2", NoteWrite::Pinned(pinned))
+            .await
+    }
+
+    pub async fn set_note_agent_hidden(&self, id: &str, hidden: bool) -> Result<Option<Note>> {
+        self.write_note(id, "agent_hidden = ?2", NoteWrite::AgentHidden(hidden))
+            .await
+    }
+
+    /// What an executor is allowed to read: newest first, hidden notes skipped.
+    /// Separate from `list_notes` so the panel keeps seeing everything while
+    /// the MCP surface does not.
+    pub async fn list_notes_for_agent(&self, group_id: &str, limit: usize) -> Result<Vec<Note>> {
+        let conn = self.conn.clone();
+        let group_id = group_id.to_owned();
+        tokio::task::spawn_blocking(move || -> Result<Vec<Note>> {
+            let conn = conn.blocking_lock();
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {NOTE_COLS}
+                   FROM project_notes
+                  WHERE group_id = ?1 AND agent_hidden = 0
+                  ORDER BY created_at_unix_ms DESC
+                  LIMIT ?2"
+            ))?;
+            let rows = stmt
+                .query_map(params![group_id, limit as i64], row_to_note)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await
+        .map_err(|e| Error::Join(e.to_string()))?
+    }
+
+    /// One-column update + read-back. `set_clause` is a fixed literal from the
+    /// two callers above, never user input.
+    async fn write_note(
+        &self,
+        id: &str,
+        set_clause: &str,
+        value: NoteWrite,
+    ) -> Result<Option<Note>> {
         let conn = self.conn.clone();
         let id = id.to_owned();
-        let body = body.to_owned();
+        let sql = format!("UPDATE project_notes SET {set_clause} WHERE id = ?1");
         tokio::task::spawn_blocking(move || -> Result<Option<Note>> {
             let conn = conn.blocking_lock();
-            let changed = conn.execute(
-                "UPDATE project_notes SET body = ?2 WHERE id = ?1",
-                params![&id, &body],
-            )?;
+            let changed = match &value {
+                NoteWrite::Body(b) => conn.execute(&sql, params![&id, b])?,
+                NoteWrite::Pinned(p) => conn.execute(&sql, params![&id, p])?,
+                NoteWrite::AgentHidden(h) => conn.execute(&sql, params![&id, h])?,
+            };
             if changed == 0 {
                 return Ok(None);
             }
             let note = conn.query_row(
-                "SELECT id, group_id, body, source, created_at_unix_ms
-                   FROM project_notes WHERE id = ?1",
+                &format!("SELECT {NOTE_COLS} FROM project_notes WHERE id = ?1"),
                 params![&id],
-                |r| {
-                    Ok(Note {
-                        id: r.get(0)?,
-                        group_id: r.get(1)?,
-                        body: r.get(2)?,
-                        source: r.get(3)?,
-                        created_at_unix_ms: r.get(4)?,
-                    })
-                },
+                row_to_note,
             )?;
             Ok(Some(note))
         })
@@ -315,7 +387,7 @@ impl Store {
         let group_id = group_id.to_owned();
         tokio::task::spawn_blocking(move || -> Result<Vec<Note>> {
             let conn = conn.blocking_lock();
-            list_notes(&conn, &group_id, limit, before_ts)
+            list_notes(&conn, &group_id, limit, before_ts, false)
         })
         .await
         .map_err(|e| Error::Join(e.to_string()))?
@@ -348,50 +420,45 @@ fn list_commands(conn: &Connection, group_id: &str) -> Result<Vec<Command>> {
     Ok(rows)
 }
 
+/// `pinned_first` is only for the snapshot (the unpaged first page), where
+/// floating pinned rows to the top is free. The paged path keeps a pure
+/// created_at ordering so `before_ts` stays a coherent cursor — and that is
+/// also what `notes_read` over MCP wants.
 fn list_notes(
     conn: &Connection,
     group_id: &str,
     limit: usize,
     before_ts: Option<i64>,
+    pinned_first: bool,
 ) -> Result<Vec<Note>> {
+    // Both branches interpolate only these two literals — no user input.
+    let order = if pinned_first {
+        "pinned DESC, created_at_unix_ms DESC"
+    } else {
+        "created_at_unix_ms DESC"
+    };
     if let Some(ts) = before_ts {
-        let mut stmt = conn.prepare(
-            "SELECT id, group_id, body, source, created_at_unix_ms
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {NOTE_COLS}
                FROM project_notes
               WHERE group_id = ?1 AND created_at_unix_ms < ?2
-              ORDER BY created_at_unix_ms DESC
-              LIMIT ?3",
-        )?;
+              ORDER BY {order}
+              LIMIT ?3"
+        ))?;
         let rows = stmt
-            .query_map(params![group_id, ts, limit as i64], |r| {
-                Ok(Note {
-                    id: r.get(0)?,
-                    group_id: r.get(1)?,
-                    body: r.get(2)?,
-                    source: r.get(3)?,
-                    created_at_unix_ms: r.get(4)?,
-                })
-            })?
+            .query_map(params![group_id, ts, limit as i64], row_to_note)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     } else {
-        let mut stmt = conn.prepare(
-            "SELECT id, group_id, body, source, created_at_unix_ms
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {NOTE_COLS}
                FROM project_notes
               WHERE group_id = ?1
-              ORDER BY created_at_unix_ms DESC
-              LIMIT ?2",
-        )?;
+              ORDER BY {order}
+              LIMIT ?2"
+        ))?;
         let rows = stmt
-            .query_map(params![group_id, limit as i64], |r| {
-                Ok(Note {
-                    id: r.get(0)?,
-                    group_id: r.get(1)?,
-                    body: r.get(2)?,
-                    source: r.get(3)?,
-                    created_at_unix_ms: r.get(4)?,
-                })
-            })?
+            .query_map(params![group_id, limit as i64], row_to_note)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
@@ -671,6 +738,24 @@ pub async fn project_note_update(
 }
 
 #[tauri::command]
+pub async fn project_note_set_pinned(
+    store: State<'_, Store>,
+    id: String,
+    pinned: bool,
+) -> std::result::Result<Option<Note>, String> {
+    store.set_note_pinned(&id, pinned).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_note_set_agent_hidden(
+    store: State<'_, Store>,
+    id: String,
+    hidden: bool,
+) -> std::result::Result<Option<Note>, String> {
+    store.set_note_agent_hidden(&id, hidden).await.map_err(map_err)
+}
+
+#[tauri::command]
 pub async fn project_note_delete(
     store: State<'_, Store>,
     id: String,
@@ -768,6 +853,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pinned_note_leads_the_snapshot_but_not_the_paged_list() {
+        let s = fresh_store();
+        let g = "g1";
+        let oldest = s.append_note(g, "oldest", None).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        s.append_note(g, "newest", None).await.unwrap();
+
+        let pinned = s.set_note_pinned(&oldest.id, true).await.unwrap().unwrap();
+        assert!(pinned.pinned);
+
+        // The snapshot floats it up, so the first page always carries every pin.
+        let snap = s.snapshot(g).await.unwrap();
+        let bodies: Vec<_> = snap.notes.iter().map(|n| n.body.as_str()).collect();
+        assert_eq!(bodies, vec!["oldest", "newest"]);
+
+        // The paged/MCP path stays purely chronological, or `before_ts` would
+        // stop being a usable cursor.
+        let listed = s.list_notes(g, 50, None).await.unwrap();
+        let bodies: Vec<_> = listed.iter().map(|n| n.body.as_str()).collect();
+        assert_eq!(bodies, vec!["newest", "oldest"]);
+
+        let unpinned = s.set_note_pinned(&oldest.id, false).await.unwrap().unwrap();
+        assert!(!unpinned.pinned);
+        let snap = s.snapshot(g).await.unwrap();
+        let bodies: Vec<_> = snap.notes.iter().map(|n| n.body.as_str()).collect();
+        assert_eq!(bodies, vec!["newest", "oldest"]);
+
+        assert!(s.set_note_pinned("missing-id", true).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn agent_hidden_note_stays_in_the_panel_but_leaves_the_mcp_surface() {
+        let s = fresh_store();
+        let g = "g1";
+        let keep = s.append_note(g, "for me only", None).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        s.append_note(g, "for everyone", None).await.unwrap();
+
+        // Default is visible, so existing notes keep reaching agents.
+        assert!(!keep.agent_hidden);
+        assert_eq!(s.list_notes_for_agent(g, 50).await.unwrap().len(), 2);
+
+        let hidden = s
+            .set_note_agent_hidden(&keep.id, true)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(hidden.agent_hidden);
+
+        // Gone from what an executor may read…
+        let agent: Vec<_> = s.list_notes_for_agent(g, 50).await.unwrap();
+        let bodies: Vec<_> = agent.iter().map(|n| n.body.as_str()).collect();
+        assert_eq!(bodies, vec!["for everyone"]);
+
+        // …but still in the panel's own view.
+        let snap = s.snapshot(g).await.unwrap();
+        assert_eq!(snap.notes.len(), 2);
+        assert_eq!(s.list_notes(g, 50, None).await.unwrap().len(), 2);
+
+        s.set_note_agent_hidden(&keep.id, false).await.unwrap();
+        assert_eq!(s.list_notes_for_agent(g, 50).await.unwrap().len(), 2);
+        assert!(s
+            .set_note_agent_hidden("missing-id", true)
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
     async fn snapshot_isolated_per_group() {
         let s = fresh_store();
         s.append_note("g1", "x", None).await.unwrap();
@@ -805,6 +959,8 @@ mod tests {
                 body: "wip".into(),
                 source: None,
                 created_at_unix_ms: now,
+                pinned: false,
+                agent_hidden: false,
             }],
         };
         let out = render_context(&snap, "# Hello", "COVENANT", 2000);
@@ -867,6 +1023,8 @@ mod tests {
                 body: format!("note {i}"),
                 source: None,
                 created_at_unix_ms: now - (i as i64 * 1000),
+                pinned: false,
+                agent_hidden: false,
             });
         }
         let snap = Snapshot {
