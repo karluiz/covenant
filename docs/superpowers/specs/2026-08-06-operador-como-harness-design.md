@@ -60,33 +60,52 @@ has:
 
 The soul's four layers compile to harness configuration. Nothing is written
 into the user's repository — compiled artifacts live under
-`~/Library/Application Support/com.karluiz.covenant/souls/<operator>/` and reach
-the session through argv, env, and the existing MCP injection path.
+`~/Library/Application Support/com.karluiz.covenant/souls/<operator-id>/`, which
+becomes the session's `CLAUDE_CONFIG_DIR`.
 
 | Soul layer | Compiles to | Mechanism |
 |---|---|---|
-| **Mandate** | system prompt | `--append-system-prompt` |
-| **Disposition** | permission mode + escalation threshold | `--permission-mode` + compiled settings |
-| **Reflexes: ALWAYS-YES** | `permissions.allow` | compiled `settings.json` via `--settings` |
+| **Mandate** | `CLAUDE.md` (user-level memory for this operator) | per-soul `CLAUDE_CONFIG_DIR` |
+| **Disposition** | `permissions.defaultMode` | compiled `settings.json` in the same dir |
+| **Reflexes: ALWAYS-YES** | `permissions.allow` | same |
 | **Reflexes: NEVER** | `permissions.deny` | same |
-| **Reflexes: ESCALATE** | `PreToolUse` hook → `covenant hook escalate` | same |
-| **Voice** | system prompt | `--append-system-prompt` |
+| **Reflexes: ESCALATE** | `permissions.ask` | same |
+| **Voice** | `CLAUDE.md` | per-soul `CLAUDE_CONFIG_DIR` |
 | **Memory / ledger** | MCP tools | existing `mcpServers` injection (`mcp_server.rs`) |
+
+**Not argv.** The `claude` ACP path runs
+`@zed-industries/claude-agent-acp` — a wrapper over the Claude Agent SDK that
+takes no CLI flags (`AcpSpawnOpts::for_executor` sets
+`agent_args: Some(Vec::new())`, `crates/agent/src/acp/session.rs:110-130`). The
+only configuration channel is `CLAUDE_CONFIG_DIR`, which
+`prepare_claude_acp_config` (`acp_commands.rs:903`) already prepares and injects
+per spawn. So the compiler writes a **per-operator** dir instead of the shared
+one, and every layer above lands in a file rather than in a flag.
+
+**ESCALATE needs no hook.** `permissions.ask` makes the adapter emit
+`session/request_permission`, which Covenant already intercepts and parks
+(`PermissionDecision::Defer` → `AcpSessionEvent::PermissionPending` →
+`acp_respond_permission`). The path to the principal exists; the reflex only has
+to point at it. No `PreToolUse` hook, no new `covenant hook` subcommand.
 
 The payoff: an `ALWAYS-YES` goes from *"a mind of yours reads the PTY prompt,
 interprets it, and answers"* to *"the harness never asks"*. Same semantics,
 orders of magnitude cheaper, and **auditable** — the decision lives in a file,
 not in a token.
 
-`ESCALATE` runs through a `PreToolUse` hook that shells out to the `covenant`
-binary (already installed to `/usr/local/bin` from Settings). The hook asks the
-principal and returns the harness's allow/deny JSON.
+**One thing prose cannot do:** `perception_reflexes` is free text today, and
+free text does not compile to a permission rule deterministically. So reflexes
+that are *meant* to compile get their own frontmatter block, written in the
+harness's own rule language (`Bash(cargo test:*)`), because that is exactly what
+they become — a second notation would only add a lossy layer. The prose stays in
+the Origin-Letter body, which is what `CLAUDE.md` is made of.
 
-**Verify at implementation time (phase 1):** the exact flag surface
-(`--append-system-prompt`, `--settings`, `--permission-mode`) and how it composes
-with the ACP spawn path in `acp_commands.rs`. If ACP cannot carry argv, the
-fallback is per-operator env + a compiled settings file resolved from the
-session cwd — but the requirement stands: **nothing lands in the user's repo.**
+`hard_constraints` is already structured (one regex per line) but its language is
+regex, not permission rules. The compiler accepts only `^`-anchored literal
+prefixes — the shape all five shipped souls use (`^git push --force`, `^rm -rf`)
+— and **refuses the rest instead of approximating**, because a regex silently
+mistranslated into a rule is a safety rule that does not fire. A refusal warns
+and falls back to `deny: ["Bash"]`.
 
 ## The operator tab: one being, two faces
 
