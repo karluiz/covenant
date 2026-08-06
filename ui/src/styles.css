@@ -19995,6 +19995,10 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
   font-size: 12.5px;
   animation: ctx-pop 0.08s ease-out;
 }
+/* ponytail: light theme reads the dark drop shadow as smudge — border carries it. */
+body.theme-light .pane-context-menu {
+  box-shadow: none;
+}
 .pane-context-menu-item {
   display: flex;
   align-items: center;
