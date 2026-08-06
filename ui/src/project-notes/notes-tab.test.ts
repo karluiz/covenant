@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { NotesTab } from "./notes-tab";
 
 vi.mock("./api", () => {
-  const state: any = { commands: [], notes: [], docs: "" };
+  const state: any = { commands: [], notes: [], docs: "", shared: new Set<string>() };
   return {
     projectNotesApi: {
       snapshot: vi.fn(async () => ({ ...state, notes: [...state.notes] })),
@@ -31,6 +31,17 @@ vi.mock("./api", () => {
         return n ?? null;
       }),
     },
+    noteShareApi: {
+      list: vi.fn(async () => [...state.shared]),
+      publish: vi.fn(async (noteId: string) => {
+        state.shared.add(noteId);
+        return { gistId: 1, token: "tok", url: "https://forge.covenant.uno/g/tok" };
+      }),
+      revoke: vi.fn(async (noteId: string) => {
+        state.shared.delete(noteId);
+      }),
+      get: vi.fn(async () => null),
+    },
     __state: state,
   };
 });
@@ -56,6 +67,9 @@ describe("NotesTab", () => {
     document.body.appendChild(host);
     const mod = (await import("./api")) as any;
     mod.__state.notes = [];
+    mod.__state.shared = new Set<string>();
+    // jsdom has no clipboard; the share path writes to it best-effort.
+    Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
     vi.clearAllMocks();
   });
 
@@ -418,6 +432,44 @@ describe("NotesTab", () => {
     filter.value = "tenant";
     filter.dispatchEvent(new Event("input"));
     expect(host.querySelector(".pn-note-count")?.textContent).toBe("2 of 3");
+  });
+
+  it("shares a note view-only, badges it, and revokes from the chip", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "# Tenant model\n\nbody", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    const row = () => host.querySelector('.pn-note-card[data-id="a"]') as HTMLElement;
+    expect(row().querySelector(".pn-note-shared")).toBeNull();
+
+    (row().querySelector(".pn-note-share") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    // The whole body goes to Rust, which is where masking happens.
+    expect(apiMod.noteShareApi.publish).toHaveBeenCalledWith("a", "# Tenant model\n\nbody");
+    expect(row().classList).toContain("is-shared");
+    expect(row().querySelector(".pn-note-shared")?.textContent).toBe("shared");
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "https://forge.covenant.uno/g/tok",
+    );
+
+    (row().querySelector(".pn-note-shared") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiMod.noteShareApi.revoke).toHaveBeenCalledWith("a");
+    expect(row().querySelector(".pn-note-shared")).toBeNull();
+  });
+
+  it("still lists notes when share state is unavailable", async () => {
+    const apiMod = (await import("./api")) as any;
+    apiMod.noteShareApi.list.mockRejectedValueOnce(new Error("not signed in"));
+    apiMod.__state.notes = [
+      { id: "a", group_id: "g1", body: "offline", source: null, created_at_unix_ms: Date.now() },
+    ];
+    const tab = new NotesTab({ groupId: "g1" }).mount(host);
+    await tab.refresh();
+    expect(host.querySelectorAll(".pn-note-card").length).toBe(1);
+    expect(host.querySelector(".pn-note-shared")).toBeNull();
   });
 
   it("⌘F jumps to the filter", async () => {

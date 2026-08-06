@@ -1,7 +1,9 @@
-import { projectNotesApi, type Note } from "./api";
+import { noteShareApi, projectNotesApi, type Note } from "./api";
 import { Icons } from "../icons";
 import { appModHeld, formatChord, modHeld } from "../platform";
 import { renderMarkdown } from "../ui/markdown";
+import { pushInfoToast } from "../notifications/toast";
+import { attachTooltip } from "../tooltip/tooltip";
 
 export interface NotesTabHooks {
   groupId: string;
@@ -47,6 +49,9 @@ export class NotesTab {
   private cursorId: string | null = null;
   /** What `render` last put on screen, in cursor-traversal order. */
   private visible: Note[] = [];
+  /** Note ids with a live public link. Local state — the forge is the
+   *  authority, this is just so rows can be badged without a round-trip. */
+  private shared = new Set<string>();
 
   constructor(private hooks: NotesTabHooks) {
     this.container = document.createElement("div");
@@ -287,7 +292,39 @@ export class NotesTab {
     const snap = await projectNotesApi.snapshot(this.hooks.groupId);
     this.notes = snap.notes;
     this.exhausted = snap.notes.length < PAGE;
+    // Best-effort: a signed-out or offline app still lists notes, just without
+    // share badges.
+    try {
+      this.shared = new Set(await noteShareApi.list());
+    } catch {
+      this.shared = new Set();
+    }
     this.render();
+  }
+
+  /** Publish view-only, or copy the link again if it is already published.
+   *  Secret-masked on the Rust side before it leaves the machine. */
+  private async share(n: Note): Promise<void> {
+    try {
+      const s = await noteShareApi.publish(n.id, n.body);
+      this.shared.add(n.id);
+      this.render();
+      await navigator.clipboard.writeText(s.url).catch(() => {});
+      pushInfoToast({ message: "Link copied — anyone with it can read this note" });
+    } catch (err) {
+      pushInfoToast({ message: `Couldn't share: ${String(err)}` });
+    }
+  }
+
+  private async unshare(n: Note): Promise<void> {
+    try {
+      await noteShareApi.revoke(n.id);
+      this.shared.delete(n.id);
+      this.render();
+      pushInfoToast({ message: "Link revoked" });
+    } catch (err) {
+      pushInfoToast({ message: `Couldn't revoke: ${String(err)}` });
+    }
   }
 
   /** Grow to fit the draft, capped in CSS so the list never gets pushed off
@@ -514,6 +551,8 @@ export class NotesTab {
     li.tabIndex = -1;
     if (n.pinned) li.classList.add("is-pinned");
     if (n.agent_hidden) li.classList.add("is-agent-hidden");
+    const isShared = this.shared.has(n.id);
+    if (isShared) li.classList.add("is-shared");
     const { title, rest } = splitTitle(n.body);
     const fold = foldInfo(rest);
     const open = this.expanded.has(n.id);
@@ -522,11 +561,13 @@ export class NotesTab {
         <span class="pn-note-source"></span>
         <span class="rail-meta pn-note-stamp"></span>
         <span class="pn-note-agent-off">not for agents</span>
+        <button class="pn-note-shared" type="button">shared</button>
       </div>
       <div class="pn-note-title"></div>
       <div class="pn-note-body pn-md markdown-doc"></div>
       <button class="pn-note-fold" type="button"></button>
       <div class="rail-row-actions">
+        <button class="rail-row-action pn-note-share" aria-label="${isShared ? "Copy public link" : "Share view-only"}">${Icons.share({ size: 13 })}</button>
         <button class="rail-row-action pn-note-agent" aria-label="${n.agent_hidden ? "Make visible to agents" : "Hide from agents"}">${(n.agent_hidden ? Icons.botOff : Icons.bot)({ size: 13 })}</button>
         <button class="rail-row-action pn-note-pin" aria-label="${n.pinned ? "Unpin note" : "Pin note"}">${Icons.pin({ size: 13 })}</button>
         <button class="rail-row-action pn-note-edit" aria-label="Edit note">${Icons.pencil({ size: 13 })}</button>
@@ -551,6 +592,15 @@ export class NotesTab {
 
     if (!n.agent_hidden) (li.querySelector(".pn-note-agent-off") as HTMLElement).remove();
 
+    const sharedChip = li.querySelector(".pn-note-shared") as HTMLElement;
+    if (isShared) {
+      // The chip is the persistent marker and the way back out: click revokes.
+      attachTooltip(sharedChip, "Revoke public link");
+      sharedChip.addEventListener("click", () => void this.unshare(n));
+    } else {
+      sharedChip.remove();
+    }
+
     const foldBtn = li.querySelector(".pn-note-fold") as HTMLButtonElement;
     if (fold.long) {
       li.classList.toggle("is-folded", !open);
@@ -567,6 +617,7 @@ export class NotesTab {
       this.cursorId = n.id;
       this.highlight();
     });
+    li.querySelector(".pn-note-share")!.addEventListener("click", () => void this.share(n));
     li.querySelector(".pn-note-agent")!.addEventListener(
       "click",
       () => void this.toggleAgentHidden(n),

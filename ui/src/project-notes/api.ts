@@ -53,6 +53,22 @@ export const projectNotesApi = {
     invoke<Note[]>("project_note_list", { groupId, limit, beforeTs }),
 };
 
+/** A note published view-only. Rides the gist surface: one text document
+ *  behind a secret token, so the URL is /g/<token>. */
+export interface NoteShare {
+  gistId: number;
+  token: string;
+  url: string;
+}
+
+export const noteShareApi = {
+  get: (noteId: string) => invoke<NoteShare | null>("note_get_share", { noteId }),
+  list: () => invoke<string[]>("note_list_shares"),
+  publish: (noteId: string, body: string) =>
+    invoke<NoteShare>("note_publish", { noteId, body }),
+  revoke: (noteId: string) => invoke<void>("note_revoke", { noteId }),
+};
+
 export interface Prompt {
   id: string;
   title: string;

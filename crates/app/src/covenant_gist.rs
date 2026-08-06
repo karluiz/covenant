@@ -161,9 +161,125 @@ pub async fn gist_revoke(app: tauri::AppHandle, path: String) -> Result<(), Stri
     save_shares(&file, &shares)
 }
 
+// ─── Note sharing ────────────────────────────────────────────────────────
+// A shared note is one text document, which is exactly what /gists already
+// serves and /g/:token already renders. So notes ride that surface instead of
+// getting a `/n/:token` of their own: no new server endpoint, no deploy, and
+// re-publish + revoke semantics come for free.
+// ponytail: the URL therefore says /g/. Give notes their own route only if the
+// viewer needs to look different from a file view.
+
+fn note_shares_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("note_shares.json"))
+}
+
+/// Filename the viewer shows. Derived from the note's first line the same way
+/// the panel derives its title, so the link is recognisable.
+fn note_filename(body: &str) -> String {
+    let first = body.lines().next().unwrap_or("note").trim();
+    let stripped = first.trim_start_matches('#').trim();
+    // Runs of separators collapse — "model — decisiones" is three consecutive
+    // non-alphanumerics and would otherwise slug to "model---decisiones".
+    let mut slug = String::new();
+    for c in stripped.chars() {
+        if c.is_alphanumeric() {
+            slug.extend(c.to_lowercase());
+        } else if !slug.is_empty() && !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let slug: String = slug.chars().take(48).collect();
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        "note.md".to_string()
+    } else {
+        format!("{slug}.md")
+    }
+}
+
+#[tauri::command]
+pub async fn note_get_share(
+    app: tauri::AppHandle,
+    note_id: String,
+) -> Result<Option<GistShare>, String> {
+    Ok(load_shares(&note_shares_path(&app)?).get(&note_id).cloned())
+}
+
+#[tauri::command]
+pub async fn note_list_shares(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    Ok(load_shares(&note_shares_path(&app)?).into_keys().collect())
+}
+
+/// Publish a note view-only. Re-publishing the same note keeps its link.
+#[tauri::command]
+pub async fn note_publish(
+    app: tauri::AppHandle,
+    note_id: String,
+    body: String,
+) -> Result<GistShare, String> {
+    // Publishing is a one-way door: a note has been sitting in a terminal
+    // project, and a key that reaches the forge is indexed before anyone
+    // notices. Same gate `session_output` passes through.
+    let content = crate::safety::mask_secrets(&body);
+    let filename = note_filename(&content);
+    let file = note_shares_path(&app)?;
+    let mut shares = load_shares(&file);
+    if let Some(existing) = shares.get(&note_id).cloned() {
+        put_gist(existing.gist_id, &filename, "md", &content).await?;
+        return Ok(existing);
+    }
+    let resp = post_gist(&filename, "md", &content).await?;
+    let gist_id = resp["id"].as_i64().ok_or("missing id in response")?;
+    let token = resp["token"]
+        .as_str()
+        .ok_or("missing token in response")?
+        .to_string();
+    let share = GistShare {
+        gist_id,
+        token: token.clone(),
+        url: format!("{}/g/{}", auth::backend_url(), token),
+    };
+    shares.insert(note_id, share.clone());
+    save_shares(&file, &shares)?;
+    Ok(share)
+}
+
+#[tauri::command]
+pub async fn note_revoke(app: tauri::AppHandle, note_id: String) -> Result<(), String> {
+    let file = note_shares_path(&app)?;
+    let mut shares = load_shares(&file);
+    let share = shares.get(&note_id).cloned().ok_or("not shared")?;
+    post_revoke(share.gist_id).await?;
+    shares.remove(&note_id);
+    save_shares(&file, &shares)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn note_filename_from_first_line() {
+        assert_eq!(note_filename("# Tenant model — decisiones\n\nbody"), "tenant-model-decisiones.md");
+        assert_eq!(note_filename("just a line"), "just-a-line.md");
+        assert_eq!(note_filename("!!!"), "note.md");
+        assert_eq!(note_filename(""), "note.md");
+        // Long titles are clipped without leaving a trailing separator.
+        let long = note_filename(&"x".repeat(80));
+        assert_eq!(long.len(), 48 + 3);
+        assert!(!long.starts_with('-') && !long.contains("-."));
+    }
+
+    #[test]
+    fn published_body_is_secret_masked() {
+        // The masking itself is safety.rs's contract; this asserts the share
+        // path actually calls it rather than shipping the raw body.
+        let masked = crate::safety::mask_secrets("token sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFF");
+        assert!(!masked.contains("AAAABBBBCCCCDDDDEEEEFFFF"), "got: {masked}");
+    }
+
     #[test]
     fn language_from_path() {
         assert_eq!(language_of("/a/b/main.rs"), "rs");

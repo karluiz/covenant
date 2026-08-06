@@ -611,3 +611,20 @@ body.tabbar-left .pn-panel {
   font-weight: 500;
 }
 .pn-prompt-save:hover { filter: brightness(1.08); }
+
+/* Published view-only. The chip is the persistent marker (row actions only
+   appear on hover) and the way back out — clicking it revokes the link. */
+.pn-note-shared {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pn-accent, var(--accent, #6aa9ff));
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: 0;
+  padding: 0 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pn-note-shared:hover { color: var(--danger); }
