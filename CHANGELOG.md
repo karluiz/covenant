@@ -6,6 +6,43 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.11.36 — cd picker ranks by frecency and completes past `cd`
+
+### Added
+
+- **Path completion beyond `cd`**: `parseCdLine` became `parsePathLine` in
+  `ui/src/terminal/cd-resolve.ts` — a 16-verb table with a `dirsOnly` flag, so
+  `cd`/`pushd`/`rmdir` still offer directories only while `ls`/`cat`/`cp`/`vim`
+  and friends also offer files. It completes the **last** token and keeps the
+  rest of the line verbatim, so `cp -r src/ note` completes `note` and leaves
+  `cp -r src/ ` alone; `select()` in `cd-picker.ts` no longer hardcodes `cd`
+  but retypes from that prefix. A file gets no trailing slash and closes the
+  picker, a directory keeps drilling. Flags are skipped and an escaped space
+  stays one token. `rm`/`mv` are in the table deliberately and safely — the
+  picker inserts the path and never runs the line.
+
+- **Frecency ranking**: new `Storage::recent_cwds` (`crates/app/src/storage.rs`)
+  groups the blocks table by `cwd`, exposed as the `recent_cwds` command, so
+  candidates are ordered by where you actually work instead of by the alphabet.
+  Scoring lives in `frecency()` on the frontend (zoxide-style recency buckets)
+  and is fetched once per app run, not per keystroke. Ranking applies *within* a
+  match group and never across it — a prefix hit still outranks a mid-name hit
+  with a far higher score, so the list can't reorder under the user
+  mid-keystroke. With no history the order falls back to alphabetical.
+
+- **Gravity section on the landing page**: leads with control in the center and
+  execution at the periphery, with three pillars (agents and contexts as files
+  under `.iaterminal/`, results the next agent reads as context, nine CLIs
+  driven as child processes). Download buttons point at the release assets
+  rather than the releases page.
+
+### Changed
+
+- **Lockfile and asset housekeeping**: `pnpm-lock.yaml` caught up with the
+  dependencies already declared in `package.json` (`@codemirror/lint`, the
+  Tauri clipboard-manager and os plugins), and the Gravity section's source
+  sketch was committed alongside it.
+
 ## v0.11.35 — cd picker gives the shell its keys back, Activity rail
 
 ### Added
