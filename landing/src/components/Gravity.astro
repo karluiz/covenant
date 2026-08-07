@@ -1,0 +1,133 @@
+---
+const repo = "https://github.com/CleveritDemo/covenant-v2";
+
+// Los assets llevan la versión en el nombre, así que no hay URL "latest" que
+// apunte al binario: cada release hay que subir este número. El enlace de
+// "all releases" queda como red de seguridad si alguien se olvida.
+const version = "0.2.0";
+const asset = (file: string) => `${repo}/releases/download/v${version}/${file}`;
+const allReleases = `${repo}/releases/latest`;
+
+const installers = [
+  {
+    label: "macOS",
+    note: "Apple Silicon · .dmg",
+    href: asset(`Covenant-Gravity-${version}-arm64.dmg`),
+    icon: `<svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>`,
+  },
+  {
+    label: "Windows",
+    note: "x64 · .exe",
+    href: asset(`Covenant-Gravity-${version}-setup-x64.exe`),
+    icon: `<svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-13.051-1.801"/></svg>`,
+  },
+  {
+    label: "Linux",
+    note: "x86_64 · .AppImage",
+    href: asset(`Covenant-Gravity-${version}-x86_64.AppImage`),
+    icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>`,
+  },
+];
+
+const debHref = asset(`Covenant-Gravity-${version}-amd64.deb`);
+
+const pillars = [
+  {
+    title: "Your agents live in the repo",
+    body: "Each agent is a JSON file under .iaterminal/, each context a Markdown file next to it. Commit them, review them in a PR, hand them to the next person who clones.",
+  },
+  {
+    title: "They read each other's work",
+    body: "An agent closes its turn by publishing to .iaterminal/results/. The next one picks it up as context. Delegation is capped, so a chain ends instead of spiraling.",
+  },
+  {
+    title: "Any CLI you already run",
+    body: "Claude Code, Codex, Cursor, Copilot, Gemini, Kimi, Opencode, Pi, Hermes. Gravity drives them as child processes: no API keys of its own, no model of its own.",
+  },
+];
+
+// Las capturas traen su propio semáforo de macOS, así que el marco es solo
+// borde y sombra — dibujar otra titlebar encima las duplicaría.
+// Una captura es apaisada (1856×994) y la otra vertical (1340×1446): a mitad
+// y mitad quedan de alturas muy distintas y los pies de foto se desalinean.
+// 2/3 + 1/3 las deja casi a la misma altura sin recortar ninguna.
+const shots = [
+  {
+    src: "/images/gravity/contexts.png",
+    alt: "Gravity's context manager showing an agent's results as a report",
+    caption: "Contexts and results, read as a report or as the raw Markdown the agents actually parse.",
+    span: "md:col-span-2",
+  },
+  {
+    src: "/images/gravity/providers.png",
+    alt: "Gravity's provider picker listing nine agent CLIs",
+    caption: "Nine CLIs, or duplicate an agent you already tuned.",
+    span: "md:col-span-1",
+  },
+];
+---
+<section id="gravity" class="section">
+  <p class="eyebrow fade-in-up">Gravity · Desktop app</p>
+  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-3xl fade-in-up delay-100">
+    Control in the center, execution at the periphery.
+  </h2>
+  <p class="mt-6 max-w-2xl text-lg text-mist/70 leading-relaxed fade-in-up delay-200">
+    Covenant runs your operators in a terminal. Gravity gives them a canvas: you direct from the
+    middle, they work at the edges — and everything they learn stays in the repo, not in an app's
+    database.
+  </p>
+
+  <div class="mt-14 relative fade-in-up delay-300">
+    <div class="absolute -inset-x-16 -inset-y-8 pointer-events-none" aria-hidden="true">
+      <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[720px] h-[420px] max-w-full bg-moss-500/20 rounded-full blur-[180px]"></div>
+    </div>
+    <div class="relative rounded-xl overflow-hidden border border-mist/10 shadow-2xl shadow-black/60">
+      <img
+        src="/images/gravity/plane.png"
+        alt="The Gravity plane: agent windows around a central composer"
+        class="w-full"
+        loading="lazy"
+        decoding="async"
+      />
+    </div>
+  </div>
+
+  <div class="mt-14 grid md:grid-cols-3 gap-6">
+    {pillars.map((p, i) => (
+      <article class={`rounded-xl border border-mist/10 bg-mist/[0.02] p-6 hover:border-moss-500/40 transition fade-in-up delay-${(i + 2) * 100}`}>
+        <h3 class="text-xl font-semibold">{p.title}</h3>
+        <p class="mt-3 text-mist/70 leading-relaxed">{p.body}</p>
+      </article>
+    ))}
+  </div>
+
+  <div class="mt-10 grid md:grid-cols-3 gap-6">
+    {shots.map((s, i) => (
+      <figure class={`${s.span} fade-in-up delay-${(i + 2) * 100}`}>
+        <div class="rounded-xl overflow-hidden border border-mist/10 shadow-xl shadow-black/50">
+          <img src={s.src} alt={s.alt} class="w-full" loading="lazy" decoding="async" />
+        </div>
+        <figcaption class="mt-3 text-sm text-mist/60 leading-relaxed">{s.caption}</figcaption>
+      </figure>
+    ))}
+  </div>
+
+  <div class="mt-12 flex flex-wrap items-center gap-4 fade-in-up delay-400">
+    {installers.map((i) => (
+      <a
+        href={i.href}
+        class="inline-flex items-center gap-3 rounded-lg border border-mist/15 bg-mist/[0.04] px-5 py-4 text-mist hover:border-moss-500/40 hover:bg-mist/[0.08] transition-all"
+      >
+        <span class="text-moss-400"><Fragment set:html={i.icon} /></span>
+        <span class="font-medium">{i.label}</span>
+        <span class="text-mist/50 text-sm">{i.note}</span>
+      </a>
+    ))}
+  </div>
+
+  <p class="mt-5 text-sm text-mist/50 fade-in-up delay-500">
+    Debian and Ubuntu: <a href={debHref} class="text-moss-400 hover:underline">.deb</a>
+    · <a href={allReleases} class="text-moss-400 hover:underline">all releases</a>
+    · <a href={repo} class="text-moss-400 hover:underline">source on GitHub</a>
+  </p>
+</section>

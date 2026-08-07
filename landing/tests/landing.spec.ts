@@ -48,3 +48,46 @@ test("renders the worktrees before/after with real numbers", async ({ page }) =>
   ).toBeVisible();
   await expect(section.getByText("<repo>/.covenant/worktrees/<agent>")).toBeVisible();
 });
+
+test("renders the Gravity section with its screenshots and download", async ({ page }) => {
+  await page.goto("/");
+  const section = page.locator("#gravity");
+  await expect(section).toBeVisible();
+  await expect(
+    section.getByText("Control in the center, execution at the periphery."),
+  ).toBeVisible();
+
+  // The three pillars carry the whole argument — drop one and the section
+  // stops explaining why agents in a repo beat agents in an app's database.
+  for (const title of [
+    "Your agents live in the repo",
+    "They read each other's work",
+    "Any CLI you already run",
+  ]) {
+    await expect(section.getByText(title)).toBeVisible();
+  }
+
+  // Screenshots are swapped by overwriting the PNGs, so assert they resolve:
+  // a rename that misses this component would ship three broken images.
+  const shots = section.locator("img");
+  await expect(shots).toHaveCount(3);
+  for (const src of ["plane.png", "contexts.png", "providers.png"]) {
+    const res = await page.request.get(`/images/gravity/${src}`);
+    expect(res.status()).toBe(200);
+  }
+
+  // Asset URLs carry the version, so a release bump that forgets this section
+  // leaves dead download buttons. Assert the real installer, not a landing page.
+  await expect(section.getByRole("link", { name: /macOS/ })).toHaveAttribute(
+    "href",
+    /releases\/download\/v\d+\.\d+\.\d+\/Covenant-Gravity-.*\.dmg$/,
+  );
+  await expect(section.getByRole("link", { name: /Windows/ })).toHaveAttribute(
+    "href",
+    /Covenant-Gravity-.*-setup-x64\.exe$/,
+  );
+  await expect(section.getByRole("link", { name: /Linux/ })).toHaveAttribute(
+    "href",
+    /Covenant-Gravity-.*\.AppImage$/,
+  );
+});
