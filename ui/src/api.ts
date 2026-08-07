@@ -1169,6 +1169,18 @@ export async function recallSearch(
   return invoke<RecallMatch[]>("recall_search", { query, cwd, limit });
 }
 
+export interface CwdVisit {
+  path: string;
+  count: number;
+  last_used_unix_ms: number;
+}
+
+/// Distinct directories past blocks ran in, most recent first. The cd-picker
+/// ranks its candidates with these so the top row is somewhere you actually go.
+export async function recentCwds(limit: number): Promise<CwdVisit[]> {
+  return invoke<CwdVisit[]>("recent_cwds", { limit });
+}
+
 export interface AgentConfig {
   model_summary: string;
   model_chat: string;

@@ -358,6 +358,17 @@ pub struct RecallMatch {
     pub score: f64,
 }
 
+/// One directory the user has actually worked in, with how often and how
+/// recently. Feeds the cd-picker's ranking so the first row is the place you
+/// are likely headed instead of whatever sorts first alphabetically. Scoring
+/// stays on the frontend — this is the raw visit record.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CwdVisit {
+    pub path: String,
+    pub count: u64,
+    pub last_used_unix_ms: u64,
+}
+
 /// Per-block hit for the @mention picker. Unlike `RecallMatch`, rows
 /// are NOT aggregated by command string — the picker needs the
 /// individual block (with its cwd, exit_code, finished_at) so it can
@@ -1200,6 +1211,40 @@ impl Storage {
     /// SQL does the cheap aggregation; the final score (which needs
     /// `now()` and an `exp()`) is computed in Rust over the candidate
     /// set, then truncated to `limit`.
+    /// Distinct directories blocks have run in, most recently used first.
+    ///
+    /// Deliberately dumb: aggregation only, no scoring. The picker weighs
+    /// recency against count itself, which keeps that policy unit-testable
+    /// without a database.
+    pub async fn recent_cwds(&self, limit: u32) -> Result<Vec<CwdVisit>, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<CwdVisit>, StorageError> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT cwd, COUNT(*) AS cnt, MAX(finished_at_unix_ms) AS last_used
+                     FROM blocks
+                     WHERE cwd != ''
+                     GROUP BY cwd
+                     ORDER BY last_used DESC
+                     LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit as i64], |r| {
+                Ok(CwdVisit {
+                    path: r.get::<_, String>(0)?,
+                    count: r.get::<_, i64>(1)? as u64,
+                    last_used_unix_ms: r.get::<_, Option<i64>>(2)?.unwrap_or(0) as u64,
+                })
+            })?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     pub async fn recall_search(
         &self,
         query: String,
@@ -4092,7 +4137,10 @@ mod tests {
         .await
         .unwrap();
 
-        let excerpt = s.read_session_excerpt(session.to_string(), 5).await.unwrap();
+        let excerpt = s
+            .read_session_excerpt(session.to_string(), 5)
+            .await
+            .unwrap();
         assert_eq!(excerpt.recent.len(), 1);
         let block = &excerpt.recent[0];
         assert!(
